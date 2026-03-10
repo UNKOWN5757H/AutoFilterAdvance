@@ -1,20 +1,90 @@
+import io
+import datetime
 from pyrogram import Client, filters
-from info import CHANNELS
-from database.ia_filterdb import save_file
-
-media_filter = filters.document | filters.video | filters.audio
+from database.users_chats_db import db
+from info import ADMINS
 
 
-@Client.on_message(filters.chat(CHANNELS) & media_filter)
-async def media(bot, message):
-    """Media Handler"""
-    for file_type in ("document", "video", "audio"):
-        media = getattr(message, file_type, None)
-        if media is not None:
-            break
-    else:
-        return
+# ============================================================
+# 🧍 /users — Show total users + export list
+# ============================================================
+@Client.on_message(filters.command("users") & filters.user(ADMINS))
+async def list_users(bot: Client, message):
+    """List all registered users."""
+    users = await db.get_all_users()
+    total = len(users)
 
-    media.file_type = file_type
-    media.caption = message.caption
-    await save_file(media)
+    if total == 0:
+        return await message.reply_text("⚠️ No users found in the database.")
+
+    # Prepare export file
+    text = "🧍 **User List Export**\n\n"
+    text += f"📅 Generated on: `{datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC`\n"
+    text += f"👥 Total Users: `{total}`\n\n"
+
+    data = "\n".join([f"{user['id']} - {user.get('name', 'Unknown')}" for user in users])
+    file = io.BytesIO(data.encode())
+    file.name = "users_list.txt"
+
+    await message.reply_document(
+        document=file,
+        caption=text
+    )
+
+
+# ============================================================
+# 💬 /chats — Show all group chats
+# ============================================================
+@Client.on_message(filters.command("chats") & filters.user(ADMINS))
+async def list_chats(bot: Client, message):
+    """List all registered group chats."""
+    chats = await db.get_all_chats()
+    total = len(chats)
+
+    if total == 0:
+        return await message.reply_text("⚠️ No groups found in the database.")
+
+    # Filter only groups
+    groups = [chat for chat in chats if not str(chat["id"]).startswith("-100")]
+    supergroups = [chat for chat in chats if str(chat["id"]).startswith("-100")]
+
+    text = "💬 **Group Chats Export**\n\n"
+    text += f"📅 Generated on: `{datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC`\n"
+    text += f"🏘️ Total Chats: `{total}`\n"
+    text += f"👥 Groups: `{len(groups)}` | 📢 Supergroups: `{len(supergroups)}`\n\n"
+
+    data = "\n".join([f"{chat['id']} - {chat.get('title', 'Unknown')}" for chat in chats])
+    file = io.BytesIO(data.encode())
+    file.name = "chats_list.txt"
+
+    await message.reply_document(
+        document=file,
+        caption=text
+    )
+
+
+# ============================================================
+# 📢 /channel — Show all channels the bot is in
+# ============================================================
+@Client.on_message(filters.command(["channel", "channels"]) & filters.user(ADMINS))
+async def list_channels(bot: Client, message):
+    """List all channels where the bot is present."""
+    chats = await db.get_all_chats()
+    channels = [chat for chat in chats if str(chat["id"]).startswith("-100")]
+    total = len(channels)
+
+    if total == 0:
+        return await message.reply_text("⚠️ No channels found in the database.")
+
+    text = "📢 **Channel List Export**\n\n"
+    text += f"📅 Generated on: `{datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC`\n"
+    text += f"📺 Total Channels: `{total}`\n\n"
+
+    data = "\n".join([f"{chat['id']} - {chat.get('title', 'Unknown')}" for chat in channels])
+    file = io.BytesIO(data.encode())
+    file.name = "channels_list.txt"
+
+    await message.reply_document(
+        document=file,
+        caption=text
+    )
