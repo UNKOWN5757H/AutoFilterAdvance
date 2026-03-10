@@ -1,21 +1,22 @@
 import logging
-from struct import pack
 import re
 import base64
+from struct import pack
 from pyrogram.file_id import FileId
-from pymongo.errors import DuplicateKeyError
+from pymongo.errors import DuplicateKeyError, BulkWriteError
 from umongo import Instance, Document, fields
 from motor.motor_asyncio import AsyncIOMotorClient
 from marshmallow.exceptions import ValidationError
+
 from info import DATABASE_URI, DATABASE_NAME, COLLECTION_NAME, USE_CAPTION_FILTER
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-
 client = AsyncIOMotorClient(DATABASE_URI)
 db = client[DATABASE_NAME]
 instance = Instance.from_db(db)
+
 
 @instance.register
 class Media(Document):
@@ -32,48 +33,88 @@ class Media(Document):
         collection_name = COLLECTION_NAME
 
 
-async def save_file(media):
-    """Save file in database"""
+async def save_batch(media_list):
+    """
+    ULTRA SPEED BULK INSERT: 
+    Saves a list of media objects to the database in a single network request.
+    Returns: (inserted_count, duplicate_count, error_count)
+    """
+    if not media_list:
+        return 0, 0, 0
 
-    # TODO: Find better way to get same file_id for same media to avoid duplicates
+    documents = []
+    for media in media_list:
+        try:
+            file_id, file_ref = unpack_new_file_id(media.file_id)
+            # Safely get file_name, fallback to empty string if missing
+            raw_name = getattr(media, "file_name", "") or ""
+            file_name = re.sub(r"(_|\-|\.|\+)", " ", str(raw_name))
+            
+            caption = getattr(media, "caption", None)
+            
+            # Construct standard dictionary for raw Motor insertion (faster than ODM mapping)
+            doc = {
+                "_id": file_id,
+                "file_ref": file_ref,
+                "file_name": file_name,
+                "file_size": getattr(media, "file_size", 0),
+                "file_type": getattr(media, "file_type", None),
+                "mime_type": getattr(media, "mime_type", None),
+                "caption": caption.html if caption else None,
+            }
+            documents.append(doc)
+        except Exception as e:
+            logger.exception(f"Error parsing media for batch: {e}")
+
+    if not documents:
+        return 0, 0, len(media_list)
+
+    try:
+        # ordered=False tells MongoDB to keep inserting the rest even if it hits a duplicate
+        result = await db[COLLECTION_NAME].insert_many(documents, ordered=False)
+        return len(result.inserted_ids), 0, 0
+    except BulkWriteError as bwe:
+        # Tally up successful inserts, duplicates (error code 11000), and other errors
+        inserted = bwe.details.get('nInserted', 0)
+        duplicates = sum(1 for err in bwe.details.get('writeErrors', []) if err['code'] == 11000)
+        errors = len(media_list) - inserted - duplicates
+        return inserted, duplicates, errors
+
+
+async def save_file(media):
+    """Save single file in database (Kept for backward compatibility)"""
     file_id, file_ref = unpack_new_file_id(media.file_id)
-    file_name = re.sub(r"(_|\-|\.|\+)", " ", str(media.file_name))
+    raw_name = getattr(media, "file_name", "") or ""
+    file_name = re.sub(r"(_|\-|\.|\+)", " ", str(raw_name))
+    
     try:
         file = Media(
             file_id=file_id,
             file_ref=file_ref,
             file_name=file_name,
-            file_size=media.file_size,
-            file_type=media.file_type,
-            mime_type=media.mime_type,
-            caption=media.caption.html if media.caption else None,
+            file_size=getattr(media, "file_size", 0),
+            file_type=getattr(media, "file_type", None),
+            mime_type=getattr(media, "mime_type", None),
+            caption=media.caption.html if getattr(media, "caption", None) else None,
         )
     except ValidationError:
-        logger.exception('Error occurred while saving file in database')
+        logger.exception('Error occurred while mapping file in database')
         return False, 2
-    else:
-        try:
-            await file.commit()
-        except DuplicateKeyError:      
-            logger.warning(
-                f'{getattr(media, "file_name", "NO_FILE")} is already saved in database'
-            )
-
-            return False, 0
-        else:
-            logger.info(f'{getattr(media, "file_name", "NO_FILE")} is saved to database')
-            return True, 1
-
+        
+    try:
+        await file.commit()
+        return True, 1
+    except DuplicateKeyError:      
+        return False, 0
+    except Exception as e:
+        logger.exception(f'Error saving file: {e}')
+        return False, 2
 
 
 async def get_search_results(query, file_type=None, max_results=10, offset=0, filter=False):
-    """For given query return (results, next_offset)"""
-
+    """For given query return (results, next_offset, total_results)"""
     query = query.strip()
-    #if filter:
-        #better ?
-        #query = query.replace(' ', r'(\s|\.|\+|\-|_)')
-        #raw_pattern = r'(\s|_|\-|\.|\+)' + query + r'(\s|_|\-|\.|\+)'
+    
     if not query:
         raw_pattern = '.'
     elif ' ' not in query:
@@ -83,37 +124,30 @@ async def get_search_results(query, file_type=None, max_results=10, offset=0, fi
     
     try:
         regex = re.compile(raw_pattern, flags=re.IGNORECASE)
-    except:
-        return []
+    except re.error:
+        return [], '', 0
 
-    if USE_CAPTION_FILTER:
-        filter = {'$or': [{'file_name': regex}, {'caption': regex}]}
-    else:
-        filter = {'file_name': regex}
+    db_filter = {'$or': [{'file_name': regex}, {'caption': regex}]} if USE_CAPTION_FILTER else {'file_name': regex}
 
     if file_type:
-        filter['file_type'] = file_type
+        db_filter['file_type'] = file_type
 
-    total_results = await Media.count_documents(filter)
+    total_results = await Media.count_documents(db_filter)
     next_offset = offset + max_results
 
     if next_offset > total_results:
         next_offset = ''
 
-    cursor = Media.find(filter)
-    # Sort by recent
+    cursor = Media.find(db_filter)
     cursor.sort('$natural', -1)
-    # Slice files according to offset and max results
     cursor.skip(offset).limit(max_results)
-    # Get list of files
+    
     files = await cursor.to_list(length=max_results)
-
     return files, next_offset, total_results
 
 
-
 async def get_file_details(query):
-    filter = {'file_id': query}
+    filter = {'_id': query} # Changed to '_id' to match database schema correctly
     cursor = Media.find(filter)
     filedetails = await cursor.to_list(length=1)
     return filedetails
@@ -122,7 +156,6 @@ async def get_file_details(query):
 def encode_file_id(s: bytes) -> str:
     r = b""
     n = 0
-
     for i in s + bytes([22]) + bytes([4]):
         if i == 0:
             n += 1
@@ -130,9 +163,7 @@ def encode_file_id(s: bytes) -> str:
             if n:
                 r += b"\x00" + bytes([n])
                 n = 0
-
             r += bytes([i])
-
     return base64.urlsafe_b64encode(r).decode().rstrip("=")
 
 
@@ -143,10 +174,13 @@ def encode_file_ref(file_ref: bytes) -> str:
 def unpack_new_file_id(new_file_id):
     """Return file_id, file_ref"""
     decoded = FileId.decode(new_file_id)
+    # Handle Pyrogram 2.x ENUM conversions gracefully
+    file_type = getattr(decoded.file_type, 'value', decoded.file_type) 
+    
     file_id = encode_file_id(
         pack(
             "<iiqq",
-            int(decoded.file_type),
+            int(file_type),
             decoded.dc_id,
             decoded.media_id,
             decoded.access_hash
