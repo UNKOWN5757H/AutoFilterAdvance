@@ -412,7 +412,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                  InlineKeyboardButton('🤖 Updates', url='https://t.me/Sandalwood_kannada_moviesz')],
                 [InlineKeyboardButton('ℹ️ 𝙷𝚎𝚕𝚙', callback_data='help'),
                  InlineKeyboardButton('😊 𝙰𝚋𝚘𝚞𝚝', callback_data='about')],
-                [InlineKeyboardButton('© Dɪsᴄʟᴀɪᴍᴇʀ ©', callback_data='close_data')]
+                [InlineKeyboardButton('© Dɪsᴄʟᴀɪᴍᴇʀ ©', callback_data='dics_btn')]
             ]
         reply_markup = InlineKeyboardMarkup(buttons)
         await query.message.edit_text(
@@ -452,13 +452,28 @@ async def cb_handler(client: Client, query: CallbackQuery):
             reply_markup=reply_markup,
             parse_mode=enums.ParseMode.HTML
         )
+    elif query.data == "dics_btn":
+        buttons = [[                        
+            InlineKeyboardButton('⇌ Bᴀᴄᴋ ⇌', callback_data='help')
+        ]]
+        reply_markup = InlineKeyboardMarkup(buttons)
+        await client.edit_message_media(
+            query.message.chat.id,
+            query.message.id,
+            InputMediaPhoto(random.choice(PICS))
+        )
+        await query.message.edit_text(
+            text=script.DICS_TXT,
+            reply_markup=reply_markup,
+            parse_mode=enums.ParseMode.HTML
+        )
     elif query.data == "fsubs":
         buttons = [[
             InlineKeyboardButton('👩‍🦯 Back', callback_data='help')
         ]]
         reply_markup = InlineKeyboardMarkup(buttons)
         await query.message.edit_text(
-            text=script.SOURCE_TXT,
+            text=script.FSUBS_TXT,
             reply_markup=reply_markup,
             parse_mode=enums.ParseMode.HTML
         )
