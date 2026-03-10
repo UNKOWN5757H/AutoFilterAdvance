@@ -15,7 +15,8 @@ from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 # Ensure these imports match your project structure
 from info import ADMINS
 from info import INDEX_REQ_CHANNEL as LOG_CHANNEL
-from database.ia_filterdb import save_file
+# Notice we are now importing the ultra-fast save_batch function!
+from database.ia_filterdb import save_batch
 from utils import temp
 
 logger = logging.getLogger(__name__)
@@ -169,6 +170,7 @@ async def index_files_to_db(lst_msg_id, chat, msg, bot):
             
             message_ids = list(range(current, lst_msg_id + 1))
             
+            # Fetch from Telegram in massive chunks of 200
             for i in range(0, len(message_ids), 200):
                 if temp.CANCEL:
                     await msg.edit(
@@ -198,9 +200,13 @@ async def index_files_to_db(lst_msg_id, chat, msg, bot):
                 if not messages:
                     continue # Skip this chunk if we exhausted retries
                 
+                # List to hold media objects for our bulk database insert
+                media_to_save = []
+                
                 for message in messages:
                     current += 1
                     
+                    # Update the UI message every 10 seconds safely
                     if time.time() - last_update_time > 10:
                         reply = InlineKeyboardMarkup([[InlineKeyboardButton('Cancel', callback_data='index_cancel')]])
                         try:
@@ -235,14 +241,15 @@ async def index_files_to_db(lst_msg_id, chat, msg, bot):
                     media.file_type = message.media.value
                     media.caption = message.caption
                     
-                    aynav, vnay = await save_file(media)
-                    
-                    if aynav:
-                        total_files += 1
-                    elif vnay == 0:
-                        duplicate += 1
-                    elif vnay == 2:
-                        errors += 1
+                    # Append valid media to our batch list!
+                    media_to_save.append(media)
+                
+                # Push the entire chunk of files to MongoDB at the exact same time
+                if media_to_save:
+                    saved, dups, errs = await save_batch(media_to_save)
+                    total_files += saved
+                    duplicate += dups
+                    errors += errs
                         
         except Exception as e:
             logger.exception(e)
