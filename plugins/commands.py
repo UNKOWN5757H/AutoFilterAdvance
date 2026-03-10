@@ -23,10 +23,10 @@ BATCH_FILES = {}
 async def start(client, message):
     if message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
         buttons = [
-            [
-                InlineKeyboardButton("Updates", url="https://t.me/VJ_Bots"),
-                InlineKeyboardButton("🍿 YouTube Channel 🍿", url="https://youtube.com/@Tech_VJ")
-            ]
+                [
+                    InlineKeyboardButton("💫 Group", url="http://t.me/Kannada_Filmy_Group"),
+                    InlineKeyboardButton("🤖 Updates", url="https://t.me/Sandalwood_kannada_moviesz"),
+                ]
             ]
         reply_markup = InlineKeyboardMarkup(buttons)
         await message.reply(script.START_TXT.format(message.from_user.mention if message.from_user else message.chat.title, temp.U_NAME, temp.B_NAME), reply_markup=reply_markup)
@@ -40,14 +40,13 @@ async def start(client, message):
         await db.add_user(message.from_user.id, message.from_user.first_name)
         await client.send_message(LOG_CHANNEL, script.LOG_TEXT_P.format(message.from_user.id, message.from_user.mention))
     if len(message.command) != 2:
-        buttons = [[
-            InlineKeyboardButton('💝 Subscribe YouTube Channel 💗', url=f'http://youtube.com/@Tech_VJ')
-            ],[
-            InlineKeyboardButton('♻️ Update Channel ♻️', url=f'https://t.me/VJ_Botz')
-            ],[
-            InlineKeyboardButton('ℹ️ 𝙷𝚎𝚕𝚙', callback_data='help'),
-            InlineKeyboardButton('😊 𝙰𝚋𝚘𝚞𝚝', callback_data='about')
-        ]]
+        buttons = [
+                [InlineKeyboardButton('💫 Group', url='http://t.me/Kannada_Filmy_Group'),
+                 InlineKeyboardButton('🤖 Updates', url='https://t.me/Sandalwood_kannada_moviesz')],
+                [InlineKeyboardButton('ℹ️ 𝙷𝚎𝚕𝚙', callback_data='help'),
+                 InlineKeyboardButton('😊 𝙰𝚋𝚘𝚞𝚝', callback_data='about')],
+                [InlineKeyboardButton('© Dɪsᴄʟᴀɪᴍᴇʀ ©', callback_data='dics_btn')]
+            ]
         reply_markup = InlineKeyboardMarkup(buttons)
         await message.reply_photo(
             photo=random.choice(PICS),
@@ -62,14 +61,13 @@ async def start(client, message):
             await ForceSub(client, message)
             return
 
-        buttons = [[
-            InlineKeyboardButton('💝 Subscribe YouTube Channel 💗', url=f'http://youtube.com/@Tech_VJ')
-            ],[
-            InlineKeyboardButton('♻️ Update Channel ♻️', url=f'https://t.me/VJ_Botz')
-            ],[
-            InlineKeyboardButton('ℹ️ 𝙷𝚎𝚕𝚙', callback_data='help'),
-            InlineKeyboardButton('😊 𝙰𝚋𝚘𝚞𝚝', callback_data='about')
-        ]]
+        buttons = [
+                [InlineKeyboardButton('💫 Group', url='http://t.me/Kannada_Filmy_Group'),
+                 InlineKeyboardButton('🤖 Updates', url='https://t.me/Sandalwood_kannada_moviesz')],
+                [InlineKeyboardButton('ℹ️ 𝙷𝚎𝚕𝚙', callback_data='help'),
+                 InlineKeyboardButton('😊 𝙰𝚋𝚘𝚞𝚝', callback_data='about')],
+                [InlineKeyboardButton('© Dɪsᴄʟᴀɪᴍᴇʀ ©', callback_data='dics_btn')]
+            ]
         reply_markup = InlineKeyboardMarkup(buttons)
         await message.reply_photo(
             photo=random.choice(PICS),
@@ -131,7 +129,7 @@ async def start(client, message):
                     file_id=msg.get("file_id"),
                     caption=f_caption,
                     
-                    reply_markup=InlineKeyboardMarkup( [ [InlineKeyboardButton("🍿 YouTube Channel 🍿", url="https://youtube.com/@Tech_VJ")] ] ),
+                    reply_markup=InlineKeyboardMarkup( [ [InlineKeyboardButton("🎥 ಕನ್ನಡ ಹೊಸ ಮೂವೀಗಳು 🎥", url="https://t.me/Sandalwood_kannada_moviesz")] ] ),
                     
                     protect_content=msg.get('protect', False),
                     )
@@ -228,7 +226,7 @@ async def start(client, message):
         file_id=file_id,
         caption=f_caption,
         
-        reply_markup=InlineKeyboardMarkup( [ [InlineKeyboardButton("🍿 YouTube Channel 🍿", url="https://youtube.com/@Tech_VJ")] ] ),
+        reply_markup=InlineKeyboardMarkup( [ [InlineKeyboardButton("🎥 ಕನ್ನಡ ಹೊಸ ಮೂವೀಗಳು 🎥", url="https://t.me/Sandalwood_kannada_moviesz")] ] ),
         
         protect_content=True if pre == 'filep' else False,
         )
@@ -265,90 +263,139 @@ async def channel_info(bot, message):
         os.remove(file)
 
 
-@Client.on_message(filters.command('logs') & filters.user(ADMINS))
-async def log_file(bot, message):
-    """Send log file"""
+# -------------------------
+# Logs command (admin-only)
+# -------------------------
+@Client.on_message(filters.command("logs") & filters.user(ADMINS))
+async def send_logs(bot: Client, message):
+    """Send latest bot log file"""
     try:
-        await message.reply_document('TelegramBot.log')
+        if not os.path.exists(LOG_FILE) and not os.path.exists("TelegramBot.log"):
+            return await message.reply_text("⚠️ Log file not found.")
+        log_file_name = "TelegramBot.log" if os.path.exists("TelegramBot.log") else LOG_FILE
+        await message.reply_document(log_file_name, caption="📜 **Latest Bot Logs**")
     except Exception as e:
-        await message.reply(str(e))
+        logger.exception("send_logs failed")
+        await message.reply_text(f"❌ Failed to send logs:\n`{e}`")
 
-@Client.on_message(filters.command('delete') & filters.user(ADMINS))
-async def delete(bot, message):
-    """Delete file from database"""
-    reply = message.reply_to_message
-    if reply and reply.media:
-        msg = await message.reply("Processing...⏳", quote=True)
-    else:
-        await message.reply('Reply to file with /delete which you want to delete', quote=True)
-        return
+# -------------------------
+# Restart command
+# -------------------------
+@Client.on_message(filters.command("restart") & filters.user(ADMINS))
+async def restart_bot(bot: Client, message):
+    buttons = [[InlineKeyboardButton("✅ Confirm Restart", callback_data="confirm_restart")]]
+    await message.reply_text("⚠️ Are you sure you want to restart the bot?", reply_markup=InlineKeyboardMarkup(buttons))
 
-    for file_type in ("document", "video", "audio"):
-        media = getattr(reply, file_type, None)
-        if media is not None:
-            break
-    else:
-        await msg.edit('This is not supported file format')
-        return
-    
-    file_id, file_ref = unpack_new_file_id(media.file_id)
 
-    result = await Media.collection.delete_one({
-        '_id': file_id,
-    })
-    if result.deleted_count:
-        await msg.edit('File is successfully deleted from database')
-    else:
+@Client.on_callback_query(filters.regex("^confirm_restart$"))
+async def confirm_restart_callback(bot: Client, query: CallbackQuery):
+    try:
+        await query.answer("♻️ Restarting...", show_alert=True)
+        await query.edit_message_text("♻️ Bot is restarting...")
+        await asyncio.sleep(1)
+        os.execv(sys.executable, [sys.executable, *sys.argv])
+    except Exception:
+        logger.exception("confirm_restart_callback failed")
+
+
+
+# -------------------------
+# Delete command (admin)
+# -------------------------
+@Client.on_message(filters.command("delete") & filters.user(ADMINS))
+async def delete_file(bot: Client, message):
+    """
+    Delete a specific file from DB using file_id.
+    Usage: /delete <file_id> (or reply to a message)
+    """
+    try:
+        if len(message.command) == 2:
+            file_id = message.command[1].strip()
+            await message.reply_text("🧹 Deleting file from DB...")
+            try:
+                result = await Media.collection.delete_one({"_id": file_id})
+                if result.deleted_count:
+                    await message.reply_text(f"✅ File `{file_id}` deleted successfully.")
+                else:
+                    await message.reply_text("⚠️ File not found in database.")
+            except Exception as e:
+                logger.exception("Error deleting file by id")
+                await message.reply_text(f"❌ Error while deleting:\n`{e}`")
+            return
+
+        # reply-to-message flow
+        reply = message.reply_to_message
+        if not (reply and reply.media):
+            await message.reply_text("Usage:\n`/delete <file_id>`\nOr reply to file with /delete", quote=True)
+            return
+
+        msg = await message.reply_text("Processing...⏳", quote=True)
+        media = None
+        for ft in ("document", "video", "audio"):
+            media = getattr(reply, ft, None)
+            if media:
+                break
+
+        if not media:
+            await msg.edit_text("This is not supported file format")
+            return
+
+        file_id, file_ref = unpack_new_file_id(media.file_id)
+        res = await Media.collection.delete_one({"_id": file_id})
+        if res.deleted_count:
+            await msg.edit_text("File is successfully deleted from database")
+            return
+
         file_name = re.sub(r"(_|\-|\.|\+)", " ", str(media.file_name))
-        result = await Media.collection.delete_many({
-            'file_name': file_name,
-            'file_size': media.file_size,
-            'mime_type': media.mime_type
-            })
-        if result.deleted_count:
-            await msg.edit('File is successfully deleted from database')
+        res = await Media.collection.delete_many({
+            "file_name": file_name,
+            "file_size": media.file_size,
+            "mime_type": media.mime_type
+        })
+        if res.deleted_count:
+            await msg.edit_text("File is successfully deleted from database")
+            return
+
+        # try with original file_name
+        res = await Media.collection.delete_many({
+            "file_name": media.file_name,
+            "file_size": media.file_size,
+            "mime_type": media.mime_type
+        })
+        if res.deleted_count:
+            await msg.edit_text("File is successfully deleted from database")
         else:
-            # files indexed before https://github.com/EvamariaTG/EvaMaria/commit/f3d2a1bcb155faf44178e5d7a685a1b533e714bf#diff-86b613edf1748372103e94cacff3b578b36b698ef9c16817bb98fe9ef22fb669R39 
-            # have original file name.
-            result = await Media.collection.delete_many({
-                'file_name': media.file_name,
-                'file_size': media.file_size,
-                'mime_type': media.mime_type
-            })
-            if result.deleted_count:
-                await msg.edit('File is successfully deleted from database')
-            else:
-                await msg.edit('File not found in database')
+            await msg.edit_text("File not found in database")
+    except Exception:
+        logger.exception("delete_file failed")
 
 
-@Client.on_message(filters.command('deleteall') & filters.user(ADMINS))
-async def delete_all_index(bot, message):
+# -------------------------
+# Delete all indexed files (admin)
+# -------------------------
+@Client.on_message(filters.command("deleteallfiles") & filters.user(ADMINS))
+async def delete_all_files(bot: Client, message):
+    buttons = [[InlineKeyboardButton("🔥 Confirm Delete All Files", callback_data="confirm_delete_all_files")]]
     await message.reply_text(
-        'This will delete all indexed files.\nDo you want to continue??',
-        reply_markup=InlineKeyboardMarkup(
-            [
-                [
-                    InlineKeyboardButton(
-                        text="YES", callback_data="autofilter_delete"
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        text="CANCEL", callback_data="close_data"
-                    )
-                ],
-            ]
-        ),
-        quote=True,
+        "⚠️ This will permanently delete **all indexed files**.\nDo you really want to continue?",
+        reply_markup=InlineKeyboardMarkup(buttons),
     )
 
 
-@Client.on_callback_query(filters.regex(r'^autofilter_delete'))
-async def delete_all_index_confirm(bot, message):
-    await Media.collection.drop()
-    await message.answer('Piracy Is Crime')
-    await message.message.edit('Succesfully Deleted All The Indexed Files.')
-
+@Client.on_callback_query(filters.regex("^confirm_delete_all_files$"))
+async def confirm_delete_all_files(bot: Client, query: CallbackQuery):
+    try:
+        await query.answer("Deleting all files...", show_alert=True)
+        deleted = await Media.collection.delete_many({})
+        count = getattr(deleted, "deleted_count", 0)
+        await query.edit_message_text(f"🗑️ Successfully deleted `{count}` files from DB.")
+        logger.warning(f"Deleted {count} files from database.")
+    except Exception:
+        logger.exception("confirm_delete_all_files failed")
+        try:
+            await query.edit_message_text("❌ Error deleting files.")
+        except Exception:
+            pass
 
 @Client.on_message(filters.command('settings'))
 async def settings(client, message):
@@ -463,6 +510,41 @@ async def settings(client, message):
         )
 
 
+# -------------------------
+# Delete entire DB (admin)
+# -------------------------
+@Client.on_message(filters.command("deletealldb") & filters.user(ADMINS))
+async def delete_all_database(bot: Client, message):
+    buttons = [[InlineKeyboardButton("🚨 Confirm Delete ALL DB", callback_data="confirm_delete_all_db")]]
+    await message.reply_text(
+        "⚠️ WARNING: This will delete **EVERYTHING** — files, users, and groups.\n\nProceed?",
+        reply_markup=InlineKeyboardMarkup(buttons),
+    )
+
+
+@Client.on_callback_query(filters.regex("^confirm_delete_all_db$"))
+async def confirm_delete_all_db(bot: Client, query: CallbackQuery):
+    try:
+        await query.answer("Deleting entire database...", show_alert=True)
+        files_deleted = await Media.collection.delete_many({})
+        if hasattr(db, "col"):
+            await db.col.delete_many({})
+        if hasattr(db, "chat_col"):
+            await db.chat_col.delete_many({})
+
+        count = getattr(files_deleted, "deleted_count", 0)
+        await query.edit_message_text(
+            f"🔥 **Full Database Wipe Completed!**\n\n"
+            f"📁 Files Deleted: `{count}`\n"
+            f"👥 Users + Chats Cleared."
+        )
+        logger.warning("⚠️ FULL DATABASE DELETED BY ADMIN ⚠️")
+    except Exception:
+        logger.exception("confirm_delete_all_db failed")
+        try:
+            await query.edit_message_text("❌ Error deleting database.")
+        except Exception:
+            pass
 
 @Client.on_message(filters.command('set_template'))
 async def save_template(client, message):
