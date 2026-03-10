@@ -174,7 +174,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
             title = query.message.chat.title
 
         else:
-            return await query.answer('Piracy Is Crime')
+            return await query.answer('Join: @KR_PICTURE')
 
         st = await client.get_chat_member(grp_id, userid)
         if (st.status == enums.ChatMemberStatus.OWNER) or (str(userid) in ADMINS):
@@ -435,7 +435,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
         ]]
         reply_markup = InlineKeyboardMarkup(buttons)
         await query.message.edit_text(
-            text=script.HELP_TXT.format(query.from_user.mention),
+            text=script.HELP_TXT.format(mention=query.from_user.mention),
             reply_markup=reply_markup,
             parse_mode=enums.ParseMode.HTML
         )
@@ -448,7 +448,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
         ]]
         reply_markup = InlineKeyboardMarkup(buttons)
         await query.message.edit_text(
-            text=script.ABOUT_TXT.format(temp.B_NAME),
+            text=script.ABOUT_TXT.format(bname=temp.B_NAME),
             reply_markup=reply_markup,
             parse_mode=enums.ParseMode.HTML
         )
@@ -640,7 +640,7 @@ async def auto_filter(client, msg, spoll=False):
         btn = [
             [
                 InlineKeyboardButton(
-                    text=f"[{get_size(file.file_size)}] {file.file_name}", url=f"https://t.me/{temp.U_NAME}?start={pre}_{file.file_id}",
+                    text=f"[{get_size(file.file_size)}] | {file.file_name}", url=f"https://t.me/{temp.U_NAME}?start={pre}_{file.file_id}",
                 ),
             ]
             for file in files
