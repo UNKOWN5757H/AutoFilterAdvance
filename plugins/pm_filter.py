@@ -63,7 +63,7 @@ async def next_page(bot, query):
         btn = [
             [
                 InlineKeyboardButton(
-                    text=f"[{get_size(file.file_size)}] | {file.file_name}", url=f"https://t.me/{temp.U_NAME}?start=files_{file.file_id}"
+                    text=f"{get_size(file.file_size)} | {file.file_name}", url=f"https://t.me/{temp.U_NAME}?start=files_{file.file_id}"
                 ),
             ]
             for file in files
@@ -140,7 +140,7 @@ async def advantage_spoll_choker(bot, query):
             await auto_filter(bot, query, k)
         else:
             k = await query.message.edit("<b>🚫 File not found. Please note👇\n \n✅ Use correct spelling as given in Google.\n \n✅ DO NOT ask for files which are not released in OTT.\n \n✅ Request movies in this format - (Moviename) (Year of release) \nEg. Jai Ganesh 2024 </b>")
-            await asyncio.sleep(800)
+            await asyncio.sleep(14400)
             await k.delete()
 
 
@@ -649,7 +649,7 @@ async def auto_filter(client, msg, spoll=False):
         btn = [
             [
                 InlineKeyboardButton(
-                    text=f"[{get_size(file.file_size)}] | {file.file_name}", url=f"https://t.me/{temp.U_NAME}?start={pre}_{file.file_id}",
+                    text=f"{get_size(file.file_size)} | {file.file_name}", url=f"https://t.me/{temp.U_NAME}?start={pre}_{file.file_id}",
                 ),
             ]
             for file in files
@@ -712,7 +712,7 @@ async def advantage_spell_chok(msg):
     gs_parsed = []
     if not g_s:
         k = await msg.reply("<b>🚫 File not found. Please note👇\n \n✅ Use correct spelling as given in Google. \n \n✅ DO NOT ask for files which are not released in OTT.\n \n✅ Request movies in this format - (Moviename) (Year of release) \nEg. Jai Ganesh 2024 </b>")
-        await asyncio.sleep(800)
+        await asyncio.sleep(14400)
         await k.delete()
         return
     regex = re.compile(r".*(imdb|wikipedia).*", re.IGNORECASE)  # look for imdb / wiki results
@@ -741,7 +741,7 @@ async def advantage_spell_chok(msg):
     movielist = list(dict.fromkeys(movielist))  # removing duplicates
     if not movielist:
         k = await msg.reply("🚫 File not found. Please note👇\n \n✅ Use correct spelling as given in Google. \n \n✅ DO NOT ask for files which are not released in OTT.\n \n✅ Request movies in this format - (Moviename) (Year of release) \nEg. Jai Ganesh 2024 ")
-        await asyncio.sleep(800)
+        await asyncio.sleep(14400)
         await k.delete()
         return
     SPELL_CHECK[msg.id] = movielist
