@@ -140,7 +140,7 @@ async def advantage_spoll_choker(bot, query):
             await auto_filter(bot, query, k)
         else:
             k = await query.message.edit("<b>🚫 File not found. Please note👇\n \n✅ Use correct spelling as given in Google.\n \n✅ DO NOT ask for files which are not released in OTT.\n \n✅ Request movies in this format - (Moviename) (Year of release) \nEg. Jai Ganesh 2024 </b>")
-            await asyncio.sleep(10)
+            await asyncio.sleep(800)
             await k.delete()
 
 
@@ -454,7 +454,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
         )
     elif query.data == "dics_btn":
         buttons = [[                        
-            InlineKeyboardButton('⇌ Bᴀᴄᴋ ⇌', callback_data='help')
+            InlineKeyboardButton('⇌ Bᴀᴄᴋ ⇌', callback_data='start')
         ]]
         reply_markup = InlineKeyboardMarkup(buttons)
         await query.message.edit_text(
@@ -621,7 +621,6 @@ async def cb_handler(client: Client, query: CallbackQuery):
             await query.message.edit_reply_markup(reply_markup)
     await query.answer('Join: @KR_PICTURE')
 
-
 async def auto_filter(client, msg, spoll=False):
     if not spoll:
         message = msg
@@ -689,6 +688,10 @@ async def auto_filter(client, msg, spoll=False):
             [InlineKeyboardButton(text="1/1", callback_data="pages")]
         )
 
+    # ---> FIX APPLIED HERE <---
+    # Safely get the user's mention, falling back to "User" if it's not available
+    mention = message.from_user.mention if message.from_user else "User"
+
     # Standard caption without IMDb formatting
     cap = f"Hey {mention} 👋🏻 \n\n➤ Title : {search} \n➤ Your Files Ready Now 👇"
     
@@ -697,7 +700,6 @@ async def auto_filter(client, msg, spoll=False):
     
     if spoll:
         await msg.message.delete()
-
 
 
 async def advantage_spell_chok(msg):
@@ -710,7 +712,7 @@ async def advantage_spell_chok(msg):
     gs_parsed = []
     if not g_s:
         k = await msg.reply("<b>🚫 File not found. Please note👇\n \n✅ Use correct spelling as given in Google. \n \n✅ DO NOT ask for files which are not released in OTT.\n \n✅ Request movies in this format - (Moviename) (Year of release) \nEg. Jai Ganesh 2024 </b>")
-        await asyncio.sleep(8)
+        await asyncio.sleep(800)
         await k.delete()
         return
     regex = re.compile(r".*(imdb|wikipedia).*", re.IGNORECASE)  # look for imdb / wiki results
@@ -739,7 +741,7 @@ async def advantage_spell_chok(msg):
     movielist = list(dict.fromkeys(movielist))  # removing duplicates
     if not movielist:
         k = await msg.reply("🚫 File not found. Please note👇\n \n✅ Use correct spelling as given in Google. \n \n✅ DO NOT ask for files which are not released in OTT.\n \n✅ Request movies in this format - (Moviename) (Year of release) \nEg. Jai Ganesh 2024 ")
-        await asyncio.sleep(8)
+        await asyncio.sleep(800)
         await k.delete()
         return
     SPELL_CHECK[msg.id] = movielist
