@@ -1,6 +1,6 @@
 class script(object):
-    START_TXT = """<b>𝗛𝗲𝗹𝗹𝗼 {mention}, 𝗠𝘆𝗡𝗮𝗺𝗲 𝗶𝘀 {bname} \n \n𝗜 𝗮𝗺 𝗮𝗻 𝗔𝘂𝘁𝗼𝗙𝗶𝗹𝘁𝗲𝗿 𝗕𝗼𝘁 𝗠𝗮𝗱𝗲 𝗳𝗼𝗿 𝗧𝗲𝗮𝗺 @KR_PICTURE ™🎥 \n \n𝗝𝗼𝗶𝗻 𝗠𝘆 𝗚𝗿𝗼𝘂𝗽 & 𝗨𝗽𝗱𝗮𝘁𝗲𝘀 𝗖𝗵𝗮𝗻𝗻𝗲𝗹 𝗳𝗼𝗿 𝗠𝗼𝗿𝗲 𝗗𝗲𝘁𝗮𝗶𝗹𝘀.</b>"""
-    HELP_TXT = """<b>𝙷𝙴𝚈 {mention}
+    START_TXT = """<b>𝗛𝗲𝗹𝗹𝗼 {message.from_user.mention}, 𝗠𝘆𝗡𝗮𝗺𝗲 𝗶𝘀 {bname} \n \n𝗜 𝗮𝗺 𝗮𝗻 𝗔𝘂𝘁𝗼𝗙𝗶𝗹𝘁𝗲𝗿 𝗕𝗼𝘁 𝗠𝗮𝗱𝗲 𝗳𝗼𝗿 𝗧𝗲𝗮𝗺 @KR_PICTURE ™🎥 \n \n𝗝𝗼𝗶𝗻 𝗠𝘆 𝗚𝗿𝗼𝘂𝗽 & 𝗨𝗽𝗱𝗮𝘁𝗲𝘀 𝗖𝗵𝗮𝗻𝗻𝗲𝗹 𝗳𝗼𝗿 𝗠𝗼𝗿𝗲 𝗗𝗲𝘁𝗮𝗶𝗹𝘀.</b>"""
+    HELP_TXT = """<b>𝙷𝙴𝚈 {message.from_user.mention}
 𝙷𝙴𝚁𝙴 𝙸𝚂 𝚃𝙷𝙴 𝙷𝙴𝙻𝙿 𝙵𝙾𝚁 𝙼𝚈 𝙲𝙾𝙼𝙼𝙰𝙽𝙳𝚂.</b>"""
     ABOUT_TXT = """<b>○ 𝗠𝘆 𝗡𝗮𝗺𝗲 : {bname}
 ○ 𝗖𝗿𝗲𝗮𝘁𝗼𝗿 : <a href=https://t.me/Nikhil5757h>Dictator🦊</a>
