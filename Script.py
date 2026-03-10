@@ -3,7 +3,7 @@ class script(object):
     HELP_TXT = """<b>𝙷𝙴𝚈 {mention}
 𝙷𝙴𝚁𝙴 𝙸𝚂 𝚃𝙷𝙴 𝙷𝙴𝙻𝙿 𝙵𝙾𝚁 𝙼𝚈 𝙲𝙾𝙼𝙼𝙰𝙽𝙳𝚂.</b>"""
     ABOUT_TXT = """<b>○ 𝗠𝘆 𝗡𝗮𝗺𝗲 : {bname}
-○ 𝗖𝗿𝗲𝗮𝘁𝗼𝗿 : <a href=https://t.me/Sandalwood_Man>𝐓ʜᴏᴍᴀꜱ 𝐒ʜᴇʟʙʏ ♞</a>
+○ 𝗖𝗿𝗲𝗮𝘁𝗼𝗿 : <a href=https://t.me/Nikhil5757h>Dictator🦊</a>
 ○ 𝗟𝗶𝗯𝗿𝗮𝗿𝘆 : 𝙿𝚈𝚁𝙾𝙶𝚁𝙰𝙼
 ○ 𝗟𝗮𝗻𝗴𝘂𝗮𝗴𝗲 : 𝙿𝚈𝚃𝙷𝙾𝙽 𝟹.10
 ○ 𝗗𝗮𝘁𝗮𝗕𝗮𝘀𝗲 : 𝙼𝙾𝙽𝙶𝙾 𝙳𝙱
