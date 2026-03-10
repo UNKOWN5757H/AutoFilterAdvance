@@ -1,72 +1,96 @@
 class script(object):
-    START_TXT = """𝙷𝙴𝙻L𝙾 {},
-𝙼𝚈 𝙽𝙰𝙼𝙴 𝙸𝚂 <a href=https://t.me/{}>{}</a>, Im Search Bot I can share Movies and Series 😁 Aᴅᴅ ᴍᴇ ᴛᴏ ʏᴏᴜʀ ɢʀᴏᴜᴘ ᴛᴏ sᴇᴇ ᴛʜᴇ ᴍᴀɢɪᴄ ᴏʀ ʀᴇᴀᴅ ᴍᴏʀᴇ ғʀᴏᴍ ᴛʜᴇ ᴍᴇɴᴜ ʙᴇʟᴏᴡ ♥️♥️🔥"""
-    HELP_TXT = """𝙷𝙴𝚈 {}
-𝙷𝙴𝚁𝙴 𝙸𝚂 𝚃𝙷𝙴 𝙷𝙴𝙻𝙿 𝙵𝙾𝚁 𝙼𝚈 𝙲𝙾𝙼𝙼𝙰𝙽𝙳𝚂."""
-    ABOUT_TXT = """✯ 𝙼𝚈 𝙽𝙰𝙼𝙴: {}
-✯ 𝙲𝚁𝙴𝙰𝚃𝙾𝚁: <a href=https://t.me/VJBots_bot>VJ</a>
-✯ 𝙻𝙸𝙱𝚁𝙰𝚁𝚈: 𝙿𝚈𝚁𝙾𝙶𝚁𝙰𝙼
-✯ 𝙻𝙰𝙽𝙶𝚄𝙰𝙶𝙴: 𝙿𝚈𝚃𝙷𝙾𝙽 𝟹
-✯ 𝙳𝙰𝚃𝙰 𝙱𝙰𝚂𝙴: 𝙼𝙾𝙽𝙶𝙾 𝙳𝙱"""
-    SOURCE_TXT = """<b>Source Code Of This Bot is PUBLIC. This Bot Repository is Public by Tech_VJ YouTube Channel 😊"""
-    MANUELFILTER_TXT = """Help: <b>Filters</b>
+    START_TXT = """<b>𝗛𝗲𝗹𝗹𝗼 {mention}, 𝗠𝘆𝗡𝗮𝗺𝗲 𝗶𝘀 {bname} \n \n𝗜 𝗮𝗺 𝗮𝗻 𝗔𝘂𝘁𝗼𝗙𝗶𝗹𝘁𝗲𝗿 𝗕𝗼𝘁 𝗠𝗮𝗱𝗲 𝗳𝗼𝗿 𝗧𝗲𝗮𝗺 @KR_PICTURE ™🎥 \n \n𝗝𝗼𝗶𝗻 𝗠𝘆 𝗚𝗿𝗼𝘂𝗽 & 𝗨𝗽𝗱𝗮𝘁𝗲𝘀 𝗖𝗵𝗮𝗻𝗻𝗲𝗹 𝗳𝗼𝗿 𝗠𝗼𝗿𝗲 𝗗𝗲𝘁𝗮𝗶𝗹𝘀.</b>"""
+    HELP_TXT = """<b>𝙷𝙴𝚈 {mention}
+𝙷𝙴𝚁𝙴 𝙸𝚂 𝚃𝙷𝙴 𝙷𝙴𝙻𝙿 𝙵𝙾𝚁 𝙼𝚈 𝙲𝙾𝙼𝙼𝙰𝙽𝙳𝚂.</b>"""
+    ABOUT_TXT = """<b>○ 𝗠𝘆 𝗡𝗮𝗺𝗲 : {bname}
+○ 𝗖𝗿𝗲𝗮𝘁𝗼𝗿 : <a href=https://t.me/Sandalwood_Man>𝐓ʜᴏᴍᴀꜱ 𝐒ʜᴇʟʙʏ ♞</a>
+○ 𝗟𝗶𝗯𝗿𝗮𝗿𝘆 : 𝙿𝚈𝚁𝙾𝙶𝚁𝙰𝙼
+○ 𝗟𝗮𝗻𝗴𝘂𝗮𝗴𝗲 : 𝙿𝚈𝚃𝙷𝙾𝙽 𝟹.10
+○ 𝗗𝗮𝘁𝗮𝗕𝗮𝘀𝗲 : 𝙼𝙾𝙽𝙶𝙾 𝙳𝙱
+○ 𝗕𝘂𝗶𝗹𝗱 𝗩𝗲𝗿𝘀𝗶𝗼𝗻 : V2.0 [ 𝙱𝙴𝚃𝙰 ]</b>"""
+    SOURCE_TXT = """<b>Source Code Of This Bot is Private 😊"""
+    MANUELFILTER_TXT = """𝗙𝗶𝗹𝘁𝗲𝗿𝘀
 
-- Filter is the feature were users can set automated replies for a particular keyword and 𝐉𝐞𝐫𝐫𝐲 will respond whenever a keyword is found the message
+- Filter is the feature were users can set automated replies for a particular keyword and I will respond whenever a keyword is found the message
 
-<b>NOTE:</b>
-1. 𝐉𝐞𝐫𝐫𝐲 should have admin privillage.
-2. only admins can add filters in a chat.
-3. alert buttons have a limit of 64 characters.
+<blockquote>𝗡𝗼𝘁𝗲:
+1. I should have Admin Privillage.
+2. Only Admins can add Filters in a Chat.
+3. Alert buttons have a limit of 64 characters.</blockquote>
 
-<b>Commands and Usage:</b>
-• /filter - <code>add a filter in chat</code>
-• /filters - <code>list all the filters of a chat</code>
-• /del - <code>delete a specific filter in chat</code>
-• /delall - <code>delete the whole filters in a chat (chat owner only)</code>"""
-    BUTTON_TXT = """Help: <b>Buttons</b>
+<blockquote>𝗖𝗼𝗺𝗺𝗮𝗻𝗱𝘀 𝗮𝗻𝗱 𝗨𝘀𝗮𝗴𝗲:</blockquote>
 
-- 𝐉𝐞𝐫𝐫𝐲 Supports both url and alert inline buttons.
+• /filter - add a filter in chat
+• /filters - list all the filters of a chat
+• /del - delete a specific filter in chat
+• /delall - delete the whole filters in a chat (chat owner only)"""
+    BUTTON_TXT = """𝗕𝘂𝘁𝘁𝗼𝗻𝘀
 
-<b>NOTE:</b>
+- I will Supports both url and alert inline buttons.
+
+<blockquote>𝗡𝗼𝘁𝗲:
 1. Telegram will not allows you to send buttons without any content, so content is mandatory.
-2. 𝐉𝐞𝐫𝐫𝐲 supports buttons with any telegram media type.
-3. Buttons should be properly parsed as markdown format
+2. I supports buttons with any telegram media type.
+3. Buttons should be properly parsed as markdown format</blockquote>
 
-<b>URL buttons:</b>
-<code>[Button Text](buttonurl:https://t.me/EnthadaNokunne)</code>
+URL buttons:
+[Button Text](buttonurl:https://t.me/KR_PICTURE)
 
-<b>Alert buttons:</b>
-<code>[Button Text](buttonalert:This is an alert message)</code>"""
-    AUTOFILTER_TXT = """Help: <b>Auto Filter</b>
+Alert buttons:
+[Button Text](buttonalert:This is an alert message)"""
+    AUTOFILTER_TXT = """𝗔𝘂𝘁𝗼 𝗙𝗶𝗹𝘁𝗲𝗿
 
-<b>NOTE:</b>
+<blockquote>𝗡𝗼𝘁𝗲:
+    𝗧𝗵𝗶𝘀 𝗺𝗼𝗱𝘂𝗹𝗲 𝗼𝗻𝗹𝘆 𝘄𝗼𝗿𝗸𝘀 𝗳𝗼𝗿 𝗺𝘆 𝗔𝗱𝗺𝗶𝗻𝘀</blockquote>
+    
 1. Make me the admin of your channel if it's private.
 2. make sure that your channel does not contains camrips, porn and fake files.
 3. Forward the last message to me with quotes.
  I'll add all the files in that channel to my db."""
-    CONNECTION_TXT = """Help: <b>Connections</b>
+    CONNECTION_TXT = """𝗖𝗼𝗻𝗻𝗲𝗰𝘁𝗶𝗼𝗻𝘀
 
 - Used to connect bot to PM for managing filters 
 - it helps to avoid spamming in groups.
 
-<b>NOTE:</b>
-1. Only admins can add a connection.
-2. Send <code>/connect</code> for connecting me to ur PM
+<blockquote>𝗡𝗼𝘁𝗲:
+1. Only Group Admins can add a connection.
+2. Send /connect for connecting me to ur PM</blockquote>
 
-<b>Commands and Usage:</b>
-• /connect  - <code>connect a particular chat to your PM</code>
-• /disconnect  - <code>disconnect from a chat</code>
-• /connections - <code>list all your connections</code>"""
-    EXTRAMOD_TXT = """Help: <b>Extra Modules</b>
+𝗖𝗼𝗺𝗺𝗮𝗻𝗱𝘀 𝗮𝗻𝗱 𝗨𝘀𝗮𝗴𝗲:
 
-<b>NOTE:</b>
-these are the extra features of Eva Maria
+• /connect  - Connect a particular chat to your PM
+• /disconnect  - Disconnect from a chat
+• /connections - List all your connections"""
+    FRSUB_TXT = """Help:  𝗙𝗼𝗿𝗰𝗲𝗦𝘂𝗯 𝗠𝗼𝗱
 
-<b>Commands and Usage:</b>
-• /id - <code>get id of a specified user.</code>
-• /info  - <code>get information about a user.</code>
-• /imdb  - <code>get the film information from IMDb source.</code>
-• /search  - <code>get the film information from various sources.</code>"""
+<blockquote>𝗡𝗼𝘁𝗲:
+    𝗧𝗵𝗶𝘀 𝗺𝗼𝗱𝘂𝗹𝗲 𝗼𝗻𝗹𝘆 𝘄𝗼𝗿𝗸𝘀 𝗳𝗼𝗿 𝗺𝘆 𝗔𝗱𝗺𝗶𝗻𝘀</blockquote>
+
+𝗖𝗼𝗺𝗺𝗮𝗻𝗱𝘀 𝗮𝗻𝗱 𝗨𝘀𝗮𝗴𝗲:
+
+• /fsub - Enable ForceSub / Request Sub Settings
+• /add_fsub - Add ForceSub / Request Sub Channel
+• /get_fsub - Get saved ForceSub Channel Detail
+• /ttreq - Get total request counts on current FSub Channel
+• /clreq - Clear Requests on current FSub Channel"""
+    EXTRAMOD_TXT = """Help:  𝗔𝗱𝗺𝗶𝗻 𝗠𝗼𝗱𝘀
+
+<blockquote>𝗡𝗼𝘁𝗲:
+    𝗧𝗵𝗶𝘀 𝗺𝗼𝗱𝘂𝗹𝗲 𝗼𝗻𝗹𝘆 𝘄𝗼𝗿𝗸𝘀 𝗳𝗼𝗿 𝗺𝘆 𝗔𝗱𝗺𝗶𝗻𝘀</blockquote>
+
+𝗖𝗼𝗺𝗺𝗮𝗻𝗱𝘀 𝗮𝗻𝗱 𝗨𝘀𝗮𝗴𝗲:
+
+• /logs - to get the rescent errors
+• /stats - to get status of files in db.
+• /restart - Restart Bot
+• /delete - to delete a specific file from db.
+• /users - to get list of my users and ids.
+• /ban  - to ban a user.
+• /unban  - to unban a user.
+• /chats  - to get list of Groups
+• /channel - to get list of total connected channels
+• /broadcast - to broadcast a message to all users
+• /group_broadcast - to broadcast a message to all saved Groups"""
     ADMIN_TXT = """Help: <b>Admin mods</b>
 
 <b>NOTE:</b>
