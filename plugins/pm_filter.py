@@ -398,12 +398,18 @@ async def cb_handler(client: Client, query: CallbackQuery):
         if f_caption is None:
             f_caption = f"{title}"
         await query.answer()
-        await client.send_cached_media(
+        m = await client.send_cached_media(
             chat_id=query.from_user.id,
             file_id=file_id,
             caption=f_caption,
             protect_content=True if ident == 'checksubp' else False
         )
+        k = await client.send_message(
+            chat_id=query.from_user.id,
+            text=f"<blockquote><b><u>❗️❗️❗️IMPORTANT❗️️❗️❗️</u></b>\n\n⚠️ File will be deleted in 4 hour\n\n📌 Save or forward it.</blockquote>")
+        await asyncio.sleep(14400)
+        await m.delete()
+        await k.edit_text("<b>Hey <i>{message.from_user.first_name}</i>\n\nYour Request Has Been Deleted 👍 \n(Due To Avoid Copyrights Issue😌)\n\nIF YOU WANT THAT FILE, REQUEST AGAIN ❤️ In Our Group</b>")
     elif query.data == "pages":
         await query.answer()
     elif query.data == "start":
@@ -695,12 +701,13 @@ async def auto_filter(client, msg, spoll=False):
     # Standard caption without IMDb formatting
     cap = f"Hey {mention} 👋🏻 \n\n➤ Title : {search} \n➤ Your Files Ready Now 👇"
     
-    # Send the standard text message
-    await message.reply_text(cap, reply_markup=InlineKeyboardMarkup(btn))
-    
+    except Exception as e:
+            logger.exception(e)
+            await message.reply_text(cap, reply_markup=InlineKeyboardMarkup(btn))
+    else:
+        await message.reply_text(cap, reply_markup=InlineKeyboardMarkup(btn))
     if spoll:
         await msg.message.delete()
-
 
 async def advantage_spell_chok(msg):
     query = re.sub(
