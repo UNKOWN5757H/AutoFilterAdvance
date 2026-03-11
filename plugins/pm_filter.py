@@ -701,10 +701,6 @@ async def auto_filter(client, msg, spoll=False):
     # Standard caption without IMDb formatting
     cap = f"Hey {mention} 👋🏻 \n\n➤ Title : {search} \n➤ Your Files Ready Now 👇"
     
-    except Exception as e:
-            logger.exception(e)
-            await message.reply_text(cap, reply_markup=InlineKeyboardMarkup(btn))
-    else:
         await message.reply_text(cap, reply_markup=InlineKeyboardMarkup(btn))
     if spoll:
         await msg.message.delete()
