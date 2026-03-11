@@ -627,6 +627,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
             await query.message.edit_reply_markup(reply_markup)
     await query.answer('Join: @KR_PICTURE')
 
+
 async def auto_filter(client, msg, spoll=False):
     if not spoll:
         message = msg
@@ -650,7 +651,7 @@ async def auto_filter(client, msg, spoll=False):
         search, files, offset, total_results = spoll
 
     pre = 'filep' if settings['file_secure'] else 'file'
-    
+
     if settings["button"]:
         btn = [
             [
@@ -700,10 +701,12 @@ async def auto_filter(client, msg, spoll=False):
 
     # Standard caption without IMDb formatting
     cap = f"Hey {mention} 👋🏻 \n\n➤ Title : {search} \n➤ Your Files Ready Now 👇"
+
+    await message.reply_text(cap, reply_markup=InlineKeyboardMarkup(btn))
     
-        await message.reply_text(cap, reply_markup=InlineKeyboardMarkup(btn))
     if spoll:
         await msg.message.delete()
+
 
 async def advantage_spell_chok(msg):
     query = re.sub(
