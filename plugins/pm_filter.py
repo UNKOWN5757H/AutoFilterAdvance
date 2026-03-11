@@ -696,16 +696,38 @@ async def auto_filter(client, msg, spoll=False):
         )
 
     # ---> FIX APPLIED HERE <---
-    # Safely get the user's mention, falling back to "User" if it's not available
+    # Safely get the user's mention and first name
     mention = message.from_user.mention if message.from_user else "User"
+    first_name = message.from_user.first_name if message.from_user else "User"
 
     # Standard caption without IMDb formatting
     cap = f"Hey {mention} 👋🏻 \n\n➤ Title : {search} \n➤ Your Files Ready Now 👇"
 
-    await message.reply_text(cap, reply_markup=InlineKeyboardMarkup(btn))
-    
+    # We assign this to 'm' so we can delete it later!
+    m = await message.reply_text(cap, reply_markup=InlineKeyboardMarkup(btn))
+
+    # We use message.chat.id instead of query.from_user.id
+    k = await client.send_message(
+        chat_id=message.chat.id,
+        text=f"<blockquote><b><u>❗️❗️❗️IMPORTANT❗️️❗️❗️</u></b>\n\n⚠️ File will be deleted in 4 hour\n\n📌 Save or forward it.</blockquote>"
+    )
+
     if spoll:
         await msg.message.delete()
+        
+    # Wait 4 hours (14400 seconds)
+    await asyncio.sleep(14400)
+    
+    # Safely delete and edit the messages
+    try:
+        await m.delete()
+    except Exception:
+        pass # Ignore error if an admin already deleted it
+        
+    try:
+        await k.edit_text(f"<b>Hey <i>{first_name}</i>\n\nYour Request Has Been Deleted 👍 \n(Due To Avoid Copyrights Issue😌)\n\nIF YOU WANT THAT FILE, REQUEST AGAIN ❤️ In Our Group</b>")
+    except Exception:
+        pass
 
 
 async def advantage_spell_chok(msg):
