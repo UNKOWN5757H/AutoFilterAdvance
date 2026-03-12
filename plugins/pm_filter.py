@@ -26,7 +26,11 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.ERROR)
 
 BUTTONS = {}
+DELETE_TIME = 14400  # 4 Hours in seconds
 SPELL_CHECK = {}
+
+# 👇 Put your "File Not Found" Image URL here 👇
+FILE_NOT_FOUND_PIC = "https://telegra.ph/file/c4f0458d30f61993aad45-086b84e8363b3c582e.jpg"
 
 
 @Client.on_message(filters.group & filters.text & filters.incoming)
@@ -139,9 +143,18 @@ async def advantage_spoll_choker(bot, query):
             k = (movie, files, offset, total_results)
             await auto_filter(bot, query, k)
         else:
-            k = await query.message.edit("<b>🚫 File not found. Please note👇\n \n✅ Use correct spelling as given in Google.\n \n✅ DO NOT ask for files which are not released in OTT.\n \n✅ Request movies in this format - (Moviename) (Year of release) \nEg. Jai Ganesh 2024 </b>")
-            await asyncio.sleep(14400)
-            await k.delete()
+            # Replaced edit with delete -> send photo for image support
+            await query.message.delete()
+            k = await bot.send_photo(
+                chat_id=query.message.chat.id, 
+                photo=FILE_NOT_FOUND_PIC, 
+                caption="<b>🚫 File not found. Please note👇\n \n✅ Use correct spelling as given in Google.\n \n✅ DO NOT ask for files which are not released in OTT.\n \n✅ Request movies in this format - (Moviename) (Year of release) \nEg. Jai Ganesh 2024 </b>"
+            )
+            await asyncio.sleep(DELETE_TIME)
+            try:
+                await k.delete()
+            except Exception:
+                pass
 
 
 @Client.on_callback_query()
@@ -706,28 +719,17 @@ async def auto_filter(client, msg, spoll=False):
     # We assign this to 'm' so we can delete it later!
     m = await message.reply_text(cap, reply_markup=InlineKeyboardMarkup(btn))
 
-    # We use message.chat.id instead of query.from_user.id
-    k = await client.send_message(
-        chat_id=message.chat.id,
-        text=f"<blockquote><b><u>❗️❗️❗️IMPORTANT❗️️❗️❗️</u></b>\n\n⚠️ File will be deleted in 4 hour\n\n📌 Save or forward it.</blockquote>"
-    )
-
     if spoll:
         await msg.message.delete()
         
     # Wait 4 hours (14400 seconds)
     await asyncio.sleep(14400)
     
-    # Safely delete and edit the messages
+    # Safely delete the message
     try:
         await m.delete()
     except Exception:
         pass # Ignore error if an admin already deleted it
-        
-    try:
-        await k.edit_text(f"<b>Hey <i>{first_name}</i>\n\nYour Request Has Been Deleted 👍 \n(Due To Avoid Copyrights Issue😌)\n\nIF YOU WANT THAT FILE, REQUEST AGAIN ❤️ In Our Group</b>")
-    except Exception:
-        pass
 
 
 async def advantage_spell_chok(msg):
@@ -738,40 +740,61 @@ async def advantage_spell_chok(msg):
     g_s = await search_gagala(query)
     g_s += await search_gagala(msg.text)
     gs_parsed = []
+    
+    # Send image when file not found
     if not g_s:
-        k = await msg.reply("<b>🚫 File not found. Please note👇\n \n✅ Use correct spelling as given in Google. \n \n✅ DO NOT ask for files which are not released in OTT.\n \n✅ Request movies in this format - (Moviename) (Year of release) \nEg. Jai Ganesh 2024 </b>")
-        await asyncio.sleep(14400)
-        await k.delete()
+        k = await msg.reply_photo(
+            photo=FILE_NOT_FOUND_PIC,
+            caption="<b>🚫 File not found. Please note👇\n \n✅ Use correct spelling as given in Google. \n \n✅ DO NOT ask for files which are not released in OTT.\n \n✅ Request movies in this format - (Moviename) (Year of release) \nEg. Jai Ganesh 2024 </b>"
+        )
+        await asyncio.sleep(DELETE_TIME)
+        try:
+            await k.delete()
+        except Exception:
+            pass
         return
+        
     regex = re.compile(r".*(imdb|wikipedia).*", re.IGNORECASE)  # look for imdb / wiki results
     gs = list(filter(regex.match, g_s))
     gs_parsed = [re.sub(
         r'\b(\-([a-zA-Z-\s])\-\simdb|(\-\s)?imdb|(\-\s)?wikipedia|\(|\)|\-|reviews|full|all|episode(s)?|film|movie|series)',
         '', i, flags=re.IGNORECASE) for i in gs]
+        
     if not gs_parsed:
-        reg = re.compile(r"watch(\s[a-zA-Z0-9_\s\-\(\)]*)*\|.*",
-                         re.IGNORECASE)  # match something like Watch Niram | Amazon Prime
+        reg = re.compile(r"watch(\s[a-zA-Z0-9_\s\-\(\)]*)*\|.*", re.IGNORECASE)
         for mv in g_s:
             match = reg.match(mv)
             if match:
                 gs_parsed.append(match.group(1))
+                
     user = msg.from_user.id if msg.from_user else 0
     movielist = []
-    gs_parsed = list(dict.fromkeys(gs_parsed))  # removing duplicates https://stackoverflow.com/a/7961425
+    gs_parsed = list(dict.fromkeys(gs_parsed))
     if len(gs_parsed) > 3:
         gs_parsed = gs_parsed[:3]
+        
     if gs_parsed:
         for mov in gs_parsed:
-            imdb_s = await get_poster(mov.strip(), bulk=True)  # searching each keyword in imdb
+            imdb_s = await get_poster(mov.strip(), bulk=True)
             if imdb_s:
                 movielist += [movie.get('title') for movie in imdb_s]
+                
     movielist += [(re.sub(r'(\-|\(|\)|_)', '', i, flags=re.IGNORECASE)).strip() for i in gs_parsed]
-    movielist = list(dict.fromkeys(movielist))  # removing duplicates
+    movielist = list(dict.fromkeys(movielist))
+    
+    # Send image when file not found
     if not movielist:
-        k = await msg.reply("🚫 File not found. Please note👇\n \n✅ Use correct spelling as given in Google. \n \n✅ DO NOT ask for files which are not released in OTT.\n \n✅ Request movies in this format - (Moviename) (Year of release) \nEg. Jai Ganesh 2024 ")
-        await asyncio.sleep(14400)
-        await k.delete()
+        k = await msg.reply_photo(
+            photo=FILE_NOT_FOUND_PIC,
+            caption="<b>🚫 File not found. Please note👇\n \n✅ Use correct spelling as given in Google. \n \n✅ DO NOT ask for files which are not released in OTT.\n \n✅ Request movies in this format - (Moviename) (Year of release) \nEg. Jai Ganesh 2024 </b>"
+        )
+        await asyncio.sleep(DELETE_TIME)
+        try:
+            await k.delete()
+        except Exception:
+            pass
         return
+        
     SPELL_CHECK[msg.id] = movielist
     btn = [[
         InlineKeyboardButton(
