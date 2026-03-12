@@ -1,23 +1,29 @@
 import os
+import sys
 import logging
 import random
 import asyncio
+import re
+import json
+import base64
+
 from Script import script
 from pyrogram import Client, filters, enums
 from pyrogram.errors import ChatAdminRequired, FloodWait
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
+
 from database.ia_filterdb import Media, get_file_details, unpack_new_file_id
 from database.users_chats_db import db
-from info import CHANNELS, ADMINS, AUTH_CHANNEL, LOG_CHANNEL, PICS, BATCH_FILE_CAPTION, CUSTOM_FILE_CAPTION, PROTECT_CONTENT
-from utils import get_settings, get_size, save_group_settings, temp
 from database.connections_mdb import active_connection
 from plugins.fsub import ForceSub
-import re
-import json
-import base64
+from info import CHANNELS, ADMINS, AUTH_CHANNEL, LOG_CHANNEL, PICS, BATCH_FILE_CAPTION, CUSTOM_FILE_CAPTION, PROTECT_CONTENT
+from utils import get_settings, get_size, save_group_settings, temp
+
 logger = logging.getLogger(__name__)
 
 BATCH_FILES = {}
+DELETE_TIME = 14400  # 4 Hours in seconds
+LOG_FILE = "TelegramBot.log"
 
 @Client.on_message(filters.command("start") & filters.incoming)
 async def start(client, message):
@@ -30,15 +36,17 @@ async def start(client, message):
             ]
         reply_markup = InlineKeyboardMarkup(buttons)
         await message.reply(script.START_TXT.format(mention=message.from_user.mention if message.from_user else message.chat.title, uname=temp.U_NAME, bname=temp.B_NAME), reply_markup=reply_markup)
-        await asyncio.sleep(2) # 😢 https://github.com/EvamariaTG/EvaMaria/blob/master/plugins/p_ttishow.py#L17 😬 wait a bit, before checking.
+        await asyncio.sleep(2)
         if not await db.get_chat(message.chat.id):
             total=await client.get_chat_members_count(message.chat.id)
             await client.send_message(LOG_CHANNEL, script.LOG_TEXT_G.format(message.chat.title, message.chat.id, total, "Unknown"))       
             await db.add_chat(message.chat.id, message.chat.title)
         return 
+        
     if not await db.is_user_exist(message.from_user.id):
         await db.add_user(message.from_user.id, message.from_user.first_name)
         await client.send_message(LOG_CHANNEL, script.LOG_TEXT_P.format(message.from_user.id, message.from_user.mention))
+        
     if len(message.command) != 2:
         buttons = [
                 [InlineKeyboardButton('💫 Group', url='http://t.me/Kannada_Filmy_Group'),
@@ -102,43 +110,45 @@ async def start(client, message):
                 return await client.send_message(LOG_CHANNEL, "UNABLE TO OPEN FILE.")
             os.remove(file)
             BATCH_FILES[file_id] = msgs
+            
         for msg in msgs:
             title = msg.get("title")
-            size=get_size(int(msg.get("size", 0)))
-            f_caption=msg.get("caption", "")
+            size = get_size(int(msg.get("size", 0)))
+            f_caption = msg.get("caption", "")
+            
             if BATCH_FILE_CAPTION:
                 try:
-                    f_caption=BATCH_FILE_CAPTION.format(file_name= '' if title is None else title, file_size='' if size is None else size, file_caption='' if f_caption is None else f_caption)
+                    f_caption = BATCH_FILE_CAPTION.format(file_name='' if title is None else title, file_size='' if size is None else size, file_caption='' if f_caption is None else f_caption)
                 except Exception as e:
                     logger.exception(e)
-                    f_caption=f_caption
-            if f_caption is None:
+                    
+            if not f_caption:
                 f_caption = f"{title}"
+                
             try:
                 await client.send_cached_media(
                     chat_id=message.from_user.id,
                     file_id=msg.get("file_id"),
                     caption=f_caption,
                     protect_content=msg.get('protect', False),
-                    )
+                )
             except FloodWait as e:
-                await asyncio.sleep(e.x)
-                logger.warning(f"Floodwait of {e.x} sec.")
+                await asyncio.sleep(e.value)
+                logger.warning(f"Floodwait of {e.value} sec.")
                 await client.send_cached_media(
                     chat_id=message.from_user.id,
                     file_id=msg.get("file_id"),
                     caption=f_caption,
-                    
-                    reply_markup=InlineKeyboardMarkup( [ [InlineKeyboardButton("🎥 ಕನ್ನಡ ಹೊಸ ಮೂವೀಗಳು 🎥", url="https://t.me/Sandalwood_kannada_moviesz")] ] ),
-                    
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🎥 ಕನ್ನಡ ಹೊಸ ಮೂವೀಗಳು 🎥", url="https://t.me/Sandalwood_kannada_moviesz")]]),
                     protect_content=msg.get('protect', False),
-                    )
+                )
             except Exception as e:
                 logger.warning(e, exc_info=True)
                 continue
-            await asyncio.sleep(1) 
+            await asyncio.sleep(DELETE_TIME) 
         await sts.delete()
         return
+        
     elif data.split("-", 1)[0] == "DSTORE":
         sts = await message.reply("Please wait")
         b_string = data.split("-", 1)[1]
@@ -148,24 +158,25 @@ async def start(client, message):
         except:
             f_msg_id, l_msg_id, f_chat_id = decoded.split("_", 2)
             protect = "/pbatch" if PROTECT_CONTENT else "batch"
+            
         diff = int(l_msg_id) - int(f_msg_id)
         async for msg in client.iter_messages(int(f_chat_id), int(l_msg_id), int(f_msg_id)):
             if msg.media:
                 media = getattr(msg, msg.media)
                 if BATCH_FILE_CAPTION:
                     try:
-                        f_caption=BATCH_FILE_CAPTION.format(file_name=getattr(media, 'file_name', ''), file_size=getattr(media, 'file_size', ''), file_caption=getattr(msg, 'caption', ''))
+                        f_caption = BATCH_FILE_CAPTION.format(file_name=getattr(media, 'file_name', ''), file_size=getattr(media, 'file_size', ''), file_caption=getattr(msg, 'caption', ''))
                     except Exception as e:
                         logger.exception(e)
                         f_caption = getattr(msg, 'caption', '')
                 else:
-                    media = getattr(msg, msg.media)
                     file_name = getattr(media, 'file_name', '')
                     f_caption = getattr(msg, 'caption', file_name)
+                    
                 try:
                     await msg.copy(message.chat.id, caption=f_caption, protect_content=True if protect == "/pbatch" else False)
                 except FloodWait as e:
-                    await asyncio.sleep(e.x)
+                    await asyncio.sleep(e.value)
                     await msg.copy(message.chat.id, caption=f_caption, protect_content=True if protect == "/pbatch" else False)
                 except Exception as e:
                     logger.exception(e)
@@ -176,14 +187,13 @@ async def start(client, message):
                 try:
                     await msg.copy(message.chat.id, protect_content=True if protect == "/pbatch" else False)
                 except FloodWait as e:
-                    await asyncio.sleep(e.x)
+                    await asyncio.sleep(e.value)
                     await msg.copy(message.chat.id, protect_content=True if protect == "/pbatch" else False)
                 except Exception as e:
                     logger.exception(e)
                     continue
             await asyncio.sleep(1) 
         return await sts.delete()
-        
 
     files_ = await get_file_details(file_id)           
     if not files_:
@@ -193,48 +203,60 @@ async def start(client, message):
                 chat_id=message.from_user.id,
                 file_id=file_id,
                 protect_content=True if pre == 'filep' else False,
-                )
+            )
             filetype = msg.media
             file = getattr(msg, filetype)
             title = file.file_name
-            size=get_size(file.file_size)
+            size = get_size(file.file_size)
             f_caption = f"<code>{title}</code>"
             if CUSTOM_FILE_CAPTION:
                 try:
-                    f_caption=CUSTOM_FILE_CAPTION.format(file_name= '' if title is None else title, file_size='' if size is None else size, file_caption='')
+                    f_caption = CUSTOM_FILE_CAPTION.format(file_name='' if title is None else title, file_size='' if size is None else size, file_caption='')
                 except:
-                    return
+                    pass
             await msg.edit_caption(f_caption)
             return
         except:
             pass
         return await message.reply('No such file exist.')
+        
     files = files_[0]
     title = files.file_name
-    size=get_size(files.file_size)
-    f_caption=files.caption
+    size = get_size(files.file_size)
+    f_caption = files.caption
+    
     if CUSTOM_FILE_CAPTION:
         try:
-            f_caption=CUSTOM_FILE_CAPTION.format(file_name= '' if title is None else title, file_size='' if size is None else size, file_caption='' if f_caption is None else f_caption)
+            f_caption = CUSTOM_FILE_CAPTION.format(file_name='' if title is None else title, file_size='' if size is None else size, file_caption='' if f_caption is None else f_caption)
         except Exception as e:
             logger.exception(e)
-            f_caption=f_caption
-    if f_caption is None:
+            
+    if not f_caption:
         f_caption = f"{files.file_name}"
-    await client.send_cached_media(
+        
+    # FIX APPLIED HERE: Assigned the sent message to 'msg' so it can be replied to and deleted later
+    msg = await client.send_cached_media(
         chat_id=message.from_user.id,
         file_id=file_id,
         caption=f_caption,
-        
-        reply_markup=InlineKeyboardMarkup( [ [InlineKeyboardButton("🎥 ಕನ್ನಡ ಹೊಸ ಮೂವೀಗಳು 🎥", url="https://t.me/Sandalwood_kannada_moviesz")] ] ),
-        
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🎥 ಕನ್ನಡ ಹೊಸ ಮೂವೀಗಳು 🎥", url="https://t.me/Sandalwood_kannada_moviesz")]]),
         protect_content=True if pre == 'filep' else False,
-        )
-                    
+    )
+    
+    k = await msg.reply(f"<b><u>❗️❗️❗️IMPORTANT❗️️❗️❗️</u></b>\n\nᴛʜɪꜱ ᴍᴏᴠɪᴇ ꜰɪʟᴇ/ᴠɪᴅᴇᴏ ᴡɪʟʟ ʙᴇ ᴅᴇʟᴇᴛᴇᴅ ɪɴ <b><u><code>4 Hours</code></u> 🫥 <i></b>(ᴅᴜᴇ ᴛᴏ ᴄᴏᴘʏʀɪɢʜᴛ ɪꜱꜱᴜᴇꜱ)</i>.\n\n<b><i>ᴘʟᴇᴀꜱᴇ ꜰᴏʀᴡᴀʀᴅ ᴛʜɪꜱ ꜰɪʟᴇ ᴛᴏ ꜱᴏᴍᴇᴡʜᴇʀᴇ ᴇʟꜱᴇ ᴀɴᴅ ꜱᴛᴀʀᴛ ᴅᴏᴡɴʟᴏᴀᴅɪɴɢ ᴛʜᴇʀᴇ Team: @KR_Picture</i></b>", quote=True)     
+    
+    await asyncio.sleep(DELETE_TIME)
+    
+    # Safe deletion
+    try:
+        await msg.delete()
+        await k.edit_text("<b>ʏᴏᴜʀ ᴠɪᴅᴇᴏ / ꜰɪʟᴇ ɪꜱ ꜱᴜᴄᴄᴇꜱꜱꜰᴜʟʟʏ ᴅᴇʟᴇᴛᴇᴅ !!. ᴛᴇᴀᴍ: @KR_Picture</b>")
+    except Exception:
+        pass
+
 
 @Client.on_message(filters.command('channel') & filters.user(ADMINS))
 async def channel_info(bot, message):
-           
     """Send basic information of channel"""
     if isinstance(CHANNELS, (int, str)):
         channels = [CHANNELS]
@@ -263,9 +285,6 @@ async def channel_info(bot, message):
         os.remove(file)
 
 
-# -------------------------
-# Logs command (admin-only)
-# -------------------------
 @Client.on_message(filters.command("logs") & filters.user(ADMINS))
 async def send_logs(bot: Client, message):
     """Send latest bot log file"""
@@ -278,9 +297,7 @@ async def send_logs(bot: Client, message):
         logger.exception("send_logs failed")
         await message.reply_text(f"❌ Failed to send logs:\n`{e}`")
 
-# -------------------------
-# Restart command
-# -------------------------
+
 @Client.on_message(filters.command("restart") & filters.user(ADMINS))
 async def restart_bot(bot: Client, message):
     buttons = [[InlineKeyboardButton("✅ Confirm Restart", callback_data="confirm_restart")]]
@@ -298,10 +315,6 @@ async def confirm_restart_callback(bot: Client, query: CallbackQuery):
         logger.exception("confirm_restart_callback failed")
 
 
-
-# -------------------------
-# Delete command (admin)
-# -------------------------
 @Client.on_message(filters.command("delete") & filters.user(ADMINS))
 async def delete_file(bot: Client, message):
     """
@@ -323,7 +336,6 @@ async def delete_file(bot: Client, message):
                 await message.reply_text(f"❌ Error while deleting:\n`{e}`")
             return
 
-        # reply-to-message flow
         reply = message.reply_to_message
         if not (reply and reply.media):
             await message.reply_text("Usage:\n`/delete <file_id>`\nOr reply to file with /delete", quote=True)
@@ -356,7 +368,6 @@ async def delete_file(bot: Client, message):
             await msg.edit_text("File is successfully deleted from database")
             return
 
-        # try with original file_name
         res = await Media.collection.delete_many({
             "file_name": media.file_name,
             "file_size": media.file_size,
@@ -370,9 +381,6 @@ async def delete_file(bot: Client, message):
         logger.exception("delete_file failed")
 
 
-# -------------------------
-# Delete all indexed files (admin)
-# -------------------------
 @Client.on_message(filters.command("deleteallfiles") & filters.user(ADMINS))
 async def delete_all_files(bot: Client, message):
     buttons = [[InlineKeyboardButton("🔥 Confirm Delete All Files", callback_data="confirm_delete_all_files")]]
@@ -396,6 +404,7 @@ async def confirm_delete_all_files(bot: Client, query: CallbackQuery):
             await query.edit_message_text("❌ Error deleting files.")
         except Exception:
             pass
+
 
 @Client.on_message(filters.command('settings'))
 async def settings(client, message):
@@ -500,9 +509,6 @@ async def settings(client, message):
         )
 
 
-# -------------------------
-# Delete entire DB (admin)
-# -------------------------
 @Client.on_message(filters.command("deletealldb") & filters.user(ADMINS))
 async def delete_all_database(bot: Client, message):
     buttons = [[InlineKeyboardButton("🚨 Confirm Delete ALL DB", callback_data="confirm_delete_all_db")]]
@@ -535,6 +541,7 @@ async def confirm_delete_all_db(bot: Client, query: CallbackQuery):
             await query.edit_message_text("❌ Error deleting database.")
         except Exception:
             pass
+
 
 @Client.on_message(filters.command('set_template'))
 async def save_template(client, message):
@@ -575,6 +582,7 @@ async def save_template(client, message):
 
     if len(message.command) < 2:
         return await sts.edit("No Input!!")
+        
     template = message.text.split(" ", 1)[1]
     await save_group_settings(grp_id, 'template', template)
     await sts.edit(f"Successfully changed template for {title} to\n\n{template}")
