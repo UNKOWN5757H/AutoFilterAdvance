@@ -46,6 +46,20 @@ class Bot(Client):
     async def stop(self, *args):
         await super().stop()
         logging.info("Bot stopped. Bye.")
+
+    # ----------------------------- Auto delete PM media -------------------------
+@Client.on_message(filters.private & ~filters.service)
+async def auto_delete_user_media_pm(client: Client, message: Message):
+    user = message.from_user
+    if not user or message.outgoing:
+        return
+
+    if any([message.document, message.video, message.audio, message.voice, message.photo, message.video_note]):
+        await asyncio.sleep(14400)  # Wait 4 hours
+        try:
+            await message.delete()
+        except Exception as e:
+            print(f"Delete error: {e}")
     
     async def iter_messages(
         self,
