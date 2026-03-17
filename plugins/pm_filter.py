@@ -448,7 +448,6 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 chat_id=query.from_user.id,
                 text=f"<blockquote><b><u>❗️❗️❗️IMPORTANT❗️️❗️❗️</u></b>\n\n⚠️ File will be deleted in 4 hour\n\n📌 Save or forward it.</blockquote>")
                 
-            # FIXED: Avoid worker starvation
             async def delete_and_notify():
                 await asyncio.sleep(14400)
                 try:
@@ -697,10 +696,18 @@ async def auto_filter(client, msg, spoll=False):
     pre = 'filep' if settings['file_secure'] else 'file'
 
     if settings["button"]:
-        btn = [[InlineKeyboardButton(text=f"{get_size(file.file_size)} | {file.file_name}", url=f"https://t.me/{temp.U_NAME}?start={pre}_{file.file_id}")]] for file in files
+        btn = [
+            [InlineKeyboardButton(text=f"{get_size(file.file_size)} | {file.file_name}", url=f"https://t.me/{temp.U_NAME}?start={pre}_{file.file_id}")]
+            for file in files
+        ]
     else:
-        btn = [[InlineKeyboardButton(text=f"{file.file_name}", url=f"https://t.me/{temp.U_NAME}?start={pre}_{file.file_id}"),
-                InlineKeyboardButton(text=f"{get_size(file.file_size)}", url=f"https://t.me/{temp.U_NAME}?start={pre}_{file.file_id}")]] for file in files
+        btn = [
+            [
+                InlineKeyboardButton(text=f"{file.file_name}", url=f"https://t.me/{temp.U_NAME}?start={pre}_{file.file_id}"),
+                InlineKeyboardButton(text=f"{get_size(file.file_size)}", url=f"https://t.me/{temp.U_NAME}?start={pre}_{file.file_id}")
+            ]
+            for file in files
+        ]
 
     btn.insert(0, [InlineKeyboardButton("•  Bᴀᴄᴋ Uᴘ Cʜᴀɴɴᴇʟ  •", url="https://t.me/KR_PICTURE")])
 
@@ -724,7 +731,7 @@ async def auto_filter(client, msg, spoll=False):
         except MessageIdInvalid:
             pass
             
-    # FIXED: Send deletion to background task to prevent worker starvation
+    # Send deletion to background task to prevent worker starvation
     asyncio.create_task(delete_message_after_delay(m, DELETE_TIME))
 
 
@@ -742,7 +749,6 @@ async def advantage_spell_chok(msg):
             photo=FILE_NOT_FOUND_PIC,
             caption="<b>🚫 File not found. Please note👇\n \n✅ Use correct spelling as given in Google. \n \n✅ DO NOT ask for files which are not released in OTT.\n \n✅ Request movies in this format - (Moviename) (Year of release) \nEg. Jai Ganesh 2024 </b>"
         )
-        # FIXED: Background deletion
         asyncio.create_task(delete_message_after_delay(k, DELETE_TIME))
         return
         
@@ -779,7 +785,6 @@ async def advantage_spell_chok(msg):
             photo=FILE_NOT_FOUND_PIC,
             caption="<b>🚫 File not found. Please note👇\n \n✅ Use correct spelling as given in Google. \n \n✅ DO NOT ask for files which are not released in OTT.\n \n✅ Request movies in this format - (Moviename) (Year of release) \nEg. Jai Ganesh 2024 </b>"
         )
-        # FIXED: Background deletion
         asyncio.create_task(delete_message_after_delay(k, DELETE_TIME))
         return
         
@@ -840,9 +845,7 @@ async def manual_filters(client, message, text=False):
                             reply_to_message_id=reply_id
                         )
                     
-                    # ----------------------------------------------------
-                    # NEW: Trigger the background deletion task safely
-                    # ----------------------------------------------------
+                    # Trigger the background deletion task safely for manual filters
                     if sent_msg:
                         asyncio.create_task(delete_message_after_delay(sent_msg, DELETE_TIME))
 
