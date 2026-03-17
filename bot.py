@@ -1,5 +1,6 @@
 import logging
 import logging.config
+import asyncio  # Added to support asyncio.sleep()
 
 # Get logging configurations
 logging.config.fileConfig('logging.conf')
@@ -7,14 +8,15 @@ logging.getLogger().setLevel(logging.INFO)
 logging.getLogger("pyrogram").setLevel(logging.ERROR)
 logging.getLogger("imdbpy").setLevel(logging.ERROR)
 
-from pyrogram import Client, __version__
+from typing import Union, Optional, AsyncGenerator
+from pyrogram import Client, filters, types, __version__  # Added filters
+from pyrogram.types import Message  # Added Message
 from pyrogram.raw.all import layer
+
 from database.ia_filterdb import Media
 from database.users_chats_db import db
 from info import SESSION, API_ID, API_HASH, BOT_TOKEN, LOG_STR
 from utils import temp
-from typing import Union, Optional, AsyncGenerator
-from pyrogram import types
 
 class Bot(Client):
 
@@ -47,20 +49,7 @@ class Bot(Client):
         await super().stop()
         logging.info("Bot stopped. Bye.")
 
-    # ----------------------------- Auto delete PM media -------------------------
-@Client.on_message(filters.private & ~filters.service)
-async def auto_delete_user_media_pm(client: Client, message: Message):
-    user = message.from_user
-    if not user or message.outgoing:
-        return
-
-    if any([message.document, message.video, message.audio, message.voice, message.photo, message.video_note]):
-        await asyncio.sleep(14400)  # Wait 4 hours
-        try:
-            await message.delete()
-        except Exception as e:
-            print(f"Delete error: {e}")
-    
+    # Moved inside the Bot class where 'self' is valid
     async def iter_messages(
         self,
         chat_id: Union[int, str],
@@ -71,24 +60,6 @@ async def auto_delete_user_media_pm(client: Client, message: Message):
         This convenience method does the same as repeatedly calling :meth:`~pyrogram.Client.get_messages` in a loop, thus saving
         you from the hassle of setting up boilerplate code. It is useful for getting the whole chat messages with a
         single call.
-        Parameters:
-            chat_id (``int`` | ``str``):
-                Unique identifier (int) or username (str) of the target chat.
-                For your personal cloud (Saved Messages) you can simply use "me" or "self".
-                For a contact that exists in your Telegram address book you can use his phone number (str).
-                
-            limit (``int``):
-                Identifier of the last message to be returned.
-                
-            offset (``int``, *optional*):
-                Identifier of the first message to be returned.
-                Defaults to 0.
-        Returns:
-            ``Generator``: A generator yielding :obj:`~pyrogram.types.Message` objects.
-        Example:
-            .. code-block:: python
-                for message in app.iter_messages("pyrogram", 1, 15000):
-                    print(message.text)
         """
         current = offset
         while True:
@@ -101,5 +72,21 @@ async def auto_delete_user_media_pm(client: Client, message: Message):
                 current += 1
 
 
-app = Bot()
-app.run()
+# ----------------------------- Auto delete PM media -------------------------
+@Client.on_message(filters.private & ~filters.service)
+async def auto_delete_user_media_pm(client: Client, message: Message):
+    user = message.from_user
+    if not user or message.outgoing:
+        return
+
+    if any([message.document, message.video, message.audio, message.voice, message.photo, message.video_note]):
+        await asyncio.sleep(14400)  # Wait 4 hours
+        try:
+            await message.delete()
+        except Exception as e:
+            print(f"Delete error: {e}")
+
+
+if __name__ == "__main__":
+    app = Bot()
+    app.run()
