@@ -465,8 +465,8 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 ]
             ]
             
-            # Show Help and About ONLY to Admins
-            if str(query.from_user.id) in ADMINS:
+            # Show Help and About ONLY to Admins (Handles both INT and STR)
+            if query.from_user.id in ADMINS or str(query.from_user.id) in ADMINS:
                 buttons.append([
                     InlineKeyboardButton('ℹ️ 𝙷𝚎𝚕𝚙', callback_data='help'),
                     InlineKeyboardButton('😊 𝙰𝚋𝚘𝚞𝚝', callback_data='about')
