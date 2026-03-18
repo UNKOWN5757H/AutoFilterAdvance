@@ -17,7 +17,6 @@ client = AsyncIOMotorClient(DATABASE_URI)
 db = client[DATABASE_NAME]
 instance = Instance.from_db(db)
 
-
 @instance.register
 class Media(Document):
     file_id = fields.StrField(attribute='_id')
@@ -32,13 +31,7 @@ class Media(Document):
         indexes = ('$file_name', )
         collection_name = COLLECTION_NAME
 
-
 async def save_batch(media_list):
-    """
-    ULTRA SPEED BULK INSERT: 
-    Saves a list of media objects to the database in a single network request.
-    Returns: (inserted_count, duplicate_count, error_count)
-    """
     if not media_list:
         return 0, 0, 0
 
@@ -46,13 +39,10 @@ async def save_batch(media_list):
     for media in media_list:
         try:
             file_id, file_ref = unpack_new_file_id(media.file_id)
-            # Safely get file_name, fallback to empty string if missing
             raw_name = getattr(media, "file_name", "") or ""
             file_name = re.sub(r"(_|\-|\.|\+)", " ", str(raw_name))
-            
             caption = getattr(media, "caption", None)
             
-            # Construct standard dictionary for raw Motor insertion (faster than ODM mapping)
             doc = {
                 "_id": file_id,
                 "file_ref": file_ref,
@@ -70,19 +60,15 @@ async def save_batch(media_list):
         return 0, 0, len(media_list)
 
     try:
-        # ordered=False tells MongoDB to keep inserting the rest even if it hits a duplicate
         result = await db[COLLECTION_NAME].insert_many(documents, ordered=False)
         return len(result.inserted_ids), 0, 0
     except BulkWriteError as bwe:
-        # Tally up successful inserts, duplicates (error code 11000), and other errors
         inserted = bwe.details.get('nInserted', 0)
         duplicates = sum(1 for err in bwe.details.get('writeErrors', []) if err['code'] == 11000)
         errors = len(media_list) - inserted - duplicates
         return inserted, duplicates, errors
 
-
 async def save_file(media):
-    """Save single file in database (Kept for backward compatibility)"""
     file_id, file_ref = unpack_new_file_id(media.file_id)
     raw_name = getattr(media, "file_name", "") or ""
     file_name = re.sub(r"(_|\-|\.|\+)", " ", str(raw_name))
@@ -110,9 +96,7 @@ async def save_file(media):
         logger.exception(f'Error saving file: {e}')
         return False, 2
 
-
 async def get_search_results(query, file_type=None, max_results=10, offset=0, filter=False):
-    """For given query return (results, next_offset, total_results)"""
     query = query.strip()
     
     if not query:
@@ -145,13 +129,11 @@ async def get_search_results(query, file_type=None, max_results=10, offset=0, fi
     files = await cursor.to_list(length=max_results)
     return files, next_offset, total_results
 
-
 async def get_file_details(query):
-    filter = {'_id': query} # Changed to '_id' to match database schema correctly
+    filter = {'_id': query} 
     cursor = Media.find(filter)
     filedetails = await cursor.to_list(length=1)
     return filedetails
-
 
 def encode_file_id(s: bytes) -> str:
     r = b""
@@ -166,15 +148,11 @@ def encode_file_id(s: bytes) -> str:
             r += bytes([i])
     return base64.urlsafe_b64encode(r).decode().rstrip("=")
 
-
 def encode_file_ref(file_ref: bytes) -> str:
     return base64.urlsafe_b64encode(file_ref).decode().rstrip("=")
 
-
 def unpack_new_file_id(new_file_id):
-    """Return file_id, file_ref"""
     decoded = FileId.decode(new_file_id)
-    # Handle Pyrogram 2.x ENUM conversions gracefully
     file_type = getattr(decoded.file_type, 'value', decoded.file_type) 
     
     file_id = encode_file_id(
