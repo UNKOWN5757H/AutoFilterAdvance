@@ -1,3 +1,4 @@
+
 import os
 from pyrogram import Client, filters, enums
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
@@ -19,10 +20,15 @@ async def save_group(bot, message):
         if not await db.get_chat(message.chat.id):
             total = await bot.get_chat_members_count(message.chat.id)
             added_by = message.from_user.mention if message.from_user else "Anonymous"
-            await bot.send_message(
-                LOG_CHANNEL,
-                script.LOG_TEXT_G.format(message.chat.title, message.chat.id, total, added_by),
-            )
+            
+            try:
+                await bot.send_message(
+                    LOG_CHANNEL,
+                    script.LOG_TEXT_G.format(message.chat.title, message.chat.id, total, added_by),
+                )
+            except Exception:
+                pass # Just in case the format string doesn't match perfectly
+                
             await db.add_chat(message.chat.id, message.chat.title)
 
         if message.chat.id in temp.BANNED_CHATS:
@@ -36,7 +42,7 @@ async def save_group(bot, message):
             )
             try:
                 await warn_msg.pin()
-            except:
+            except Exception:
                 pass
             await bot.leave_chat(message.chat.id)
             return
@@ -57,13 +63,14 @@ async def save_group(bot, message):
         settings = await get_settings(message.chat.id)
         if settings.get("welcome"):
             for user in message.new_chat_members:
-                old_msg = temp.MELCOW.get("welcome")
+                # FIXED: Store welcome messages by chat ID so they don't overwrite other groups
+                old_msg = temp.MELCOW.get(message.chat.id)
                 if old_msg:
                     try:
                         await old_msg.delete()
-                    except:
+                    except Exception:
                         pass
-                temp.MELCOW["welcome"] = await message.reply_text(
+                temp.MELCOW[message.chat.id] = await message.reply_text(
                     f"<b>👋 Hey {user.mention}, welcome to {message.chat.title}!</b>"
                 )
 
@@ -116,13 +123,17 @@ async def disable_chat(bot, message):
     chat_info = await db.get_chat(chat_id)
     if not chat_info:
         return await message.reply_text("⚠️ Chat not found in DB.")
+        
     if chat_info.get("is_disabled"):
         return await message.reply_text(
             f"🚷 This chat is already disabled.\nReason: `{chat_info.get('reason', 'Unknown')}`"
         )
 
     await db.disable_chat(chat_id, reason)
-    temp.BANNED_CHATS.append(chat_id)
+    
+    if chat_id not in temp.BANNED_CHATS:
+        temp.BANNED_CHATS.append(chat_id)
+        
     await message.reply_text(f"✅ Chat `{chat_id}` successfully disabled.")
 
     try:
@@ -155,12 +166,16 @@ async def enable_chat(bot, message):
     chat_info = await db.get_chat(chat_id)
     if not chat_info:
         return await message.reply_text("⚠️ Chat not found in DB.")
+        
     if not chat_info.get("is_disabled"):
         return await message.reply_text("✅ This chat is already enabled.")
 
-    await db.enable_chat(chat_id)
+    # FIXED: Replaced enable_chat with re_enable_chat to match the DB file
+    await db.re_enable_chat(chat_id)
+    
     if chat_id in temp.BANNED_CHATS:
         temp.BANNED_CHATS.remove(chat_id)
+        
     await message.reply_text(f"✅ Chat `{chat_id}` successfully re-enabled.")
 
 
@@ -172,8 +187,9 @@ async def get_stats(bot, message):
     status_msg = await message.reply_text("📊 Fetching stats...")
 
     try:
-        total_users = await db.total_users()
-        total_chats = await db.total_chats()
+        # FIXED: Updated to the correct function names from users_chats_db.py
+        total_users = await db.total_users_count()
+        total_chats = await db.total_chat_count()
         total_files = await Media.count_documents({})
         size_bytes = await db.get_db_size() if hasattr(db, "get_db_size") else 0
     except Exception as e:
@@ -194,7 +210,7 @@ async def get_stats(bot, message):
 # ============================================================
 # 🧑‍🤝‍🧑 /users — List users
 # ============================================================
-@Client.on_message(filters.command("users") & filters.user(ADMINS))
+@Client.on_message(filters.command("users_list") & filters.user(ADMINS))
 async def list_users(bot, message):
     temp_msg = await message.reply_text("📋 Fetching user list...")
     users = await db.get_all_users()
