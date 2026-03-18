@@ -55,11 +55,14 @@ async def start(client, message):
                 InlineKeyboardButton('🤖 Updates', url='https://t.me/Sandalwood_kannada_moviesz')
             ]
         ]
-        if str(message.from_user.id) in ADMINS:
+        
+        # Check both int and str formats
+        if message.from_user.id in ADMINS or str(message.from_user.id) in ADMINS:
             buttons.append([
                 InlineKeyboardButton('ℹ️ 𝙷𝚎𝚕𝚙', callback_data='help'),
                 InlineKeyboardButton('😊 𝙰𝚋𝚘𝚞𝚝', callback_data='about')
             ])
+            
         buttons.append([InlineKeyboardButton('© Dɪsᴄʟᴀɪᴍᴇʀ ©', callback_data='dics_btn')])
         # --- END ADMIN CHECK IMPLEMENTATION ---
         
@@ -84,11 +87,14 @@ async def start(client, message):
                 InlineKeyboardButton('🤖 Updates', url='https://t.me/Sandalwood_kannada_moviesz')
             ]
         ]
-        if str(message.from_user.id) in ADMINS:
+        
+        # Check both int and str formats
+        if message.from_user.id in ADMINS or str(message.from_user.id) in ADMINS:
             buttons.append([
                 InlineKeyboardButton('ℹ️ 𝙷𝚎𝚕𝚙', callback_data='help'),
                 InlineKeyboardButton('😊 𝙰𝚋𝚘𝚞𝚝', callback_data='about')
             ])
+            
         buttons.append([InlineKeyboardButton('© Dɪsᴄʟᴀɪᴍᴇʀ ©', callback_data='dics_btn')])
         # --- END ADMIN CHECK IMPLEMENTATION ---
         
