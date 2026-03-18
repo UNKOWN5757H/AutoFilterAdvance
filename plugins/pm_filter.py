@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.ERROR)
 
 BUTTONS = {}
+SPELL_CHECK = {} # FIX: Added missing global dictionary for spell checks
 DELETE_TIME = 14400  
 
 FILE_NOT_FOUND_PIC = "https://telegra.ph/file/c4f0458d30f61993aad45-086b84e8363b3c582e.jpg"
@@ -130,7 +131,6 @@ async def next_page(bot, query):
         
     try:
         await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(btn))
-    # FIXED: Handled MessageNotModified smoothly
     except (MessageNotModified, MessageIdInvalid):
         pass
     except FloodWait as e:
@@ -277,7 +277,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     reply_markup=keyboard,
                     parse_mode=enums.ParseMode.MARKDOWN
                 )
-            except (MessageIdInvalid, MessageNotModified): # FIXED
+            except (MessageIdInvalid, MessageNotModified):
                 pass
             return await query.answer('Join: @KR_PICTURE')
             
@@ -294,7 +294,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     await query.message.edit_text(f"Connected to **{title}**", parse_mode=enums.ParseMode.MARKDOWN)
                 else:
                     await query.message.edit_text('Some error occurred!!', parse_mode=enums.ParseMode.MARKDOWN)
-            except (MessageIdInvalid, MessageNotModified): # FIXED
+            except (MessageIdInvalid, MessageNotModified):
                 pass
             return await query.answer('Join: @KR_PICTURE')
             
@@ -311,7 +311,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     await query.message.edit_text(f"Disconnected from **{title}**", parse_mode=enums.ParseMode.MARKDOWN)
                 else:
                     await query.message.edit_text(f"Some error occurred!!", parse_mode=enums.ParseMode.MARKDOWN)
-            except (MessageIdInvalid, MessageNotModified): # FIXED
+            except (MessageIdInvalid, MessageNotModified):
                 pass
             return await query.answer('Join: @KR_PICTURE')
             
@@ -326,7 +326,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     await query.message.edit_text("Successfully deleted connection")
                 else:
                     await query.message.edit_text(f"Some error occurred!!", parse_mode=enums.ParseMode.MARKDOWN)
-            except (MessageIdInvalid, MessageNotModified): # FIXED
+            except (MessageIdInvalid, MessageNotModified):
                 pass
             return await query.answer('Join: @KR_PICTURE')
             
@@ -457,13 +457,24 @@ async def cb_handler(client: Client, query: CallbackQuery):
             await query.answer()
             
         elif query.data == "start":
+            # --- START ADMIN CHECK IMPLEMENTATION ---
             buttons = [
-                    [InlineKeyboardButton('💫 Group', url='http://t.me/Kannada_Filmy_Group'),
-                     InlineKeyboardButton('🤖 Updates', url='https://t.me/Sandalwood_kannada_moviesz')],
-                    [InlineKeyboardButton('ℹ️ 𝙷𝚎𝚕𝚙', callback_data='help'),
-                     InlineKeyboardButton('😊 𝙰𝚋𝚘𝚞𝚝', callback_data='about')],
-                    [InlineKeyboardButton('© Dɪsᴄʟᴀɪᴍᴇʀ ©', callback_data='dics_btn')]
+                [
+                    InlineKeyboardButton('💫 Group', url='http://t.me/Kannada_Filmy_Group'),
+                    InlineKeyboardButton('🤖 Updates', url='https://t.me/Sandalwood_kannada_moviesz')
                 ]
+            ]
+            
+            # Show Help and About ONLY to Admins
+            if str(query.from_user.id) in ADMINS:
+                buttons.append([
+                    InlineKeyboardButton('ℹ️ 𝙷𝚎𝚕𝚙', callback_data='help'),
+                    InlineKeyboardButton('😊 𝙰𝚋𝚘𝚞𝚝', callback_data='about')
+                ])
+                
+            buttons.append([InlineKeyboardButton('© Dɪsᴄʟᴀɪᴍᴇʀ ©', callback_data='dics_btn')])
+            # --- END ADMIN CHECK IMPLEMENTATION ---
+
             try:
                 await query.message.edit_text(
                     text=script.START_TXT.format(mention=query.from_user.mention, uname=temp.U_NAME, bname=temp.B_NAME),
@@ -660,7 +671,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 ]
                 try:
                     await query.message.edit_reply_markup(InlineKeyboardMarkup(buttons))
-                except (MessageIdInvalid, MessageNotModified): # FIXED
+                except (MessageIdInvalid, MessageNotModified):
                     pass
                     
     except QueryIdInvalid:
@@ -740,11 +751,11 @@ async def advantage_spell_chok(msg):
     gs_parsed = []
     
     if not g_s:
-        k = await msg.reply_photo(
+        not_found_msg = await msg.reply_photo(
             photo=FILE_NOT_FOUND_PIC,
             caption="<b>🚫 File not found. Please note👇\n \n✅ Use correct spelling as given in Google. \n \n✅ DO NOT ask for files which are not released in OTT.\n \n✅ Request movies in this format - (Moviename) (Year of release) \nEg. Jai Ganesh 2024 </b>"
         )
-        asyncio.create_task(delete_message_after_delay(k, DELETE_TIME))
+        asyncio.create_task(delete_message_after_delay(not_found_msg, DELETE_TIME))
         return
         
     regex = re.compile(r".*(imdb|wikipedia).*", re.IGNORECASE)
@@ -776,15 +787,15 @@ async def advantage_spell_chok(msg):
     movielist = list(dict.fromkeys(movielist))
     
     if not movielist:
-        k = await msg.reply_photo(
+        not_found_msg = await msg.reply_photo(
             photo=FILE_NOT_FOUND_PIC,
             caption="<b>🚫 File not found. Please note👇\n \n✅ Use correct spelling as given in Google. \n \n✅ DO NOT ask for files which are not released in OTT.\n \n✅ Request movies in this format - (Moviename) (Year of release) \nEg. Jai Ganesh 2024 </b>"
         )
-        asyncio.create_task(delete_message_after_delay(k, DELETE_TIME))
+        asyncio.create_task(delete_message_after_delay(not_found_msg, DELETE_TIME))
         return
         
     SPELL_CHECK[msg.id] = movielist
-    btn = [[InlineKeyboardButton(text=movie.strip(), callback_data=f"spolling#{user}#{k}")] for k, movie in enumerate(movielist)]
+    btn = [[InlineKeyboardButton(text=movie.strip(), callback_data=f"spolling#{user}#{idx}")] for idx, movie in enumerate(movielist)]
     btn.append([InlineKeyboardButton(text="Close", callback_data=f'spolling#{user}#close_spellcheck')])
     await msg.reply("<b>I couldn't find anything related to that Did you mean any one of these?</b>",
                     reply_markup=InlineKeyboardMarkup(btn))
