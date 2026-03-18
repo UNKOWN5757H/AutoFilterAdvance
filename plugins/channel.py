@@ -11,13 +11,19 @@ from info import ADMINS
 @Client.on_message(filters.command("users") & filters.user(ADMINS))
 async def list_users(bot: Client, message):
     """List all registered users."""
-    users = await db.get_all_users()
+    users_data = await db.get_all_users()
+    
+    # FIXED: Convert Cursor to list before calling len()
+    if hasattr(users_data, 'to_list'):
+        users = await users_data.to_list(length=None)
+    else:
+        users = list(users_data)
+        
     total = len(users)
 
     if total == 0:
         return await message.reply_text("⚠️ No users found in the database.")
 
-    # Prepare export file
     text = "🧍 **User List Export**\n\n"
     text += f"📅 Generated on: `{datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC`\n"
     text += f"👥 Total Users: `{total}`\n\n"
@@ -38,13 +44,19 @@ async def list_users(bot: Client, message):
 @Client.on_message(filters.command("chats") & filters.user(ADMINS))
 async def list_chats(bot: Client, message):
     """List all registered group chats."""
-    chats = await db.get_all_chats()
+    chats_data = await db.get_all_chats()
+    
+    # FIXED: Convert Cursor to list
+    if hasattr(chats_data, 'to_list'):
+        chats = await chats_data.to_list(length=None)
+    else:
+        chats = list(chats_data)
+        
     total = len(chats)
 
     if total == 0:
         return await message.reply_text("⚠️ No groups found in the database.")
 
-    # Filter only groups
     groups = [chat for chat in chats if not str(chat["id"]).startswith("-100")]
     supergroups = [chat for chat in chats if str(chat["id"]).startswith("-100")]
 
@@ -69,7 +81,14 @@ async def list_chats(bot: Client, message):
 @Client.on_message(filters.command(["channel", "channels"]) & filters.user(ADMINS))
 async def list_channels(bot: Client, message):
     """List all channels where the bot is present."""
-    chats = await db.get_all_chats()
+    chats_data = await db.get_all_chats()
+    
+    # FIXED: Convert Cursor to list
+    if hasattr(chats_data, 'to_list'):
+        chats = await chats_data.to_list(length=None)
+    else:
+        chats = list(chats_data)
+        
     channels = [chat for chat in chats if str(chat["id"]).startswith("-100")]
     total = len(channels)
 
