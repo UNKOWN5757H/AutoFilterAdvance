@@ -48,13 +48,21 @@ async def start(client, message):
         await client.send_message(LOG_CHANNEL, script.LOG_TEXT_P.format(message.from_user.id, message.from_user.mention))
         
     if len(message.command) != 2:
+        # --- START ADMIN CHECK IMPLEMENTATION ---
         buttons = [
-                [InlineKeyboardButton('💫 Group', url='http://t.me/Kannada_Filmy_Group'),
-                 InlineKeyboardButton('🤖 Updates', url='https://t.me/Sandalwood_kannada_moviesz')],
-                [InlineKeyboardButton('ℹ️ 𝙷𝚎𝚕𝚙', callback_data='help'),
-                 InlineKeyboardButton('😊 𝙰𝚋𝚘𝚞𝚝', callback_data='about')],
-                [InlineKeyboardButton('© Dɪsᴄʟᴀɪᴍᴇʀ ©', callback_data='dics_btn')]
+            [
+                InlineKeyboardButton('💫 Group', url='http://t.me/Kannada_Filmy_Group'),
+                InlineKeyboardButton('🤖 Updates', url='https://t.me/Sandalwood_kannada_moviesz')
             ]
+        ]
+        if str(message.from_user.id) in ADMINS:
+            buttons.append([
+                InlineKeyboardButton('ℹ️ 𝙷𝚎𝚕𝚙', callback_data='help'),
+                InlineKeyboardButton('😊 𝙰𝚋𝚘𝚞𝚝', callback_data='about')
+            ])
+        buttons.append([InlineKeyboardButton('© Dɪsᴄʟᴀɪᴍᴇʀ ©', callback_data='dics_btn')])
+        # --- END ADMIN CHECK IMPLEMENTATION ---
+        
         reply_markup = InlineKeyboardMarkup(buttons)
         await message.reply_photo(
             photo=random.choice(PICS),
@@ -69,13 +77,21 @@ async def start(client, message):
             await ForceSub(client, message)
             return
 
+        # --- START ADMIN CHECK IMPLEMENTATION ---
         buttons = [
-                [InlineKeyboardButton('💫 Group', url='http://t.me/Kannada_Filmy_Group'),
-                 InlineKeyboardButton('🤖 Updates', url='https://t.me/Sandalwood_kannada_moviesz')],
-                [InlineKeyboardButton('ℹ️ 𝙷𝚎𝚕𝚙', callback_data='help'),
-                 InlineKeyboardButton('😊 𝙰𝚋𝚘𝚞𝚝', callback_data='about')],
-                [InlineKeyboardButton('© Dɪsᴄʟᴀɪᴍᴇʀ ©', callback_data='dics_btn')]
+            [
+                InlineKeyboardButton('💫 Group', url='http://t.me/Kannada_Filmy_Group'),
+                InlineKeyboardButton('🤖 Updates', url='https://t.me/Sandalwood_kannada_moviesz')
             ]
+        ]
+        if str(message.from_user.id) in ADMINS:
+            buttons.append([
+                InlineKeyboardButton('ℹ️ 𝙷𝚎𝚕𝚙', callback_data='help'),
+                InlineKeyboardButton('😊 𝙰𝚋𝚘𝚞𝚝', callback_data='about')
+            ])
+        buttons.append([InlineKeyboardButton('© Dɪsᴄʟᴀɪᴍᴇʀ ©', callback_data='dics_btn')])
+        # --- END ADMIN CHECK IMPLEMENTATION ---
+        
         reply_markup = InlineKeyboardMarkup(buttons)
         await message.reply_photo(
             photo=random.choice(PICS),
@@ -234,7 +250,6 @@ async def start(client, message):
     if not f_caption:
         f_caption = f"{files.file_name}"
         
-    # FIX APPLIED HERE: Assigned the sent message to 'msg' so it can be replied to and deleted later
     msg = await client.send_cached_media(
         chat_id=message.from_user.id,
         file_id=file_id,
@@ -247,7 +262,6 @@ async def start(client, message):
     
     await asyncio.sleep(DELETE_TIME)
     
-    # Safe deletion
     try:
         await msg.delete()
         await k.edit_text("<b>ʏᴏᴜʀ ᴠɪᴅᴇᴏ / ꜰɪʟᴇ ɪꜱ ꜱᴜᴄᴄᴇꜱꜱꜰᴜʟʟʏ ᴅᴇʟᴇᴛᴇᴅ !!. ᴛᴇᴀᴍ: @KR_Picture</b>")
@@ -257,7 +271,6 @@ async def start(client, message):
 
 @Client.on_message(filters.command('channel') & filters.user(ADMINS))
 async def channel_info(bot, message):
-    """Send basic information of channel"""
     if isinstance(CHANNELS, (int, str)):
         channels = [CHANNELS]
     elif isinstance(CHANNELS, list):
@@ -287,7 +300,6 @@ async def channel_info(bot, message):
 
 @Client.on_message(filters.command("logs") & filters.user(ADMINS))
 async def send_logs(bot: Client, message):
-    """Send latest bot log file"""
     try:
         if not os.path.exists(LOG_FILE) and not os.path.exists("TelegramBot.log"):
             return await message.reply_text("⚠️ Log file not found.")
@@ -317,10 +329,6 @@ async def confirm_restart_callback(bot: Client, query: CallbackQuery):
 
 @Client.on_message(filters.command("delete") & filters.user(ADMINS))
 async def delete_file(bot: Client, message):
-    """
-    Delete a specific file from DB using file_id.
-    Usage: /delete <file_id> (or reply to a message)
-    """
     try:
         if len(message.command) == 2:
             file_id = message.command[1].strip()
