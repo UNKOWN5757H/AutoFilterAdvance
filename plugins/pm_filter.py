@@ -21,15 +21,12 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.ERROR)
 
 BUTTONS = {}
-DELETE_TIME = 14400  # 4 Hours in seconds
-SPELL_CHECK = {}
+DELETE_TIME = 14400  
 
-# 👇 Put your "File Not Found" Image URL here 👇
 FILE_NOT_FOUND_PIC = "https://telegra.ph/file/c4f0458d30f61993aad45-086b84e8363b3c582e.jpg"
 
-# --- HELPER FUNCTION: Non-blocking deletion ---
+
 async def delete_message_after_delay(message, delay: int):
-    """Sleeps in the background and deletes the message without blocking the worker pool."""
     await asyncio.sleep(delay)
     try:
         await message.delete()
@@ -52,7 +49,7 @@ async def next_page(bot, query):
         if int(req) not in [query.from_user.id, 0]:
             return await query.answer("oKda", show_alert=True)
     except QueryIdInvalid:
-        pass # Callback expired
+        pass 
 
     try:
         offset = int(offset)
@@ -133,7 +130,8 @@ async def next_page(bot, query):
         
     try:
         await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(btn))
-    except MessageNotModified:
+    # FIXED: Handled MessageNotModified smoothly
+    except (MessageNotModified, MessageIdInvalid):
         pass
     except FloodWait as e:
         await asyncio.sleep(e.value)
@@ -141,8 +139,6 @@ async def next_page(bot, query):
             await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(btn))
         except Exception:
             pass
-    except MessageIdInvalid:
-        pass # Message was deleted before edit could happen
 
     try:
         await query.answer()
@@ -209,7 +205,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     except:
                         try:
                             await query.message.edit_text("Make sure I'm present in your group!!", quote=True)
-                        except MessageIdInvalid:
+                        except (MessageIdInvalid, MessageNotModified):
                             pass
                         return await query.answer('Join: @KR_PICTURE')
                 else:
@@ -218,7 +214,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                             "I'm not connected to any groups!\nCheck /connections or connect to any groups",
                             quote=True
                         )
-                    except MessageIdInvalid:
+                    except (MessageIdInvalid, MessageNotModified):
                         pass
                     return await query.answer('Join: @KR_PICTURE')
 
@@ -281,7 +277,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     reply_markup=keyboard,
                     parse_mode=enums.ParseMode.MARKDOWN
                 )
-            except MessageIdInvalid:
+            except (MessageIdInvalid, MessageNotModified): # FIXED
                 pass
             return await query.answer('Join: @KR_PICTURE')
             
@@ -298,7 +294,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     await query.message.edit_text(f"Connected to **{title}**", parse_mode=enums.ParseMode.MARKDOWN)
                 else:
                     await query.message.edit_text('Some error occurred!!', parse_mode=enums.ParseMode.MARKDOWN)
-            except MessageIdInvalid:
+            except (MessageIdInvalid, MessageNotModified): # FIXED
                 pass
             return await query.answer('Join: @KR_PICTURE')
             
@@ -315,7 +311,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     await query.message.edit_text(f"Disconnected from **{title}**", parse_mode=enums.ParseMode.MARKDOWN)
                 else:
                     await query.message.edit_text(f"Some error occurred!!", parse_mode=enums.ParseMode.MARKDOWN)
-            except MessageIdInvalid:
+            except (MessageIdInvalid, MessageNotModified): # FIXED
                 pass
             return await query.answer('Join: @KR_PICTURE')
             
@@ -330,7 +326,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     await query.message.edit_text("Successfully deleted connection")
                 else:
                     await query.message.edit_text(f"Some error occurred!!", parse_mode=enums.ParseMode.MARKDOWN)
-            except MessageIdInvalid:
+            except (MessageIdInvalid, MessageNotModified): # FIXED
                 pass
             return await query.answer('Join: @KR_PICTURE')
             
@@ -342,7 +338,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
             if groupids is None:
                 try:
                     await query.message.edit_text("There are no active connections!! Connect to some groups first.")
-                except MessageIdInvalid:
+                except (MessageIdInvalid, MessageNotModified):
                     pass
                 return await query.answer('Join: @KR_PICTURE')
                 
@@ -359,7 +355,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
             if buttons:
                 try:
                     await query.message.edit_text("Your connected group details ;\n\n", reply_markup=InlineKeyboardMarkup(buttons))
-                except MessageIdInvalid:
+                except (MessageIdInvalid, MessageNotModified):
                     pass
                     
         elif "alertmessage" in query.data:
@@ -474,7 +470,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     reply_markup=InlineKeyboardMarkup(buttons),
                     parse_mode=enums.ParseMode.HTML
                 )
-            except MessageIdInvalid:
+            except (MessageIdInvalid, MessageNotModified):
                 pass
             await query.answer('Join: @KR_PICTURE')
             
@@ -496,7 +492,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     reply_markup=InlineKeyboardMarkup(buttons),
                     parse_mode=enums.ParseMode.HTML
                 )
-            except MessageIdInvalid:
+            except (MessageIdInvalid, MessageNotModified):
                 pass
                 
         elif query.data == "about":
@@ -512,7 +508,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     reply_markup=InlineKeyboardMarkup(buttons),
                     parse_mode=enums.ParseMode.HTML
                 )
-            except MessageIdInvalid:
+            except (MessageIdInvalid, MessageNotModified):
                 pass
                 
         elif query.data == "dics_btn":
@@ -523,7 +519,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     reply_markup=InlineKeyboardMarkup(buttons),
                     parse_mode=enums.ParseMode.HTML
                 )
-            except MessageIdInvalid:
+            except (MessageIdInvalid, MessageNotModified):
                 pass
                 
         elif query.data == "fsubs":
@@ -534,7 +530,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     reply_markup=InlineKeyboardMarkup(buttons),
                     parse_mode=enums.ParseMode.HTML
                 )
-            except MessageIdInvalid:
+            except (MessageIdInvalid, MessageNotModified):
                 pass
                 
         elif query.data == "manuelfilter":
@@ -548,7 +544,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     reply_markup=InlineKeyboardMarkup(buttons),
                     parse_mode=enums.ParseMode.HTML
                 )
-            except MessageIdInvalid:
+            except (MessageIdInvalid, MessageNotModified):
                 pass
                 
         elif query.data == "button":
@@ -559,7 +555,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     reply_markup=InlineKeyboardMarkup(buttons),
                     parse_mode=enums.ParseMode.HTML
                 )
-            except MessageIdInvalid:
+            except (MessageIdInvalid, MessageNotModified):
                 pass
                 
         elif query.data == "autofilter":
@@ -570,7 +566,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     reply_markup=InlineKeyboardMarkup(buttons),
                     parse_mode=enums.ParseMode.HTML
                 )
-            except MessageIdInvalid:
+            except (MessageIdInvalid, MessageNotModified):
                 pass
                 
         elif query.data == "coct":
@@ -581,7 +577,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     reply_markup=InlineKeyboardMarkup(buttons),
                     parse_mode=enums.ParseMode.HTML
                 )
-            except MessageIdInvalid:
+            except (MessageIdInvalid, MessageNotModified):
                 pass
                 
         elif query.data == "extra":
@@ -595,7 +591,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     reply_markup=InlineKeyboardMarkup(buttons),
                     parse_mode=enums.ParseMode.HTML
                 )
-            except MessageIdInvalid:
+            except (MessageIdInvalid, MessageNotModified):
                 pass
                 
         elif query.data == "admin":
@@ -606,7 +602,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     reply_markup=InlineKeyboardMarkup(buttons),
                     parse_mode=enums.ParseMode.HTML
                 )
-            except MessageIdInvalid:
+            except (MessageIdInvalid, MessageNotModified):
                 pass
                 
         elif query.data in ["stats", "rfrsh"]:
@@ -632,7 +628,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     reply_markup=InlineKeyboardMarkup(buttons),
                     parse_mode=enums.ParseMode.HTML
                 )
-            except MessageIdInvalid:
+            except (MessageIdInvalid, MessageNotModified):
                 pass
                 
         elif query.data.startswith("setgs"):
@@ -642,7 +638,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
             if str(grp_id) != str(grpid):
                 try:
                     await query.message.edit("Your Active Connection Has Been Changed. Go To /settings.")
-                except MessageIdInvalid:
+                except (MessageIdInvalid, MessageNotModified):
                     pass
                 return await query.answer('Join: @KR_PICTURE')
 
@@ -664,11 +660,11 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 ]
                 try:
                     await query.message.edit_reply_markup(InlineKeyboardMarkup(buttons))
-                except MessageIdInvalid:
+                except (MessageIdInvalid, MessageNotModified): # FIXED
                     pass
                     
     except QueryIdInvalid:
-        pass # Blanket catch for any unhandled expired callbacks
+        pass 
 
 
 async def auto_filter(client, msg, spoll=False):
@@ -731,7 +727,6 @@ async def auto_filter(client, msg, spoll=False):
         except MessageIdInvalid:
             pass
             
-    # Send deletion to background task to prevent worker starvation
     asyncio.create_task(delete_message_after_delay(m, DELETE_TIME))
 
 
@@ -811,7 +806,7 @@ async def manual_filters(client, message, text=False):
 
             if btn is not None:
                 try:
-                    sent_msg = None  # Variable to store the sent message
+                    sent_msg = None  
                     
                     if fileid == "None":
                         if btn == "[]":
@@ -845,7 +840,6 @@ async def manual_filters(client, message, text=False):
                             reply_to_message_id=reply_id
                         )
                     
-                    # Trigger the background deletion task safely for manual filters
                     if sent_msg:
                         asyncio.create_task(delete_message_after_delay(sent_msg, DELETE_TIME))
 
