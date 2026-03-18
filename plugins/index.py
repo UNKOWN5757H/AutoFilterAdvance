@@ -6,16 +6,15 @@ from pyrogram import Client, filters, enums
 from pyrogram.errors import (
     FloodWait, 
     ChannelInvalid, 
+    ChannelPrivate, # Added to handle 406 CHANNEL_PRIVATE
     ChatAdminRequired, 
     UsernameInvalid, 
     UsernameNotModified
 )
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-# Ensure these imports match your project structure
 from info import ADMINS
 from info import INDEX_REQ_CHANNEL as LOG_CHANNEL
-# Notice we are now importing the ultra-fast save_batch function!
 from database.ia_filterdb import save_batch
 from utils import temp
 
@@ -30,7 +29,6 @@ async def index_files(bot, query):
         temp.CANCEL = True
         return await query.answer("Cancelling Indexing...")
     
-    # Safely unpack callback data
     data_parts = query.data.split("#")
     if len(data_parts) != 5:
         return await query.answer("Invalid callback data.", show_alert=True)
@@ -69,7 +67,7 @@ async def index_files(bot, query):
     try:
         chat = int(chat)
     except ValueError:
-        pass # Keep as string if it's a username
+        pass 
         
     await index_files_to_db(int(lst_msg_id), chat, msg, bot)
 
@@ -85,7 +83,9 @@ async def send_for_index(bot, message):
         last_msg_id = int(match.group(5))
         if chat_id.isnumeric():
             chat_id = int(f"-100{chat_id}")
-    elif message.forward_from_chat.type == enums.ChatType.CHANNEL:
+            
+    # FIXED: Added safety check to prevent NoneType attribute error
+    elif message.forward_from_chat and message.forward_from_chat.type == enums.ChatType.CHANNEL:
         last_msg_id = message.forward_from_message_id
         chat_id = message.forward_from_chat.username or message.forward_from_chat.id
     else:
@@ -93,7 +93,8 @@ async def send_for_index(bot, message):
         
     try:
         await bot.get_chat(chat_id)
-    except ChannelInvalid:
+    # FIXED: Added ChannelPrivate to catch block
+    except (ChannelInvalid, ChannelPrivate):
         return await message.reply('This may be a private channel/group. Make me an admin over there to index the files.')
     except (UsernameInvalid, UsernameNotModified):
         return await message.reply('Invalid Link specified.')
@@ -170,7 +171,6 @@ async def index_files_to_db(lst_msg_id, chat, msg, bot):
             
             message_ids = list(range(current, lst_msg_id + 1))
             
-            # Fetch from Telegram in massive chunks of 200
             for i in range(0, len(message_ids), 200):
                 if temp.CANCEL:
                     await msg.edit(
@@ -187,7 +187,6 @@ async def index_files_to_db(lst_msg_id, chat, msg, bot):
                 chunk = message_ids[i:i + 200]
                 messages = []
                 
-                # Robust FloodWait handling loop
                 max_retries = 3
                 while max_retries > 0:
                     try:
@@ -198,15 +197,13 @@ async def index_files_to_db(lst_msg_id, chat, msg, bot):
                         max_retries -= 1
                         
                 if not messages:
-                    continue # Skip this chunk if we exhausted retries
+                    continue 
                 
-                # List to hold media objects for our bulk database insert
                 media_to_save = []
                 
                 for message in messages:
                     current += 1
                     
-                    # Update the UI message every 10 seconds safely
                     if time.time() - last_update_time > 10:
                         reply = InlineKeyboardMarkup([[InlineKeyboardButton('Cancel', callback_data='index_cancel')]])
                         try:
@@ -241,10 +238,8 @@ async def index_files_to_db(lst_msg_id, chat, msg, bot):
                     media.file_type = message.media.value
                     media.caption = message.caption
                     
-                    # Append valid media to our batch list!
                     media_to_save.append(media)
                 
-                # Push the entire chunk of files to MongoDB at the exact same time
                 if media_to_save:
                     saved, dups, errs = await save_batch(media_to_save)
                     total_files += saved
