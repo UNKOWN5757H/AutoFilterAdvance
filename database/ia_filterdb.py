@@ -28,7 +28,7 @@ class Media(Document):
     caption = fields.StrField(allow_none=True)
 
     class Meta:
-        indexes = ('$file_name', )
+        indexes = ('$file_name', ) # The '$' symbol tells uMongo/MongoDB to make this a Text Index
         collection_name = COLLECTION_NAME
 
 async def save_batch(media_list):
@@ -96,33 +96,57 @@ async def save_file(media):
         logger.exception(f'Error saving file: {e}')
         return False, 2
 
-async def get_search_results(query, file_type=None, max_results=10, offset=0, filter=False):
-    query = query.strip()
+async def get_search_results(query_text, file_type=None, max_results=10, offset=0, filter=False):
+    # Lazy import to avoid circular dependencies
+    from utils import parse_ultra_advanced_query
     
-    if not query:
-        raw_pattern = '.'
-    elif ' ' not in query:
-        raw_pattern = r'(\b|[\.\+\-_])' + query + r'(\b|[\.\+\-_])'
-    else:
-        raw_pattern = query.replace(' ', r'.*[\s\.\+\-_]')
+    parsed = parse_ultra_advanced_query(query_text)
+    conditions = []
     
-    try:
-        regex = re.compile(raw_pattern, flags=re.IGNORECASE)
-    except re.error:
-        return [], '', 0
+    # 1. Ultra-Fast MongoDB Native Text Search
+    if parsed["title_words"]:
+        # Wrapping each word in quotes forces MongoDB to use a strict 'AND' condition
+        strict_text_query = " ".join([f'"{word}"' for word in parsed["title_words"]])
+        conditions.append({"$text": {"$search": strict_text_query}})
+            
+    # 2. Strict TV Show Matching
+    if parsed["season"] is not None:
+        s_regex = rf"(s0?{parsed['season']}\b|season\s*0?{parsed['season']}\b)"
+        conditions.append({"file_name": {"$regex": s_regex, "$options": "i"}})
+        
+    if parsed["episode"] is not None:
+        e_regex = rf"(e0?{parsed['episode']}\b|ep\s*0?{parsed['episode']}\b|episode\s*0?{parsed['episode']}\b)"
+        conditions.append({"file_name": {"$regex": e_regex, "$options": "i"}})
+        
+    # 3. Add required Years, Qualities, and Languages
+    for y in parsed["years"]:
+        conditions.append({"file_name": {"$regex": rf"\b{y}\b", "$options": "i"}})
+    for q in parsed["qualities"]:
+        q_reg = q.replace(" ", ".*")
+        conditions.append({"file_name": {"$regex": q_reg, "$options": "i"}})
+    for l in parsed["languages"]:
+        conditions.append({"file_name": {"$regex": rf"\b{l}\b", "$options": "i"}})
 
-    db_filter = {'$or': [{'file_name': regex}, {'caption': regex}]} if USE_CAPTION_FILTER else {'file_name': regex}
-
+    # Fail-safe: if the user typed nothing but junk words and our parser emptied the string
+    if not conditions:
+        raw_pattern = query_text.replace(' ', r'.*[\s\.\+\-_]')
+        conditions.append({"file_name": {"$regex": raw_pattern, "$options": "i"}})
+        
+    # Combine everything
+    mongo_query = {"$and": conditions} if len(conditions) > 1 else conditions[0]
+    
     if file_type:
-        db_filter['file_type'] = file_type
+        mongo_query = {"$and": [mongo_query, {"file_type": file_type}]}
 
-    total_results = await Media.count_documents(db_filter)
+    # Get total count for pagination
+    total_results = await Media.count_documents(mongo_query)
+    
     next_offset = offset + max_results
-
     if next_offset > total_results:
         next_offset = ''
 
-    cursor = Media.find(db_filter)
+    # Search Database
+    cursor = Media.find(mongo_query)
     cursor.sort('$natural', -1)
     cursor.skip(offset).limit(max_results)
     
