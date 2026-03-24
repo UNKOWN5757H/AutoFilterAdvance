@@ -1,4 +1,4 @@
-# Kanged From @TroJanZheX (Refactored for Stability)
+
 import asyncio
 import re
 import ast
@@ -7,7 +7,17 @@ import logging
 
 from pyrogram import Client, filters, enums
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
-from pyrogram.errors import FloodWait, UserIsBlocked, MessageNotModified, PeerIdInvalid, MessageIdInvalid, QueryIdInvalid
+from pyrogram.errors import (
+    FloodWait, 
+    UserIsBlocked, 
+    MessageNotModified, 
+    PeerIdInvalid, 
+    MessageIdInvalid, 
+    QueryIdInvalid,
+    ChatSendPhotosForbidden,
+    ChatWriteForbidden,
+    Forbidden
+)
 
 from Script import script
 from database.connections_mdb import active_connection, all_connections, delete_connection, if_active, make_active, make_inactive
@@ -25,9 +35,11 @@ SPELL_CHECK = {}
 DELETE_TIME = 14400  
 
 FILE_NOT_FOUND_PIC = "https://telegra.ph/file/c4f0458d30f61993aad45-086b84e8363b3c582e.jpg"
-
+NOT_FOUND_TEXT = "<b>🚫 File not found. Please note👇\n \n✅ Use correct spelling as given in Google.\n \n✅ DO NOT ask for files which are not released in OTT.\n \n✅ Request movies in this format - (Moviename) (Year of release) \nEg. Jai Ganesh 2024 </b>"
 
 async def delete_message_after_delay(message, delay: int):
+    if not message:
+        return
     await asyncio.sleep(delay)
     try:
         await message.delete()
@@ -180,12 +192,23 @@ async def advantage_spoll_choker(bot, query):
             except MessageIdInvalid:
                 pass
                 
-            k_msg = await bot.send_photo(
-                chat_id=query.message.chat.id, 
-                photo=FILE_NOT_FOUND_PIC, 
-                caption="<b>🚫 File not found. Please note👇\n \n✅ Use correct spelling as given in Google.\n \n✅ DO NOT ask for files which are not released in OTT.\n \n✅ Request movies in this format - (Moviename) (Year of release) \nEg. Jai Ganesh 2024 </b>"
-            )
-            asyncio.create_task(delete_message_after_delay(k_msg, DELETE_TIME))
+            try:
+                k_msg = await bot.send_photo(
+                    chat_id=query.message.chat.id, 
+                    photo=FILE_NOT_FOUND_PIC, 
+                    caption=NOT_FOUND_TEXT
+                )
+            except ChatSendPhotosForbidden:
+                k_msg = await bot.send_message(
+                    chat_id=query.message.chat.id,
+                    text=f"{NOT_FOUND_TEXT}\n\n*(No photo attached due to chat permissions)*"
+                )
+            except Exception as e:
+                logger.error(f"Failed to send not_found message: {e}")
+                k_msg = None
+                
+            if k_msg:
+                asyncio.create_task(delete_message_after_delay(k_msg, DELETE_TIME))
 
 
 @Client.on_callback_query()
@@ -734,7 +757,13 @@ async def auto_filter(client, msg, spoll=False):
     mention = message.from_user.mention if message.from_user else "User"
     cap = f"Hey {mention} 👋🏻 \n\n➤ Title : {search} \n➤ Your Files Ready Now 👇"
 
-    m = await message.reply_text(cap, reply_markup=InlineKeyboardMarkup(btn))
+    try:
+        m = await message.reply_text(cap, reply_markup=InlineKeyboardMarkup(btn))
+    except Forbidden:
+        return
+    except Exception as e:
+        logger.error(f"Failed to send auto_filter reply: {e}")
+        return
 
     if spoll:
         try:
@@ -755,11 +784,21 @@ async def advantage_spell_chok(msg):
     gs_parsed = []
     
     if not g_s:
-        not_found_msg = await msg.reply_photo(
-            photo=FILE_NOT_FOUND_PIC,
-            caption="<b>🚫 File not found. Please note👇\n \n✅ Use correct spelling as given in Google. \n \n✅ DO NOT ask for files which are not released in OTT.\n \n✅ Request movies in this format - (Moviename) (Year of release) \nEg. Jai Ganesh 2024 </b>"
-        )
-        asyncio.create_task(delete_message_after_delay(not_found_msg, DELETE_TIME))
+        try:
+            not_found_msg = await msg.reply_photo(
+                photo=FILE_NOT_FOUND_PIC,
+                caption=NOT_FOUND_TEXT
+            )
+        except ChatSendPhotosForbidden:
+            not_found_msg = await msg.reply_text(
+                text=f"{NOT_FOUND_TEXT}\n\n*(No photo attached due to chat permissions)*"
+            )
+        except Exception as e:
+            logger.error(f"Failed to reply in spell_chok: {e}")
+            not_found_msg = None
+            
+        if not_found_msg:
+            asyncio.create_task(delete_message_after_delay(not_found_msg, DELETE_TIME))
         return
         
     regex = re.compile(r".*(imdb|wikipedia).*", re.IGNORECASE)
@@ -791,18 +830,31 @@ async def advantage_spell_chok(msg):
     movielist = list(dict.fromkeys(movielist))
     
     if not movielist:
-        not_found_msg = await msg.reply_photo(
-            photo=FILE_NOT_FOUND_PIC,
-            caption="<b>🚫 File not found. Please note👇\n \n✅ Use correct spelling as given in Google. \n \n✅ DO NOT ask for files which are not released in OTT.\n \n✅ Request movies in this format - (Moviename) (Year of release) \nEg. Jai Ganesh 2024 </b>"
-        )
-        asyncio.create_task(delete_message_after_delay(not_found_msg, DELETE_TIME))
+        try:
+            not_found_msg = await msg.reply_photo(
+                photo=FILE_NOT_FOUND_PIC,
+                caption=NOT_FOUND_TEXT
+            )
+        except ChatSendPhotosForbidden:
+            not_found_msg = await msg.reply_text(
+                text=f"{NOT_FOUND_TEXT}\n\n*(No photo attached due to chat permissions)*"
+            )
+        except Exception as e:
+            logger.error(f"Failed to reply in spell_chok empty movielist: {e}")
+            not_found_msg = None
+            
+        if not_found_msg:
+            asyncio.create_task(delete_message_after_delay(not_found_msg, DELETE_TIME))
         return
         
     SPELL_CHECK[msg.id] = movielist
     btn = [[InlineKeyboardButton(text=movie.strip(), callback_data=f"spolling#{user}#{idx}")] for idx, movie in enumerate(movielist)]
     btn.append([InlineKeyboardButton(text="Close", callback_data=f'spolling#{user}#close_spellcheck')])
-    await msg.reply("<b>I couldn't find anything related to that Did you mean any one of these?</b>",
-                    reply_markup=InlineKeyboardMarkup(btn))
+    
+    try:
+        await msg.reply("<b>I couldn't find anything related to that Did you mean any one of these?</b>", reply_markup=InlineKeyboardMarkup(btn))
+    except ChatWriteForbidden:
+        pass
 
 
 async def manual_filters(client, message, text=False):
@@ -858,6 +910,20 @@ async def manual_filters(client, message, text=False):
                     if sent_msg:
                         asyncio.create_task(delete_message_after_delay(sent_msg, DELETE_TIME))
 
+                except ChatSendPhotosForbidden:
+                    logger.warning(f"Blocked from sending media in {group_id}. Trying text fallback.")
+                    try:
+                        sent_msg = await client.send_message(
+                            group_id,
+                            text=f"{reply_text}\n\n*(Media blocked by chat permissions)*" if reply_text else "*(Media blocked by chat permissions)*",
+                            reply_to_message_id=reply_id
+                        )
+                        if sent_msg:
+                            asyncio.create_task(delete_message_after_delay(sent_msg, DELETE_TIME))
+                    except Exception:
+                        pass
+                except Forbidden:
+                    logger.error(f"Permission denied to send message/media in {group_id}.")
                 except Exception as e:
                     logger.exception(e)
             break
