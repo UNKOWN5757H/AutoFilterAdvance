@@ -1,4 +1,3 @@
-
 import asyncio
 import re
 import ast
@@ -14,8 +13,6 @@ from pyrogram.errors import (
     PeerIdInvalid, 
     MessageIdInvalid, 
     QueryIdInvalid,
-    ChatSendPhotosForbidden,
-    ChatWriteForbidden,
     Forbidden
 )
 
@@ -198,11 +195,15 @@ async def advantage_spoll_choker(bot, query):
                     photo=FILE_NOT_FOUND_PIC, 
                     caption=NOT_FOUND_TEXT
                 )
-            except ChatSendPhotosForbidden:
-                k_msg = await bot.send_message(
-                    chat_id=query.message.chat.id,
-                    text=f"{NOT_FOUND_TEXT}\n\n*(No photo attached due to chat permissions)*"
-                )
+            except Forbidden as e:
+                if "CHAT_SEND_PHOTOS_FORBIDDEN" in str(e):
+                    k_msg = await bot.send_message(
+                        chat_id=query.message.chat.id,
+                        text=f"{NOT_FOUND_TEXT}\n\n*(No photo attached due to chat permissions)*"
+                    )
+                else:
+                    logger.error(f"Failed to send not_found message due to permissions: {e}")
+                    k_msg = None
             except Exception as e:
                 logger.error(f"Failed to send not_found message: {e}")
                 k_msg = None
@@ -789,10 +790,14 @@ async def advantage_spell_chok(msg):
                 photo=FILE_NOT_FOUND_PIC,
                 caption=NOT_FOUND_TEXT
             )
-        except ChatSendPhotosForbidden:
-            not_found_msg = await msg.reply_text(
-                text=f"{NOT_FOUND_TEXT}\n\n*(No photo attached due to chat permissions)*"
-            )
+        except Forbidden as e:
+            if "CHAT_SEND_PHOTOS_FORBIDDEN" in str(e):
+                not_found_msg = await msg.reply_text(
+                    text=f"{NOT_FOUND_TEXT}\n\n*(No photo attached due to chat permissions)*"
+                )
+            else:
+                logger.error(f"Failed to reply in spell_chok due to permissions: {e}")
+                not_found_msg = None
         except Exception as e:
             logger.error(f"Failed to reply in spell_chok: {e}")
             not_found_msg = None
@@ -835,10 +840,14 @@ async def advantage_spell_chok(msg):
                 photo=FILE_NOT_FOUND_PIC,
                 caption=NOT_FOUND_TEXT
             )
-        except ChatSendPhotosForbidden:
-            not_found_msg = await msg.reply_text(
-                text=f"{NOT_FOUND_TEXT}\n\n*(No photo attached due to chat permissions)*"
-            )
+        except Forbidden as e:
+            if "CHAT_SEND_PHOTOS_FORBIDDEN" in str(e):
+                not_found_msg = await msg.reply_text(
+                    text=f"{NOT_FOUND_TEXT}\n\n*(No photo attached due to chat permissions)*"
+                )
+            else:
+                logger.error(f"Failed to reply in spell_chok empty movielist due to permissions: {e}")
+                not_found_msg = None
         except Exception as e:
             logger.error(f"Failed to reply in spell_chok empty movielist: {e}")
             not_found_msg = None
@@ -853,7 +862,7 @@ async def advantage_spell_chok(msg):
     
     try:
         await msg.reply("<b>I couldn't find anything related to that Did you mean any one of these?</b>", reply_markup=InlineKeyboardMarkup(btn))
-    except ChatWriteForbidden:
+    except Forbidden:
         pass
 
 
@@ -910,20 +919,21 @@ async def manual_filters(client, message, text=False):
                     if sent_msg:
                         asyncio.create_task(delete_message_after_delay(sent_msg, DELETE_TIME))
 
-                except ChatSendPhotosForbidden:
-                    logger.warning(f"Blocked from sending media in {group_id}. Trying text fallback.")
-                    try:
-                        sent_msg = await client.send_message(
-                            group_id,
-                            text=f"{reply_text}\n\n*(Media blocked by chat permissions)*" if reply_text else "*(Media blocked by chat permissions)*",
-                            reply_to_message_id=reply_id
-                        )
-                        if sent_msg:
-                            asyncio.create_task(delete_message_after_delay(sent_msg, DELETE_TIME))
-                    except Exception:
-                        pass
-                except Forbidden:
-                    logger.error(f"Permission denied to send message/media in {group_id}.")
+                except Forbidden as e:
+                    if "CHAT_SEND_PHOTOS_FORBIDDEN" in str(e) or "CHAT_SEND_MEDIA_FORBIDDEN" in str(e):
+                        logger.warning(f"Blocked from sending media in {group_id}. Trying text fallback.")
+                        try:
+                            sent_msg = await client.send_message(
+                                group_id,
+                                text=f"{reply_text}\n\n*(Media blocked by chat permissions)*" if reply_text else "*(Media blocked by chat permissions)*",
+                                reply_to_message_id=reply_id
+                            )
+                            if sent_msg:
+                                asyncio.create_task(delete_message_after_delay(sent_msg, DELETE_TIME))
+                        except Exception:
+                            pass
+                    else:
+                        logger.error(f"Permission denied to send message/media in {group_id}: {e}")
                 except Exception as e:
                     logger.exception(e)
             break
