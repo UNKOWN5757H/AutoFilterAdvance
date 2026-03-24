@@ -1,3 +1,4 @@
+
 import logging
 import asyncio
 import re
@@ -42,17 +43,67 @@ class temp(object):
     B_NAME = None
     SETTINGS = {}
 
+def parse_ultra_advanced_query(text):
+    """
+    Advanced parser that handles seasons, episodes, strips junk words, 
+    and normalizes punctuation for bulletproof search accuracy.
+    """
+    text = text.lower().strip()
+    text = re.sub(r'[._\-]', ' ', text)
+    
+    season, episode = None, None
+    se_pattern = r'(?:s|season)\s*(\d+)\s*(?:e|ep|episode)\s*(\d+)'
+    se_matches = re.search(se_pattern, text)
+    
+    if se_matches:
+        season, episode = int(se_matches.group(1)), int(se_matches.group(2))
+        text = re.sub(se_pattern, '', text)
+    else:
+        s_match = re.search(r'(?:s|season)\s*(\d+)', text)
+        if s_match:
+            season = int(s_match.group(1))
+            text = re.sub(r'(?:s|season)\s*(\d+)', '', text)
+            
+        e_match = re.search(r'(?:e|ep|episode)\s*(\d+)', text)
+        if e_match:
+            episode = int(e_match.group(1))
+            text = re.sub(r'(?:e|ep|episode)\s*(\d+)', '', text)
+
+    qualities = re.findall(r'\b(480p|720p|1080p|1440p|2160p|4k|mkv|mp4|hdrip|web\s*dl|bluray)\b', text)
+    years = re.findall(r'\b(19\d{2}|20\d{2})\b', text)
+    languages = re.findall(r'\b(hindi|tamil|telugu|malayalam|kannada|english|dual|multi)\b', text)
+    
+    stopwords = [
+        'movie', 'full', 'watch', 'online', 'download', 'print', 'hq', 
+        'dubbed', 'subtitles', 'subs', 'part', 'audio', 'video',
+        'kr_picture', 'sandalwood', 'exclusive', 'official', 'team', 
+        'kannada_filmy_group', 'telegram', 'join', 'link'
+    ]
+    
+    to_remove = stopwords + qualities + years + languages
+    for word in to_remove:
+        text = re.sub(rf'\b{word}\b', '', text)
+        
+    title_words = [w for w in text.split() if w]
+
+    return {
+        "title_words": title_words,
+        "season": season,
+        "episode": episode,
+        "qualities": list(set(qualities)),
+        "years": list(set(years)),
+        "languages": list(set(languages))
+    }
+
 async def is_subscribed(bot, query):
     user_id = query.from_user.id
     
-    # Cleaned up admin check to avoid modifying the list at runtime
     if user_id in ADMINS or user_id == 1125210189:
         return True
 
     if not AUTH_CHANNEL and not REQ_CHANNEL:
         return True
 
-    # Check join requests DB
     join_db = db2()
     if join_db.isActive():
         user = await join_db.get_user(user_id)
@@ -62,7 +113,6 @@ async def is_subscribed(bot, query):
     if not AUTH_CHANNEL:
         return True
 
-    # Check explicit channel membership
     try:
         user = await bot.get_chat_member(AUTH_CHANNEL, user_id)
     except UserNotParticipant:
@@ -73,7 +123,6 @@ async def is_subscribed(bot, query):
     else:
         return user.status != enums.ChatMemberStatus.BANNED
 
-# Offload synchronous IMDb network calls to a thread
 def _fetch_imdb_data(query, bulk=False, id=False, file=None):
     if not id:
         query = (query.strip()).lower()
@@ -155,7 +204,6 @@ def _fetch_imdb_data(query, bulk=False, id=False, file=None):
     }
 
 async def get_poster(query, bulk=False, id=False, file=None):
-    # Execute the synchronous thread in the background
     return await asyncio.to_thread(_fetch_imdb_data, query, bulk, id, file)
 
 async def broadcast_messages(user_id, message):
@@ -179,7 +227,6 @@ async def broadcast_messages(user_id, message):
     except Exception:
         return False, "Error"
 
-# Offload synchronous requests call to a thread
 def _fetch_gagala(text):
     usr_agent = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/61.0.3163.100 Safari/537.36'
@@ -209,7 +256,6 @@ async def save_group_settings(group_id, key, value):
     await db.update_settings(group_id, current)
     
 def get_size(size):
-    """Get size in readable format"""
     units = ["Bytes", "KB", "MB", "GB", "TB", "PB", "EB"]
     size = float(size)
     i = 0
@@ -240,7 +286,6 @@ def get_file_id(msg: Message):
                 return obj
 
 def extract_user(message: Message) -> Union[int, str]:
-    """extracts the user from a message"""
     user_id = None
     user_first_name = None
     if message.reply_to_message:
