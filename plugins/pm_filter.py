@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.ERROR)
 
 BUTTONS = {}
-SPELL_CHECK = {} # FIX: Added missing global dictionary for spell checks
+SPELL_CHECK = {} 
 DELETE_TIME = 14400  
 
 FILE_NOT_FOUND_PIC = "https://telegra.ph/file/c4f0458d30f61993aad45-086b84e8363b3c582e.jpg"
@@ -65,7 +65,7 @@ async def next_page(bot, query):
             pass
         return
 
-    files, n_offset, total = await get_search_results(search, offset=offset, filter=True)
+    files, n_offset, total = await get_search_results(search, max_results=10, offset=offset, filter=True)
     try:
         n_offset = int(n_offset)
     except:
@@ -73,6 +73,9 @@ async def next_page(bot, query):
 
     if not files:
         return
+        
+    # 🔥 SORT FILES LOW TO HIGH BY SIZE 🔥
+    files.sort(key=lambda x: x.file_size)
         
     settings = await get_settings(query.message.chat.id)
     if settings['button']:
@@ -167,7 +170,7 @@ async def advantage_spoll_choker(bot, query):
 
     k = await manual_filters(bot, query.message, text=movie)
     if k == False:
-        files, offset, total_results = await get_search_results(movie, offset=0, filter=True)
+        files, offset, total_results = await get_search_results(movie, max_results=10, offset=0, filter=True)
         if files:
             k = (movie, files, offset, total_results)
             await auto_filter(bot, query, k)
@@ -457,7 +460,6 @@ async def cb_handler(client: Client, query: CallbackQuery):
             await query.answer()
             
         elif query.data == "start":
-            # --- START ADMIN CHECK IMPLEMENTATION ---
             buttons = [
                 [
                     InlineKeyboardButton('💫 Group', url='http://t.me/Kannada_Filmy_Group'),
@@ -465,7 +467,6 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 ]
             ]
             
-            # Show Help and About ONLY to Admins (Handles both INT and STR)
             if query.from_user.id in ADMINS or str(query.from_user.id) in ADMINS:
                 buttons.append([
                     InlineKeyboardButton('ℹ️ 𝙷𝚎𝚕𝚙', callback_data='help'),
@@ -473,7 +474,6 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 ])
                 
             buttons.append([InlineKeyboardButton('© Dɪsᴄʟᴀɪᴍᴇʀ ©', callback_data='dics_btn')])
-            # --- END ADMIN CHECK IMPLEMENTATION ---
 
             try:
                 await query.message.edit_text(
@@ -687,7 +687,7 @@ async def auto_filter(client, msg, spoll=False):
             return
         if 2 < len(message.text) < 100:
             search = message.text
-            files, offset, total_results = await get_search_results(search.lower(), offset=0, filter=True)
+            files, offset, total_results = await get_search_results(search.lower(), max_results=10, offset=0, filter=True)
             if not files:
                 if settings["spell_check"]:
                     return await advantage_spell_chok(msg)
@@ -699,6 +699,10 @@ async def auto_filter(client, msg, spoll=False):
         settings = await get_settings(msg.message.chat.id)
         message = msg.message.reply_to_message
         search, files, offset, total_results = spoll
+
+    # 🔥 SORT FILES LOW TO HIGH BY SIZE 🔥
+    if files:
+        files.sort(key=lambda x: x.file_size)
 
     pre = 'filep' if settings['file_secure'] else 'file'
 
