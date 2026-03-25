@@ -16,8 +16,8 @@ logger.setLevel(logging.INFO)
 client = AsyncIOMotorClient(DATABASE_URI)
 db = client[DATABASE_NAME]
 
-# Using the more modern umongo 3.x initialization
-instance = Instance(db)
+# Restored the correct dynamic initialization method
+instance = Instance.from_db(db)
 
 @instance.register
 class Media(Document):
