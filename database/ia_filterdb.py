@@ -115,11 +115,11 @@ async def get_search_results(query_text, file_type=None, max_results=10, offset=
     parsed = parse_ultra_advanced_query(query_text)
     conditions = []
     
-    # 1. Ultra-Fast MongoDB Native Text Search
+    # 1. Flexible Regex Search instead of strict Text Search (FIXED)
     if parsed["title_words"]:
-        # Wrapping each word in quotes forces MongoDB to use a strict 'AND' condition
-        strict_text_query = " ".join([f'"{word}"' for word in parsed["title_words"]])
-        conditions.append({"$text": {"$search": strict_text_query}})
+        for word in parsed["title_words"]:
+            # This searches for the word anywhere in the file name, ignoring case
+            conditions.append({"file_name": {"$regex": word, "$options": "i"}})
             
     # 2. Strict TV Show Matching
     if parsed["season"] is not None:
