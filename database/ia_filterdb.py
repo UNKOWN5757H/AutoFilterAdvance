@@ -15,7 +15,9 @@ logger.setLevel(logging.INFO)
 
 client = AsyncIOMotorClient(DATABASE_URI)
 db = client[DATABASE_NAME]
-instance = Instance.from_db(db)
+
+# Using the more modern umongo 3.x initialization
+instance = Instance(db)
 
 @instance.register
 class Media(Document):
@@ -28,7 +30,7 @@ class Media(Document):
     caption = fields.StrField(allow_none=True)
 
     class Meta:
-        indexes = ('$file_name', ) # The '$' symbol tells uMongo/MongoDB to make this a Text Index
+        indexes = ('$file_name', ) # The '$' symbol tells MongoDB to make this a Text Index
         collection_name = COLLECTION_NAME
 
 async def save_batch(media_list):
@@ -41,7 +43,10 @@ async def save_batch(media_list):
             file_id, file_ref = unpack_new_file_id(media.file_id)
             raw_name = getattr(media, "file_name", "") or ""
             file_name = re.sub(r"(_|\-|\.|\+)", " ", str(raw_name))
+            
+            # Safely handle Pyrogram caption object which might not always have .html
             caption = getattr(media, "caption", None)
+            caption_text = getattr(caption, "html", str(caption)) if caption else None
             
             doc = {
                 "_id": file_id,
@@ -50,7 +55,7 @@ async def save_batch(media_list):
                 "file_size": getattr(media, "file_size", 0),
                 "file_type": getattr(media, "file_type", None),
                 "mime_type": getattr(media, "mime_type", None),
-                "caption": caption.html if caption else None,
+                "caption": caption_text,
             }
             documents.append(doc)
         except Exception as e:
@@ -60,6 +65,7 @@ async def save_batch(media_list):
         return 0, 0, len(media_list)
 
     try:
+        # Bypassing umongo for bulk inserts to maximize speed
         result = await db[COLLECTION_NAME].insert_many(documents, ordered=False)
         return len(result.inserted_ids), 0, 0
     except BulkWriteError as bwe:
@@ -69,11 +75,14 @@ async def save_batch(media_list):
         return inserted, duplicates, errors
 
 async def save_file(media):
-    file_id, file_ref = unpack_new_file_id(media.file_id)
-    raw_name = getattr(media, "file_name", "") or ""
-    file_name = re.sub(r"(_|\-|\.|\+)", " ", str(raw_name))
-    
     try:
+        file_id, file_ref = unpack_new_file_id(media.file_id)
+        raw_name = getattr(media, "file_name", "") or ""
+        file_name = re.sub(r"(_|\-|\.|\+)", " ", str(raw_name))
+        
+        caption = getattr(media, "caption", None)
+        caption_text = getattr(caption, "html", str(caption)) if caption else None
+        
         file = Media(
             file_id=file_id,
             file_ref=file_ref,
@@ -81,10 +90,13 @@ async def save_file(media):
             file_size=getattr(media, "file_size", 0),
             file_type=getattr(media, "file_type", None),
             mime_type=getattr(media, "mime_type", None),
-            caption=media.caption.html if getattr(media, "caption", None) else None,
+            caption=caption_text,
         )
     except ValidationError:
         logger.exception('Error occurred while mapping file in database')
+        return False, 2
+    except Exception as e:
+        logger.exception(f'Error extracting file metadata: {e}')
         return False, 2
         
     try:
@@ -132,32 +144,38 @@ async def get_search_results(query_text, file_type=None, max_results=10, offset=
         raw_pattern = query_text.replace(' ', r'.*[\s\.\+\-_]')
         conditions.append({"file_name": {"$regex": raw_pattern, "$options": "i"}})
         
-    # Combine everything
+    # Combine everything safely
     mongo_query = {"$and": conditions} if len(conditions) > 1 else conditions[0]
     
     if file_type:
         mongo_query = {"$and": [mongo_query, {"file_type": file_type}]}
 
-    # Get total count for pagination
-    total_results = await Media.count_documents(mongo_query)
-    
-    next_offset = offset + max_results
-    if next_offset > total_results:
-        next_offset = ''
+    try:
+        # Route count directly through motor collection to avoid umongo version mapping errors
+        total_results = await db[COLLECTION_NAME].count_documents(mongo_query)
+        
+        next_offset = offset + max_results
+        if next_offset > total_results:
+            next_offset = ''
 
-    # Search Database
-    cursor = Media.find(mongo_query)
-    cursor.sort('$natural', -1)
-    cursor.skip(offset).limit(max_results)
-    
-    files = await cursor.to_list(length=max_results)
-    return files, next_offset, total_results
+        # Search Database (Fixed cursor sorting and chaining)
+        cursor = Media.find(mongo_query).sort([('$natural', -1)]).skip(offset).limit(max_results)
+        files = await cursor.to_list(length=max_results)
+        
+        return files, next_offset, total_results
+    except Exception as e:
+        logger.exception(f"Database search error: {e}")
+        return [], '', 0
 
 async def get_file_details(query):
-    filter = {'_id': query} 
-    cursor = Media.find(filter)
-    filedetails = await cursor.to_list(length=1)
-    return filedetails
+    try:
+        filter_query = {'_id': query} 
+        cursor = Media.find(filter_query)
+        filedetails = await cursor.to_list(length=1)
+        return filedetails
+    except Exception as e:
+        logger.error(f"Error fetching file details: {e}")
+        return []
 
 def encode_file_id(s: bytes) -> str:
     r = b""
