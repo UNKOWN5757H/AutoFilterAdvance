@@ -1,4 +1,3 @@
-
 import logging
 import asyncio
 import re
@@ -121,87 +120,92 @@ async def is_subscribed(bot, query):
         logger.exception(f"Error checking subscription: {e}")
         return False
     else:
-        return user.status != enums.ChatMemberStatus.BANNED
+        # Check against both BANNED and LEFT statuses to ensure active membership
+        return user.status not in [enums.ChatMemberStatus.BANNED, enums.ChatMemberStatus.LEFT]
 
 def _fetch_imdb_data(query, bulk=False, id=False, file=None):
-    if not id:
-        query = (query.strip()).lower()
-        title = query
-        year = re.findall(r'[1-2]\d{3}$', query, re.IGNORECASE)
-        
-        if year:
-            year = year[0]
-            title = (query.replace(year, "")).strip()
-        elif file is not None:
-            year_match = re.findall(r'[1-2]\d{3}', file, re.IGNORECASE)
-            year = year_match[0] if year_match else None
-        else:
-            year = None
+    try:
+        if not id:
+            query = (query.strip()).lower()
+            title = query
+            year = re.findall(r'[1-2]\d{3}$', query, re.IGNORECASE)
             
-        movieid = imdb.search_movie(title.lower(), results=10)
-        if not movieid:
-            return None
-            
-        if year:
-            filtered = [k for k in movieid if str(k.get('year')) == str(year)]
-            if not filtered:
+            if year:
+                year = year[0]
+                title = (query.replace(year, "")).strip()
+            elif file is not None:
+                year_match = re.findall(r'[1-2]\d{3}', file, re.IGNORECASE)
+                year = year_match[0] if year_match else None
+            else:
+                year = None
+                
+            movieid = imdb.search_movie(title.lower(), results=10)
+            if not movieid:
+                return None
+                
+            if year:
+                filtered = [k for k in movieid if str(k.get('year')) == str(year)]
+                if not filtered:
+                    filtered = movieid
+            else:
                 filtered = movieid
+                
+            movieid_filtered = [k for k in filtered if k.get('kind') in ['movie', 'tv series']]
+            if not movieid_filtered:
+                movieid_filtered = filtered
+                
+            if bulk:
+                return movieid_filtered
+            movieid = movieid_filtered[0].movieID
         else:
-            filtered = movieid
+            movieid = query
             
-        movieid_filtered = [k for k in filtered if k.get('kind') in ['movie', 'tv series']]
-        if not movieid_filtered:
-            movieid_filtered = filtered
+        movie = imdb.get_movie(movieid)
+        date = movie.get("original air date") or movie.get("year") or "N/A"
+        
+        plot = ""
+        if not LONG_IMDB_DESCRIPTION:
+            plot = movie.get('plot')
+            if plot and isinstance(plot, list) and len(plot) > 0:
+                plot = plot[0]
+        else:
+            plot = movie.get('plot outline')
             
-        if bulk:
-            return movieid_filtered
-        movieid = movieid_filtered[0].movieID
-    else:
-        movieid = query
-        
-    movie = imdb.get_movie(movieid)
-    date = movie.get("original air date") or movie.get("year") or "N/A"
-    
-    plot = ""
-    if not LONG_IMDB_DESCRIPTION:
-        plot = movie.get('plot')
-        if plot and isinstance(plot, list) and len(plot) > 0:
-            plot = plot[0]
-    else:
-        plot = movie.get('plot outline')
-        
-    if plot and len(plot) > 800:
-        plot = plot[0:800] + "..."
+        if plot and len(plot) > 800:
+            plot = plot[0:800] + "..."
 
-    return {
-        'title': movie.get('title'),
-        'votes': movie.get('votes'),
-        "aka": list_to_str(movie.get("akas")),
-        "seasons": movie.get("number of seasons"),
-        "box_office": movie.get('box office'),
-        'localized_title': movie.get('localized title'),
-        'kind': movie.get("kind"),
-        "imdb_id": f"tt{movie.get('imdbID')}",
-        "cast": list_to_str(movie.get("cast")),
-        "runtime": list_to_str(movie.get("runtimes")),
-        "countries": list_to_str(movie.get("countries")),
-        "certificates": list_to_str(movie.get("certificates")),
-        "languages": list_to_str(movie.get("languages")),
-        "director": list_to_str(movie.get("director")),
-        "writer": list_to_str(movie.get("writer")),
-        "producer": list_to_str(movie.get("producer")),
-        "composer": list_to_str(movie.get("composer")),
-        "cinematographer": list_to_str(movie.get("cinematographer")),
-        "music_team": list_to_str(movie.get("music department")),
-        "distributors": list_to_str(movie.get("distributors")),
-        'release_date': date,
-        'year': movie.get('year'),
-        'genres': list_to_str(movie.get("genres")),
-        'poster': movie.get('full-size cover url'),
-        'plot': plot,
-        'rating': str(movie.get("rating", "N/A")),
-        'url': f'https://www.imdb.com/title/tt{movieid}'
-    }
+        return {
+            'title': movie.get('title'),
+            'votes': movie.get('votes'),
+            "aka": list_to_str(movie.get("akas")),
+            "seasons": movie.get("number of seasons"),
+            "box_office": movie.get('box office'),
+            'localized_title': movie.get('localized title'),
+            'kind': movie.get("kind"),
+            "imdb_id": f"tt{movie.get('imdbID')}",
+            "cast": list_to_str(movie.get("cast")),
+            "runtime": list_to_str(movie.get("runtimes")),
+            "countries": list_to_str(movie.get("countries")),
+            "certificates": list_to_str(movie.get("certificates")),
+            "languages": list_to_str(movie.get("languages")),
+            "director": list_to_str(movie.get("director")),
+            "writer": list_to_str(movie.get("writer")),
+            "producer": list_to_str(movie.get("producer")),
+            "composer": list_to_str(movie.get("composer")),
+            "cinematographer": list_to_str(movie.get("cinematographer")),
+            "music_team": list_to_str(movie.get("music department")),
+            "distributors": list_to_str(movie.get("distributors")),
+            'release_date': date,
+            'year': movie.get('year'),
+            'genres': list_to_str(movie.get("genres")),
+            'poster': movie.get('full-size cover url'),
+            'plot': plot,
+            'rating': str(movie.get("rating", "N/A")),
+            'url': f'https://www.imdb.com/title/tt{movieid}'
+        }
+    except Exception as e:
+        logger.error(f"IMDb Error: {e}")
+        return None
 
 async def get_poster(query, bulk=False, id=False, file=None):
     return await asyncio.to_thread(_fetch_imdb_data, query, bulk, id, file)
@@ -233,11 +237,17 @@ def _fetch_gagala(text):
     }
     text = text.replace(" ", '+')
     url = f'https://www.google.com/search?q={text}'
-    response = requests.get(url, headers=usr_agent)
-    response.raise_for_status()
-    soup = BeautifulSoup(response.text, 'html.parser')
-    titles = soup.find_all('h3')
-    return [title.getText() for title in titles]
+    
+    try:
+        # Added timeout and Exception handling to prevent stalling if Google rate-limits the bot IP
+        response = requests.get(url, headers=usr_agent, timeout=5)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, 'html.parser')
+        titles = soup.find_all('h3')
+        return [title.getText() for title in titles if title.getText()]
+    except Exception as e:
+        logger.error(f"Google Search Scrape Error: {e}")
+        return []
 
 async def search_gagala(text):
     return await asyncio.to_thread(_fetch_gagala, text)
@@ -269,21 +279,29 @@ def split_list(l, n):
         yield l[i:i + n]  
 
 def get_file_id(msg: Message):
-    if msg.media:
-        for message_type in (
-            enums.MessageMediaType.PHOTO,
-            enums.MessageMediaType.ANIMATION,
-            enums.MessageMediaType.AUDIO,
-            enums.MessageMediaType.DOCUMENT,
-            enums.MessageMediaType.VIDEO,
-            enums.MessageMediaType.VIDEO_NOTE,
-            enums.MessageMediaType.VOICE,
-            enums.MessageMediaType.STICKER
-        ):
-            obj = getattr(msg, message_type.value if hasattr(message_type, 'value') else message_type)
-            if obj:
+    if not msg.media:
+        return None
+        
+    for message_type in (
+        enums.MessageMediaType.PHOTO,
+        enums.MessageMediaType.ANIMATION,
+        enums.MessageMediaType.AUDIO,
+        enums.MessageMediaType.DOCUMENT,
+        enums.MessageMediaType.VIDEO,
+        enums.MessageMediaType.VIDEO_NOTE,
+        enums.MessageMediaType.VOICE,
+        enums.MessageMediaType.STICKER
+    ):
+        attr_name = message_type.value if hasattr(message_type, 'value') else message_type
+        obj = getattr(msg, attr_name, None)
+        if obj:
+            try:
+                # Some Pyrogram versions enforce __slots__, preventing arbitrary attribute assignment
                 setattr(obj, "message_type", message_type)
-                return obj
+            except AttributeError:
+                pass
+            return obj
+    return None
 
 def extract_user(message: Message) -> Union[int, str]:
     user_id = None
@@ -365,48 +383,51 @@ def parser(text, keyword):
     prev = 0
     i = 0
     alerts = []
-    for match in BTN_URL_REGEX.finditer(text):
-        n_escapes = 0
-        to_check = match.start(1) - 1
-        while to_check > 0 and text[to_check] == "\\":
-            n_escapes += 1
-            to_check -= 1
+    
+    try:
+        for match in BTN_URL_REGEX.finditer(text):
+            n_escapes = 0
+            to_check = match.start(1) - 1
+            while to_check > 0 and text[to_check] == "\\":
+                n_escapes += 1
+                to_check -= 1
 
-        if n_escapes % 2 == 0:
-            note_data += text[prev:match.start(1)]
-            prev = match.end(1)
-            if match.group(3) == "buttonalert":
-                if bool(match.group(5)) and buttons:
+            if n_escapes % 2 == 0:
+                note_data += text[prev:match.start(1)]
+                prev = match.end(1)
+                if match.group(3) == "buttonalert":
+                    if bool(match.group(5)) and buttons:
+                        buttons[-1].append(InlineKeyboardButton(
+                            text=match.group(2),
+                            callback_data=f"alertmessage:{i}:{keyword}"
+                        ))
+                    else:
+                        buttons.append([InlineKeyboardButton(
+                            text=match.group(2),
+                            callback_data=f"alertmessage:{i}:{keyword}"
+                        )])
+                    i += 1
+                    alerts.append(match.group(4))
+                elif bool(match.group(5)) and buttons:
                     buttons[-1].append(InlineKeyboardButton(
                         text=match.group(2),
-                        callback_data=f"alertmessage:{i}:{keyword}"
+                        url=match.group(4).replace(" ", "")
                     ))
                 else:
                     buttons.append([InlineKeyboardButton(
                         text=match.group(2),
-                        callback_data=f"alertmessage:{i}:{keyword}"
+                        url=match.group(4).replace(" ", "")
                     )])
-                i += 1
-                alerts.append(match.group(4))
-            elif bool(match.group(5)) and buttons:
-                buttons[-1].append(InlineKeyboardButton(
-                    text=match.group(2),
-                    url=match.group(4).replace(" ", "")
-                ))
             else:
-                buttons.append([InlineKeyboardButton(
-                    text=match.group(2),
-                    url=match.group(4).replace(" ", "")
-                )])
+                note_data += text[prev:to_check]
+                prev = match.start(1) - 1
         else:
-            note_data += text[prev:to_check]
-            prev = match.start(1) - 1
-    else:
-        note_data += text[prev:]
+            note_data += text[prev:]
 
-    try:
-        return note_data, buttons, alerts
-    except:
+        return note_data, buttons, alerts if alerts else None
+
+    except Exception as e:
+        logger.error(f"Parser Error: {e}")
         return note_data, buttons, None
 
 def remove_escapes(text: str) -> str:
