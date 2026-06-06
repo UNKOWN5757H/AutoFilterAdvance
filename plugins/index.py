@@ -6,15 +6,14 @@ from pyrogram import Client, filters, enums
 from pyrogram.errors import (
     FloodWait, 
     ChannelInvalid, 
-    ChannelPrivate, 
+    ChannelPrivate, # Added to handle 406 CHANNEL_PRIVATE
     ChatAdminRequired, 
     UsernameInvalid, 
     UsernameNotModified
 )
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-# IMPORTED FILE_STORE_CHANNEL HERE 👇
-from info import ADMINS, FILE_STORE_CHANNEL
+from info import ADMINS
 from info import INDEX_REQ_CHANNEL as LOG_CHANNEL
 from database.ia_filterdb import save_batch
 from utils import temp
@@ -85,6 +84,7 @@ async def send_for_index(bot, message):
         if chat_id.isnumeric():
             chat_id = int(f"-100{chat_id}")
             
+    # FIXED: Added safety check to prevent NoneType attribute error
     elif message.forward_from_chat and message.forward_from_chat.type == enums.ChatType.CHANNEL:
         last_msg_id = message.forward_from_message_id
         chat_id = message.forward_from_chat.username or message.forward_from_chat.id
@@ -93,6 +93,7 @@ async def send_for_index(bot, message):
         
     try:
         await bot.get_chat(chat_id)
+    # FIXED: Added ChannelPrivate to catch block
     except (ChannelInvalid, ChannelPrivate):
         return await message.reply('This may be a private channel/group. Make me an admin over there to index the files.')
     except (UsernameInvalid, UsernameNotModified):
@@ -259,26 +260,3 @@ async def index_files_to_db(lst_msg_id, chat, msg, bot):
                     f"(Unsupported Media - `{unsupported}`)\n"
                     f"Errors Occurred: <code>{errors}</code>"
                 )
-
-# ==========================================
-# AUTO-INDEX NEW FILES (USING FILE_STORE_CHANNEL)
-# ==========================================
-@Client.on_message(filters.chat(FILE_STORE_CHANNEL) & (filters.document | filters.video | filters.audio))
-async def auto_index_files(bot, message):
-    """
-    Automatically detects new files uploaded to the FILE_STORE_CHANNEL 
-    and silently indexes them into the database without requiring commands.
-    """
-    try:
-        media = getattr(message, message.media.value, None)
-        if not media:
-            return
-            
-        media.file_type = message.media.value
-        media.caption = message.caption
-        
-        await save_batch([media])
-        logger.info(f"Successfully auto-indexed message ID {message.id} from FILE_STORE_CHANNEL")
-        
-    except Exception as e:
-        logger.exception(f"Error auto-indexing file: {e}")
