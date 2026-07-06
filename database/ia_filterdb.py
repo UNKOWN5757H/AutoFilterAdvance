@@ -119,7 +119,8 @@ async def get_search_results(query_text, file_type=None, max_results=10, offset=
     if parsed["title_words"]:
         for word in parsed["title_words"]:
             # This searches for the word anywhere in the file name, ignoring case
-            conditions.append({"file_name": {"$regex": word, "$options": "i"}})
+            safe_word = re.escape(word)
+            conditions.append({"file_name": {"$regex": safe_word, "$options": "i"}})
             
     # 2. Strict TV Show Matching
     if parsed["season"] is not None:
@@ -141,7 +142,8 @@ async def get_search_results(query_text, file_type=None, max_results=10, offset=
 
     # Fail-safe: if the user typed nothing but junk words and our parser emptied the string
     if not conditions:
-        raw_pattern = query_text.replace(' ', r'.*[\s\.\+\-_]')
+        safe_query = re.escape(query_text)
+        raw_pattern = safe_query.replace(r'\\ ', r'.*[\\s\\.\\+\\-_]')
         conditions.append({"file_name": {"$regex": raw_pattern, "$options": "i"}})
         
     # Combine everything safely
@@ -159,7 +161,7 @@ async def get_search_results(query_text, file_type=None, max_results=10, offset=
             next_offset = ''
 
         # Search Database (Fixed cursor sorting and chaining)
-        cursor = Media.find(mongo_query).sort([('$natural', -1)]).skip(offset).limit(max_results)
+        cursor = db[COLLECTION_NAME].find(mongo_query).sort('$natural', -1).skip(offset).limit(max_results)
         files = await cursor.to_list(length=max_results)
         
         return files, next_offset, total_results
