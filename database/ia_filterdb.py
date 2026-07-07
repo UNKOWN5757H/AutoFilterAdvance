@@ -161,7 +161,7 @@ async def get_search_results(query_text, file_type=None, max_results=10, offset=
             next_offset = ''
 
         # Search Database (Fixed cursor sorting and chaining)
-        cursor = db[COLLECTION_NAME].find(mongo_query).sort('$natural', -1).skip(offset).limit(max_results)
+        cursor = Media.find(mongo_query).sort("_id", -1).skip(offset).limit(max_results)
         files = await cursor.to_list(length=max_results)
         
         return files, next_offset, total_results
