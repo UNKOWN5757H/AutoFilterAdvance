@@ -706,64 +706,137 @@ async def auto_filter(client, msg, spoll=False):
     if not spoll:
         message = msg
         settings = await get_settings(message.chat.id)
-        if message.text.startswith("/"): return
-        if re.findall("((^\/|^,|^!|^\.|^[\U0001F600-\U000E007F]).*)", message.text):
+
+        if not message.text:
             return
-        if 2 < len(message.text) < 100:
-            search = message.text
-            files, offset, total_results = await get_search_results(search.lower(), max_results=10, offset=0, filter=True)
-            if not files:
-                if settings["spell_check"]:
-                    return await advantage_spell_chok(msg)
-                else:
-                    return
-        else:
+
+        if message.text.startswith("/"):
             return
+
+        if re.findall(r"((^\/|^,|^!|^\.|^[\U0001F600-\U000E007F]).*)", message.text):
+            return
+
+        if not (2 < len(message.text) < 100):
+            return
+
+        search = message.text
+
+        files, offset, total_results = await get_search_results(
+            search.lower(),
+            max_results=10,
+            offset=0,
+            filter=True
+        )
+
+        if not files:
+            if settings.get("spell_check"):
+                return await advantage_spell_chok(msg)
+            return
+
     else:
         settings = await get_settings(msg.message.chat.id)
         message = msg.message.reply_to_message
         search, files, offset, total_results = spoll
 
-    # 🔥 SORT FILES LOW TO HIGH BY SIZE 🔥
-    if files:
-        files.sort(key=lambda x: x.file_size)
+    if not files:
+        return
 
-    pre = 'filep' if settings['file_secure'] else 'file'
+    # Sort by file size
+    files.sort(
+        key=lambda x: (
+            x.get("file_size", 0)
+            if isinstance(x, dict)
+            else getattr(x, "file_size", 0)
+        )
+    )
 
-    if settings["button"]:
-        btn = [
-            [InlineKeyboardButton(text=f"{get_size(file.file_size)} | {file.file_name}", url=f"https://t.me/{temp.U_NAME}?start={pre}_{file.file_id}")]
-            for file in files
+    pre = "filep" if settings.get("file_secure") else "file"
+
+    btn = []
+
+    for file in files:
+
+        if isinstance(file, dict):
+            file_id = file.get("file_id", "")
+            file_name = file.get("file_name", "Unknown")
+            file_size = file.get("file_size", 0)
+        else:
+            file_id = getattr(file, "file_id", "")
+            file_name = getattr(file, "file_name", "Unknown")
+            file_size = getattr(file, "file_size", 0)
+
+        if settings.get("button"):
+            btn.append([
+                InlineKeyboardButton(
+                    text=f"{get_size(file_size)} | {file_name}",
+                    url=f"https://t.me/{temp.U_NAME}?start={pre}_{file_id}"
+                )
+            ])
+        else:
+            btn.append([
+                InlineKeyboardButton(
+                    text=file_name,
+                    url=f"https://t.me/{temp.U_NAME}?start={pre}_{file_id}"
+                ),
+                InlineKeyboardButton(
+                    text=get_size(file_size),
+                    url=f"https://t.me/{temp.U_NAME}?start={pre}_{file_id}"
+                )
+            ])
+
+    btn.insert(
+        0,
+        [
+            InlineKeyboardButton(
+                "•  Bᴀᴄᴋ Uᴘ Cʜᴀɴɴᴇʟ  •",
+                url="https://t.me/KR_PICTURE"
+            )
         ]
-    else:
-        btn = [
-            [
-                InlineKeyboardButton(text=f"{file.file_name}", url=f"https://t.me/{temp.U_NAME}?start={pre}_{file.file_id}"),
-                InlineKeyboardButton(text=f"{get_size(file.file_size)}", url=f"https://t.me/{temp.U_NAME}?start={pre}_{file.file_id}")
-            ]
-            for file in files
-        ]
+    )
 
-    btn.insert(0, [InlineKeyboardButton("•  Bᴀᴄᴋ Uᴘ Cʜᴀɴɴᴇʟ  •", url="https://t.me/KR_PICTURE")])
-
-    if offset != "":
+    if offset:
         key = f"{message.chat.id}-{message.id}"
         BUTTONS[key] = search
+
         req = message.from_user.id if message.from_user else 0
-        btn.append([InlineKeyboardButton(text=f"1/{math.ceil(int(total_results) / 10)}", callback_data="pages"),
-                    InlineKeyboardButton(text="NEXT", callback_data=f"next_{req}_{key}_{offset}")])
+
+        btn.append([
+            InlineKeyboardButton(
+                text=f"1/{math.ceil(int(total_results)/10)}",
+                callback_data="pages"
+            ),
+            InlineKeyboardButton(
+                text="NEXT",
+                callback_data=f"next_{req}_{key}_{offset}"
+            )
+        ])
     else:
-        btn.append([InlineKeyboardButton(text="1/1", callback_data="pages")])
+        btn.append([
+            InlineKeyboardButton(
+                text="1/1",
+                callback_data="pages"
+            )
+        ])
 
     mention = message.from_user.mention if message.from_user else "User"
-    cap = f"Hey {mention} 👋🏻 \n\n➤ Title : {search} \n➤ Your Files Ready Now 👇"
+
+    cap = (
+        f"Hey {mention} 👋🏻\n\n"
+        f"➤ Title : {search}\n"
+        f"➤ Your Files Ready Now 👇"
+    )
 
     try:
-        m = await message.reply_text(cap, reply_markup=InlineKeyboardMarkup(btn))
+        m = await message.reply_text(
+            cap,
+            reply_markup=InlineKeyboardMarkup(btn)
+        )
+
     except Forbidden:
         return
+
     except Exception as e:
-        logger.error(f"Failed to send auto_filter reply: {e}")
+        logger.exception(f"auto_filter error: {e}")
         return
 
     if spoll:
@@ -771,7 +844,7 @@ async def auto_filter(client, msg, spoll=False):
             await msg.message.delete()
         except MessageIdInvalid:
             pass
-            
+
     asyncio.create_task(delete_message_after_delay(m, DELETE_TIME))
 
 
