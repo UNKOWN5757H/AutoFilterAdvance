@@ -11,10 +11,12 @@ from info import ADMINS, REQ_CHANNEL
 logger = getLogger(__name__)
 
 # FIXED: Safely handle REQ_CHANNEL parsing for the Pyrogram filter.
-# If REQ_CHANNEL is a numeric ID string, it must be cast to an int. 
+# If REQ_CHANNEL is a numeric ID string, it must be cast to an int.
 # If it's None, we pass an empty list so it doesn't crash or match randomly.
 try:
-    req_chat = int(REQ_CHANNEL) if str(REQ_CHANNEL).strip("-").isdigit() else REQ_CHANNEL
+    req_chat = (
+        int(REQ_CHANNEL) if str(REQ_CHANNEL).strip("-").isdigit() else REQ_CHANNEL
+    )
     req_filter = filters.chat(req_chat) if req_chat else filters.chat([])
 except Exception:
     req_filter = filters.chat([])
@@ -49,11 +51,15 @@ async def join_reqs_handler(bot: Client, join_req: ChatJoinRequest):
 # ============================================================
 # 📊 /totalrequests — Show total join requests count
 # ============================================================
-@Client.on_message(filters.command("totalrequests") & filters.private & filters.user(ADMINS))
+@Client.on_message(
+    filters.command("totalrequests") & filters.private & filters.user(ADMINS)
+)
 async def total_requests(bot: Client, message):
     """Show total stored join requests."""
     if not db.isActive():
-        return await message.reply_text("⚠️ Join request tracking is not active (DB inactive).")
+        return await message.reply_text(
+            "⚠️ Join request tracking is not active (DB inactive)."
+        )
 
     try:
         # FIXED: Updated to match the refined method name in join_reqs.py
@@ -67,20 +73,28 @@ async def total_requests(bot: Client, message):
 # ============================================================
 # 🧹 /purgerequests — Delete all join requests
 # ============================================================
-@Client.on_message(filters.command("purgerequests") & filters.private & filters.user(ADMINS))
+@Client.on_message(
+    filters.command("purgerequests") & filters.private & filters.user(ADMINS)
+)
 async def purge_requests(bot: Client, message):
     """Deletes all join request records."""
     if not db.isActive():
-        return await message.reply_text("⚠️ Join request tracking is not active (DB inactive).")
+        return await message.reply_text(
+            "⚠️ Join request tracking is not active (DB inactive)."
+        )
 
-    confirm_msg = await message.reply_text("⚠️ Are you sure you want to delete all join requests? (y/n)")
+    confirm_msg = await message.reply_text(
+        "⚠️ Are you sure you want to delete all join requests? (y/n)"
+    )
 
     try:
         resp = await bot.listen(message.chat.id, timeout=30)
         if resp.text.lower() == "y":
             # FIXED: Updated to match the refined method name in join_reqs.py
             count = await db.clear_all()
-            await message.reply_text(f"✅ All join requests purged successfully. (<code>{count}</code> deleted)")
+            await message.reply_text(
+                f"✅ All join requests purged successfully. (<code>{count}</code> deleted)"
+            )
         else:
             await message.reply_text("❌ Operation cancelled.")
     except asyncio.TimeoutError:
