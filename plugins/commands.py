@@ -9,7 +9,12 @@ import sys
 
 from pyrogram import Client, enums, filters
 from pyrogram.errors import ChatAdminRequired, FloodWait
-from pyrogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from pyrogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 
 from database.connections_mdb import active_connection
 from database.ia_filterdb import Media, get_file_details, unpack_new_file_id
@@ -40,14 +45,18 @@ def get_start_buttons(user_id):
     buttons = [
         [
             InlineKeyboardButton("💫 Group", url="http://t.me/Kannada_Filmy_Group"),
-            InlineKeyboardButton("🤖 Updates", url="https://t.me/Sandalwood_kannada_moviesz"),
+            InlineKeyboardButton(
+                "🤖 Updates", url="https://t.me/Sandalwood_kannada_moviesz"
+            ),
         ]
     ]
     if user_id in ADMINS or str(user_id) in ADMINS:
-        buttons.append([
-            InlineKeyboardButton("ℹ️ 𝙷𝚎𝚕𝚙", callback_data="help"),
-            InlineKeyboardButton("😊 𝙰𝚋𝚘𝚞𝚝", callback_data="about"),
-        ])
+        buttons.append(
+            [
+                InlineKeyboardButton("ℹ️ 𝙷𝚎𝚕𝚙", callback_data="help"),
+                InlineKeyboardButton("😊 𝙰𝚋𝚘𝚞𝚝", callback_data="about"),
+            ]
+        )
     buttons.append([InlineKeyboardButton("© Dɪsᴄʟᴀɪᴍᴇʀ ©", callback_data="dics_btn")])
     return InlineKeyboardMarkup(buttons)
 
@@ -56,24 +65,32 @@ def get_start_buttons(user_id):
 async def start(client: Client, message: Message):
     # ================= Handle Group Start =================
     if message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
-        reply_markup = get_start_buttons(message.from_user.id if message.from_user else 0)
+        reply_markup = get_start_buttons(
+            message.from_user.id if message.from_user else 0
+        )
         await message.reply(
             script.START_TXT.format(
-                mention=(message.from_user.mention if message.from_user else message.chat.title),
+                mention=(
+                    message.from_user.mention
+                    if message.from_user
+                    else message.chat.title
+                ),
                 uname=temp.U_NAME,
                 bname=temp.B_NAME,
             ),
             reply_markup=reply_markup,
         )
         await asyncio.sleep(2)
-        
+
         # Log new group
         if not await db.get_chat(message.chat.id):
             total = await client.get_chat_members_count(message.chat.id)
             try:
                 await client.send_message(
                     LOG_CHANNEL,
-                    script.LOG_TEXT_G.format(message.chat.title, message.chat.id, total, "Unknown"),
+                    script.LOG_TEXT_G.format(
+                        message.chat.title, message.chat.id, total, "Unknown"
+                    ),
                 )
             except Exception as e:
                 logger.error(f"Failed to log new group: {e}")
@@ -86,7 +103,9 @@ async def start(client: Client, message: Message):
         try:
             await client.send_message(
                 LOG_CHANNEL,
-                script.LOG_TEXT_P.format(message.from_user.id, message.from_user.mention),
+                script.LOG_TEXT_P.format(
+                    message.from_user.id, message.from_user.mention
+                ),
             )
         except Exception as e:
             logger.error(f"Failed to log new user: {e}")
@@ -139,7 +158,7 @@ async def start(client: Client, message: Message):
         sts = await message.reply("Please wait...")
         file_id = data.split("-", 1)[1]
         msgs = BATCH_FILES.get(file_id)
-        
+
         if not msgs:
             file = await client.download_media(file_id)
             try:
@@ -189,14 +208,23 @@ async def start(client: Client, message: Message):
                     chat_id=message.from_user.id,
                     file_id=msg.get("file_id"),
                     caption=f_caption,
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🎥 ಕನ್ನಡ ಹೊಸ ಮೂವೀಗಳು 🎥", url="https://t.me/Sandalwood_kannada_moviesz")]]),
+                    reply_markup=InlineKeyboardMarkup(
+                        [
+                            [
+                                InlineKeyboardButton(
+                                    "🎥 ಕನ್ನಡ ಹೊಸ ಮೂವೀಗಳು 🎥",
+                                    url="https://t.me/Sandalwood_kannada_moviesz",
+                                )
+                            ]
+                        ]
+                    ),
                     protect_content=msg.get("protect", False),
                 )
             except Exception as e:
                 logger.warning(e, exc_info=True)
                 continue
             await asyncio.sleep(1)
-            
+
         await sts.delete()
         return
 
@@ -204,14 +232,18 @@ async def start(client: Client, message: Message):
     elif data.split("-", 1)[0] == "DSTORE":
         sts = await message.reply("Please wait...")
         b_string = data.split("-", 1)[1]
-        decoded = base64.urlsafe_b64decode(b_string + "=" * (-len(b_string) % 4)).decode("ascii")
+        decoded = base64.urlsafe_b64decode(
+            b_string + "=" * (-len(b_string) % 4)
+        ).decode("ascii")
         try:
             f_msg_id, l_msg_id, f_chat_id, protect = decoded.split("_", 3)
         except ValueError:
             f_msg_id, l_msg_id, f_chat_id = decoded.split("_", 2)
             protect = "/pbatch" if PROTECT_CONTENT else "batch"
 
-        async for msg in client.iter_messages(int(f_chat_id), int(l_msg_id), int(f_msg_id)):
+        async for msg in client.iter_messages(
+            int(f_chat_id), int(l_msg_id), int(f_msg_id)
+        ):
             if msg.media:
                 media = getattr(msg, msg.media)
                 if BATCH_FILE_CAPTION:
@@ -253,7 +285,10 @@ async def start(client: Client, message: Message):
                     )
                 except FloodWait as e:
                     await asyncio.sleep(e.value)
-                    await msg.copy(message.chat.id, protect_content=True if protect == "/pbatch" else False)
+                    await msg.copy(
+                        message.chat.id,
+                        protect_content=True if protect == "/pbatch" else False,
+                    )
                 except Exception as e:
                     logger.exception(e)
                     continue
@@ -264,7 +299,11 @@ async def start(client: Client, message: Message):
     files_ = await get_file_details(file_id)
     if not files_:
         try:
-            pre, file_id = (base64.urlsafe_b64decode(data + "=" * (-len(data) % 4))).decode("ascii").split("_", 1)
+            pre, file_id = (
+                (base64.urlsafe_b64decode(data + "=" * (-len(data) % 4)))
+                .decode("ascii")
+                .split("_", 1)
+            )
             msg = await client.send_cached_media(
                 chat_id=message.from_user.id,
                 file_id=file_id,
@@ -311,7 +350,16 @@ async def start(client: Client, message: Message):
         chat_id=message.from_user.id,
         file_id=file_id,
         caption=f_caption,
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🎥 ಕನ್ನಡ ಹೊಸ ಮೂವೀಗಳು 🎥", url="https://t.me/Sandalwood_kannada_moviesz")]]),
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "🎥 ಕನ್ನಡ ಹೊಸ ಮೂವೀಗಳು 🎥",
+                        url="https://t.me/Sandalwood_kannada_moviesz",
+                    )
+                ]
+            ]
+        ),
         protect_content=True if pre == "filep" else False,
     )
 
@@ -328,7 +376,9 @@ async def delete_after_delay(msg, warning_msg, delay):
     await asyncio.sleep(delay)
     try:
         await msg.delete()
-        await warning_msg.edit_text("<b>ʏᴏᴜʀ ᴠɪᴅᴇᴏ / ꜰɪʟᴇ ɪꜱ ꜱᴜᴄᴄᴇꜱꜱꜰᴜʟʟʏ ᴅᴇʟᴇᴛᴇᴅ !!. ᴛᴇᴀᴍ: @KR_Picture</b>")
+        await warning_msg.edit_text(
+            "<b>ʏᴏᴜʀ ᴠɪᴅᴇᴏ / ꜰɪʟᴇ ɪꜱ ꜱᴜᴄᴄᴇꜱꜱꜰᴜʟʟʏ ᴅᴇʟᴇᴛᴇᴅ !!. ᴛᴇᴀᴍ: @KR_Picture</b>"
+        )
     except Exception:
         pass
 
@@ -367,7 +417,9 @@ async def send_logs(bot: Client, message):
     try:
         if not os.path.exists(LOG_FILE) and not os.path.exists("TelegramBot.log"):
             return await message.reply_text("⚠️ Log file not found.")
-        log_file_name = "TelegramBot.log" if os.path.exists("TelegramBot.log") else LOG_FILE
+        log_file_name = (
+            "TelegramBot.log" if os.path.exists("TelegramBot.log") else LOG_FILE
+        )
         await message.reply_document(log_file_name, caption="📜 **Latest Bot Logs**")
     except Exception as e:
         logger.exception("send_logs failed")
@@ -376,7 +428,9 @@ async def send_logs(bot: Client, message):
 
 @Client.on_message(filters.command("restart") & filters.user(ADMINS))
 async def restart_bot(bot: Client, message):
-    buttons = [[InlineKeyboardButton("✅ Confirm Restart", callback_data="confirm_restart")]]
+    buttons = [
+        [InlineKeyboardButton("✅ Confirm Restart", callback_data="confirm_restart")]
+    ]
     await message.reply_text(
         "⚠️ Are you sure you want to restart the bot?",
         reply_markup=InlineKeyboardMarkup(buttons),
@@ -403,7 +457,9 @@ async def delete_file(bot: Client, message):
             try:
                 result = await Media.collection.delete_one({"_id": file_id})
                 if result.deleted_count:
-                    await message.reply_text(f"✅ File `{file_id}` deleted successfully.")
+                    await message.reply_text(
+                        f"✅ File `{file_id}` deleted successfully."
+                    )
                 else:
                     await message.reply_text("⚠️ File not found in database.")
             except Exception as e:
@@ -413,7 +469,9 @@ async def delete_file(bot: Client, message):
 
         reply = message.reply_to_message
         if not (reply and reply.media):
-            await message.reply_text("Usage:\n`/delete <file_id>`\nOr reply to file with /delete", quote=True)
+            await message.reply_text(
+                "Usage:\n`/delete <file_id>`\nOr reply to file with /delete", quote=True
+            )
             return
 
         msg = await message.reply_text("Processing...⏳", quote=True)
@@ -447,7 +505,13 @@ async def delete_file(bot: Client, message):
 
 @Client.on_message(filters.command("deleteallfiles") & filters.user(ADMINS))
 async def delete_all_files(bot: Client, message):
-    buttons = [[InlineKeyboardButton("🔥 Confirm Delete All Files", callback_data="confirm_delete_all_files")]]
+    buttons = [
+        [
+            InlineKeyboardButton(
+                "🔥 Confirm Delete All Files", callback_data="confirm_delete_all_files"
+            )
+        ]
+    ]
     await message.reply_text(
         "⚠️ This will permanently delete **all indexed files**.\nDo you really want to continue?",
         reply_markup=InlineKeyboardMarkup(buttons),
@@ -460,7 +524,9 @@ async def confirm_delete_all_files_callback(bot: Client, query: CallbackQuery):
         await query.answer("Deleting all files...", show_alert=True)
         deleted = await Media.collection.delete_many({})
         count = getattr(deleted, "deleted_count", 0)
-        await query.edit_message_text(f"🗑️ Successfully deleted `{count}` files from DB.")
+        await query.edit_message_text(
+            f"🗑️ Successfully deleted `{count}` files from DB."
+        )
         logger.warning(f"Deleted {count} files from database.")
     except Exception:
         logger.exception("confirm_delete_all_files failed")
@@ -477,7 +543,9 @@ async def confirm_delete_all_files_callback(bot: Client, query: CallbackQuery):
 async def settings(client: Client, message: Message):
     userid = message.from_user.id if message.from_user else None
     if not userid:
-        return await message.reply("You are an anonymous admin! Please verify your identity.")
+        return await message.reply(
+            "You are an anonymous admin! Please verify your identity."
+        )
 
     chat_type = message.chat.type
 
@@ -490,10 +558,15 @@ async def settings(client: Client, message: Message):
                 chat = await client.get_chat(grpid)
                 title = chat.title
             except Exception:
-                await message.reply_text("Make sure I'm present in your group!", quote=True)
+                await message.reply_text(
+                    "Make sure I'm present in your group!", quote=True
+                )
                 return
         else:
-            await message.reply_text("I'm not connected to any groups!\nCheck /connections or connect to any groups.", quote=True)
+            await message.reply_text(
+                "I'm not connected to any groups!\nCheck /connections or connect to any groups.",
+                quote=True,
+            )
             return
 
     # Handle if used inside a Group/Supergroup
@@ -517,32 +590,61 @@ async def settings(client: Client, message: Message):
     if settings is not None:
         buttons = [
             [
-                InlineKeyboardButton('Filter Button', callback_data=f'setgs#button#{settings["button"]}#{grp_id}'),
-                InlineKeyboardButton('Single' if settings["button"] else 'Double', callback_data=f'setgs#button#{settings["button"]}#{grp_id}')
+                InlineKeyboardButton(
+                    "Filter Button",
+                    callback_data=f'setgs#button#{settings["button"]}#{grp_id}',
+                ),
+                InlineKeyboardButton(
+                    "Single" if settings["button"] else "Double",
+                    callback_data=f'setgs#button#{settings["button"]}#{grp_id}',
+                ),
             ],
             [
-                InlineKeyboardButton('Bot PM', callback_data=f'setgs#botpm#{settings["botpm"]}#{grp_id}'),
-                InlineKeyboardButton('✅ Yes' if settings["botpm"] else '❌ No', callback_data=f'setgs#botpm#{settings["botpm"]}#{grp_id}')
+                InlineKeyboardButton(
+                    "Bot PM", callback_data=f'setgs#botpm#{settings["botpm"]}#{grp_id}'
+                ),
+                InlineKeyboardButton(
+                    "✅ Yes" if settings["botpm"] else "❌ No",
+                    callback_data=f'setgs#botpm#{settings["botpm"]}#{grp_id}',
+                ),
             ],
             [
-                InlineKeyboardButton('File Secure', callback_data=f'setgs#file_secure#{settings["file_secure"]}#{grp_id}'),
-                InlineKeyboardButton('✅ Yes' if settings["file_secure"] else '❌ No', callback_data=f'setgs#file_secure#{settings["file_secure"]}#{grp_id}')
+                InlineKeyboardButton(
+                    "File Secure",
+                    callback_data=f'setgs#file_secure#{settings["file_secure"]}#{grp_id}',
+                ),
+                InlineKeyboardButton(
+                    "✅ Yes" if settings["file_secure"] else "❌ No",
+                    callback_data=f'setgs#file_secure#{settings["file_secure"]}#{grp_id}',
+                ),
             ],
             [
-                InlineKeyboardButton('Spell Check', callback_data=f'setgs#spell_check#{settings["spell_check"]}#{grp_id}'),
-                InlineKeyboardButton('✅ Yes' if settings["spell_check"] else '❌ No', callback_data=f'setgs#spell_check#{settings["spell_check"]}#{grp_id}')
+                InlineKeyboardButton(
+                    "Spell Check",
+                    callback_data=f'setgs#spell_check#{settings["spell_check"]}#{grp_id}',
+                ),
+                InlineKeyboardButton(
+                    "✅ Yes" if settings["spell_check"] else "❌ No",
+                    callback_data=f'setgs#spell_check#{settings["spell_check"]}#{grp_id}',
+                ),
             ],
             [
-                InlineKeyboardButton('Welcome', callback_data=f'setgs#welcome#{settings["welcome"]}#{grp_id}'),
-                InlineKeyboardButton('✅ Yes' if settings["welcome"] else '❌ No', callback_data=f'setgs#welcome#{settings["welcome"]}#{grp_id}')
-            ]
+                InlineKeyboardButton(
+                    "Welcome",
+                    callback_data=f'setgs#welcome#{settings["welcome"]}#{grp_id}',
+                ),
+                InlineKeyboardButton(
+                    "✅ Yes" if settings["welcome"] else "❌ No",
+                    callback_data=f'setgs#welcome#{settings["welcome"]}#{grp_id}',
+                ),
+            ],
         ]
-        
+
         reply_markup = InlineKeyboardMarkup(buttons)
         await message.reply_text(
             text=f"⚙️ **Change Your Settings for {title}**",
             reply_markup=reply_markup,
             disable_web_page_preview=True,
             parse_mode=enums.ParseMode.MARKDOWN,
-            quote=True
+            quote=True,
         )
