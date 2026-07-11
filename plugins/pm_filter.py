@@ -865,29 +865,31 @@ async def advantage_spell_chok(msg):
     gs_parsed = []
     
     if not g_s:
-            try:
-            k_msg = await bot.send_photo(
-                chat_id=query.message.chat.id, 
+        try:
+            k_msg = await msg.reply_photo(
                 photo=FILE_NOT_FOUND_PIC, 
                 caption=NOT_FOUND_TEXT
-                )
-            except RandomIdDuplicate:
-                k_msg = None
-                pass
-            except Forbidden as e:
+            )
+        except RandomIdDuplicate:
+            k_msg = None
+        except Forbidden as e:
             if "CHAT_SEND_PHOTOS_FORBIDDEN" in str(e):
-                not_found_msg = await msg.reply_text(
-                    text=f"{NOT_FOUND_TEXT}\n\n*(No photo attached due to chat permissions)*"
-                )
+                try:
+                    not_found_msg = await msg.reply_text(
+                        text=f"{NOT_FOUND_TEXT}\n\n*(No photo attached due to chat permissions)*"
+                    )
+                    k_msg = not_found_msg
+                except Exception:
+                    k_msg = None
             else:
                 logger.error(f"Failed to reply in spell_chok due to permissions: {e}")
-                not_found_msg = None
+                k_msg = None
         except Exception as e:
             logger.error(f"Failed to reply in spell_chok: {e}")
-            not_found_msg = None
+            k_msg = None
             
-        if not_found_msg:
-            asyncio.create_task(delete_message_after_delay(not_found_msg, DELETE_TIME))
+        if k_msg:
+            asyncio.create_task(delete_message_after_delay(k_msg, DELETE_TIME))
         return
         
     regex = re.compile(r".*(imdb|wikipedia).*", re.IGNORECASE)
@@ -919,29 +921,31 @@ async def advantage_spell_chok(msg):
     movielist = list(dict.fromkeys(movielist))
     
     if not movielist:
-            try:
-                k_msg = await bot.send_photo(
-                chat_id=query.message.chat.id, 
-                    photo=FILE_NOT_FOUND_PIC, 
-                    caption=NOT_FOUND_TEXT
-                )
-            except RandomIdDuplicate:
-                k_msg = None
-                pass
+        try:
+            k_msg = await msg.reply_photo(
+                photo=FILE_NOT_FOUND_PIC, 
+                caption=NOT_FOUND_TEXT
+            )
+        except RandomIdDuplicate:
+            k_msg = None
         except Forbidden as e:
-        if "CHAT_SEND_PHOTOS_FORBIDDEN" in str(e):
-            not_found_msg = await msg.reply_text(
-                text=f"{NOT_FOUND_TEXT}\n\n*(No photo attached due to chat permissions)*"
-                )
+            if "CHAT_SEND_PHOTOS_FORBIDDEN" in str(e):
+                try:
+                    not_found_msg = await msg.reply_text(
+                        text=f"{NOT_FOUND_TEXT}\n\n*(No photo attached due to chat permissions)*"
+                    )
+                    k_msg = not_found_msg
+                except Exception:
+                    k_msg = None
             else:
                 logger.error(f"Failed to reply in spell_chok empty movielist due to permissions: {e}")
-                not_found_msg = None
+                k_msg = None
         except Exception as e:
             logger.error(f"Failed to reply in spell_chok empty movielist: {e}")
-            not_found_msg = None
+            k_msg = None
             
-        if not_found_msg:
-            asyncio.create_task(delete_message_after_delay(not_found_msg, DELETE_TIME))
+        if k_msg:
+            asyncio.create_task(delete_message_after_delay(k_msg, DELETE_TIME))
         return
         
     SPELL_CHECK[msg.id] = movielist
@@ -949,7 +953,7 @@ async def advantage_spell_chok(msg):
     btn.append([InlineKeyboardButton(text="Close", callback_data=f'spolling#{user}#close_spellcheck')])
     
     try:
-        await msg.reply("<b>I couldn't find anything related to that Did you mean any one of these?</b>", reply_markup=InlineKeyboardMarkup(btn))
+        await msg.reply("<b>I couldn't find anything related to that. Did you mean any one of these?</b>", reply_markup=InlineKeyboardMarkup(btn))
     except Forbidden:
         pass
 
