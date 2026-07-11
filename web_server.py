@@ -1,22 +1,26 @@
-from flask import Flask, jsonify
+import os
 import threading
 import time
+
 import requests
-import os
+from flask import Flask, jsonify
 
 app = Flask(__name__)
 
-@app.route('/')
+
+@app.route("/")
 def home():
     """Root route for health check"""
     return "✅ Bot is alive and running!", 200
 
-@app.route('/health')
+
+@app.route("/health")
 def health():
     """Simple health route for Koyeb to monitor container"""
     return jsonify({"status": "ok", "timestamp": time.time()}), 200
 
-@app.route('/ping')
+
+@app.route("/ping")
 def ping():
     """Manual ping endpoint"""
     return jsonify({"pong": True}), 200

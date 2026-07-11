@@ -2,10 +2,11 @@
 # -*- coding: utf-8 -*-
 
 import logging
+
 import motor.motor_asyncio
 from pymongo.errors import DuplicateKeyError
 
-from info import REQ_CHANNEL, JOIN_REQS_DB
+from info import JOIN_REQS_DB, REQ_CHANNEL
 
 logger = logging.getLogger(__name__)
 
@@ -21,8 +22,7 @@ class JoinReqs:
         if JOIN_REQS_DB:
             try:
                 self.client = motor.motor_asyncio.AsyncIOMotorClient(
-                    JOIN_REQS_DB,
-                    serverSelectionTimeoutMS=5000
+                    JOIN_REQS_DB, serverSelectionTimeoutMS=5000
                 )
 
                 self.db = self.client["JoinReqs"]
@@ -44,7 +44,7 @@ class JoinReqs:
             "user_id": int(user_id),
             "first_name": first_name or "",
             "username": username or "",
-            "date": date
+            "date": date,
         }
 
         try:
@@ -64,9 +64,7 @@ class JoinReqs:
             return None
 
         try:
-            return await self.col.find_one(
-                {"user_id": int(user_id)}
-            )
+            return await self.col.find_one({"user_id": int(user_id)})
 
         except Exception as e:
             logger.exception(f"get_user(): {e}")
@@ -91,9 +89,7 @@ class JoinReqs:
             return False
 
         try:
-            result = await self.col.delete_one(
-                {"user_id": int(user_id)}
-            )
+            result = await self.col.delete_one({"user_id": int(user_id)})
             return result.deleted_count > 0
 
         except Exception as e:

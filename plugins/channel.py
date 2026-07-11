@@ -1,6 +1,8 @@
-import io
 import datetime
+import io
+
 from pyrogram import Client, filters
+
 from database.users_chats_db import db
 from info import ADMINS
 
@@ -12,13 +14,13 @@ from info import ADMINS
 async def list_users(bot: Client, message):
     """List all registered users."""
     users_data = await db.get_all_users()
-    
+
     # FIXED: Convert Cursor to list before calling len()
-    if hasattr(users_data, 'to_list'):
+    if hasattr(users_data, "to_list"):
         users = await users_data.to_list(length=None)
     else:
         users = list(users_data)
-        
+
     total = len(users)
 
     if total == 0:
@@ -28,14 +30,13 @@ async def list_users(bot: Client, message):
     text += f"📅 Generated on: `{datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC`\n"
     text += f"👥 Total Users: `{total}`\n\n"
 
-    data = "\n".join([f"{user['id']} - {user.get('name', 'Unknown')}" for user in users])
+    data = "\n".join(
+        [f"{user['id']} - {user.get('name', 'Unknown')}" for user in users]
+    )
     file = io.BytesIO(data.encode())
     file.name = "users_list.txt"
 
-    await message.reply_document(
-        document=file,
-        caption=text
-    )
+    await message.reply_document(document=file, caption=text)
 
 
 # ============================================================
@@ -45,13 +46,13 @@ async def list_users(bot: Client, message):
 async def list_chats(bot: Client, message):
     """List all registered group chats."""
     chats_data = await db.get_all_chats()
-    
+
     # FIXED: Convert Cursor to list
-    if hasattr(chats_data, 'to_list'):
+    if hasattr(chats_data, "to_list"):
         chats = await chats_data.to_list(length=None)
     else:
         chats = list(chats_data)
-        
+
     total = len(chats)
 
     if total == 0:
@@ -65,14 +66,13 @@ async def list_chats(bot: Client, message):
     text += f"🏘️ Total Chats: `{total}`\n"
     text += f"👥 Groups: `{len(groups)}` | 📢 Supergroups: `{len(supergroups)}`\n\n"
 
-    data = "\n".join([f"{chat['id']} - {chat.get('title', 'Unknown')}" for chat in chats])
+    data = "\n".join(
+        [f"{chat['id']} - {chat.get('title', 'Unknown')}" for chat in chats]
+    )
     file = io.BytesIO(data.encode())
     file.name = "chats_list.txt"
 
-    await message.reply_document(
-        document=file,
-        caption=text
-    )
+    await message.reply_document(document=file, caption=text)
 
 
 # ============================================================
@@ -82,13 +82,13 @@ async def list_chats(bot: Client, message):
 async def list_channels(bot: Client, message):
     """List all channels where the bot is present."""
     chats_data = await db.get_all_chats()
-    
+
     # FIXED: Convert Cursor to list
-    if hasattr(chats_data, 'to_list'):
+    if hasattr(chats_data, "to_list"):
         chats = await chats_data.to_list(length=None)
     else:
         chats = list(chats_data)
-        
+
     channels = [chat for chat in chats if str(chat["id"]).startswith("-100")]
     total = len(channels)
 
@@ -99,11 +99,10 @@ async def list_channels(bot: Client, message):
     text += f"📅 Generated on: `{datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC`\n"
     text += f"📺 Total Channels: `{total}`\n\n"
 
-    data = "\n".join([f"{chat['id']} - {chat.get('title', 'Unknown')}" for chat in channels])
+    data = "\n".join(
+        [f"{chat['id']} - {chat.get('title', 'Unknown')}" for chat in channels]
+    )
     file = io.BytesIO(data.encode())
     file.name = "channels_list.txt"
 
-    await message.reply_document(
-        document=file,
-        caption=text
-    )
+    await message.reply_document(document=file, caption=text)

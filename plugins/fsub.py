@@ -1,8 +1,10 @@
 import asyncio
-from pyrogram import Client, filters, enums
-from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
-from info import ADMINS, AUTH_CHANNEL, REQ_CHANNEL
+
+from pyrogram import Client, enums, filters
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
+
 from database.join_reqs import JoinReqs
+from info import ADMINS, AUTH_CHANNEL, REQ_CHANNEL
 
 db = JoinReqs()
 
@@ -10,7 +12,9 @@ db = JoinReqs()
 # ============================================================
 # 🧠 Runtime ForceSub Checker (used by commands.py)
 # ============================================================
-async def ForceSub(bot: Client, message: Message, file_id: str = None, mode: str = None) -> bool:
+async def ForceSub(
+    bot: Client, message: Message, file_id: str = None, mode: str = None
+) -> bool:
     """
     Checks if user is subscribed to AUTH_CHANNEL or REQ_CHANNEL.
     Returns True if allowed, False if not (and sends a join prompt).
@@ -30,9 +34,11 @@ async def ForceSub(bot: Client, message: Message, file_id: str = None, mode: str
         if AUTH_CHANNEL:
             try:
                 member = await bot.get_chat_member(int(AUTH_CHANNEL), user.id)
-                if member.status in [enums.ChatMemberStatus.MEMBER,
-                                     enums.ChatMemberStatus.ADMINISTRATOR,
-                                     enums.ChatMemberStatus.OWNER]:
+                if member.status in [
+                    enums.ChatMemberStatus.MEMBER,
+                    enums.ChatMemberStatus.ADMINISTRATOR,
+                    enums.ChatMemberStatus.OWNER,
+                ]:
                     return True
             except Exception:
                 pass  # user not a member
@@ -41,9 +47,11 @@ async def ForceSub(bot: Client, message: Message, file_id: str = None, mode: str
         if REQ_CHANNEL:
             try:
                 member = await bot.get_chat_member(int(REQ_CHANNEL), user.id)
-                if member.status in [enums.ChatMemberStatus.MEMBER,
-                                     enums.ChatMemberStatus.ADMINISTRATOR,
-                                     enums.ChatMemberStatus.OWNER]:
+                if member.status in [
+                    enums.ChatMemberStatus.MEMBER,
+                    enums.ChatMemberStatus.ADMINISTRATOR,
+                    enums.ChatMemberStatus.OWNER,
+                ]:
                     return True
             except Exception:
                 pass
@@ -51,17 +59,37 @@ async def ForceSub(bot: Client, message: Message, file_id: str = None, mode: str
         # Not subscribed — prompt user
         buttons = []
         if AUTH_CHANNEL:
-            buttons.append([InlineKeyboardButton("🔐 Join Main Channel", url=f"https://t.me/{str(AUTH_CHANNEL).lstrip('@')}")])
+            buttons.append(
+                [
+                    InlineKeyboardButton(
+                        "🔐 Join Main Channel",
+                        url=f"https://t.me/{str(AUTH_CHANNEL).lstrip('@')}",
+                    )
+                ]
+            )
         if REQ_CHANNEL:
-            buttons.append([InlineKeyboardButton("📨 Join Request Channel", url=f"https://t.me/{str(REQ_CHANNEL).lstrip('@')}")])
+            buttons.append(
+                [
+                    InlineKeyboardButton(
+                        "📨 Join Request Channel",
+                        url=f"https://t.me/{str(REQ_CHANNEL).lstrip('@')}",
+                    )
+                ]
+            )
 
-        buttons.append([InlineKeyboardButton("✅ I've Joined", callback_data=f"refresh_fsub_{file_id or 0}")])
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    "✅ I've Joined", callback_data=f"refresh_fsub_{file_id or 0}"
+                )
+            ]
+        )
 
         await message.reply_text(
             "🔒 **You must join the required channel(s) to use this bot.**\n\n"
             "Once you’ve joined, click **‘I’ve Joined’** to continue.",
             reply_markup=InlineKeyboardMarkup(buttons),
-            disable_web_page_preview=True
+            disable_web_page_preview=True,
         )
         return False
 
@@ -113,7 +141,10 @@ async def add_fsub(bot: Client, message: Message):
         channel_id = int(message.command[1])
         chat = await bot.get_chat(channel_id)
         title = chat.title
-        link = chat.invite_link or (await bot.create_chat_invite_link(channel_id)).invite_link
+        link = (
+            chat.invite_link
+            or (await bot.create_chat_invite_link(channel_id)).invite_link
+        )
 
         await message.reply_text(
             f"✅ ForceSub channel set successfully!\n\n"
@@ -137,7 +168,10 @@ async def get_fsub(bot: Client, message: Message):
     try:
         channel_id = int(AUTH_CHANNEL or REQ_CHANNEL)
         chat = await bot.get_chat(channel_id)
-        link = chat.invite_link or (await bot.create_chat_invite_link(channel_id)).invite_link
+        link = (
+            chat.invite_link
+            or (await bot.create_chat_invite_link(channel_id)).invite_link
+        )
         await message.reply_text(
             f"🔗 **ForceSub Channel:** `{chat.title}` (`{channel_id}`)\n"
             f"👉 Invite Link: {link}"
@@ -165,7 +199,9 @@ async def total_requests(bot: Client, message: Message):
 @Client.on_message(filters.command("clreq") & filters.user(ADMINS))
 async def clear_requests(bot: Client, message: Message):
     """Delete all stored join request records."""
-    confirm = await message.reply_text("⚠️ Are you sure? This will delete all join requests. (y/n)")
+    confirm = await message.reply_text(
+        "⚠️ Are you sure? This will delete all join requests. (y/n)"
+    )
 
     try:
         resp = await bot.listen(message.chat.id, timeout=30)

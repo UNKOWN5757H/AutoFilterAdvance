@@ -1,8 +1,16 @@
 import asyncio
 import datetime
 import time
+
 from pyrogram import Client, filters
-from pyrogram.errors import FloodWait, InputUserDeactivated, UserIsBlocked, PeerIdInvalid, ChatWriteForbidden
+from pyrogram.errors import (
+    ChatWriteForbidden,
+    FloodWait,
+    InputUserDeactivated,
+    PeerIdInvalid,
+    UserIsBlocked,
+)
+
 from database.users_chats_db import db
 from info import ADMINS
 from utils import broadcast_messages
@@ -19,7 +27,9 @@ async def user_broadcast(bot: Client, message):
     """
     b_msg = message.reply_to_message
     if not b_msg:
-        return await message.reply_text("⚠️ Reply to the message you want to broadcast. ")
+        return await message.reply_text(
+            "⚠️ Reply to the message you want to broadcast. "
+        )
 
     users = await db.get_all_users()
     total_users = len(users)
@@ -27,7 +37,9 @@ async def user_broadcast(bot: Client, message):
     if total_users == 0:
         return await message.reply_text("⚠️ No users found in the database.")
 
-    status_msg = await message.reply_text(f"🚀 Broadcasting to **{total_users} users**....")
+    status_msg = await message.reply_text(
+        f"🚀 Broadcasting to **{total_users} users**...."
+    )
     start_time = time.time()
 
     done = success = blocked = deleted = failed = 0
@@ -80,7 +92,9 @@ async def user_broadcast(bot: Client, message):
 # ============================================================
 # GROUP BROADCAST
 # ============================================================
-@Client.on_message(filters.command("group_broadcast") & filters.user(ADMINS) & filters.reply)
+@Client.on_message(
+    filters.command("group_broadcast") & filters.user(ADMINS) & filters.reply
+)
 async def group_broadcast(bot: Client, message):
     """
     Broadcast a replied message to all groups/channels.
@@ -88,7 +102,9 @@ async def group_broadcast(bot: Client, message):
     """
     b_msg = message.reply_to_message
     if not b_msg:
-        return await message.reply_text("⚠️ Reply to the message you want to broadcast.")
+        return await message.reply_text(
+            "⚠️ Reply to the message you want to broadcast."
+        )
 
     chats = await db.get_all_chats()
     total_chats = len(chats)
@@ -96,7 +112,9 @@ async def group_broadcast(bot: Client, message):
     if total_chats == 0:
         return await message.reply_text("⚠️ No groups found in the database.")
 
-    status_msg = await message.reply_text(f"🚀 Broadcasting to **{total_chats} groups/chats**...")
+    status_msg = await message.reply_text(
+        f"🚀 Broadcasting to **{total_chats} groups/chats**..."
+    )
     start_time = time.time()
 
     done = success = left = failed = 0

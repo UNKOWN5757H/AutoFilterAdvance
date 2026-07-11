@@ -1,12 +1,19 @@
 import asyncio
 import logging
+
 from pyrogram import Client, filters
 from pyrogram.errors import PeerIdInvalid, UserNotParticipant
-from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from pyrogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 
-from utils import temp
 from database.users_chats_db import db
 from info import ADMINS, SUPPORT_CHAT
+from utils import temp
+
 
 # ============================================================
 # BAN COMMAND (Admins Only)
@@ -18,16 +25,24 @@ async def ban_user(bot: Client, message: Message):
     Usage: /ban <user_id|username> [reason]
     """
     if len(message.command) < 2:
-        return await message.reply_text("⚠️ Usage: `/ban <user_id | username> [reason]`")
+        return await message.reply_text(
+            "⚠️ Usage: `/ban <user_id | username> [reason]`"
+        )
 
     args = message.text.split(None, 2)
     user_ref = args[1]
     reason = args[2] if len(args) > 2 else "No reason provided."
 
     try:
-        user = await bot.get_users(int(user_ref)) if user_ref.isdigit() else await bot.get_users(user_ref)
+        user = (
+            await bot.get_users(int(user_ref))
+            if user_ref.isdigit()
+            else await bot.get_users(user_ref)
+        )
     except PeerIdInvalid:
-        return await message.reply_text("❌ Invalid user ID. I must have chatted with them before.")
+        return await message.reply_text(
+            "❌ Invalid user ID. I must have chatted with them before."
+        )
     except Exception as e:
         logging.exception(e)
         return await message.reply_text(f"⚠️ Error: `{e}`")
@@ -41,7 +56,9 @@ async def ban_user(bot: Client, message: Message):
     await db.ban_user(user.id, reason)
     temp.BANNED_USERS.append(user.id) if user.id not in temp.BANNED_USERS else None
 
-    await message.reply_text(f"✅ {user.mention} has been banned.\n \nReason: `{reason}`")
+    await message.reply_text(
+        f"✅ {user.mention} has been banned.\n \nReason: `{reason}`"
+    )
 
 
 # ============================================================
@@ -56,9 +73,15 @@ async def unban_user(bot: Client, message: Message):
     user_ref = message.text.split(None, 2)[1]
 
     try:
-        user = await bot.get_users(int(user_ref)) if user_ref.isdigit() else await bot.get_users(user_ref)
+        user = (
+            await bot.get_users(int(user_ref))
+            if user_ref.isdigit()
+            else await bot.get_users(user_ref)
+        )
     except PeerIdInvalid:
-        return await message.reply_text("❌ Invalid user ID. I must have chatted with them before.")
+        return await message.reply_text(
+            "❌ Invalid user ID. I must have chatted with them before."
+        )
     except Exception as e:
         logging.exception(e)
         return await message.reply_text(f"⚠️ Error: `{e}`")
@@ -94,13 +117,17 @@ async def paginate_banned_list(bot: Client, query: CallbackQuery):
     try:
         page = int(query.data.split("_")[1])
         banned_users = await db.get_all_banned_users()
-        await send_banned_page(query.message, banned_users, page, edit=True, query=query)
+        await send_banned_page(
+            query.message, banned_users, page, edit=True, query=query
+        )
     except Exception as e:
         logging.exception(e)
         await query.answer("⚠️ Something went wrong.", show_alert=True)
 
 
-async def send_banned_page(message_or_query, banned_users, page: int, edit=False, query=None):
+async def send_banned_page(
+    message_or_query, banned_users, page: int, edit=False, query=None
+):
     """Helper to display or edit a paginated list."""
     PER_PAGE = 10
     total = len(banned_users)
@@ -130,10 +157,14 @@ async def send_banned_page(message_or_query, banned_users, page: int, edit=False
     markup = InlineKeyboardMarkup(buttons)
 
     if edit and query:
-        await query.message.edit_text(text, reply_markup=markup, disable_web_page_preview=True)
+        await query.message.edit_text(
+            text, reply_markup=markup, disable_web_page_preview=True
+        )
         await query.answer()
     else:
-        await message_or_query.reply_text(text, reply_markup=markup, disable_web_page_preview=True)
+        await message_or_query.reply_text(
+            text, reply_markup=markup, disable_web_page_preview=True
+        )
 
 
 @Client.on_callback_query(filters.regex("^close_banlist$"))
@@ -153,12 +184,14 @@ async def is_banned_user(_, __, message: Message):
     """Check if a user is banned."""
     return bool(message.from_user and message.from_user.id in temp.BANNED_USERS)
 
+
 banned_user = filters.create(is_banned_user)
 
 
 async def is_disabled_chat(_, __, message: Message):
     """Check if a chat is disabled."""
     return bool(message.chat and message.chat.id in temp.BANNED_CHATS)
+
 
 disabled_chat = filters.create(is_disabled_chat)
 
@@ -187,7 +220,7 @@ async def handle_disabled_group(bot: Client, message: Message):
 
     buttons = [
         [InlineKeyboardButton("🧩 Support", url=f"https://t.me/{SUPPORT_CHAT}")],
-        [InlineKeyboardButton("🤖 Owner", url="https://t.me/Sandalwood_Help_Bot")]
+        [InlineKeyboardButton("🤖 Owner", url="https://t.me/Sandalwood_Help_Bot")],
     ]
     markup = InlineKeyboardMarkup(buttons)
 
@@ -196,7 +229,7 @@ async def handle_disabled_group(bot: Client, message: Message):
         f"My admins have disabled me here.\n"
         f"**Reason:** `{reason}`\n\n"
         f"If you believe this is a mistake, please contact support.",
-        reply_markup=markup
+        reply_markup=markup,
     )
 
     try:

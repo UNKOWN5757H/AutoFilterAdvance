@@ -1,13 +1,15 @@
-
 import os
-from pyrogram import Client, filters, enums
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
+from pyrogram import Client, enums, filters
 from pyrogram.errors import ChatAdminRequired, MessageTooLong
-from info import ADMINS, LOG_CHANNEL, SUPPORT_CHAT
-from database.users_chats_db import db
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
 from database.ia_filterdb import Media
-from utils import get_size, temp, get_settings
+from database.users_chats_db import db
+from info import ADMINS, LOG_CHANNEL, SUPPORT_CHAT
 from Script import script
+from utils import get_settings, get_size, temp
+
 
 # ============================================================
 # 🚀 Handle when the bot joins a group
@@ -20,19 +22,23 @@ async def save_group(bot, message):
         if not await db.get_chat(message.chat.id):
             total = await bot.get_chat_members_count(message.chat.id)
             added_by = message.from_user.mention if message.from_user else "Anonymous"
-            
+
             try:
                 await bot.send_message(
                     LOG_CHANNEL,
-                    script.LOG_TEXT_G.format(message.chat.title, message.chat.id, total, added_by),
+                    script.LOG_TEXT_G.format(
+                        message.chat.title, message.chat.id, total, added_by
+                    ),
                 )
             except Exception:
-                pass # Just in case the format string doesn't match perfectly
-                
+                pass  # Just in case the format string doesn't match perfectly
+
             await db.add_chat(message.chat.id, message.chat.title)
 
         if message.chat.id in temp.BANNED_CHATS:
-            btn = [[InlineKeyboardButton('🤖 OWNER', url=f"https://t.me/{SUPPORT_CHAT}")]]
+            btn = [
+                [InlineKeyboardButton("🤖 OWNER", url=f"https://t.me/{SUPPORT_CHAT}")]
+            ]
             markup = InlineKeyboardMarkup(btn)
             warn_msg = await message.reply_text(
                 "<b>🚫 This chat is restricted!\n"
@@ -49,8 +55,12 @@ async def save_group(bot, message):
 
         btn = [
             [
-                InlineKeyboardButton('ℹ️ Help', url=f"https://t.me/{temp.U_NAME}?start=help"),
-                InlineKeyboardButton('📖 About', url=f"https://t.me/{temp.U_NAME}?start=about"),
+                InlineKeyboardButton(
+                    "ℹ️ Help", url=f"https://t.me/{temp.U_NAME}?start=help"
+                ),
+                InlineKeyboardButton(
+                    "📖 About", url=f"https://t.me/{temp.U_NAME}?start=about"
+                ),
             ]
         ]
         await message.reply_text(
@@ -123,17 +133,17 @@ async def disable_chat(bot, message):
     chat_info = await db.get_chat(chat_id)
     if not chat_info:
         return await message.reply_text("⚠️ Chat not found in DB.")
-        
+
     if chat_info.get("is_disabled"):
         return await message.reply_text(
             f"🚷 This chat is already disabled.\nReason: `{chat_info.get('reason', 'Unknown')}`"
         )
 
     await db.disable_chat(chat_id, reason)
-    
+
     if chat_id not in temp.BANNED_CHATS:
         temp.BANNED_CHATS.append(chat_id)
-        
+
     await message.reply_text(f"✅ Chat `{chat_id}` successfully disabled.")
 
     try:
@@ -166,16 +176,16 @@ async def enable_chat(bot, message):
     chat_info = await db.get_chat(chat_id)
     if not chat_info:
         return await message.reply_text("⚠️ Chat not found in DB.")
-        
+
     if not chat_info.get("is_disabled"):
         return await message.reply_text("✅ This chat is already enabled.")
 
     # FIXED: Replaced enable_chat with re_enable_chat to match the DB file
     await db.re_enable_chat(chat_id)
-    
+
     if chat_id in temp.BANNED_CHATS:
         temp.BANNED_CHATS.remove(chat_id)
-        
+
     await message.reply_text(f"✅ Chat `{chat_id}` successfully re-enabled.")
 
 
@@ -220,7 +230,9 @@ async def list_users(bot, message):
 
     out = "👥 **Users in Database:**\n\n"
     for user in users:
-        out += f"• <a href='tg://user?id={user['id']}'>{user.get('name', 'Unknown')}</a>"
+        out += (
+            f"• <a href='tg://user?id={user['id']}'>{user.get('name', 'Unknown')}</a>"
+        )
         if user.get("ban_status", {}).get("is_banned"):
             out += " (🚫 Banned)"
         out += "\n"

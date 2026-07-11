@@ -1,8 +1,9 @@
-
 import asyncio
 from logging import getLogger
-from pyrogram import Client, filters, enums
+
+from pyrogram import Client, enums, filters
 from pyrogram.types import ChatJoinRequest
+
 from database.join_reqs import JoinReqs
 from info import ADMINS, REQ_CHANNEL
 
@@ -29,7 +30,7 @@ async def join_reqs_handler(bot: Client, join_req: ChatJoinRequest):
             user_id=user.id,
             first_name=user.first_name or "Unknown",
             username=user.username or "None",
-            date=join_req.date
+            date=join_req.date,
         )
         logger.info(f"📥 Stored join request: {user.first_name} ({user.id})")
     except Exception as e:
@@ -39,17 +40,21 @@ async def join_reqs_handler(bot: Client, join_req: ChatJoinRequest):
 # ============================================================
 # 📊 /totalrequests — Show total join requests count
 # ============================================================
-@Client.on_message(filters.command("totalrequests") & filters.private & filters.user(ADMINS))
+@Client.on_message(
+    filters.command("totalrequests") & filters.private & filters.user(ADMINS)
+)
 async def total_requests(bot: Client, message):
     """Show total stored join requests."""
     if not db.isActive():
-        return await message.reply_text("⚠️ Join request tracking is not active (DB inactive).")
+        return await message.reply_text(
+            "⚠️ Join request tracking is not active (DB inactive)."
+        )
 
     try:
         total = await db.get_all_users_count()
         await message.reply_text(
             f"📨 **Total Join Requests:** `{total}`",
-            parse_mode=enums.ParseMode.MARKDOWN
+            parse_mode=enums.ParseMode.MARKDOWN,
         )
     except Exception as e:
         logger.exception(f"❌ Error fetching join requests: {e}")
@@ -59,11 +64,15 @@ async def total_requests(bot: Client, message):
 # ============================================================
 # 🧹 /purgerequests — Delete all join requests
 # ============================================================
-@Client.on_message(filters.command("purgerequests") & filters.private & filters.user(ADMINS))
+@Client.on_message(
+    filters.command("purgerequests") & filters.private & filters.user(ADMINS)
+)
 async def purge_requests(bot: Client, message):
     """Deletes all join request records."""
     if not db.isActive():
-        return await message.reply_text("⚠️ Join request tracking is not active (DB inactive).")
+        return await message.reply_text(
+            "⚠️ Join request tracking is not active (DB inactive)."
+        )
 
     confirm_msg = await message.reply_text(
         "⚠️ Are you sure you want to delete all join requests? (y/n)"
@@ -73,7 +82,9 @@ async def purge_requests(bot: Client, message):
         resp = await bot.listen(message.chat.id, timeout=30)
         if resp.text.lower() == "y":
             count = await db.delete_all_users()
-            await message.reply_text(f"✅ All join requests purged successfully. ({count} deleted)")
+            await message.reply_text(
+                f"✅ All join requests purged successfully. ({count} deleted)"
+            )
         else:
             await message.reply_text("❌ Operation cancelled.")
     except asyncio.TimeoutError:

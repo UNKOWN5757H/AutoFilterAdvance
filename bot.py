@@ -1,22 +1,24 @@
+import asyncio  # Added to support asyncio.sleep()
 import logging
 import logging.config
-import asyncio  # Added to support asyncio.sleep()
 
 # Get logging configurations
-logging.config.fileConfig('logging.conf')
+logging.config.fileConfig("logging.conf")
 logging.getLogger().setLevel(logging.INFO)
 logging.getLogger("pyrogram").setLevel(logging.ERROR)
 logging.getLogger("imdbpy").setLevel(logging.ERROR)
 
-from typing import Union, Optional, AsyncGenerator
-from pyrogram import Client, filters, types, __version__  # Added filters
-from pyrogram.types import Message  # Added Message
+from typing import AsyncGenerator, Optional, Union
+
+from pyrogram import Client, __version__, filters, types  # Added filters
 from pyrogram.raw.all import layer
+from pyrogram.types import Message  # Added Message
 
 from database.ia_filterdb import Media
 from database.users_chats_db import db
-from info import SESSION, API_ID, API_HASH, BOT_TOKEN, LOG_STR
+from info import API_HASH, API_ID, BOT_TOKEN, LOG_STR, SESSION
 from utils import temp
+
 
 class Bot(Client):
 
@@ -41,8 +43,10 @@ class Bot(Client):
         temp.ME = me.id
         temp.U_NAME = me.username
         temp.B_NAME = me.first_name
-        self.username = '@' + me.username
-        logging.info(f"{me.first_name} with for Pyrogram v{__version__} (Layer {layer}) started on {me.username}.")
+        self.username = "@" + me.username
+        logging.info(
+            f"{me.first_name} with for Pyrogram v{__version__} (Layer {layer}) started on {me.username}."
+        )
         logging.info(LOG_STR)
 
     async def stop(self, *args):
@@ -66,7 +70,9 @@ class Bot(Client):
             new_diff = min(200, limit - current)
             if new_diff <= 0:
                 return
-            messages = await self.get_messages(chat_id, list(range(current, current+new_diff+1)))
+            messages = await self.get_messages(
+                chat_id, list(range(current, current + new_diff + 1))
+            )
             for message in messages:
                 yield message
                 current += 1
@@ -79,7 +85,16 @@ async def auto_delete_user_media_pm(client: Client, message: Message):
     if not user or message.outgoing:
         return
 
-    if any([message.document, message.video, message.audio, message.voice, message.photo, message.video_note]):
+    if any(
+        [
+            message.document,
+            message.video,
+            message.audio,
+            message.voice,
+            message.photo,
+            message.video_note,
+        ]
+    ):
         await asyncio.sleep(14400)  # Wait 4 hours
         try:
             await message.delete()

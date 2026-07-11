@@ -1,14 +1,15 @@
-import os
 import logging
+import os
 from datetime import datetime
-from pyrogram import Client, filters, enums
+
+from pyrogram import Client, enums, filters
 from pyrogram.errors import (
-    UserNotParticipant,
     MediaEmpty,
     PhotoInvalidDimensions,
+    UserNotParticipant,
     WebpageMediaEmpty,
 )
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from pyrogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 
 from info import IMDB_TEMPLATE
 from utils import extract_user, get_file_id, get_poster
@@ -78,9 +79,9 @@ async def who_is(client, message):
     if message.chat.type in (enums.ChatType.SUPERGROUP, enums.ChatType.CHANNEL):
         try:
             member = await message.chat.get_member(user.id)
-            joined_date = (
-                member.joined_date or datetime.now()
-            ).strftime("%Y-%m-%d %H:%M:%S")
+            joined_date = (member.joined_date or datetime.now()).strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
             text += f"<b>📅 Joined Chat On:</b> <code>{joined_date}</code>\n"
         except UserNotParticipant:
             pass
@@ -101,9 +102,13 @@ async def who_is(client, message):
             os.remove(photo_path)
         except Exception as e:
             logger.exception(e)
-            await message.reply_text(text, reply_markup=markup, parse_mode=enums.ParseMode.HTML)
+            await message.reply_text(
+                text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
+            )
     else:
-        await message.reply_text(text, reply_markup=markup, parse_mode=enums.ParseMode.HTML)
+        await message.reply_text(
+            text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
+        )
 
     await status.delete()
 
@@ -128,10 +133,17 @@ async def imdb_search(client, message):
         return await wait_msg.edit(f"⚠️ IMDb search error: `{e}`")
 
     buttons = [
-        [InlineKeyboardButton(f"{movie.get('title')} ({movie.get('year')})", callback_data=f"imdb#{movie.movieID}")]
+        [
+            InlineKeyboardButton(
+                f"{movie.get('title')} ({movie.get('year')})",
+                callback_data=f"imdb#{movie.movieID}",
+            )
+        ]
         for movie in movies
     ]
-    await wait_msg.edit("🎥 Here’s what I found:", reply_markup=InlineKeyboardMarkup(buttons))
+    await wait_msg.edit(
+        "🎥 Here’s what I found:", reply_markup=InlineKeyboardMarkup(buttons)
+    )
 
 
 # ============================================================
@@ -144,7 +156,7 @@ async def imdb_callback(client, query: CallbackQuery):
 
     if not imdb:
         return await query.message.edit("❌ No IMDb results found.")
-    
+
     buttons = [[InlineKeyboardButton(f"{imdb['title']}", url=imdb["url"])]]
     caption = IMDB_TEMPLATE.format(
         query=imdb["title"],
@@ -181,14 +193,16 @@ async def imdb_callback(client, query: CallbackQuery):
         if imdb.get("poster"):
             try:
                 await query.message.reply_photo(
-                    photo=imdb["poster"], caption=caption,
+                    photo=imdb["poster"],
+                    caption=caption,
                     reply_markup=InlineKeyboardMarkup(buttons),
                 )
             except (MediaEmpty, PhotoInvalidDimensions, WebpageMediaEmpty):
                 # fallback to resized poster URL
                 poster = imdb["poster"].replace(".jpg", "._V1_UX360.jpg")
                 await query.message.reply_photo(
-                    photo=poster, caption=caption,
+                    photo=poster,
+                    caption=caption,
                     reply_markup=InlineKeyboardMarkup(buttons),
                 )
             await query.message.delete()
@@ -201,5 +215,5 @@ async def imdb_callback(client, query: CallbackQuery):
     except Exception as e:
         logger.exception(e)
         await query.message.edit(caption, disable_web_page_preview=False)
-    
+
     await query.answer()
