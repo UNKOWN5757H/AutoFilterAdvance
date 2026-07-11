@@ -18,7 +18,7 @@ from pyrogram.errors import (
 )
 from pyrogram.types import InlineKeyboardButton, Message
 
-from database.join_reqs import JoinReqs as db2
+from database.join_reqs import join_reqs as db2  # FIXED: Reused active instance
 from database.users_chats_db import db
 from info import ADMINS, AUTH_CHANNEL, LONG_IMDB_DESCRIPTION, MAX_LIST_ELM, REQ_CHANNEL
 
@@ -134,9 +134,8 @@ async def is_subscribed(bot, query):
     if not AUTH_CHANNEL and not REQ_CHANNEL:
         return True
 
-    join_db = db2()
-    if join_db.isActive():
-        user = await join_db.get_user(user_id)
+    if db2.isActive():
+        user = await db2.get_user(user_id)
         if user:
             return True
 
@@ -151,7 +150,6 @@ async def is_subscribed(bot, query):
         logger.exception(f"Error checking subscription: {e}")
         return False
     else:
-        # Check against both BANNED and LEFT statuses to ensure active membership
         return user.status not in [
             enums.ChatMemberStatus.BANNED,
             enums.ChatMemberStatus.LEFT,
@@ -163,18 +161,20 @@ def _fetch_imdb_data(query, bulk=False, id=False, file=None):
         if not id:
             query = (query.strip()).lower()
             title = query
-            year = re.findall(r"[1-2]\d{3}$", query, re.IGNORECASE)
+            
+            # FIXED: Made year regex more flexible to find years anywhere, not just at the end.
+            year_match = re.findall(r"\b(19\d{2}|20\d{2})\b", query, re.IGNORECASE)
 
-            if year:
-                year = year[0]
+            if year_match:
+                year = year_match[0]
                 title = (query.replace(year, "")).strip()
             elif file is not None:
-                year_match = re.findall(r"[1-2]\d{3}", file, re.IGNORECASE)
-                year = year_match[0] if year_match else None
+                file_year_match = re.findall(r"\b(19\d{2}|20\d{2})\b", file, re.IGNORECASE)
+                year = file_year_match[0] if file_year_match else None
             else:
                 year = None
 
-            movieid = imdb.search_movie(title.lower(), results=10)
+            movieid = imdb.search_movie(title, results=10)
             if not movieid:
                 return None
 
@@ -185,9 +185,7 @@ def _fetch_imdb_data(query, bulk=False, id=False, file=None):
             else:
                 filtered = movieid
 
-            movieid_filtered = [
-                k for k in filtered if k.get("kind") in ["movie", "tv series"]
-            ]
+            movieid_filtered = [k for k in filtered if k.get("kind") in ["movie", "tv series"]]
             if not movieid_filtered:
                 movieid_filtered = filtered
 
@@ -279,7 +277,6 @@ def _fetch_gagala(text):
     url = f"https://www.google.com/search?q={text}"
 
     try:
-        # Added timeout and Exception handling to prevent stalling if Google rate-limits the bot IP
         response = requests.get(url, headers=usr_agent, timeout=5)
         response.raise_for_status()
         soup = BeautifulSoup(response.text, "html.parser")
@@ -325,31 +322,16 @@ def split_list(l, n):
 
 
 def get_file_id(msg: Message):
+    """
+    FIXED: Pyrogram `__slots__` prevention block and enum parsing updates.
+    """
     if not msg.media:
         return None
 
-    for message_type in (
-        enums.MessageMediaType.PHOTO,
-        enums.MessageMediaType.ANIMATION,
-        enums.MessageMediaType.AUDIO,
-        enums.MessageMediaType.DOCUMENT,
-        enums.MessageMediaType.VIDEO,
-        enums.MessageMediaType.VIDEO_NOTE,
-        enums.MessageMediaType.VOICE,
-        enums.MessageMediaType.STICKER,
-    ):
-        attr_name = (
-            message_type.value if hasattr(message_type, "value") else message_type
-        )
-        obj = getattr(msg, attr_name, None)
-        if obj:
-            try:
-                # Some Pyrogram versions enforce __slots__, preventing arbitrary attribute assignment
-                setattr(obj, "message_type", message_type)
-            except AttributeError:
-                pass
-            return obj
-    return None
+    # Modern pyrogram allows us to just check `msg.media.value` to find the exact attribute name
+    media_type = getattr(msg.media, "value", str(msg.media))
+    obj = getattr(msg, media_type, None)
+    return obj
 
 
 def extract_user(message: Message) -> Union[int, str]:
