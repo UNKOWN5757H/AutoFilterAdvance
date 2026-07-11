@@ -7,7 +7,9 @@ from marshmallow.exceptions import ValidationError
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo.errors import BulkWriteError, DuplicateKeyError
 from pyrogram.file_id import FileId
-from umongo import Document, Instance, fields
+
+from umongo import Document, fields
+from umongo.frameworks.motor_asyncio import MotorAsyncIOInstance
 
 from info import COLLECTION_NAME, DATABASE_NAME, DATABASE_URI, USE_CAPTION_FILTER
 
@@ -17,8 +19,8 @@ logger.setLevel(logging.INFO)
 client = AsyncIOMotorClient(DATABASE_URI)
 db = client[DATABASE_NAME]
 
-# Restored the correct dynamic initialization method
-instance = Instance.from_db(db)
+# FIXED: Use the correct async instance for Motor
+instance = MotorAsyncIOInstance(db)
 
 
 @instance.register
@@ -49,9 +51,9 @@ async def save_batch(media_list):
             raw_name = getattr(media, "file_name", "") or ""
             file_name = re.sub(r"(_|\-|\.|\+)", " ", str(raw_name))
 
-            # Safely handle Pyrogram caption object which might not always have .html
+            # FIXED: Safely handle captions without risking AttributeErrors
             caption = getattr(media, "caption", None)
-            caption_text = getattr(caption, "html", str(caption)) if caption else None
+            caption_text = str(caption) if caption else None
 
             doc = {
                 "_id": file_id,
@@ -89,7 +91,7 @@ async def save_file(media):
         file_name = re.sub(r"(_|\-|\.|\+)", " ", str(raw_name))
 
         caption = getattr(media, "caption", None)
-        caption_text = getattr(caption, "html", str(caption)) if caption else None
+        caption_text = str(caption) if caption else None
 
         file = Media(
             file_id=file_id,
@@ -126,10 +128,9 @@ async def get_search_results(
     parsed = parse_ultra_advanced_query(query_text)
     conditions = []
 
-    # 1. Flexible Regex Search instead of strict Text Search (FIXED)
+    # 1. Flexible Regex Search instead of strict Text Search
     if parsed["title_words"]:
         for word in parsed["title_words"]:
-            # This searches for the word anywhere in the file name, ignoring case
             safe_word = re.escape(word)
             conditions.append({"file_name": {"$regex": safe_word, "$options": "i"}})
 
@@ -154,7 +155,8 @@ async def get_search_results(
     # Fail-safe: if the user typed nothing but junk words and our parser emptied the string
     if not conditions:
         safe_query = re.escape(query_text)
-        raw_pattern = safe_query.replace(r"\\ ", r".*[\\s\\.\\+\\-_]")
+        # FIXED: Proper regex substitution for spaces to match spaces, dots, dashes, etc.
+        raw_pattern = safe_query.replace(r"\ ", r".*[\s\.\+\-_]")
         conditions.append({"file_name": {"$regex": raw_pattern, "$options": "i"}})
 
     # Combine everything safely
@@ -164,7 +166,6 @@ async def get_search_results(
         mongo_query = {"$and": [mongo_query, {"file_type": file_type}]}
 
     try:
-        # Route count directly through motor collection to avoid umongo version mapping errors
         total_results = await db[COLLECTION_NAME].count_documents(mongo_query)
 
         next_offset = offset + max_results
@@ -211,17 +212,26 @@ def encode_file_ref(file_ref: bytes) -> str:
 
 
 def unpack_new_file_id(new_file_id):
+    """
+    Decodes the file_id and safely extracts attributes regardless of the Pyrogram media type.
+    """
     decoded = FileId.decode(new_file_id)
     file_type = getattr(decoded.file_type, "value", decoded.file_type)
+
+    # FIXED: Safely grab the media identifier (Photos use 'id', Documents use 'media_id')
+    media_id = getattr(decoded, "media_id", getattr(decoded, "id", 0))
+    access_hash = getattr(decoded, "access_hash", 0)
+    dc_id = getattr(decoded, "dc_id", 0)
+    file_ref_bytes = getattr(decoded, "file_reference", b"")
 
     file_id = encode_file_id(
         pack(
             "<iiqq",
             int(file_type),
-            decoded.dc_id,
-            decoded.media_id,
-            decoded.access_hash,
+            dc_id,
+            media_id,
+            access_hash,
         )
     )
-    file_ref = encode_file_ref(decoded.file_reference)
+    file_ref = encode_file_ref(file_ref_bytes)
     return file_id, file_ref
