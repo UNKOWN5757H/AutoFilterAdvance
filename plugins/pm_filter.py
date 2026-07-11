@@ -85,7 +85,7 @@ async def next_page(bot, query):
         return
         
     # 🔥 SORT FILES LOW TO HIGH BY SIZE 🔥
-        files.sort(key=lambda x: x.get('file_size', 0) if isinstance(x, dict) else getattr(x, 'file_size', 0))
+    files.sort(key=lambda x: x.get('file_size', 0) if isinstance(x, dict) else getattr(x, 'file_size', 0))
         
     settings = await get_settings(query.message.chat.id)
     btn = []
@@ -115,9 +115,7 @@ async def next_page(bot, query):
                     text=f"{get_size(file_size)}",
                     url=f"https://t.me/{temp.U_NAME}?start=files_{file_id}"
                 )
-            )
-            for file in files
-        ]
+            ])
 
     if 0 < offset <= 10:
         off_set = 0
@@ -867,14 +865,16 @@ async def advantage_spell_chok(msg):
     gs_parsed = []
     
     if not g_s:
-        try:
-            not_found_msg = await msg.reply_photo(
-            photo=FILE_NOT_FOUND_PIC,
-            caption=NOT_FOUND_TEXT
-            )
-        except RandomIdDuplicate:
-            return
-        except Forbidden as e:
+            try:
+            k_msg = await bot.send_photo(
+                chat_id=query.message.chat.id, 
+                photo=FILE_NOT_FOUND_PIC, 
+                caption=NOT_FOUND_TEXT
+                )
+            except RandomIdDuplicate:
+                k_msg = None
+                pass
+            except Forbidden as e:
             if "CHAT_SEND_PHOTOS_FORBIDDEN" in str(e):
                 not_found_msg = await msg.reply_text(
                     text=f"{NOT_FOUND_TEXT}\n\n*(No photo attached due to chat permissions)*"
@@ -919,17 +919,19 @@ async def advantage_spell_chok(msg):
     movielist = list(dict.fromkeys(movielist))
     
     if not movielist:
-        try:
-            not_found_msg = await msg.reply_photo(
-            photo=FILE_NOT_FOUND_PIC,
-            caption=NOT_FOUND_TEXT
-            )
-        except RandomIdDuplicate:
-            return
+            try:
+                k_msg = await bot.send_photo(
+                chat_id=query.message.chat.id, 
+                    photo=FILE_NOT_FOUND_PIC, 
+                    caption=NOT_FOUND_TEXT
+                )
+            except RandomIdDuplicate:
+                k_msg = None
+                pass
         except Forbidden as e:
-            if "CHAT_SEND_PHOTOS_FORBIDDEN" in str(e):
-                not_found_msg = await msg.reply_text(
-                    text=f"{NOT_FOUND_TEXT}\n\n*(No photo attached due to chat permissions)*"
+        if "CHAT_SEND_PHOTOS_FORBIDDEN" in str(e):
+            not_found_msg = await msg.reply_text(
+                text=f"{NOT_FOUND_TEXT}\n\n*(No photo attached due to chat permissions)*"
                 )
             else:
                 logger.error(f"Failed to reply in spell_chok empty movielist due to permissions: {e}")
