@@ -1,17 +1,18 @@
 import asyncio
-import logging
 import json
+import logging
 import os
 
-from pyrogram import Client, filters, enums
+from pyrogram import Client, enums, filters
 from pyrogram.types import Message
 
-from info import ADMINS  
+from info import ADMINS
 
 logger = logging.getLogger(__name__)
 
+
 # ============================================================
-# 💾 Persistent JSON Database Manager 
+# 💾 Persistent JSON Database Manager
 # ============================================================
 class ForceAddDB:
     def __init__(self, filepath="force_add_data.json"):
@@ -27,7 +28,9 @@ class ForceAddDB:
                 with open(self.filepath, "r") as f:
                     data = json.load(f)
                     # JSON keys are always strings, so we convert chat_ids back to ints
-                    self.chat_limits = {int(k): v for k, v in data.get("limits", {}).items()}
+                    self.chat_limits = {
+                        int(k): v for k, v in data.get("limits", {}).items()
+                    }
                     self.user_adds = data.get("adds", {})
             except Exception as e:
                 logger.error(f"Error loading ForceAdd DB: {e}")
@@ -36,10 +39,9 @@ class ForceAddDB:
         """Saves data to the JSON file immediately."""
         try:
             with open(self.filepath, "w") as f:
-                json.dump({
-                    "limits": self.chat_limits, 
-                    "adds": self.user_adds
-                }, f, indent=4)
+                json.dump(
+                    {"limits": self.chat_limits, "adds": self.user_adds}, f, indent=4
+                )
         except Exception as e:
             logger.error(f"Error saving ForceAdd DB: {e}")
 
@@ -58,14 +60,16 @@ class ForceAddDB:
         self.user_adds[key] = self.user_adds.get(key, 0) + count
         self._save()
 
+
 db = ForceAddDB()
 ADMIN_CACHE = {}
+
 
 async def is_admin(bot: Client, chat_id: int, user_id: int) -> bool:
     """Helper to check if a user is an admin."""
     if user_id in ADMINS:
         return True
-        
+
     cache_key = f"{chat_id}_{user_id}"
     if cache_key in ADMIN_CACHE:
         return ADMIN_CACHE[cache_key]
@@ -91,16 +95,21 @@ async def set_force_add(bot: Client, message: Message):
         return await message.reply_text("❌ **Only admins can use this command.**")
 
     if len(message.command) < 2:
-        return await message.reply_text("⚙️ **Usage:** `/setforceadd <number>`\nExample: `/setforceadd 5`")
+        return await message.reply_text(
+            "⚙️ **Usage:** `/setforceadd <number>`\nExample: `/setforceadd 5`"
+        )
 
     try:
         limit = int(message.command[1])
-        if limit < 0: raise ValueError
+        if limit < 0:
+            raise ValueError
     except ValueError:
         return await message.reply_text("❌ Please provide a valid positive number.")
 
     db.set_limit(message.chat.id, limit)
-    await message.reply_text(f"✅ **Force Add limit set to {limit}!**\n*(Saved permanently)*")
+    await message.reply_text(
+        f"✅ **Force Add limit set to {limit}!**\n*(Saved permanently)*"
+    )
 
 
 @Client.on_message(filters.command("remforceadd") & filters.group)
@@ -118,7 +127,9 @@ async def get_force_add(bot: Client, message: Message):
     if limit == 0:
         await message.reply_text("ℹ️ **Force Add is currently DISABLED.**")
     else:
-        await message.reply_text(f"ℹ️ **Current Force Add Requirement:** `Users must add {limit} members.`")
+        await message.reply_text(
+            f"ℹ️ **Current Force Add Requirement:** `Users must add {limit} members.`"
+        )
 
 
 # ============================================================
@@ -129,12 +140,16 @@ async def my_adds(bot: Client, message: Message):
     limit = db.get_limit(message.chat.id)
     if limit == 0:
         return await message.reply_text("ℹ️ Force Add is not active in this group.")
-        
+
     current_adds = db.get_user_adds(message.chat.id, message.from_user.id)
     if current_adds >= limit:
-        await message.reply_text(f"✅ You have added **{current_adds}** members. You are cleared to chat freely!")
+        await message.reply_text(
+            f"✅ You have added **{current_adds}** members. You are cleared to chat freely!"
+        )
     else:
-        await message.reply_text(f"⚠️ You have added **{current_adds}/{limit}** members. You need {limit - current_adds} more.")
+        await message.reply_text(
+            f"⚠️ You have added **{current_adds}/{limit}** members. You need {limit - current_adds} more."
+        )
 
 
 # ============================================================
@@ -148,18 +163,20 @@ async def track_added_members(bot: Client, message: Message):
 
     adder_id = message.from_user.id
     added_users = message.new_chat_members
-    
+
     # Filter out users who joined via a link (where they "added themselves") and bots
     added_others = [u for u in added_users if u.id != adder_id and not u.is_bot]
-    
+
     if not added_others:
         return
 
     db.increment_adds(message.chat.id, adder_id, len(added_others))
     current_adds = db.get_user_adds(message.chat.id, adder_id)
-    
+
     if current_adds >= limit:
-        msg = await message.reply_text(f"🎉 Thank you {message.from_user.mention}! You've met the requirement of adding {limit} members. You can now chat!")
+        msg = await message.reply_text(
+            f"🎉 Thank you {message.from_user.mention}! You've met the requirement of adding {limit} members. You can now chat!"
+        )
         await asyncio.sleep(5)
         await msg.delete()
 
@@ -184,7 +201,7 @@ async def enforce_force_add(bot: Client, message: Message):
         try:
             # Attempt to delete their message
             await message.delete()
-            
+
             # Send warning message
             warn_msg = await message.reply_text(
                 f"🛑 **Hold on, {message.from_user.mention}!**\n\n"
@@ -194,6 +211,8 @@ async def enforce_force_add(bot: Client, message: Message):
             # Delete the warning after 8 seconds to prevent spam
             await asyncio.sleep(8)
             await warn_msg.delete()
-            
+
         except Exception as e:
-            logger.error(f"ForceAdd Error: Could not delete message. Is the bot an admin? Error: {e}")
+            logger.error(
+                f"ForceAdd Error: Could not delete message. Is the bot an admin? Error: {e}"
+            )
