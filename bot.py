@@ -50,19 +50,21 @@ class Bot(Client):
         b_users, b_chats = await db.get_banned()
         temp.BANNED_USERS = b_users
         temp.BANNED_CHATS = b_chats
-        
+
         await super().start()
-        
+
         # Ensure MongoDB indexes for the umongo Media collection
         await Media.ensure_indexes()
-        
+
         me = await self.get_me()
         temp.ME = me.id
         temp.U_NAME = me.username
         temp.B_NAME = me.first_name
         self.username = f"@{me.username}"
-        
-        logger.info(f"{me.first_name} with Pyrogram v{__version__} (Layer {layer}) started on {me.username}.")
+
+        logger.info(
+            f"{me.first_name} with Pyrogram v{__version__} (Layer {layer}) started on {me.username}."
+        )
         logger.info(LOG_STR)
 
     async def stop(self, *args):
@@ -84,11 +86,11 @@ class Bot(Client):
             new_diff = min(200, limit - current)
             if new_diff <= 0:
                 return
-                
+
             messages = await self.get_messages(
                 chat_id, list(range(current, current + new_diff + 1))
             )
-            
+
             for message in messages:
                 yield message
                 current += 1
