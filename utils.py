@@ -161,7 +161,7 @@ def _fetch_imdb_data(query, bulk=False, id=False, file=None):
         if not id:
             query = (query.strip()).lower()
             title = query
-            
+
             # FIXED: Made year regex more flexible to find years anywhere, not just at the end.
             year_match = re.findall(r"\b(19\d{2}|20\d{2})\b", query, re.IGNORECASE)
 
@@ -169,7 +169,9 @@ def _fetch_imdb_data(query, bulk=False, id=False, file=None):
                 year = year_match[0]
                 title = (query.replace(year, "")).strip()
             elif file is not None:
-                file_year_match = re.findall(r"\b(19\d{2}|20\d{2})\b", file, re.IGNORECASE)
+                file_year_match = re.findall(
+                    r"\b(19\d{2}|20\d{2})\b", file, re.IGNORECASE
+                )
                 year = file_year_match[0] if file_year_match else None
             else:
                 year = None
@@ -185,7 +187,9 @@ def _fetch_imdb_data(query, bulk=False, id=False, file=None):
             else:
                 filtered = movieid
 
-            movieid_filtered = [k for k in filtered if k.get("kind") in ["movie", "tv series"]]
+            movieid_filtered = [
+                k for k in filtered if k.get("kind") in ["movie", "tv series"]
+            ]
             if not movieid_filtered:
                 movieid_filtered = filtered
 
