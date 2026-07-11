@@ -12,9 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 class JoinReqs:
-
     def __init__(self):
-
         self.client = None
         self.db = None
         self.col = None
@@ -24,9 +22,11 @@ class JoinReqs:
                 self.client = motor.motor_asyncio.AsyncIOMotorClient(
                     JOIN_REQS_DB, serverSelectionTimeoutMS=5000
                 )
-
                 self.db = self.client["JoinReqs"]
-                self.col = self.db[str(REQ_CHANNEL)]
+                
+                # FIXED: Prevents creating a collection literally named "None"
+                col_name = str(REQ_CHANNEL) if REQ_CHANNEL else "join_reqs_default"
+                self.col = self.db[col_name]
 
             except Exception as e:
                 logger.exception(f"MongoDB Connection Error: {e}")
@@ -35,7 +35,6 @@ class JoinReqs:
         return self.col is not None
 
     async def add_user(self, user_id, first_name=None, username=None, date=None):
-
         if not self.isActive():
             return False
 
@@ -59,7 +58,6 @@ class JoinReqs:
             return False
 
     async def get_user(self, user_id):
-
         if not self.isActive():
             return None
 
@@ -71,7 +69,6 @@ class JoinReqs:
             return None
 
     async def get_all_users(self):
-
         if not self.isActive():
             return []
 
@@ -84,7 +81,6 @@ class JoinReqs:
             return []
 
     async def delete_user(self, user_id):
-
         if not self.isActive():
             return False
 
@@ -96,8 +92,8 @@ class JoinReqs:
             logger.exception(f"delete_user(): {e}")
             return False
 
-    async def delete_all_users(self):
-
+    # FIXED: Renamed to match the `await db.clear_all()` call in fsub.py
+    async def clear_all(self):
         if not self.isActive():
             return 0
 
@@ -106,11 +102,11 @@ class JoinReqs:
             return result.deleted_count
 
         except Exception as e:
-            logger.exception(f"delete_all_users(): {e}")
+            logger.exception(f"clear_all(): {e}")
             return 0
 
-    async def get_all_users_count(self):
-
+    # FIXED: Renamed to match the `await db.total_requests()` call in fsub.py
+    async def total_requests(self):
         if not self.isActive():
             return 0
 
@@ -118,8 +114,12 @@ class JoinReqs:
             return await self.col.count_documents({})
 
         except Exception as e:
-            logger.exception(f"get_all_users_count(): {e}")
+            logger.exception(f"total_requests(): {e}")
             return 0
+
+    # Retaining old method names as aliases for backward compatibility
+    delete_all_users = clear_all
+    get_all_users_count = total_requests
 
 
 join_reqs = JoinReqs()
