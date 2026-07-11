@@ -46,7 +46,9 @@ async def index_files(bot, query):
         return
 
     if lock.locked():
-        return await query.answer("Wait until the previous process completes.", show_alert=True)
+        return await query.answer(
+            "Wait until the previous process completes.", show_alert=True
+        )
 
     msg = query.message
     await query.answer("Processing...⏳", show_alert=True)
@@ -75,12 +77,14 @@ async def index_files(bot, query):
 
 async def process_index_request(bot, message, chat_id, last_msg_id):
     """Helper function to validate and process all indexing requests."""
-    
+
     # Validate bot access to the chat
     try:
         await bot.get_chat(chat_id)
     except (ChannelInvalid, ChannelPrivate):
-        return await message.reply("This may be a private channel/group. Make me an admin over there to index the files.")
+        return await message.reply(
+            "This may be a private channel/group. Make me an admin over there to index the files."
+        )
     except (UsernameInvalid, UsernameNotModified):
         return await message.reply("Invalid Link/Username specified.")
     except Exception as e:
@@ -91,14 +95,23 @@ async def process_index_request(bot, message, chat_id, last_msg_id):
     try:
         k = await bot.get_messages(chat_id, last_msg_id)
         if k.empty:
-            return await message.reply("This may be a group and I am not an admin of the group, or the message does not exist.")
+            return await message.reply(
+                "This may be a group and I am not an admin of the group, or the message does not exist."
+            )
     except Exception:
-        return await message.reply("Make sure that I am an admin in the channel (if the channel is private).")
+        return await message.reply(
+            "Make sure that I am an admin in the channel (if the channel is private)."
+        )
 
     # If an Admin sends the request directly
     if message.from_user.id in ADMINS:
         buttons = [
-            [InlineKeyboardButton("Yes", callback_data=f"index#accept#{chat_id}#{last_msg_id}#{message.from_user.id}")],
+            [
+                InlineKeyboardButton(
+                    "Yes",
+                    callback_data=f"index#accept#{chat_id}#{last_msg_id}#{message.from_user.id}",
+                )
+            ],
             [InlineKeyboardButton("Close", callback_data="close_data")],
         ]
         return await message.reply(
@@ -111,14 +124,26 @@ async def process_index_request(bot, message, chat_id, last_msg_id):
         try:
             link = (await bot.create_chat_invite_link(chat_id)).invite_link
         except ChatAdminRequired:
-            return await message.reply("Make sure I am an admin in the chat and have permission to invite users.")
+            return await message.reply(
+                "Make sure I am an admin in the chat and have permission to invite users."
+            )
     else:
         link = f"@{chat_id}" if not str(chat_id).startswith("@") else chat_id
 
     # If a Non-Admin requests indexing
     buttons = [
-        [InlineKeyboardButton("Accept Index", callback_data=f"index#accept#{chat_id}#{last_msg_id}#{message.from_user.id}")],
-        [InlineKeyboardButton("Reject Index", callback_data=f"index#reject#{chat_id}#{message.id}#{message.from_user.id}")],
+        [
+            InlineKeyboardButton(
+                "Accept Index",
+                callback_data=f"index#accept#{chat_id}#{last_msg_id}#{message.from_user.id}",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "Reject Index",
+                callback_data=f"index#reject#{chat_id}#{message.id}#{message.from_user.id}",
+            )
+        ],
     ]
 
     await bot.send_message(
@@ -126,14 +151,23 @@ async def process_index_request(bot, message, chat_id, last_msg_id):
         f"#IndexRequest\n\nBy: {message.from_user.mention} (<code>{message.from_user.id}</code>)\nChat ID/Username: <code>{chat_id}</code>\nLast Message ID: <code>{last_msg_id}</code>\nInviteLink: {link}",
         reply_markup=InlineKeyboardMarkup(buttons),
     )
-    await message.reply("Thank you for the contribution! Wait for my moderators to verify the files.")
+    await message.reply(
+        "Thank you for the contribution! Wait for my moderators to verify the files."
+    )
 
 
 @Client.on_message(filters.command("index") & filters.private & filters.incoming)
 async def index_command(bot, message):
     # Check if user is triggering index by replying to a forwarded channel message
-    if message.reply_to_message and message.reply_to_message.forward_from_chat and message.reply_to_message.forward_from_chat.type == enums.ChatType.CHANNEL:
-        chat_id = message.reply_to_message.forward_from_chat.username or message.reply_to_message.forward_from_chat.id
+    if (
+        message.reply_to_message
+        and message.reply_to_message.forward_from_chat
+        and message.reply_to_message.forward_from_chat.type == enums.ChatType.CHANNEL
+    ):
+        chat_id = (
+            message.reply_to_message.forward_from_chat.username
+            or message.reply_to_message.forward_from_chat.id
+        )
         last_msg_id = message.reply_to_message.forward_from_message_id
         return await process_index_request(bot, message, chat_id, last_msg_id)
 
@@ -144,7 +178,7 @@ async def index_command(bot, message):
         )
 
     chat_id = message.command[1]
-    
+
     try:
         last_msg_id = int(message.command[2])
     except ValueError:
@@ -160,7 +194,9 @@ async def index_command(bot, message):
 @Client.on_message(
     (
         filters.forwarded
-        | filters.regex(r"(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$")
+        | filters.regex(
+            r"(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$"
+        )
     )
     & filters.text
     & filters.private
@@ -171,11 +207,16 @@ async def send_for_index(bot, message):
     last_msg_id = None
 
     # Determine if it's a forwarded channel message or a link
-    if message.forward_from_chat and message.forward_from_chat.type == enums.ChatType.CHANNEL:
+    if (
+        message.forward_from_chat
+        and message.forward_from_chat.type == enums.ChatType.CHANNEL
+    ):
         last_msg_id = message.forward_from_message_id
         chat_id = message.forward_from_chat.username or message.forward_from_chat.id
     elif message.text:
-        regex = re.compile(r"(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$")
+        regex = re.compile(
+            r"(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$"
+        )
         match = regex.match(message.text)
         if match:
             chat_id = match.group(4)
@@ -198,7 +239,7 @@ async def set_skip_number(bot, message):
             skip = int(skip)
         except ValueError:
             return await message.reply("Skip number should be an integer.")
-        
+
         temp.CURRENT = skip
         await message.reply(f"Successfully set SKIP number to {skip}")
     else:
@@ -216,7 +257,7 @@ async def index_files_to_db(lst_msg_id, chat, msg, bot):
     async with lock:
         try:
             # Fallback to 0 if /setskip wasn't called
-            current = getattr(temp, 'CURRENT', 0)
+            current = getattr(temp, "CURRENT", 0)
             temp.CANCEL = False
             last_update_time = time.time()
 
@@ -260,7 +301,15 @@ async def index_files_to_db(lst_msg_id, chat, msg, bot):
                     current += 1
 
                     if time.time() - last_update_time > 10:
-                        reply = InlineKeyboardMarkup([[InlineKeyboardButton("Cancel", callback_data="index_cancel")]])
+                        reply = InlineKeyboardMarkup(
+                            [
+                                [
+                                    InlineKeyboardButton(
+                                        "Cancel", callback_data="index_cancel"
+                                    )
+                                ]
+                            ]
+                        )
                         try:
                             await msg.edit_text(
                                 text=f"⚡ **Ultra-Speed Indexing...** ⚡\n\n"
