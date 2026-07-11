@@ -106,9 +106,16 @@ app = Bot()
 # FIXED: Restricted the filter to media types only and assigned it to group=2.
 # This prevents it from swallowing /start commands and movie searches!
 @app.on_message(
-    filters.private & 
-    (filters.document | filters.video | filters.audio | filters.photo | filters.voice | filters.video_note), 
-    group=2
+    filters.private
+    & (
+        filters.document
+        | filters.video
+        | filters.audio
+        | filters.photo
+        | filters.voice
+        | filters.video_note
+    ),
+    group=2,
 )
 async def auto_delete_user_media_pm(client: Client, message: Message):
     user = message.from_user
