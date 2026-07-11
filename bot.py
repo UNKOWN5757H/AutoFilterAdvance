@@ -101,29 +101,25 @@ app = Bot()
 
 
 # ============================================================
-# 🗑️ AUTO DELETE PM MEDIA
+# 🗑️ AUTO DELETE PM MEDIA (MOVED TO GROUP 2)
 # ============================================================
-# FIXED: Replaced @Client with @app to ensure this registers properly outside of plugins/
-@app.on_message(filters.private & ~filters.service)
+# FIXED: Restricted the filter to media types only and assigned it to group=2.
+# This prevents it from swallowing /start commands and movie searches!
+@app.on_message(
+    filters.private & 
+    (filters.document | filters.video | filters.audio | filters.photo | filters.voice | filters.video_note), 
+    group=2
+)
 async def auto_delete_user_media_pm(client: Client, message: Message):
     user = message.from_user
     if not user or message.outgoing:
         return
 
-    # FIXED: Cleaner, safer check without building unneeded lists in memory
-    if (
-        message.document
-        or message.video
-        or message.audio
-        or message.voice
-        or message.photo
-        or message.video_note
-    ):
-        await asyncio.sleep(14400)  # Wait 4 hours
-        try:
-            await message.delete()
-        except Exception as e:
-            logger.error(f"Failed to auto-delete PM media for {user.id}: {e}")
+    await asyncio.sleep(14400)  # Wait 4 hours
+    try:
+        await message.delete()
+    except Exception as e:
+        logger.error(f"Failed to auto-delete PM media for {user.id}: {e}")
 
 
 if __name__ == "__main__":
