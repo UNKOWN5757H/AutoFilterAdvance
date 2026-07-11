@@ -659,7 +659,9 @@ async def cb_handler(client: Client, query: CallbackQuery):
             buttons = [
                 [
                     InlineKeyboardButton("⍟  Auto Fɪʟᴛᴇʀ", callback_data="autofilter"),
-                    InlineKeyboardButton("⍟  Manual Filter", callback_data="manuelfilter"),
+                    InlineKeyboardButton(
+                        "⍟  Manual Filter", callback_data="manuelfilter"
+                    ),
                 ],
                 [
                     InlineKeyboardButton("⍟  Connection", callback_data="coct"),
@@ -898,9 +900,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     ],
                 ]
                 try:
-                    await query.message.edit_reply_markup(
-                        InlineKeyboardMarkup(buttons)
-                    )
+                    await query.message.edit_reply_markup(InlineKeyboardMarkup(buttons))
                 except (MessageIdInvalid, MessageNotModified):
                     pass
 
@@ -990,11 +990,7 @@ async def auto_filter(client, msg, spoll=False):
 
     btn.insert(
         0,
-        [
-            InlineKeyboardButton(
-                "•  Bᴀᴄᴋ Uᴘ Cʜᴀɴɴᴇʟ  •", url="https://t.me/KR_PICTURE"
-            )
-        ],
+        [InlineKeyboardButton("•  Bᴀᴄᴋ Uᴘ Cʜᴀɴɴᴇʟ  •", url="https://t.me/KR_PICTURE")],
     )
 
     if offset:
@@ -1018,11 +1014,7 @@ async def auto_filter(client, msg, spoll=False):
 
     mention = message.from_user.mention if message.from_user else "User"
 
-    cap = (
-        f"Hey {mention} 👋🏻\n\n"
-        f"➤ Title : {search}\n"
-        f"➤ Your Files Ready Now 👇"
-    )
+    cap = f"Hey {mention} 👋🏻\n\n" f"➤ Title : {search}\n" f"➤ Your Files Ready Now 👇"
 
     try:
         m = await message.reply_text(cap, reply_markup=InlineKeyboardMarkup(btn))
@@ -1227,19 +1219,20 @@ async def manual_filters(client, message, text=False):
                         )
 
                 except Forbidden as e:
-                    if (
-                        "CHAT_SEND_PHOTOS_FORBIDDEN" in str(e)
-                        or "CHAT_SEND_MEDIA_FORBIDDEN" in str(e)
-                    ):
+                    if "CHAT_SEND_PHOTOS_FORBIDDEN" in str(
+                        e
+                    ) or "CHAT_SEND_MEDIA_FORBIDDEN" in str(e):
                         logger.warning(
                             f"Blocked from sending media in {group_id}. Trying text fallback."
                         )
                         try:
                             sent_msg = await client.send_message(
                                 group_id,
-                                text=f"{reply_text}\n\n*(Media blocked by chat permissions)*"
-                                if reply_text
-                                else "*(Media blocked by chat permissions)*",
+                                text=(
+                                    f"{reply_text}\n\n*(Media blocked by chat permissions)*"
+                                    if reply_text
+                                    else "*(Media blocked by chat permissions)*"
+                                ),
                                 reply_to_message_id=reply_id,
                             )
                             if sent_msg:
