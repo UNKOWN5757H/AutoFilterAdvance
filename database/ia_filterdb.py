@@ -7,7 +7,6 @@ from marshmallow.exceptions import ValidationError
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo.errors import BulkWriteError, DuplicateKeyError
 from pyrogram.file_id import FileId
-
 from umongo import Document, fields
 from umongo.frameworks.motor_asyncio import MotorAsyncIOInstance
 
