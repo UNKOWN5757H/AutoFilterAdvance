@@ -23,7 +23,7 @@ class JoinReqs:
                     JOIN_REQS_DB, serverSelectionTimeoutMS=5000
                 )
                 self.db = self.client["JoinReqs"]
-                
+
                 # FIXED: Prevents creating a collection literally named "None"
                 col_name = str(REQ_CHANNEL) if REQ_CHANNEL else "join_reqs_default"
                 self.col = self.db[col_name]
