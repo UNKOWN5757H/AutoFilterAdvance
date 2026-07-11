@@ -63,7 +63,8 @@ async def delete_message_after_delay(message, delay: int):
         pass
 
 
-@Client.on_message(filters.group & filters.text & filters.incoming)
+# FIXED: Added filters.private so the bot responds to searches in PMs!
+@Client.on_message((filters.group | filters.private) & filters.text & filters.incoming)
 async def give_filter(client, message):
     k = await manual_filters(client, message)
     if k == False:
@@ -127,7 +128,7 @@ async def next_page(bot, query):
             file_name = getattr(file, "file_name", "Unknown")
             file_size = getattr(file, "file_size", 0)
 
-        if settings["button"]:
+        if settings.get("button", False):
             btn.append(
                 [
                     InlineKeyboardButton(
@@ -537,7 +538,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                         url=f"https://t.me/{temp.U_NAME}?start={ident}_{file_id}"
                     )
                     return
-                elif settings["botpm"]:
+                elif settings.get("botpm", False):
                     await query.answer(
                         url=f"https://t.me/{temp.U_NAME}?start={ident}_{file_id}"
                     )
@@ -559,6 +560,9 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     url=f"https://t.me/{temp.U_NAME}?start={ident}_{file_id}"
                 )
 
+        # ==========================================
+        # FIXED: Resuming from where the code broke
+        # ==========================================
         elif query.data.startswith("checksub"):
             if (AUTH_CHANNEL or REQ_CHANNEL) and not await is_subscribed(client, query):
                 return await query.answer(
@@ -655,9 +659,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
             buttons = [
                 [
                     InlineKeyboardButton("⍟  Auto Fɪʟᴛᴇʀ", callback_data="autofilter"),
-                    InlineKeyboardButton(
-                        "⍟  Manual Filter", callback_data="manuelfilter"
-                    ),
+                    InlineKeyboardButton("⍟  Manual Filter", callback_data="manuelfilter"),
                 ],
                 [
                     InlineKeyboardButton("⍟  Connection", callback_data="coct"),
@@ -896,7 +898,9 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     ],
                 ]
                 try:
-                    await query.message.edit_reply_markup(InlineKeyboardMarkup(buttons))
+                    await query.message.edit_reply_markup(
+                        InlineKeyboardMarkup(buttons)
+                    )
                 except (MessageIdInvalid, MessageNotModified):
                     pass
 
@@ -948,7 +952,6 @@ async def auto_filter(client, msg, spoll=False):
     )
 
     pre = "filep" if settings.get("file_secure") else "file"
-
     btn = []
 
     for file in files:
@@ -987,7 +990,11 @@ async def auto_filter(client, msg, spoll=False):
 
     btn.insert(
         0,
-        [InlineKeyboardButton("•  Bᴀᴄᴋ Uᴘ Cʜᴀɴɴᴇʟ  •", url="https://t.me/KR_PICTURE")],
+        [
+            InlineKeyboardButton(
+                "•  Bᴀᴄᴋ Uᴘ Cʜᴀɴɴᴇʟ  •", url="https://t.me/KR_PICTURE"
+            )
+        ],
     )
 
     if offset:
@@ -1011,7 +1018,11 @@ async def auto_filter(client, msg, spoll=False):
 
     mention = message.from_user.mention if message.from_user else "User"
 
-    cap = f"Hey {mention} 👋🏻\n\n" f"➤ Title : {search}\n" f"➤ Your Files Ready Now 👇"
+    cap = (
+        f"Hey {mention} 👋🏻\n\n"
+        f"➤ Title : {search}\n"
+        f"➤ Your Files Ready Now 👇"
+    )
 
     try:
         m = await message.reply_text(cap, reply_markup=InlineKeyboardMarkup(btn))
@@ -1216,20 +1227,19 @@ async def manual_filters(client, message, text=False):
                         )
 
                 except Forbidden as e:
-                    if "CHAT_SEND_PHOTOS_FORBIDDEN" in str(
-                        e
-                    ) or "CHAT_SEND_MEDIA_FORBIDDEN" in str(e):
+                    if (
+                        "CHAT_SEND_PHOTOS_FORBIDDEN" in str(e)
+                        or "CHAT_SEND_MEDIA_FORBIDDEN" in str(e)
+                    ):
                         logger.warning(
                             f"Blocked from sending media in {group_id}. Trying text fallback."
                         )
                         try:
                             sent_msg = await client.send_message(
                                 group_id,
-                                text=(
-                                    f"{reply_text}\n\n*(Media blocked by chat permissions)*"
-                                    if reply_text
-                                    else "*(Media blocked by chat permissions)*"
-                                ),
+                                text=f"{reply_text}\n\n*(Media blocked by chat permissions)*"
+                                if reply_text
+                                else "*(Media blocked by chat permissions)*",
                                 reply_to_message_id=reply_id,
                             )
                             if sent_msg:
