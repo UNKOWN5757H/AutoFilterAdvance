@@ -4,9 +4,9 @@ import re
 import time
 
 from pyrogram import Client, enums, filters
-from pyrogram.errors import ChannelPrivate  # Added to handle 406 CHANNEL_PRIVATE
 from pyrogram.errors import (
     ChannelInvalid,
+    ChannelPrivate,
     ChatAdminRequired,
     FloodWait,
     UsernameInvalid,
@@ -40,15 +40,13 @@ async def index_files(bot, query):
         await query.message.delete()
         await bot.send_message(
             int(from_user),
-            f"Your Submission for indexing {chat} has been declined by our moderators.",
+            f"Your submission for indexing {chat} has been declined by our moderators.",
             reply_to_message_id=int(lst_msg_id),
         )
         return
 
     if lock.locked():
-        return await query.answer(
-            "Wait until the previous process completes.", show_alert=True
-        )
+        return await query.answer("Wait until the previous process completes.", show_alert=True)
 
     msg = query.message
     await query.answer("Processing...⏳", show_alert=True)
@@ -75,75 +73,32 @@ async def index_files(bot, query):
     await index_files_to_db(int(lst_msg_id), chat, msg, bot)
 
 
-@Client.on_message(
-    (
-        filters.forwarded
-        | (
-            filters.regex(
-                r"(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$"
-            )
-        )
-        & filters.text
-    )
-    & filters.private
-    & filters.incoming
-)
-async def send_for_index(bot, message):
-    if message.text:
-        regex = re.compile(
-            r"(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$"
-        )
-        match = regex.match(message.text)
-        if not match:
-            return await message.reply("Invalid link")
-        chat_id = match.group(4)
-        last_msg_id = int(match.group(5))
-        if chat_id.isnumeric():
-            chat_id = int(f"-100{chat_id}")
-
-    # FIXED: Added safety check to prevent NoneType attribute error
-    elif (
-        message.forward_from_chat
-        and message.forward_from_chat.type == enums.ChatType.CHANNEL
-    ):
-        last_msg_id = message.forward_from_message_id
-        chat_id = message.forward_from_chat.username or message.forward_from_chat.id
-    else:
-        return
-
+async def process_index_request(bot, message, chat_id, last_msg_id):
+    """Helper function to validate and process all indexing requests."""
+    
+    # Validate bot access to the chat
     try:
         await bot.get_chat(chat_id)
-    # FIXED: Added ChannelPrivate to catch block
     except (ChannelInvalid, ChannelPrivate):
-        return await message.reply(
-            "This may be a private channel/group. Make me an admin over there to index the files."
-        )
+        return await message.reply("This may be a private channel/group. Make me an admin over there to index the files.")
     except (UsernameInvalid, UsernameNotModified):
-        return await message.reply("Invalid Link specified.")
+        return await message.reply("Invalid Link/Username specified.")
     except Exception as e:
         logger.exception(e)
-        return await message.reply(f"Error - {e}")
+        return await message.reply(f"Error accessing chat: {e}")
 
+    # Check for admin rights & message retrieval
     try:
         k = await bot.get_messages(chat_id, last_msg_id)
+        if k.empty:
+            return await message.reply("This may be a group and I am not an admin of the group, or the message does not exist.")
     except Exception:
-        return await message.reply(
-            "Make sure that I am an admin in the channel (if the channel is private)."
-        )
+        return await message.reply("Make sure that I am an admin in the channel (if the channel is private).")
 
-    if k.empty:
-        return await message.reply(
-            "This may be a group and I am not an admin of the group."
-        )
-
+    # If an Admin sends the request directly
     if message.from_user.id in ADMINS:
         buttons = [
-            [
-                InlineKeyboardButton(
-                    "Yes",
-                    callback_data=f"index#accept#{chat_id}#{last_msg_id}#{message.from_user.id}",
-                )
-            ],
+            [InlineKeyboardButton("Yes", callback_data=f"index#accept#{chat_id}#{last_msg_id}#{message.from_user.id}")],
             [InlineKeyboardButton("Close", callback_data="close_data")],
         ]
         return await message.reply(
@@ -151,29 +106,19 @@ async def send_for_index(bot, message):
             reply_markup=InlineKeyboardMarkup(buttons),
         )
 
+    # Handle Link Generation safely for non-admins
     if isinstance(chat_id, int):
         try:
             link = (await bot.create_chat_invite_link(chat_id)).invite_link
         except ChatAdminRequired:
-            return await message.reply(
-                "Make sure I am an admin in the chat and have permission to invite users."
-            )
+            return await message.reply("Make sure I am an admin in the chat and have permission to invite users.")
     else:
-        link = f"@{message.forward_from_chat.username}"
+        link = f"@{chat_id}" if not str(chat_id).startswith("@") else chat_id
 
+    # If a Non-Admin requests indexing
     buttons = [
-        [
-            InlineKeyboardButton(
-                "Accept Index",
-                callback_data=f"index#accept#{chat_id}#{last_msg_id}#{message.from_user.id}",
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "Reject Index",
-                callback_data=f"index#reject#{chat_id}#{message.id}#{message.from_user.id}",
-            )
-        ],
+        [InlineKeyboardButton("Accept Index", callback_data=f"index#accept#{chat_id}#{last_msg_id}#{message.from_user.id}")],
+        [InlineKeyboardButton("Reject Index", callback_data=f"index#reject#{chat_id}#{message.id}#{message.from_user.id}")],
     ]
 
     await bot.send_message(
@@ -181,9 +126,68 @@ async def send_for_index(bot, message):
         f"#IndexRequest\n\nBy: {message.from_user.mention} (<code>{message.from_user.id}</code>)\nChat ID/Username: <code>{chat_id}</code>\nLast Message ID: <code>{last_msg_id}</code>\nInviteLink: {link}",
         reply_markup=InlineKeyboardMarkup(buttons),
     )
-    await message.reply(
-        "Thank you for the contribution! Wait for my moderators to verify the files."
+    await message.reply("Thank you for the contribution! Wait for my moderators to verify the files.")
+
+
+@Client.on_message(filters.command("index") & filters.private & filters.incoming)
+async def index_command(bot, message):
+    # Check if user is triggering index by replying to a forwarded channel message
+    if message.reply_to_message and message.reply_to_message.forward_from_chat and message.reply_to_message.forward_from_chat.type == enums.ChatType.CHANNEL:
+        chat_id = message.reply_to_message.forward_from_chat.username or message.reply_to_message.forward_from_chat.id
+        last_msg_id = message.reply_to_message.forward_from_message_id
+        return await process_index_request(bot, message, chat_id, last_msg_id)
+
+    if len(message.command) != 3:
+        return await message.reply(
+            "**Usage:** `/index <chat_id_or_username> <last_message_id>`\n\n"
+            "*(Note: You can also just forward the message from the database channel or send a message link to start indexing, no need to use this command!)*"
+        )
+
+    chat_id = message.command[1]
+    
+    try:
+        last_msg_id = int(message.command[2])
+    except ValueError:
+        return await message.reply("Last message ID must be an integer.")
+
+    # Convert numeric chat_id strings back to actual integers
+    if chat_id.isnumeric() or (chat_id.startswith("-100") and chat_id[4:].isnumeric()):
+        chat_id = int(chat_id)
+
+    await process_index_request(bot, message, chat_id, last_msg_id)
+
+
+@Client.on_message(
+    (
+        filters.forwarded
+        | filters.regex(r"(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$")
     )
+    & filters.text
+    & filters.private
+    & filters.incoming
+)
+async def send_for_index(bot, message):
+    chat_id = None
+    last_msg_id = None
+
+    # Determine if it's a forwarded channel message or a link
+    if message.forward_from_chat and message.forward_from_chat.type == enums.ChatType.CHANNEL:
+        last_msg_id = message.forward_from_message_id
+        chat_id = message.forward_from_chat.username or message.forward_from_chat.id
+    elif message.text:
+        regex = re.compile(r"(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$")
+        match = regex.match(message.text)
+        if match:
+            chat_id = match.group(4)
+            last_msg_id = int(match.group(5))
+            if chat_id.isnumeric():
+                chat_id = int(f"-100{chat_id}")
+        else:
+            return await message.reply("Invalid link format.")
+    else:
+        return
+
+    await process_index_request(bot, message, chat_id, last_msg_id)
 
 
 @Client.on_message(filters.command("setskip") & filters.user(ADMINS))
@@ -194,8 +198,9 @@ async def set_skip_number(bot, message):
             skip = int(skip)
         except ValueError:
             return await message.reply("Skip number should be an integer.")
-        await message.reply(f"Successfully set SKIP number to {skip}")
+        
         temp.CURRENT = skip
+        await message.reply(f"Successfully set SKIP number to {skip}")
     else:
         await message.reply("Give me a skip number. Usage: `/setskip 100`")
 
@@ -210,7 +215,8 @@ async def index_files_to_db(lst_msg_id, chat, msg, bot):
 
     async with lock:
         try:
-            current = temp.CURRENT
+            # Fallback to 0 if /setskip wasn't called
+            current = getattr(temp, 'CURRENT', 0)
             temp.CANCEL = False
             last_update_time = time.time()
 
@@ -232,6 +238,7 @@ async def index_files_to_db(lst_msg_id, chat, msg, bot):
                 chunk = message_ids[i : i + 200]
                 messages = []
 
+                # Handle potential Pyrogram FloodWaits safely during API calls
                 max_retries = 3
                 while max_retries > 0:
                     try:
@@ -240,6 +247,9 @@ async def index_files_to_db(lst_msg_id, chat, msg, bot):
                     except FloodWait as e:
                         await asyncio.sleep(e.value + 1)
                         max_retries -= 1
+                    except Exception as e:
+                        logger.error(f"Error fetching messages: {e}")
+                        break
 
                 if not messages:
                     continue
@@ -250,15 +260,7 @@ async def index_files_to_db(lst_msg_id, chat, msg, bot):
                     current += 1
 
                     if time.time() - last_update_time > 10:
-                        reply = InlineKeyboardMarkup(
-                            [
-                                [
-                                    InlineKeyboardButton(
-                                        "Cancel", callback_data="index_cancel"
-                                    )
-                                ]
-                            ]
-                        )
+                        reply = InlineKeyboardMarkup([[InlineKeyboardButton("Cancel", callback_data="index_cancel")]])
                         try:
                             await msg.edit_text(
                                 text=f"⚡ **Ultra-Speed Indexing...** ⚡\n\n"
