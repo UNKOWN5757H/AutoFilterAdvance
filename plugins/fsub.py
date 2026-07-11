@@ -111,16 +111,16 @@ async def fsub_status(bot: Client, message: Message):
     if AUTH_CHANNEL:
         try:
             chat = await bot.get_chat(int(AUTH_CHANNEL))
-            text += f"📢 ForceSub Channel: `{chat.title}` (`{chat.id}`)\n"
+            text += f"📢 ForceSub Channel: <code>{chat.title}</code> (<code>{chat.id}</code>)\n"
             text += f"🔗 Invite Link: {chat.invite_link or 'Not set'}\n"
         except Exception as e:
-            text += f"❌ Could not fetch channel info.\nError: `{e}`\n"
+            text += f"❌ Could not fetch channel info.\nError: <code>{e}</code>\n"
     elif REQ_CHANNEL:
         try:
             chat = await bot.get_chat(int(REQ_CHANNEL))
-            text += f"📨 Join Request Channel: `{chat.title}` (`{chat.id}`)\n"
+            text += f"📨 Join Request Channel: <code>{chat.title}</code> (<code>{chat.id}</code>)\n"
         except Exception as e:
-            text += f"❌ Could not fetch REQ channel info.\nError: `{e}`\n"
+            text += f"❌ Could not fetch REQ channel info.\nError: <code>{e}</code>\n"
 
     await message.reply_text(text)
 
@@ -132,10 +132,11 @@ async def fsub_status(bot: Client, message: Message):
 async def add_fsub(bot: Client, message: Message):
     """
     Add or update the ForceSub channel.
-    Usage: /add_fsub <channel_id>
+    Usage: /add_fsub [channel_id]
     """
     if len(message.command) < 2:
-        return await message.reply_text("⚙️ Usage: `/add_fsub <channel_id>`")
+        # FIXED: Removed the angle brackets (< >) to prevent ENTITY_BOUNDS_INVALID
+        return await message.reply_text("⚙️ Usage: <code>/add_fsub [channel_id]</code>")
 
     try:
         channel_id = int(message.command[1])
@@ -148,12 +149,12 @@ async def add_fsub(bot: Client, message: Message):
 
         await message.reply_text(
             f"✅ ForceSub channel set successfully!\n\n"
-            f"📢 **{title}** (`{channel_id}`)\n"
+            f"📢 **{title}** (<code>{channel_id}</code>)\n"
             f"🔗 Invite: {link}"
         )
 
     except Exception as e:
-        await message.reply_text(f"❌ Failed to add ForceSub channel.\n\nError: `{e}`")
+        await message.reply_text(f"❌ Failed to add ForceSub channel.\n\nError: <code>{e}</code>")
 
 
 # ============================================================
@@ -173,11 +174,11 @@ async def get_fsub(bot: Client, message: Message):
             or (await bot.create_chat_invite_link(channel_id)).invite_link
         )
         await message.reply_text(
-            f"🔗 **ForceSub Channel:** `{chat.title}` (`{channel_id}`)\n"
+            f"🔗 **ForceSub Channel:** <code>{chat.title}</code> (<code>{channel_id}</code>)\n"
             f"👉 Invite Link: {link}"
         )
     except Exception as e:
-        await message.reply_text(f"⚠️ Unable to fetch channel info.\nError: `{e}`")
+        await message.reply_text(f"⚠️ Unable to fetch channel info.\nError: <code>{e}</code>")
 
 
 # ============================================================
@@ -188,9 +189,9 @@ async def total_requests(bot: Client, message: Message):
     """Show total join requests stored in DB."""
     try:
         total = await db.total_requests()
-        await message.reply_text(f"📨 **Total Join Requests:** `{total}`")
+        await message.reply_text(f"📨 **Total Join Requests:** <code>{total}</code>")
     except Exception as e:
-        await message.reply_text(f"⚠️ Failed to fetch join requests.\nError: `{e}`")
+        await message.reply_text(f"⚠️ Failed to fetch join requests.\nError: <code>{e}</code>")
 
 
 # ============================================================
@@ -204,6 +205,7 @@ async def clear_requests(bot: Client, message: Message):
     )
 
     try:
+        # Note: bot.listen requires 'pyromod' to be installed and initialized
         resp = await bot.listen(message.chat.id, timeout=30)
         if resp.text.lower() == "y":
             await db.clear_all()
@@ -213,4 +215,4 @@ async def clear_requests(bot: Client, message: Message):
     except asyncio.TimeoutError:
         await message.reply_text("⌛ Timeout: Operation cancelled.")
     except Exception as e:
-        await message.reply_text(f"⚠️ Error clearing requests.\nError: `{e}`")
+        await message.reply_text(f"⚠️ Error clearing requests.\nError: <code>{e}</code>")
