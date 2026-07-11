@@ -13,7 +13,8 @@ from pyrogram.errors import (
     PeerIdInvalid, 
     MessageIdInvalid, 
     QueryIdInvalid,
-    Forbidden
+    Forbidden,
+    RandomIdDuplicate
 )
 
 from Script import script
@@ -84,29 +85,37 @@ async def next_page(bot, query):
         return
         
     # 🔥 SORT FILES LOW TO HIGH BY SIZE 🔥
-    files.sort(key=lambda x: x.file_size)
+        files.sort(key=lambda x: x.get('file_size', 0) if isinstance(x, dict) else getattr(x, 'file_size', 0))
         
     settings = await get_settings(query.message.chat.id)
-    if settings['button']:
-        btn = [
-            [
+    btn = []
+    
+    for file in files:
+        if isinstance(file, dict):
+            file_id = file.get("file_id", "")
+            file_name = file.get("file_name", "Unknown")
+            file_size = file.get("file_size", 0)
+        else:
+            file_id = getattr(file, "file_id", "")
+            file_name = getattr(file, "file_name", "Unknown")
+            file_size = getattr(file, "file_size", 0)
+
+        if settings['button']:
+            btn.append([
                 InlineKeyboardButton(
-                    text=f"{get_size(file.file_size)} | {file.file_name}", url=f"https://t.me/{temp.U_NAME}?start=files_{file.file_id}"
-                ),
-            ]
-            for file in files
-        ]
-    else:
-        btn = [
-            [
+                    text=f"{get_size(file_size)} | {file_name}", url=f"https://t.me/{temp.U_NAME}?start=files_{file_id}"
+                )
+            ])
+        else:
+            btn.append([
                 InlineKeyboardButton(
-                    text=f"{file.file_name}", url=f"https://t.me/{temp.U_NAME}?start=files_{file.file_id}"
+                    text=f"{file_name}", url=f"https://t.me/{temp.U_NAME}?start=files_{file_id}"
                 ),
                 InlineKeyboardButton(
-                    text=f"{get_size(file.file_size)}",
-                    url=f"https://t.me/{temp.U_NAME}?start=files_{file.file_id}"
-                ),
-            ]
+                    text=f"{get_size(file_size)}",
+                    url=f"https://t.me/{temp.U_NAME}?start=files_{file_id}"
+                )
+            )
             for file in files
         ]
 
@@ -860,9 +869,11 @@ async def advantage_spell_chok(msg):
     if not g_s:
         try:
             not_found_msg = await msg.reply_photo(
-                photo=FILE_NOT_FOUND_PIC,
-                caption=NOT_FOUND_TEXT
+            photo=FILE_NOT_FOUND_PIC,
+            caption=NOT_FOUND_TEXT
             )
+        except RandomIdDuplicate:
+            return
         except Forbidden as e:
             if "CHAT_SEND_PHOTOS_FORBIDDEN" in str(e):
                 not_found_msg = await msg.reply_text(
@@ -910,9 +921,11 @@ async def advantage_spell_chok(msg):
     if not movielist:
         try:
             not_found_msg = await msg.reply_photo(
-                photo=FILE_NOT_FOUND_PIC,
-                caption=NOT_FOUND_TEXT
+            photo=FILE_NOT_FOUND_PIC,
+            caption=NOT_FOUND_TEXT
             )
+        except RandomIdDuplicate:
+            return
         except Forbidden as e:
             if "CHAT_SEND_PHOTOS_FORBIDDEN" in str(e):
                 not_found_msg = await msg.reply_text(
