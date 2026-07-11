@@ -154,7 +154,9 @@ async def add_fsub(bot: Client, message: Message):
         )
 
     except Exception as e:
-        await message.reply_text(f"❌ Failed to add ForceSub channel.\n\nError: <code>{e}</code>")
+        await message.reply_text(
+            f"❌ Failed to add ForceSub channel.\n\nError: <code>{e}</code>"
+        )
 
 
 # ============================================================
@@ -178,7 +180,9 @@ async def get_fsub(bot: Client, message: Message):
             f"👉 Invite Link: {link}"
         )
     except Exception as e:
-        await message.reply_text(f"⚠️ Unable to fetch channel info.\nError: <code>{e}</code>")
+        await message.reply_text(
+            f"⚠️ Unable to fetch channel info.\nError: <code>{e}</code>"
+        )
 
 
 # ============================================================
@@ -191,7 +195,9 @@ async def total_requests(bot: Client, message: Message):
         total = await db.total_requests()
         await message.reply_text(f"📨 **Total Join Requests:** <code>{total}</code>")
     except Exception as e:
-        await message.reply_text(f"⚠️ Failed to fetch join requests.\nError: <code>{e}</code>")
+        await message.reply_text(
+            f"⚠️ Failed to fetch join requests.\nError: <code>{e}</code>"
+        )
 
 
 # ============================================================
@@ -215,4 +221,6 @@ async def clear_requests(bot: Client, message: Message):
     except asyncio.TimeoutError:
         await message.reply_text("⌛ Timeout: Operation cancelled.")
     except Exception as e:
-        await message.reply_text(f"⚠️ Error clearing requests.\nError: <code>{e}</code>")
+        await message.reply_text(
+            f"⚠️ Error clearing requests.\nError: <code>{e}</code>"
+        )
