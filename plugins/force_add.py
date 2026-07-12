@@ -3,10 +3,15 @@ import json
 import logging
 import os
 
-from pyrogram import Client, enums, filters
+from pyrogram import Client, filters
 from pyrogram.types import Message
+from pyrogram.errors import StopPropagation
 
-from info import ADMINS
+# Safely import ADMINS to prevent crashes if info.py is missing or misconfigured
+try:
+    from info import ADMINS
+except ImportError:
+    ADMINS = []
 
 logger = logging.getLogger(__name__)
 
@@ -22,28 +27,21 @@ class ForceAddDB:
         self._load()
 
     def _load(self):
-        """Loads data from the JSON file on startup."""
         if os.path.exists(self.filepath):
             try:
                 with open(self.filepath, "r") as f:
                     data = json.load(f)
-                    # JSON keys are always strings, so we convert chat_ids back to ints
-                    self.chat_limits = {
-                        int(k): v for k, v in data.get("limits", {}).items()
-                    }
+                    self.chat_limits = {int(k): v for k, v in data.get("limits", {}).items()}
                     self.user_adds = data.get("adds", {})
             except Exception as e:
-                logger.error(f"Error loading ForceAdd DB: {e}")
+                logger.error(f"Error loading DB: {e}")
 
     def _save(self):
-        """Saves data to the JSON file immediately."""
         try:
             with open(self.filepath, "w") as f:
-                json.dump(
-                    {"limits": self.chat_limits, "adds": self.user_adds}, f, indent=4
-                )
+                json.dump({"limits": self.chat_limits, "adds": self.user_adds}, f, indent=4)
         except Exception as e:
-            logger.error(f"Error saving ForceAdd DB: {e}")
+            logger.error(f"Error saving DB: {e}")
 
     def set_limit(self, chat_id: int, limit: int):
         self.chat_limits[chat_id] = limit
@@ -62,27 +60,23 @@ class ForceAddDB:
 
 
 db = ForceAddDB()
-ADMIN_CACHE = {}
 
 
 async def is_admin(bot: Client, chat_id: int, user_id: int) -> bool:
-    """Helper to check if a user is an admin."""
-    if user_id in ADMINS:
+    """Bulletproof admin check for both Pyrogram V1 and V2."""
+    # 1. Safely check info.py ADMINS (handles both strings and ints)
+    admin_list = [int(a) for a in ADMINS if str(a).isdigit()]
+    if user_id in admin_list:
         return True
 
-    cache_key = f"{chat_id}_{user_id}"
-    if cache_key in ADMIN_CACHE:
-        return ADMIN_CACHE[cache_key]
-
+    # 2. Check group administrators
     try:
         member = await bot.get_chat_member(chat_id, user_id)
-        is_adm = member.status in [
-            enums.ChatMemberStatus.ADMINISTRATOR,
-            enums.ChatMemberStatus.OWNER,
-        ]
-        ADMIN_CACHE[cache_key] = is_adm
-        return is_adm
-    except Exception:
+        # Using getattr and strings makes this work on ANY Pyrogram version
+        status = str(getattr(member, "status", "")).lower()
+        return any(role in status for role in ["administrator", "creator", "owner"])
+    except Exception as e:
+        logger.error(f"Failed to check admin status for {user_id}: {e}")
         return False
 
 
@@ -91,13 +85,14 @@ async def is_admin(bot: Client, chat_id: int, user_id: int) -> bool:
 # ============================================================
 @Client.on_message(filters.command("setforceadd") & filters.group)
 async def set_force_add(bot: Client, message: Message):
+    if not message.from_user:
+        return await message.reply_text("❌ Anonymous admins cannot use this command.")
+
     if not await is_admin(bot, message.chat.id, message.from_user.id):
         return await message.reply_text("❌ **Only admins can use this command.**")
 
     if len(message.command) < 2:
-        return await message.reply_text(
-            "⚙️ **Usage:** `/setforceadd <number>`\nExample: `/setforceadd 5`"
-        )
+        return await message.reply_text("⚙️ **Usage:** `/setforceadd <number>`\nExample: `/setforceadd 5`")
 
     try:
         limit = int(message.command[1])
@@ -107,13 +102,14 @@ async def set_force_add(bot: Client, message: Message):
         return await message.reply_text("❌ Please provide a valid positive number.")
 
     db.set_limit(message.chat.id, limit)
-    await message.reply_text(
-        f"✅ **Force Add limit set to {limit}!**\n*(Saved permanently)*"
-    )
+    await message.reply_text(f"✅ **Force Add limit set to {limit}!**\n*(Saved permanently)*")
 
 
 @Client.on_message(filters.command("remforceadd") & filters.group)
 async def remove_force_add(bot: Client, message: Message):
+    if not message.from_user:
+        return
+
     if not await is_admin(bot, message.chat.id, message.from_user.id):
         return await message.reply_text("❌ **Only admins can use this command.**")
 
@@ -127,9 +123,7 @@ async def get_force_add(bot: Client, message: Message):
     if limit == 0:
         await message.reply_text("ℹ️ **Force Add is currently DISABLED.**")
     else:
-        await message.reply_text(
-            f"ℹ️ **Current Force Add Requirement:** `Users must add {limit} members.`"
-        )
+        await message.reply_text(f"ℹ️ **Current Force Add Requirement:** `Users must add {limit} members.`")
 
 
 # ============================================================
@@ -137,26 +131,28 @@ async def get_force_add(bot: Client, message: Message):
 # ============================================================
 @Client.on_message(filters.command("myadds") & filters.group)
 async def my_adds(bot: Client, message: Message):
+    if not message.from_user:
+        return
+
     limit = db.get_limit(message.chat.id)
     if limit == 0:
         return await message.reply_text("ℹ️ Force Add is not active in this group.")
 
     current_adds = db.get_user_adds(message.chat.id, message.from_user.id)
     if current_adds >= limit:
-        await message.reply_text(
-            f"✅ You have added **{current_adds}** members. You are cleared to chat freely!"
-        )
+        await message.reply_text(f"✅ You have added **{current_adds}** members. You are cleared to chat freely!")
     else:
-        await message.reply_text(
-            f"⚠️ You have added **{current_adds}/{limit}** members. You need {limit - current_adds} more."
-        )
+        await message.reply_text(f"⚠️ You have added **{current_adds}/{limit}** members. You need {limit - current_adds} more.")
 
 
 # ============================================================
-# 📥 TRACKER: Listen for New Chat Members
+# 📥 TRACKER & 🛡️ ENFORCER (Combined for stability)
 # ============================================================
 @Client.on_message(filters.new_chat_members & filters.group)
 async def track_added_members(bot: Client, message: Message):
+    if not message.from_user:
+        return
+
     limit = db.get_limit(message.chat.id)
     if limit == 0:
         return
@@ -164,9 +160,7 @@ async def track_added_members(bot: Client, message: Message):
     adder_id = message.from_user.id
     added_users = message.new_chat_members
 
-    # Filter out users who joined via a link (where they "added themselves") and bots
     added_others = [u for u in added_users if u.id != adder_id and not u.is_bot]
-
     if not added_others:
         return
 
@@ -174,16 +168,14 @@ async def track_added_members(bot: Client, message: Message):
     current_adds = db.get_user_adds(message.chat.id, adder_id)
 
     if current_adds >= limit:
-        msg = await message.reply_text(
-            f"🎉 Thank you {message.from_user.mention}! You've met the requirement of adding {limit} members. You can now chat!"
-        )
-        await asyncio.sleep(5)
-        await msg.delete()
+        msg = await message.reply_text(f"🎉 Thank you {message.from_user.mention}! You've met the requirement. You can now chat freely!")
+        await asyncio.sleep(8)
+        try:
+            await msg.delete()
+        except Exception:
+            pass
 
 
-# ============================================================
-# 🛡️ ENFORCER: Delete messages if requirements aren't met
-# ============================================================
 @Client.on_message(filters.group & ~filters.service, group=-1)
 async def enforce_force_add(bot: Client, message: Message):
     if not message.from_user:
@@ -193,26 +185,37 @@ async def enforce_force_add(bot: Client, message: Message):
     user_id = message.from_user.id
     limit = db.get_limit(chat_id)
 
-    if limit == 0 or await is_admin(bot, chat_id, user_id):
+    if limit == 0:
+        return
+
+    # CRITICAL: Bypass ALL bot commands (whether text or caption) so they don't get deleted
+    text = message.text or message.caption
+    if text and text.startswith("/"):
+        return
+
+    if await is_admin(bot, chat_id, user_id):
         return
 
     current_adds = db.get_user_adds(chat_id, user_id)
     if current_adds < limit:
         try:
-            # Attempt to delete their message
             await message.delete()
-
-            # Send warning message
             warn_msg = await message.reply_text(
                 f"🛑 **Hold on, {message.from_user.mention}!**\n\n"
                 f"You must add **{limit - current_adds} more member(s)** to this group before you can send messages.\n"
                 f"*(Currently added: {current_adds}/{limit})*"
             )
-            # Delete the warning after 8 seconds to prevent spam
-            await asyncio.sleep(8)
-            await warn_msg.delete()
-
-        except Exception as e:
-            logger.error(
-                f"ForceAdd Error: Could not delete message. Is the bot an admin? Error: {e}"
-            )
+            raise StopPropagation
+        except StopPropagation:
+            raise
+        except Exception:
+            pass
+        finally:
+            if 'warn_msg' in locals():
+                async def delete_warning():
+                    await asyncio.sleep(8)
+                    try:
+                        await warn_msg.delete()
+                    except Exception:
+                        pass
+                asyncio.create_task(delete_warning())
