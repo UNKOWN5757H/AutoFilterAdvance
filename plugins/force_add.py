@@ -434,7 +434,7 @@ async def enforce_force_add(bot: Client, message: Message):
             warn_msg = await message.reply_text(
                 f"🛑 **Hold on, {message.from_user.mention}!**\n\n"
                 f"You must add **{limit - current_adds} more member(s)** to this group before you can send messages.\n\n"
-                f"🔇 **You have been restricted from messaging for 2 minutes.**",
+                f"🔇 **You have been restricted from messaging.**",
                 reply_markup=InlineKeyboardMarkup(
                     [
                         [
