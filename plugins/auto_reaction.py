@@ -78,12 +78,14 @@ async def disable_react(bot: Client, message: Message):
 # group=-5 guarantees this is the absolute FIRST thing the bot sees
 @Client.on_message((filters.group | filters.channel) & ~filters.bot, group=-5)
 async def auto_react_heart(bot: Client, message: Message):
-    
+
     chat_title = getattr(message.chat, "title", "Unknown Chat")
     print(f"👀 [AUTO-REACT DEBUG]: Bot saw a message in {chat_title}")
 
     if not react_db.is_enabled:
-        print("🛑 [AUTO-REACT DEBUG]: Stopped. Reaction is currently DISABLED in the JSON database.")
+        print(
+            "🛑 [AUTO-REACT DEBUG]: Stopped. Reaction is currently DISABLED in the JSON database."
+        )
         return
 
     if message.from_user and message.from_user.is_bot:
@@ -91,16 +93,18 @@ async def auto_react_heart(bot: Client, message: Message):
         return
 
     try:
-        print(f"🚀 [AUTO-REACT DEBUG]: Attempting to send ❤️ to message ID {message.id}...")
-        
+        print(
+            f"🚀 [AUTO-REACT DEBUG]: Attempting to send ❤️ to message ID {message.id}..."
+        )
+
         # Using the direct API method instead of the message object shortcut
         await bot.send_reaction(
-            chat_id=message.chat.id,
-            message_id=message.id,
-            emoji="❤️"
+            chat_id=message.chat.id, message_id=message.id, emoji="❤️"
         )
         print("✅ [AUTO-REACT DEBUG]: Success! Telegram accepted the reaction.")
 
     except Exception as e:
-        print(f"❌ [AUTO-REACT DEBUG ERROR]: Telegram rejected the reaction! Reason: {e}")
+        print(
+            f"❌ [AUTO-REACT DEBUG ERROR]: Telegram rejected the reaction! Reason: {e}"
+        )
         logger.error(f"Reaction Failed: {e}")
