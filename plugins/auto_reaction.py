@@ -1,14 +1,18 @@
 import json
 import logging
 import os
+import asyncio
+import urllib.request
 
 from pyrogram import Client, filters
 from pyrogram.types import Message
 
+# Safely import ADMINS and BOT_TOKEN
 try:
-    from info import ADMINS
+    from info import ADMINS, BOT_TOKEN
 except ImportError:
     ADMINS = []
+    BOT_TOKEN = None
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +56,32 @@ def is_bot_owner(user_id: int) -> bool:
 
 
 # ============================================================
+# 🌐 HTTP BYPASS FOR BOT REACTIONS
+# ============================================================
+def send_reaction_via_api(chat_id: int, message_id: int):
+    """Bypasses Pyrogram entirely and uses the official Telegram Bot API."""
+    if not BOT_TOKEN:
+        print("⚠️ [AUTO-REACT ERROR]: BOT_TOKEN not found in info.py!")
+        return
+
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/setMessageReaction"
+    payload = {
+        "chat_id": chat_id,
+        "message_id": message_id,
+        "reaction": [{"type": "emoji", "emoji": "❤️"}]
+    }
+
+    data = json.dumps(payload).encode('utf-8')
+    req = urllib.request.Request(url, data=data, headers={'Content-Type': 'application/json'})
+
+    try:
+        with urllib.request.urlopen(req) as response:
+            pass # Successfully reacted!
+    except Exception as e:
+        print(f"❌ [HTTP API ERROR]: Failed to react - {e}")
+
+
+# ============================================================
 # ⚙️ GLOBAL ADMIN COMMANDS
 # ============================================================
 @Client.on_message(filters.command("enablereaction"))
@@ -73,38 +103,22 @@ async def disable_react(bot: Client, message: Message):
 
 
 # ============================================================
-# ❤️ AUTO REACTION MODULE (Loud Debug Mode)
+# ❤️ AUTO REACTION MODULE
 # ============================================================
-# group=-5 guarantees this is the absolute FIRST thing the bot sees
 @Client.on_message((filters.group | filters.channel) & ~filters.bot, group=-5)
 async def auto_react_heart(bot: Client, message: Message):
-
-    chat_title = getattr(message.chat, "title", "Unknown Chat")
-    print(f"👀 [AUTO-REACT DEBUG]: Bot saw a message in {chat_title}")
-
+    
     if not react_db.is_enabled:
-        print(
-            "🛑 [AUTO-REACT DEBUG]: Stopped. Reaction is currently DISABLED in the JSON database."
-        )
         return
 
+    # Ignore other bots
     if message.from_user and message.from_user.is_bot:
-        print("🛑 [AUTO-REACT DEBUG]: Stopped. The sender is a bot.")
         return
 
     try:
-        print(
-            f"🚀 [AUTO-REACT DEBUG]: Attempting to send ❤️ to message ID {message.id}..."
-        )
-
-        # Using the direct API method instead of the message object shortcut
-        await bot.send_reaction(
-            chat_id=message.chat.id, message_id=message.id, emoji="❤️"
-        )
-        print("✅ [AUTO-REACT DEBUG]: Success! Telegram accepted the reaction.")
-
+        print(f"🚀 [AUTO-REACT]: Attempting HTTP Bot API bypass to send ❤️ to {message.id}...")
+        # Offload the HTTP request to a background thread so it doesn't slow down your bot
+        await asyncio.to_thread(send_reaction_via_api, message.chat.id, message.id)
+        print("✅ [AUTO-REACT]: Success! Reaction sent.")
     except Exception as e:
-        print(
-            f"❌ [AUTO-REACT DEBUG ERROR]: Telegram rejected the reaction! Reason: {e}"
-        )
-        logger.error(f"Reaction Failed: {e}")
+        logger.error(f"Reaction Bypass Failed: {e}")
