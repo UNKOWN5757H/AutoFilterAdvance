@@ -134,7 +134,7 @@ async def auto_delete_user_media_pm(client: Client, message: Message):
 # 🚀 LAUNCH SEQUENCE
 # ============================================================
 if __name__ == "__main__":
-    
+
     # --- 🧹 AUTO DELETE OLD SESSION FILES ---
     print("🔍 Checking for old session files...")
     for file in glob.glob("*.session"):
@@ -144,5 +144,5 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"⚠️ Could not delete {file}: {e}")
     # -----------------------------------------
-    
+
     app.run()
