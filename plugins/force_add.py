@@ -3,8 +3,7 @@ import json
 import logging
 import os
 
-from pyrogram import Client, filters
-from pyrogram import StopPropagation
+from pyrogram import Client, StopPropagation, filters
 from pyrogram.types import Message
 
 # Safely import ADMINS to prevent crashes if info.py is missing or misconfigured
