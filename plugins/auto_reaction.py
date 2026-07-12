@@ -91,7 +91,8 @@ async def disable_react(bot: Client, message: Message):
 # ============================================================
 # ❤️ AUTO REACTION MODULE
 # ============================================================
-@Client.on_message((filters.group | filters.channel) & ~filters.bot, group=5)
+# CHANGED: group=-3 ensures this runs instantly before Auto-Filter!
+@Client.on_message((filters.group | filters.channel) & ~filters.bot, group=-3)
 async def auto_react_heart(bot: Client, message: Message):
 
     # 1. Check if the bot owner has disabled the feature globally
@@ -103,9 +104,10 @@ async def auto_react_heart(bot: Client, message: Message):
         return
 
     try:
-        # 3. Send the heart reaction
-        await message.react(emoji="❤️")
+        # 3. Send the heart reaction (removed 'emoji=' keyword as some Pyrogram versions reject it)
+        await message.react("❤️")
 
-    except Exception:
-        # Ignore errors if reactions are disabled in a specific group/channel
-        pass
+    except Exception as e:
+        # CHANGED: We now log the exact error to Koyeb so we aren't guessing!
+        chat_title = getattr(message.chat, "title", "Unknown Chat")
+        logger.error(f"⚠️ Reaction Failed in {chat_title} ({message.chat.id}): {e}")
