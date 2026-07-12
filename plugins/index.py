@@ -19,11 +19,27 @@ from info import ADMINS
 from info import INDEX_REQ_CHANNEL as LOG_CHANNEL
 from utils import temp
 
+# Safely import channel lists from info.py (handles different common variable names)
+try:
+    from info import CHANNELS
+except ImportError:
+    CHANNELS = []
+try:
+    from info import INDEX_CHANNELS
+except ImportError:
+    INDEX_CHANNELS = []
+
+# Combine them just in case
+AUTO_INDEX_CHANNELS = list(set(CHANNELS + INDEX_CHANNELS))
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 lock = asyncio.Lock()
 
 
+# ============================================================
+# ⚙️ MANUAL INDEXING (Commands & Callbacks)
+# ============================================================
 @Client.on_callback_query(filters.regex(r"^index"))
 async def index_files(bot, query):
     if query.data.startswith("index_cancel"):
@@ -77,8 +93,6 @@ async def index_files(bot, query):
 
 async def process_index_request(bot, message, chat_id, last_msg_id):
     """Helper function to validate and process all indexing requests."""
-
-    # Validate bot access to the chat
     try:
         await bot.get_chat(chat_id)
     except (ChannelInvalid, ChannelPrivate):
@@ -91,7 +105,6 @@ async def process_index_request(bot, message, chat_id, last_msg_id):
         logger.exception(e)
         return await message.reply(f"Error accessing chat: {e}")
 
-    # Check for admin rights & message retrieval
     try:
         k = await bot.get_messages(chat_id, last_msg_id)
         if k.empty:
@@ -103,7 +116,6 @@ async def process_index_request(bot, message, chat_id, last_msg_id):
             "Make sure that I am an admin in the channel (if the channel is private)."
         )
 
-    # If an Admin sends the request directly
     if message.from_user.id in ADMINS:
         buttons = [
             [
@@ -119,7 +131,6 @@ async def process_index_request(bot, message, chat_id, last_msg_id):
             reply_markup=InlineKeyboardMarkup(buttons),
         )
 
-    # Handle Link Generation safely for non-admins
     if isinstance(chat_id, int):
         try:
             link = (await bot.create_chat_invite_link(chat_id)).invite_link
@@ -130,7 +141,6 @@ async def process_index_request(bot, message, chat_id, last_msg_id):
     else:
         link = f"@{chat_id}" if not str(chat_id).startswith("@") else chat_id
 
-    # If a Non-Admin requests indexing
     buttons = [
         [
             InlineKeyboardButton(
@@ -158,7 +168,6 @@ async def process_index_request(bot, message, chat_id, last_msg_id):
 
 @Client.on_message(filters.command("index") & filters.private & filters.incoming)
 async def index_command(bot, message):
-    # Check if user is triggering index by replying to a forwarded channel message
     if (
         message.reply_to_message
         and message.reply_to_message.forward_from_chat
@@ -184,7 +193,6 @@ async def index_command(bot, message):
     except ValueError:
         return await message.reply("Last message ID must be an integer.")
 
-    # Convert numeric chat_id strings back to actual integers
     if chat_id.isnumeric() or (chat_id.startswith("-100") and chat_id[4:].isnumeric()):
         chat_id = int(chat_id)
 
@@ -206,7 +214,6 @@ async def send_for_index(bot, message):
     chat_id = None
     last_msg_id = None
 
-    # Determine if it's a forwarded channel message or a link
     if (
         message.forward_from_chat
         and message.forward_from_chat.type == enums.ChatType.CHANNEL
@@ -256,7 +263,6 @@ async def index_files_to_db(lst_msg_id, chat, msg, bot):
 
     async with lock:
         try:
-            # Fallback to 0 if /setskip wasn't called
             current = getattr(temp, "CURRENT", 0)
             temp.CANCEL = False
             last_update_time = time.time()
@@ -279,7 +285,6 @@ async def index_files_to_db(lst_msg_id, chat, msg, bot):
                 chunk = message_ids[i : i + 200]
                 messages = []
 
-                # Handle potential Pyrogram FloodWaits safely during API calls
                 max_retries = 3
                 while max_retries > 0:
                     try:
@@ -302,13 +307,7 @@ async def index_files_to_db(lst_msg_id, chat, msg, bot):
 
                     if time.time() - last_update_time > 10:
                         reply = InlineKeyboardMarkup(
-                            [
-                                [
-                                    InlineKeyboardButton(
-                                        "Cancel", callback_data="index_cancel"
-                                    )
-                                ]
-                            ]
+                            [[InlineKeyboardButton("Cancel", callback_data="index_cancel")]]
                         )
                         try:
                             await msg.edit_text(
@@ -368,3 +367,36 @@ async def index_files_to_db(lst_msg_id, chat, msg, bot):
                     f"(Unsupported Media - `{unsupported}`)\n"
                     f"Errors Occurred: <code>{errors}</code>"
                 )
+
+
+# ============================================================
+# ⚡ THE MISSING FEATURE: AUTO-INDEX NEW MESSAGES
+# ============================================================
+@Client.on_message(
+    filters.channel & 
+    (filters.document | filters.video | filters.audio) & 
+    ~filters.forwarded,
+    group=-4
+)
+async def auto_index_new_files(bot: Client, message):
+    """
+    Listens for any NEW files posted to your channels and instantly indexes them.
+    """
+    # If you explicitly defined specific channels in info.py, we restrict indexing to those.
+    # Otherwise, the bot will auto-index ANY channel it is made an admin in.
+    if AUTO_INDEX_CHANNELS and message.chat.id not in AUTO_INDEX_CHANNELS:
+        return
+
+    media = getattr(message, message.media.value, None)
+    if not media:
+        return
+
+    # Prepare the media object format expected by your MongoDB database
+    media.file_type = message.media.value
+    media.caption = message.caption
+
+    try:
+        # Save it to the database quietly
+        await save_batch([media])
+    except Exception as e:
+        logger.error(f"Auto-index failed for {message.chat.title}: {e}")
