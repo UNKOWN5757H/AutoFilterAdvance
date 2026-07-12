@@ -307,7 +307,13 @@ async def index_files_to_db(lst_msg_id, chat, msg, bot):
 
                     if time.time() - last_update_time > 10:
                         reply = InlineKeyboardMarkup(
-                            [[InlineKeyboardButton("Cancel", callback_data="index_cancel")]]
+                            [
+                                [
+                                    InlineKeyboardButton(
+                                        "Cancel", callback_data="index_cancel"
+                                    )
+                                ]
+                            ]
                         )
                         try:
                             await msg.edit_text(
@@ -373,10 +379,10 @@ async def index_files_to_db(lst_msg_id, chat, msg, bot):
 # ⚡ THE MISSING FEATURE: AUTO-INDEX NEW MESSAGES
 # ============================================================
 @Client.on_message(
-    filters.channel & 
-    (filters.document | filters.video | filters.audio) & 
-    ~filters.forwarded,
-    group=-4
+    filters.channel
+    & (filters.document | filters.video | filters.audio)
+    & ~filters.forwarded,
+    group=-4,
 )
 async def auto_index_new_files(bot: Client, message):
     """
