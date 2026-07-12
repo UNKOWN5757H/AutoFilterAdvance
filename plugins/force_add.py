@@ -4,8 +4,8 @@ import logging
 import os
 
 from pyrogram import Client, filters
-from pyrogram.types import Message
 from pyrogram.errors import StopPropagation
+from pyrogram.types import Message
 
 # Safely import ADMINS to prevent crashes if info.py is missing or misconfigured
 try:
@@ -31,7 +31,9 @@ class ForceAddDB:
             try:
                 with open(self.filepath, "r") as f:
                     data = json.load(f)
-                    self.chat_limits = {int(k): v for k, v in data.get("limits", {}).items()}
+                    self.chat_limits = {
+                        int(k): v for k, v in data.get("limits", {}).items()
+                    }
                     self.user_adds = data.get("adds", {})
             except Exception as e:
                 logger.error(f"Error loading DB: {e}")
@@ -39,7 +41,9 @@ class ForceAddDB:
     def _save(self):
         try:
             with open(self.filepath, "w") as f:
-                json.dump({"limits": self.chat_limits, "adds": self.user_adds}, f, indent=4)
+                json.dump(
+                    {"limits": self.chat_limits, "adds": self.user_adds}, f, indent=4
+                )
         except Exception as e:
             logger.error(f"Error saving DB: {e}")
 
@@ -92,7 +96,9 @@ async def set_force_add(bot: Client, message: Message):
         return await message.reply_text("❌ **Only admins can use this command.**")
 
     if len(message.command) < 2:
-        return await message.reply_text("⚙️ **Usage:** `/setforceadd <number>`\nExample: `/setforceadd 5`")
+        return await message.reply_text(
+            "⚙️ **Usage:** `/setforceadd <number>`\nExample: `/setforceadd 5`"
+        )
 
     try:
         limit = int(message.command[1])
@@ -102,7 +108,9 @@ async def set_force_add(bot: Client, message: Message):
         return await message.reply_text("❌ Please provide a valid positive number.")
 
     db.set_limit(message.chat.id, limit)
-    await message.reply_text(f"✅ **Force Add limit set to {limit}!**\n*(Saved permanently)*")
+    await message.reply_text(
+        f"✅ **Force Add limit set to {limit}!**\n*(Saved permanently)*"
+    )
 
 
 @Client.on_message(filters.command("remforceadd") & filters.group)
@@ -123,7 +131,9 @@ async def get_force_add(bot: Client, message: Message):
     if limit == 0:
         await message.reply_text("ℹ️ **Force Add is currently DISABLED.**")
     else:
-        await message.reply_text(f"ℹ️ **Current Force Add Requirement:** `Users must add {limit} members.`")
+        await message.reply_text(
+            f"ℹ️ **Current Force Add Requirement:** `Users must add {limit} members.`"
+        )
 
 
 # ============================================================
@@ -140,9 +150,13 @@ async def my_adds(bot: Client, message: Message):
 
     current_adds = db.get_user_adds(message.chat.id, message.from_user.id)
     if current_adds >= limit:
-        await message.reply_text(f"✅ You have added **{current_adds}** members. You are cleared to chat freely!")
+        await message.reply_text(
+            f"✅ You have added **{current_adds}** members. You are cleared to chat freely!"
+        )
     else:
-        await message.reply_text(f"⚠️ You have added **{current_adds}/{limit}** members. You need {limit - current_adds} more.")
+        await message.reply_text(
+            f"⚠️ You have added **{current_adds}/{limit}** members. You need {limit - current_adds} more."
+        )
 
 
 # ============================================================
@@ -168,7 +182,9 @@ async def track_added_members(bot: Client, message: Message):
     current_adds = db.get_user_adds(message.chat.id, adder_id)
 
     if current_adds >= limit:
-        msg = await message.reply_text(f"🎉 Thank you {message.from_user.mention}! You've met the requirement. You can now chat freely!")
+        msg = await message.reply_text(
+            f"🎉 Thank you {message.from_user.mention}! You've met the requirement. You can now chat freely!"
+        )
         await asyncio.sleep(8)
         try:
             await msg.delete()
@@ -211,11 +227,13 @@ async def enforce_force_add(bot: Client, message: Message):
         except Exception:
             pass
         finally:
-            if 'warn_msg' in locals():
+            if "warn_msg" in locals():
+
                 async def delete_warning():
                     await asyncio.sleep(8)
                     try:
                         await warn_msg.delete()
                     except Exception:
                         pass
+
                 asyncio.create_task(delete_warning())
