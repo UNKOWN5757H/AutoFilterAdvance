@@ -4,8 +4,7 @@ import logging
 import os
 import time
 
-from pyrogram import Client, filters
-from pyrogram import StopPropagation
+from pyrogram import Client, StopPropagation, filters
 from pyrogram.types import (
     ChatPermissions,
     InlineKeyboardButton,
