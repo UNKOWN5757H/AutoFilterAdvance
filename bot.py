@@ -1,4 +1,5 @@
 import asyncio
+import glob
 import logging
 import logging.config
 import os
@@ -129,5 +130,19 @@ async def auto_delete_user_media_pm(client: Client, message: Message):
         logger.error(f"Failed to auto-delete PM media for {user.id}: {e}")
 
 
+# ============================================================
+# 🚀 LAUNCH SEQUENCE
+# ============================================================
 if __name__ == "__main__":
+    
+    # --- 🧹 AUTO DELETE OLD SESSION FILES ---
+    print("🔍 Checking for old session files...")
+    for file in glob.glob("*.session"):
+        try:
+            os.remove(file)
+            print(f"🗑️ Deleted old session: {file}")
+        except Exception as e:
+            print(f"⚠️ Could not delete {file}: {e}")
+    # -----------------------------------------
+    
     app.run()
