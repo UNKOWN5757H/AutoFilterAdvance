@@ -5,7 +5,7 @@ import os
 import time
 
 from pyrogram import Client, filters
-from pyrogram.errors import StopPropagation
+from pyrogram import StopPropagation
 from pyrogram.types import (
     ChatPermissions,
     InlineKeyboardButton,
