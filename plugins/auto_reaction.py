@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+
 from pyrogram import Client, filters
 from pyrogram.types import Message
 
@@ -59,24 +60,32 @@ def is_bot_owner(user_id: int) -> bool:
 async def enable_react(bot: Client, message: Message):
     if not message.from_user or not is_bot_owner(message.from_user.id):
         return await message.reply_text("❌ **Only Bot Owners can use this command.**")
-    
+
     if react_db.is_enabled:
-        return await message.reply_text("⚠️ **Auto-Reaction is already ENABLED globally.**")
-        
+        return await message.reply_text(
+            "⚠️ **Auto-Reaction is already ENABLED globally.**"
+        )
+
     react_db.set_status(True)
-    await message.reply_text("✅ **Auto-Reaction has been ENABLED globally!**\nI will now react to messages with ❤️.")
+    await message.reply_text(
+        "✅ **Auto-Reaction has been ENABLED globally!**\nI will now react to messages with ❤️."
+    )
 
 
 @Client.on_message(filters.command("disablereaction"))
 async def disable_react(bot: Client, message: Message):
     if not message.from_user or not is_bot_owner(message.from_user.id):
         return await message.reply_text("❌ **Only Bot Owners can use this command.**")
-    
+
     if not react_db.is_enabled:
-        return await message.reply_text("⚠️ **Auto-Reaction is already DISABLED globally.**")
-        
+        return await message.reply_text(
+            "⚠️ **Auto-Reaction is already DISABLED globally.**"
+        )
+
     react_db.set_status(False)
-    await message.reply_text("🚫 **Auto-Reaction has been DISABLED globally.**\nI will stop reacting to messages.")
+    await message.reply_text(
+        "🚫 **Auto-Reaction has been DISABLED globally.**\nI will stop reacting to messages."
+    )
 
 
 # ============================================================
@@ -84,19 +93,19 @@ async def disable_react(bot: Client, message: Message):
 # ============================================================
 @Client.on_message((filters.group | filters.channel) & ~filters.bot, group=5)
 async def auto_react_heart(bot: Client, message: Message):
-    
+
     # 1. Check if the bot owner has disabled the feature globally
     if not react_db.is_enabled:
         return
-        
+
     # 2. Extra safety check: Ignore other bots
     if message.from_user and message.from_user.is_bot:
         return
-        
+
     try:
         # 3. Send the heart reaction
         await message.react(emoji="❤️")
-        
+
     except Exception:
         # Ignore errors if reactions are disabled in a specific group/channel
         pass
