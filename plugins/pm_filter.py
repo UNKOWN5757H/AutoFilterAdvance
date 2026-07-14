@@ -45,7 +45,7 @@ logger.setLevel(logging.ERROR)
 
 BUTTONS = {}
 SPELL_CHECK = {}
-DELETE_TIME = 14400
+DELETE_TIME = 1800
 
 FILE_NOT_FOUND_PIC = (
     "https://telegra.ph/file/c4f0458d30f61993aad45-086b84e8363b3c582e.jpg"
@@ -599,7 +599,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
             )
             k = await client.send_message(
                 chat_id=query.from_user.id,
-                text=f"<blockquote><b><u>❗️❗️❗️IMPORTANT❗️️❗️❗️</u></b>\n\n⚠️ File will be deleted in 4 hour\n\n📌 Save or forward it.</blockquote>",
+                text=f"<blockquote><b><u>❗️❗️❗️IMPORTANT❗️️❗️❗️</u></b>\n\n⚠️ File will be deleted in 30 Minutes\n\n📌 Save or forward it.</blockquote>",
             )
 
             async def delete_and_notify():
