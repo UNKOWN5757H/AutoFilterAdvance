@@ -68,6 +68,29 @@ class Bot(Client):
         )
         logger.info(LOG_STR)
 
+        # ============================================================
+        # ♻️ KOYEB RESTART SUCCESS HANDLER
+        # ============================================================
+        if os.path.exists("restart.txt"):
+            try:
+                with open("restart.txt", "r") as f:
+                    chat_id_str, msg_id_str = f.read().strip().split("\n")
+                    chat_id = int(chat_id_str)
+                    msg_id = int(msg_id_str)
+                
+                # Edit the "Restarting..." message to show success
+                await self.edit_message_text(
+                    chat_id=chat_id, 
+                    message_id=msg_id, 
+                    text="✅ **Bot Restarted Successfully!**"
+                )
+            except Exception as e:
+                logger.error(f"Failed to edit restart success message: {e}")
+            finally:
+                # Always remove the file so it doesn't trigger on regular bootups
+                if os.path.exists("restart.txt"):
+                    os.remove("restart.txt")
+
     async def stop(self, *args):
         await super().stop()
         logger.info("Bot stopped. Bye.")
