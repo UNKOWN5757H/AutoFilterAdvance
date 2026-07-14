@@ -77,12 +77,12 @@ class Bot(Client):
                     chat_id_str, msg_id_str = f.read().strip().split("\n")
                     chat_id = int(chat_id_str)
                     msg_id = int(msg_id_str)
-                
+
                 # Edit the "Restarting..." message to show success
                 await self.edit_message_text(
-                    chat_id=chat_id, 
-                    message_id=msg_id, 
-                    text="✅ **Bot Restarted Successfully!**"
+                    chat_id=chat_id,
+                    message_id=msg_id,
+                    text="✅ **Bot Restarted Successfully!**",
                 )
             except Exception as e:
                 logger.error(f"Failed to edit restart success message: {e}")
