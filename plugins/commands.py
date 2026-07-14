@@ -448,14 +448,16 @@ async def confirm_restart_callback(bot: Client, query: CallbackQuery):
     try:
         await query.answer("♻️ Restarting...", show_alert=True)
         msg = await query.edit_message_text("♻️ Bot is restarting... Please wait.")
-        
+
         # Save the Chat ID & Message ID to edit it when the bot starts back up
         with open("restart.txt", "w") as f:
             f.write(f"{msg.chat.id}\n{msg.id}")
-            
-        await asyncio.sleep(2) # Give the bot time to send the message before killing process
-        
-        # EXTREMELY IMPORTANT FOR KOYEB: 
+
+        await asyncio.sleep(
+            2
+        )  # Give the bot time to send the message before killing process
+
+        # EXTREMELY IMPORTANT FOR KOYEB:
         # Exiting with 1 tells Koyeb's container supervisor that the process stopped,
         # prompting Koyeb to automatically restart the application properly.
         os._exit(1)
@@ -559,7 +561,9 @@ async def confirm_delete_all_files_callback(bot: Client, query: CallbackQuery):
 async def settings(client: Client, message: Message):
     userid = message.from_user.id if message.from_user else None
     if not userid:
-        return await message.reply("You are an anonymous admin! Please verify your identity.")
+        return await message.reply(
+            "You are an anonymous admin! Please verify your identity."
+        )
 
     chat_type = message.chat.type
 
@@ -578,7 +582,9 @@ async def settings(client: Client, message: Message):
                 await message.reply("Make sure I'm present in your group!")
                 return
         else:
-            await message.reply("You are not connected to any active group!\n\nUse /connect <groupid> to connect first.")
+            await message.reply(
+                "You are not connected to any active group!\n\nUse /connect <groupid> to connect first."
+            )
             return
 
     # Handle Group Message
@@ -591,7 +597,7 @@ async def settings(client: Client, message: Message):
 
     # Fetch settings from DB
     settings_dict = await get_settings(grp_id)
-    
+
     # Check states
     btn_text = "✅" if settings_dict.get("button", False) else "❌"
     botpm_text = "✅" if settings_dict.get("botpm", False) else "❌"
@@ -602,24 +608,42 @@ async def settings(client: Client, message: Message):
 
     buttons = [
         [
-            InlineKeyboardButton(f"Buttons: {btn_text}", callback_data=f"setgs#button#{settings_dict.get('button', False)}#{grp_id}"),
-            InlineKeyboardButton(f"Bot PM: {botpm_text}", callback_data=f"setgs#botpm#{settings_dict.get('botpm', False)}#{grp_id}")
+            InlineKeyboardButton(
+                f"Buttons: {btn_text}",
+                callback_data=f"setgs#button#{settings_dict.get('button', False)}#{grp_id}",
+            ),
+            InlineKeyboardButton(
+                f"Bot PM: {botpm_text}",
+                callback_data=f"setgs#botpm#{settings_dict.get('botpm', False)}#{grp_id}",
+            ),
         ],
         [
-            InlineKeyboardButton(f"File Secure: {file_secure_text}", callback_data=f"setgs#file_secure#{settings_dict.get('file_secure', False)}#{grp_id}"),
-            InlineKeyboardButton(f"IMDB: {imdb_text}", callback_data=f"setgs#imdb#{settings_dict.get('imdb', False)}#{grp_id}")
+            InlineKeyboardButton(
+                f"File Secure: {file_secure_text}",
+                callback_data=f"setgs#file_secure#{settings_dict.get('file_secure', False)}#{grp_id}",
+            ),
+            InlineKeyboardButton(
+                f"IMDB: {imdb_text}",
+                callback_data=f"setgs#imdb#{settings_dict.get('imdb', False)}#{grp_id}",
+            ),
         ],
         [
-            InlineKeyboardButton(f"Spell Check: {spell_check_text}", callback_data=f"setgs#spell_check#{settings_dict.get('spell_check', False)}#{grp_id}"),
-            InlineKeyboardButton(f"Welcome: {welcome_text}", callback_data=f"setgs#welcome#{settings_dict.get('welcome', False)}#{grp_id}")
+            InlineKeyboardButton(
+                f"Spell Check: {spell_check_text}",
+                callback_data=f"setgs#spell_check#{settings_dict.get('spell_check', False)}#{grp_id}",
+            ),
+            InlineKeyboardButton(
+                f"Welcome: {welcome_text}",
+                callback_data=f"setgs#welcome#{settings_dict.get('welcome', False)}#{grp_id}",
+            ),
         ],
-        [InlineKeyboardButton("🗑 Close", callback_data="close_data")]
+        [InlineKeyboardButton("🗑 Close", callback_data="close_data")],
     ]
 
     await message.reply_text(
         text=f"⚙️ **Settings for {title}**\n\nChoose the options below to configure your group's behavior.",
         reply_markup=InlineKeyboardMarkup(buttons),
-        parse_mode=enums.ParseMode.MARKDOWN
+        parse_mode=enums.ParseMode.MARKDOWN,
     )
 
 
@@ -631,13 +655,13 @@ async def settings_callback(client: Client, query: CallbackQuery):
     try:
         _, setting_name, current_state, grp_id = query.data.split("#")
         grp_id = int(grp_id)
-        
+
         # Reverse the boolean state
         new_state = False if current_state.lower() == "true" else True
-        
+
         # Save to DB
         await save_group_settings(grp_id, setting_name, new_state)
-        
+
         # Fetch updated settings
         settings_dict = await get_settings(grp_id)
         chat = await client.get_chat(grp_id)
@@ -653,24 +677,42 @@ async def settings_callback(client: Client, query: CallbackQuery):
 
         buttons = [
             [
-                InlineKeyboardButton(f"Buttons: {btn_text}", callback_data=f"setgs#button#{settings_dict.get('button', False)}#{grp_id}"),
-                InlineKeyboardButton(f"Bot PM: {botpm_text}", callback_data=f"setgs#botpm#{settings_dict.get('botpm', False)}#{grp_id}")
+                InlineKeyboardButton(
+                    f"Buttons: {btn_text}",
+                    callback_data=f"setgs#button#{settings_dict.get('button', False)}#{grp_id}",
+                ),
+                InlineKeyboardButton(
+                    f"Bot PM: {botpm_text}",
+                    callback_data=f"setgs#botpm#{settings_dict.get('botpm', False)}#{grp_id}",
+                ),
             ],
             [
-                InlineKeyboardButton(f"File Secure: {file_secure_text}", callback_data=f"setgs#file_secure#{settings_dict.get('file_secure', False)}#{grp_id}"),
-                InlineKeyboardButton(f"IMDB: {imdb_text}", callback_data=f"setgs#imdb#{settings_dict.get('imdb', False)}#{grp_id}")
+                InlineKeyboardButton(
+                    f"File Secure: {file_secure_text}",
+                    callback_data=f"setgs#file_secure#{settings_dict.get('file_secure', False)}#{grp_id}",
+                ),
+                InlineKeyboardButton(
+                    f"IMDB: {imdb_text}",
+                    callback_data=f"setgs#imdb#{settings_dict.get('imdb', False)}#{grp_id}",
+                ),
             ],
             [
-                InlineKeyboardButton(f"Spell Check: {spell_check_text}", callback_data=f"setgs#spell_check#{settings_dict.get('spell_check', False)}#{grp_id}"),
-                InlineKeyboardButton(f"Welcome: {welcome_text}", callback_data=f"setgs#welcome#{settings_dict.get('welcome', False)}#{grp_id}")
+                InlineKeyboardButton(
+                    f"Spell Check: {spell_check_text}",
+                    callback_data=f"setgs#spell_check#{settings_dict.get('spell_check', False)}#{grp_id}",
+                ),
+                InlineKeyboardButton(
+                    f"Welcome: {welcome_text}",
+                    callback_data=f"setgs#welcome#{settings_dict.get('welcome', False)}#{grp_id}",
+                ),
             ],
-            [InlineKeyboardButton("🗑 Close", callback_data="close_data")]
+            [InlineKeyboardButton("🗑 Close", callback_data="close_data")],
         ]
 
         await query.message.edit_text(
             text=f"⚙️ **Settings for {title}**\n\nChoose the options below to configure your group's behavior.",
             reply_markup=InlineKeyboardMarkup(buttons),
-            parse_mode=enums.ParseMode.MARKDOWN
+            parse_mode=enums.ParseMode.MARKDOWN,
         )
         await query.answer("Settings Updated! ✅")
     except Exception as e:
