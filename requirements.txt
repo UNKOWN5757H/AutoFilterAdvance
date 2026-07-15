@@ -36,3 +36,4 @@ uvloop==0.20.0; platform_system != "Windows"
 
 thefuzz
 Levenshtein
+yt-dlp
