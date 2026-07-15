@@ -1,9 +1,9 @@
-import asyncio
 import json
 import logging
 import os
-
+import asyncio
 import aiohttp
+
 from pyrogram import Client, filters
 from pyrogram.types import Message
 
@@ -15,7 +15,6 @@ except ImportError:
     BOT_TOKEN = None
 
 logger = logging.getLogger(__name__)
-
 
 # ============================================================
 # 💾 Persistent Config for Auto-Reaction
@@ -46,20 +45,26 @@ class ReactionDB:
         self.is_enabled = status
         self._save()
 
-
 react_db = ReactionDB()
-
 
 def is_bot_owner(user_id: int) -> bool:
     admin_list = [int(a) for a in ADMINS if str(a).isdigit()]
     return user_id in admin_list
 
+# ============================================================
+# ⚡ THE FIX: GLOBAL HTTP SESSION (Zero Resource Leak)
+# ============================================================
+# We create ONE session and reuse it, so the bot never lags!
+HTTP_SESSION = None
 
-# ============================================================
-# ⚡ ASYNC HTTP BYPASS (Zero-Lag Background Task)
-# ============================================================
+async def get_http_session():
+    global HTTP_SESSION
+    if HTTP_SESSION is None or HTTP_SESSION.closed:
+        HTTP_SESSION = aiohttp.ClientSession()
+    return HTTP_SESSION
+
 async def send_reaction_background(chat_id: int, message_id: int):
-    """Silently fires the reaction request to Telegram without blocking the bot."""
+    """Silently fires the reaction through a shared connection pool."""
     if not BOT_TOKEN:
         return
 
@@ -67,18 +72,17 @@ async def send_reaction_background(chat_id: int, message_id: int):
     payload = {
         "chat_id": chat_id,
         "message_id": message_id,
-        "reaction": [{"type": "emoji", "emoji": "❤️"}],
+        "reaction": [{"type": "emoji", "emoji": "❤️"}]
     }
 
     try:
-        # aiohttp is extremely fast and non-blocking
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload) as response:
-                # We don't even wait to read the response, we just let it happen!
-                pass
-    except Exception as e:
-        logger.error(f"Background Reaction Failed: {e}")
-
+        session = await get_http_session()
+        # timeout=2 ensures that if Telegram is slow, the bot doesn't wait around
+        async with session.post(url, json=payload, timeout=2) as response:
+            pass 
+    except Exception:
+        # Silently fail so it doesn't spam your logs on network hiccups
+        pass
 
 # ============================================================
 # ⚙️ GLOBAL ADMIN COMMANDS
@@ -91,7 +95,6 @@ async def enable_react(bot: Client, message: Message):
     react_db.set_status(True)
     await message.reply_text("✅ **Auto-Reaction has been ENABLED globally!**")
 
-
 @Client.on_message(filters.command("disablereaction"))
 async def disable_react(bot: Client, message: Message):
     if not message.from_user or not is_bot_owner(message.from_user.id):
@@ -100,20 +103,23 @@ async def disable_react(bot: Client, message: Message):
     react_db.set_status(False)
     await message.reply_text("🚫 **Auto-Reaction has been DISABLED globally.**")
 
-
 # ============================================================
 # ❤️ AUTO REACTION MODULE
 # ============================================================
 @Client.on_message((filters.group | filters.channel) & ~filters.bot, group=-5)
 async def auto_react_heart(bot: Client, message: Message):
-
+    
     if not react_db.is_enabled:
         return
 
-    # Ignore other bots
     if message.from_user and message.from_user.is_bot:
         return
 
-    # 🚀 FIRE AND FORGET!
-    # This instantly pushes the reaction job to the background and lets the auto-filter run immediately.
+    # SMALL OPTIMIZATION: Do not react to commands (like /start or /myadds) 
+    # to save API limits for actual movie requests!
+    text = message.text or message.caption
+    if text and text.startswith("/"):
+        return
+
+    # Instantly pushes the reaction to the global session without blocking!
     asyncio.create_task(send_reaction_background(message.chat.id, message.id))
