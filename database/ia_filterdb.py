@@ -53,6 +53,7 @@ class SimpleCache:
     def set(self, key, data):
         self.cache[key] = {"time": time.time(), "data": data}
 
+
 search_cache = SimpleCache(ttl_seconds=300)
 
 
@@ -60,6 +61,7 @@ search_cache = SimpleCache(ttl_seconds=300)
 # 2. FUZZY SEARCH VOCABULARY ENGINE
 # ==========================================
 KNOWN_TITLES = set()
+
 
 def add_to_vocab(file_name):
     """Cleans a filename and adds its base title to the spellchecker vocabulary."""
@@ -76,14 +78,19 @@ def add_to_vocab(file_name):
     if clean:
         KNOWN_TITLES.add(clean)
 
+
 async def load_known_titles():
     if not process:
         return
     try:
-        cursor = db[COLLECTION_NAME].find({}, {"file_name": 1}).sort("_id", -1).limit(50000)
+        cursor = (
+            db[COLLECTION_NAME].find({}, {"file_name": 1}).sort("_id", -1).limit(50000)
+        )
         async for doc in cursor:
             add_to_vocab(doc.get("file_name", ""))
-        logger.info(f"Typo Tolerance Active: Loaded {len(KNOWN_TITLES)} unique titles into memory.")
+        logger.info(
+            f"Typo Tolerance Active: Loaded {len(KNOWN_TITLES)} unique titles into memory."
+        )
     except Exception as e:
         logger.error(f"Error loading known titles for spellcheck: {e}")
 
@@ -117,12 +124,13 @@ class Media(Document):
 # ==========================================
 class SafeMediaWrapper:
     """
-    This replaces Umongo for fetching data! It acts EXACTLY like a Umongo document 
+    This replaces Umongo for fetching data! It acts EXACTLY like a Umongo document
     but it will NEVER crash even if your old database files are broken or missing fields.
     """
+
     def __init__(self, data):
         self._id = data.get("_id")
-        self.file_id = data.get("_id") 
+        self.file_id = data.get("_id")
         self.file_ref = data.get("file_ref")
         self.file_name = data.get("file_name", "")
         self.file_size = data.get("file_size", 0)
@@ -150,6 +158,7 @@ async def get_search_results(
 
         try:
             from utils import parse_ultra_advanced_query
+
             parsed = parse_ultra_advanced_query(query_text)
         except Exception as e:
             logger.error(f"Parser failed, falling back: {e}")
@@ -162,8 +171,8 @@ async def get_search_results(
         # ==========================================
         if parsed.get("title_words"):
             safe_words = [re.escape(w) for w in parsed["title_words"]]
-            # This merges words with .* allowing anything in between them, 
-            # but strictly enforcing the sequence. 
+            # This merges words with .* allowing anything in between them,
+            # but strictly enforcing the sequence.
             # e.g., "spider man" -> "spider.*man"
             ordered_regex = ".*".join(safe_words)
             conditions.append({"file_name": {"$regex": ordered_regex, "$options": "i"}})
@@ -193,7 +202,9 @@ async def get_search_results(
                     }
                 )
             else:
-                conditions.append({"file_name": {"$regex": rf"\b{l}\b", "$options": "i"}})
+                conditions.append(
+                    {"file_name": {"$regex": rf"\b{l}\b", "$options": "i"}}
+                )
 
         # Fallback if parser fails completely
         if not conditions:
@@ -215,9 +226,16 @@ async def get_search_results(
             if best_match:
                 match_text, score = best_match
                 if 75 <= score <= 100:
-                    logger.info(f"Typo corrected: '{query_text}' -> '{match_text}' (Score: {score})")
+                    logger.info(
+                        f"Typo corrected: '{query_text}' -> '{match_text}' (Score: {score})"
+                    )
                     corrected_results = await get_search_results(
-                        match_text, file_type, max_results, offset, filter, is_autocorrect=True
+                        match_text,
+                        file_type,
+                        max_results,
+                        offset,
+                        filter,
+                        is_autocorrect=True,
                     )
                     if corrected_results[2] > 0:
                         search_cache.set(cache_key, corrected_results)
@@ -228,14 +246,20 @@ async def get_search_results(
             next_offset = ""
 
         # Fetch Raw Dicts (Sorted Newest First)
-        cursor = db[COLLECTION_NAME].find(mongo_query).sort("_id", -1).skip(offset).limit(max_results)
+        cursor = (
+            db[COLLECTION_NAME]
+            .find(mongo_query)
+            .sort("_id", -1)
+            .skip(offset)
+            .limit(max_results)
+        )
         files = await cursor.to_list(length=max_results)
 
         # Safely wrap them without Umongo crashes!
         media_files = [SafeMediaWrapper(f) for f in files]
 
         result_tuple = (media_files, next_offset, total_results)
-        
+
         # Only Cache Successes
         if total_results > 0:
             search_cache.set(cache_key, result_tuple)
@@ -246,7 +270,9 @@ async def get_search_results(
         logger.error(f"🚨 FATAL DATABASE SEARCH ERROR: {e}\n{traceback.format_exc()}")
         return [], "", 0
 
+
 # ... (save_file, save_batch, get_file_details, encode_file_id, unpack_new_file_id functions stay the same) ...
+
 
 async def save_batch(media_list):
     if not media_list:
@@ -279,9 +305,12 @@ async def save_batch(media_list):
         return len(result.inserted_ids), 0, 0
     except BulkWriteError as bwe:
         inserted = bwe.details.get("nInserted", 0)
-        duplicates = sum(1 for err in bwe.details.get("writeErrors", []) if err["code"] == 11000)
+        duplicates = sum(
+            1 for err in bwe.details.get("writeErrors", []) if err["code"] == 11000
+        )
         errors = len(media_list) - inserted - duplicates
         return inserted, duplicates, errors
+
 
 async def save_file(media):
     try:
@@ -311,6 +340,7 @@ async def save_file(media):
     except Exception as e:
         return False, 2
 
+
 async def get_file_details(query):
     try:
         filter_query = {"_id": query}
@@ -321,6 +351,7 @@ async def get_file_details(query):
     except Exception as e:
         logger.error(f"Error fetching file details: {e}")
         return []
+
 
 def encode_file_id(s: bytes) -> str:
     r = b""
@@ -335,8 +366,10 @@ def encode_file_id(s: bytes) -> str:
             r += bytes([i])
     return base64.urlsafe_b64encode(r).decode().rstrip("=")
 
+
 def encode_file_ref(file_ref: bytes) -> str:
     return base64.urlsafe_b64encode(file_ref).decode().rstrip("=")
+
 
 def unpack_new_file_id(new_file_id):
     decoded = FileId.decode(new_file_id)
@@ -345,6 +378,8 @@ def unpack_new_file_id(new_file_id):
     access_hash = getattr(decoded, "access_hash", 0)
     dc_id = getattr(decoded, "dc_id", 0)
     file_ref_bytes = getattr(decoded, "file_reference", b"")
-    file_id = encode_file_id(pack("<iiqq", int(file_type), dc_id, media_id, access_hash))
+    file_id = encode_file_id(
+        pack("<iiqq", int(file_type), dc_id, media_id, access_hash)
+    )
     file_ref = encode_file_ref(file_ref_bytes)
     return file_id, file_ref
