@@ -80,10 +80,7 @@ def add_to_vocab(file_name):
 
 
 async def load_known_titles():
-    """
-    Call this function ONCE in your bot's startup file (e.g., bot.py)
-    using: asyncio.create_task(load_known_titles())
-    """
+    """Builds the spellchecker dictionary on startup."""
     if not process:
         return
     try:
@@ -209,7 +206,7 @@ async def save_file(media):
 
 
 # ==========================================
-# 4. HIGH-SPEED SEARCH (With Typo Correction)
+# 4. HIGH-SPEED SEARCH (With Typo Correction & Partial Matching)
 # ==========================================
 async def get_search_results(
     query_text,
@@ -219,7 +216,7 @@ async def get_search_results(
     filter=False,
     is_autocorrect=False,
 ):
-    # Base Cache Key ensures Typo Queries get cached with corrected results
+    # Base Cache Key ensures queries get cached
     cache_key = f"{query_text}_{file_type}_{max_results}_{offset}_{filter}"
     cached_data = search_cache.get(cache_key)
     if cached_data:
@@ -229,12 +226,11 @@ async def get_search_results(
 
     parsed = parse_ultra_advanced_query(query_text)
     conditions = []
-    use_text_search = False
 
+    # 1. Regex Search (Restored for perfect Partial Matching e.g., "ave" -> "avengers")
     if parsed.get("title_words"):
-        search_string = " ".join([f'"{word}"' for word in parsed["title_words"]])
-        conditions.append({"$text": {"$search": search_string}})
-        use_text_search = True
+        for word in parsed["title_words"]:
+            conditions.append({"file_name": {"$regex": re.escape(word), "$options": "i"}})
 
     if parsed.get("season") is not None:
         s_regex = rf"(s0?{parsed['season']}\b|season\s*0?{parsed['season']}\b)"
@@ -275,12 +271,12 @@ async def get_search_results(
         # ==========================================
         # TYPO TOLERANCE FALLBACK
         # ==========================================
-        # If no results found, and we haven't already tried to autocorrect, check the dictionary!
+        # If no results found, check the dictionary for a spelling mistake
         if total_results == 0 and not is_autocorrect and process and KNOWN_TITLES:
             best_match = process.extractOne(query_text, KNOWN_TITLES)
             if best_match:
                 match_text, score = best_match
-                # A score above 75 means it's a likely typo (e.g., 'Avngers' -> 'Avengers' usually scores ~90)
+                # A score above 75 means it's a likely typo
                 if 75 <= score <= 100:
                     logger.info(
                         f"Typo corrected: '{query_text}' -> '{match_text}' (Score: {score})"
@@ -296,9 +292,10 @@ async def get_search_results(
                         is_autocorrect=True,
                     )
 
-                    # Cache this corrected output under the TYPO'S cache key so the next
-                    # user who types 'Avngers' gets results instantly without recalculating.
-                    search_cache.set(cache_key, corrected_results)
+                    # Cache this corrected output under the TYPO's cache key 
+                    # ONLY if it found results.
+                    if corrected_results[2] > 0:
+                        search_cache.set(cache_key, corrected_results)
                     return corrected_results
         # ==========================================
 
@@ -306,31 +303,26 @@ async def get_search_results(
         if next_offset > total_results:
             next_offset = ""
 
-        if use_text_search:
-            cursor = (
-                db[COLLECTION_NAME]
-                .find(mongo_query, {"score": {"$meta": "textScore"}})
-                .sort([("score", {"$meta": "textScore"})])
-            )
-        else:
-            cursor = db[COLLECTION_NAME].find(mongo_query).sort("_id", -1)
-
+        # Fetch from DB (Sorted newest first, standard PyMongo retrieval)
+        cursor = db[COLLECTION_NAME].find(mongo_query).sort("_id", -1)
         cursor = cursor.skip(offset).limit(max_results)
         files = await cursor.to_list(length=max_results)
 
         media_files = [Media(**f) for f in files]
 
         result_tuple = (media_files, next_offset, total_results)
-        search_cache.set(cache_key, result_tuple)
+        
+        # MEMORY LEAK & BUG FIX: 
+        # ONLY cache the query if we successfully found files! 
+        # This prevents locking failed searches in the system for 5 minutes.
+        if total_results > 0:
+            search_cache.set(cache_key, result_tuple)
 
         return result_tuple
 
     except Exception as e:
         logger.error(f"Database search error: {e}")
         return [], "", 0
-
-
-# ... (get_file_details, encode_file_id, unpack_new_file_id remain the same as previous) ...
 
 
 async def get_file_details(query):
