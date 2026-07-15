@@ -1,9 +1,9 @@
+import asyncio
 import json
 import logging
 import os
-import asyncio
-import aiohttp
 
+import aiohttp
 from pyrogram import Client, filters
 from pyrogram.types import Message
 
@@ -67,7 +67,7 @@ async def send_reaction_background(chat_id: int, message_id: int):
     payload = {
         "chat_id": chat_id,
         "message_id": message_id,
-        "reaction": [{"type": "emoji", "emoji": "❤️"}]
+        "reaction": [{"type": "emoji", "emoji": "❤️"}],
     }
 
     try:
@@ -75,7 +75,7 @@ async def send_reaction_background(chat_id: int, message_id: int):
         async with aiohttp.ClientSession() as session:
             async with session.post(url, json=payload) as response:
                 # We don't even wait to read the response, we just let it happen!
-                pass 
+                pass
     except Exception as e:
         logger.error(f"Background Reaction Failed: {e}")
 
@@ -106,7 +106,7 @@ async def disable_react(bot: Client, message: Message):
 # ============================================================
 @Client.on_message((filters.group | filters.channel) & ~filters.bot, group=-5)
 async def auto_react_heart(bot: Client, message: Message):
-    
+
     if not react_db.is_enabled:
         return
 
@@ -114,6 +114,6 @@ async def auto_react_heart(bot: Client, message: Message):
     if message.from_user and message.from_user.is_bot:
         return
 
-    # 🚀 FIRE AND FORGET! 
+    # 🚀 FIRE AND FORGET!
     # This instantly pushes the reaction job to the background and lets the auto-filter run immediately.
     asyncio.create_task(send_reaction_background(message.chat.id, message.id))
