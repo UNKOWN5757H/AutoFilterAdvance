@@ -8,18 +8,58 @@ import aiohttp
 import bs4
 from pyrogram import Client, filters
 
-# Ensure DUMP_GROUP is handled gracefully if missing from info.py
+# Import yt-dlp safely
+try:
+    import yt_dlp
+except ImportError:
+    yt_dlp = None
+
+# Ensure DUMP_GROUP is handled gracefully
 try:
     from info import LOG_CHANNEL as DUMP_GROUP
 except ImportError:
     DUMP_GROUP = None
 
 
-async def fetch_media_urls(link: str) -> list:
-    """Helper function to fetch direct media URLs using multiple fallback APIs."""
+# ==========================================
+# 🥇 PRIMARY ENGINE: yt-dlp (Bypasses IP Blocks)
+# ==========================================
+def ytdlp_downloader(link: str) -> list:
+    """Downloads Instagram media directly to disk using yt-dlp."""
+    if not yt_dlp:
+        return []
+
+    base_id = str(random.randint(1000000, 9999999))
+    
+    # Configure yt-dlp to look like a real mobile browser to prevent 403 Forbidden errors
+    ydl_opts = {
+        'outtmpl': f'{base_id}_%(autonumber)s.%(ext)s',
+        'quiet': True,
+        'no_warnings': True,
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1'
+        }
+    }
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.extract_info(link, download=True)
+    except Exception as e:
+        print(f"yt-dlp failed: {e}")
+
+    # Gather all downloaded files associated with this request (Handles carousels!)
+    downloaded_files = [f for f in os.listdir(".") if f.startswith(base_id)]
+    return downloaded_files
+
+
+# ==========================================
+# 🥈 BACKUP ENGINE: API Fallbacks
+# ==========================================
+async def fetch_api_urls(link: str) -> list:
+    """Fallback APIs in case yt-dlp is temporarily blocked."""
     urls = []
 
-    # Attempt 1: Cobalt API
+    # 1. Cobalt API
     try:
         headers = {
             "Accept": "application/json",
@@ -40,7 +80,7 @@ async def fetch_media_urls(link: str) -> list:
     except Exception:
         pass
 
-    # Attempt 2: SaveIG API Fallback
+    # 2. SaveIG API
     if not urls:
         try:
             headers = {
@@ -56,26 +96,10 @@ async def fetch_media_urls(link: str) -> list:
                 ) as resp:
                     if resp.status == 200:
                         res = await resp.json()
-                        meta = re.findall(
-                            r'href="(https?://[^"]+)"', res.get("data", "")
-                        )
+                        meta = re.findall(r'href="(https?://[^"]+)"', res.get("data", ""))
                         for m in meta:
                             if "instagram" in m or "dl.php" in m or "cdn" in m:
                                 urls.append(m)
-        except Exception:
-            pass
-
-    # Attempt 3: DDInstagram HTML Meta Tag Scraping
-    if not urls:
-        try:
-            dd_link = link.replace("instagram.com", "ddinstagram.com")
-            async with aiohttp.ClientSession() as session:
-                async with session.get(dd_link, timeout=10) as resp:
-                    html = await resp.text()
-                    soup = bs4.BeautifulSoup(html, "html.parser")
-                    meta_vid = soup.find("meta", attrs={"property": "og:video"})
-                    if meta_vid and meta_vid.get("content"):
-                        urls.append(meta_vid["content"])
         except Exception:
             pass
 
@@ -83,11 +107,11 @@ async def fetch_media_urls(link: str) -> list:
 
 
 # ==========================================
-# 🎯 REVERTED: Now explicitly requires the /insta command
+# 🤖 BOT COMMAND HANDLER
 # ==========================================
 @Client.on_message(filters.command("insta") & filters.private)
 async def insta_command_handler(client, message):
-
+    
     if len(message.command) < 2:
         return await message.reply_text(
             "⚠️ **Please provide an Instagram link!**\n\n**Usage:** `/insta <link>`"
@@ -100,62 +124,65 @@ async def insta_command_handler(client, message):
             "⚠️ **That doesn't look like a valid Instagram link!**\nPlease check the URL and try again."
         )
 
-    # Strip query parameters (like ?igsh=...) for cleaner API processing
+    # Clean the link
     clean_link = link.split("?")[0] if "?igsh=" in link else link
 
-    # Replaced the broken sticker with a safe text message
-    m = await message.reply_text("⏳ **Processing your link... Please wait.**")
-
+    m = await message.reply_text("⏳ **Downloading media... Please wait.**")
     caption = "𝐷𝑜𝑤𝑛𝑙𝑜𝑎𝑑 𝐵𝑦 👉 @sandalwood_kannada_moviesz"
+    
     successful_messages = []
+    local_files = []
 
     try:
-        urls = await fetch_media_urls(clean_link)
+        # ATTEMPT 1: Try downloading directly via yt-dlp (Fastest & most reliable)
+        if yt_dlp:
+            local_files = await asyncio.to_thread(ytdlp_downloader, clean_link)
 
-        if not urls:
-            raise Exception(
-                "No media found. The account might be private or the APIs are down."
-            )
+        # ATTEMPT 2: If yt-dlp fails, fall back to the APIs
+        if not local_files:
+            urls = await fetch_api_urls(clean_link)
+            
+            if not urls:
+                raise Exception("Both yt-dlp and fallback APIs failed to extract media.")
 
-        for url in urls:
-            ext = ".mp4"
-            if any(x in url.lower() for x in [".jpg", ".jpeg", ".webp", ".png"]):
-                ext = ".jpg"
+            # Download API URLs to local disk safely
+            for url in urls:
+                ext = ".mp4"
+                if any(x in url.lower() for x in [".jpg", ".jpeg", ".webp", ".png"]):
+                    ext = ".jpg"
+                
+                filename = f"{random.randint(100000, 9999999)}{ext}"
+                
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(url, timeout=20) as resp:
+                            if resp.status == 200:
+                                with open(filename, "wb") as f:
+                                    f.write(await resp.read())
+                                local_files.append(filename)
+                except Exception as e:
+                    print(f"Failed to download from API: {e}")
 
-            filename = f"{random.randint(100000, 9999999)}{ext}"
+        # Check if we successfully got files on disk
+        if not local_files:
+            raise Exception("Failed to save media files to disk.")
 
+        # UPLOAD TO TELEGRAM
+        for file in local_files:
             try:
-                # Download locally
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(url, timeout=20) as resp:
-                        if resp.status == 200:
-                            with open(filename, "wb") as f:
-                                f.write(await resp.read())
-                        else:
-                            continue
-
-                # Upload securely
-                if ext == ".jpg":
-                    sent_msg = await message.reply_photo(
-                        photo=filename, caption=caption
-                    )
+                if file.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
+                    sent_msg = await message.reply_photo(photo=file, caption=caption)
                 else:
-                    sent_msg = await message.reply_video(
-                        video=filename, caption=caption
-                    )
-
+                    sent_msg = await message.reply_video(video=file, caption=caption)
+                
                 successful_messages.append(sent_msg)
+            except Exception as e:
+                print(f"Telegram Upload Error: {e}")
 
-            except Exception as inner_e:
-                print(f"Failed to send media part: {inner_e}")
-            finally:
-                if os.path.exists(filename):
-                    os.remove(filename)
-
-            await asyncio.sleep(1.5)
+            await asyncio.sleep(1.5)  # FloodWait protection
 
         if not successful_messages:
-            raise Exception("Found media links but failed to download/upload them.")
+            raise Exception("Downloaded successfully, but Telegram rejected the upload.")
 
     except Exception as e:
         if DUMP_GROUP:
@@ -168,17 +195,25 @@ async def insta_command_handler(client, message):
                 pass
 
         await message.reply_text(
-            "400: Sorry, Unable To Find It. Make Sure It's Publicly Available or try again later :)"
+            "400: Sorry, Unable To Download. The post might be private, or Instagram is temporarily blocking downloads. Try again later!"
         )
 
     finally:
-        # Delete waiting message safely
+        # 1. Clean up waiting message
         try:
             await m.delete()
         except Exception:
             pass
 
-        # Forward copies to the Dump Group
+        # 2. DELETE ALL LOCAL FILES to prevent hard drive overflow
+        for file in local_files:
+            if os.path.exists(file):
+                try:
+                    os.remove(file)
+                except Exception:
+                    pass
+
+        # 3. Forward to Dump Group
         if DUMP_GROUP and successful_messages:
             for msg in successful_messages:
                 try:
@@ -187,7 +222,7 @@ async def insta_command_handler(client, message):
                 except Exception:
                     pass
 
-        # Only send the footer if we successfully sent the media
+        # 4. Send Footer
         if successful_messages:
             await message.reply_text(
                 "<a href='https://t.me/sandalwood_kannada_moviesz'>Sandalwood Kannada Movies</a>",
