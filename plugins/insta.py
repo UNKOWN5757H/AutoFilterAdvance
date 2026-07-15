@@ -30,15 +30,15 @@ def ytdlp_downloader(link: str) -> list:
         return []
 
     base_id = str(random.randint(1000000, 9999999))
-    
+
     # Configure yt-dlp to look like a real mobile browser to prevent 403 Forbidden errors
     ydl_opts = {
-        'outtmpl': f'{base_id}_%(autonumber)s.%(ext)s',
-        'quiet': True,
-        'no_warnings': True,
-        'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1'
-        }
+        "outtmpl": f"{base_id}_%(autonumber)s.%(ext)s",
+        "quiet": True,
+        "no_warnings": True,
+        "http_headers": {
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1"
+        },
     }
 
     try:
@@ -96,7 +96,9 @@ async def fetch_api_urls(link: str) -> list:
                 ) as resp:
                     if resp.status == 200:
                         res = await resp.json()
-                        meta = re.findall(r'href="(https?://[^"]+)"', res.get("data", ""))
+                        meta = re.findall(
+                            r'href="(https?://[^"]+)"', res.get("data", "")
+                        )
                         for m in meta:
                             if "instagram" in m or "dl.php" in m or "cdn" in m:
                                 urls.append(m)
@@ -111,7 +113,7 @@ async def fetch_api_urls(link: str) -> list:
 # ==========================================
 @Client.on_message(filters.command("insta") & filters.private)
 async def insta_command_handler(client, message):
-    
+
     if len(message.command) < 2:
         return await message.reply_text(
             "⚠️ **Please provide an Instagram link!**\n\n**Usage:** `/insta <link>`"
@@ -129,7 +131,7 @@ async def insta_command_handler(client, message):
 
     m = await message.reply_text("⏳ **Downloading media... Please wait.**")
     caption = "𝐷𝑜𝑤𝑛𝑙𝑜𝑎𝑑 𝐵𝑦 👉 @sandalwood_kannada_moviesz"
-    
+
     successful_messages = []
     local_files = []
 
@@ -141,18 +143,20 @@ async def insta_command_handler(client, message):
         # ATTEMPT 2: If yt-dlp fails, fall back to the APIs
         if not local_files:
             urls = await fetch_api_urls(clean_link)
-            
+
             if not urls:
-                raise Exception("Both yt-dlp and fallback APIs failed to extract media.")
+                raise Exception(
+                    "Both yt-dlp and fallback APIs failed to extract media."
+                )
 
             # Download API URLs to local disk safely
             for url in urls:
                 ext = ".mp4"
                 if any(x in url.lower() for x in [".jpg", ".jpeg", ".webp", ".png"]):
                     ext = ".jpg"
-                
+
                 filename = f"{random.randint(100000, 9999999)}{ext}"
-                
+
                 try:
                     async with aiohttp.ClientSession() as session:
                         async with session.get(url, timeout=20) as resp:
@@ -174,7 +178,7 @@ async def insta_command_handler(client, message):
                     sent_msg = await message.reply_photo(photo=file, caption=caption)
                 else:
                     sent_msg = await message.reply_video(video=file, caption=caption)
-                
+
                 successful_messages.append(sent_msg)
             except Exception as e:
                 print(f"Telegram Upload Error: {e}")
@@ -182,7 +186,9 @@ async def insta_command_handler(client, message):
             await asyncio.sleep(1.5)  # FloodWait protection
 
         if not successful_messages:
-            raise Exception("Downloaded successfully, but Telegram rejected the upload.")
+            raise Exception(
+                "Downloaded successfully, but Telegram rejected the upload."
+            )
 
     except Exception as e:
         if DUMP_GROUP:
