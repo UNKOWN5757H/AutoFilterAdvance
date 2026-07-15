@@ -230,7 +230,9 @@ async def get_search_results(
     # 1. Regex Search (Restored for perfect Partial Matching e.g., "ave" -> "avengers")
     if parsed.get("title_words"):
         for word in parsed["title_words"]:
-            conditions.append({"file_name": {"$regex": re.escape(word), "$options": "i"}})
+            conditions.append(
+                {"file_name": {"$regex": re.escape(word), "$options": "i"}}
+            )
 
     if parsed.get("season") is not None:
         s_regex = rf"(s0?{parsed['season']}\b|season\s*0?{parsed['season']}\b)"
@@ -292,7 +294,7 @@ async def get_search_results(
                         is_autocorrect=True,
                     )
 
-                    # Cache this corrected output under the TYPO's cache key 
+                    # Cache this corrected output under the TYPO's cache key
                     # ONLY if it found results.
                     if corrected_results[2] > 0:
                         search_cache.set(cache_key, corrected_results)
@@ -311,9 +313,9 @@ async def get_search_results(
         media_files = [Media(**f) for f in files]
 
         result_tuple = (media_files, next_offset, total_results)
-        
-        # MEMORY LEAK & BUG FIX: 
-        # ONLY cache the query if we successfully found files! 
+
+        # MEMORY LEAK & BUG FIX:
+        # ONLY cache the query if we successfully found files!
         # This prevents locking failed searches in the system for 5 minutes.
         if total_results > 0:
             search_cache.set(cache_key, result_tuple)
