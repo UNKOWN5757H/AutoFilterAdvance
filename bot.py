@@ -55,8 +55,20 @@ class Bot(Client):
 
         await super().start()
 
-        # 2. Database Initializations
+        # ============================================================
+        # 2. DATABASE INITIALIZATION & CRASH FIX
+        # ============================================================
+        try:
+            # Force drop the old conflicting index before applying the new one
+            await Media.collection.drop_index("file_name_text")
+            logger.info("🗑️ Successfully dropped the old text index 'file_name_text'.")
+        except Exception:
+            # If the index is already deleted or doesn't exist, safely ignore
+            pass
+
+        # Now safely build the new compound index
         await Media.ensure_indexes()
+        # ============================================================
 
         # 3. Start building the in-memory spellchecker dictionary in the background
         asyncio.create_task(load_known_titles())
