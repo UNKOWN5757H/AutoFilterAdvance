@@ -1,8 +1,8 @@
-import asyncio
 import json
 import logging
 import os
-import urllib.request
+import asyncio
+import aiohttp
 
 from pyrogram import Client, filters
 from pyrogram.types import Message
@@ -56,31 +56,28 @@ def is_bot_owner(user_id: int) -> bool:
 
 
 # ============================================================
-# 🌐 HTTP BYPASS FOR BOT REACTIONS
+# ⚡ ASYNC HTTP BYPASS (Zero-Lag Background Task)
 # ============================================================
-def send_reaction_via_api(chat_id: int, message_id: int):
-    """Bypasses Pyrogram entirely and uses the official Telegram Bot API."""
+async def send_reaction_background(chat_id: int, message_id: int):
+    """Silently fires the reaction request to Telegram without blocking the bot."""
     if not BOT_TOKEN:
-        print("⚠️ [AUTO-REACT ERROR]: BOT_TOKEN not found in info.py!")
         return
 
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/setMessageReaction"
     payload = {
         "chat_id": chat_id,
         "message_id": message_id,
-        "reaction": [{"type": "emoji", "emoji": "❤️"}],
+        "reaction": [{"type": "emoji", "emoji": "❤️"}]
     }
 
-    data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(
-        url, data=data, headers={"Content-Type": "application/json"}
-    )
-
     try:
-        with urllib.request.urlopen(req) as response:
-            pass  # Successfully reacted!
+        # aiohttp is extremely fast and non-blocking
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload) as response:
+                # We don't even wait to read the response, we just let it happen!
+                pass 
     except Exception as e:
-        print(f"❌ [HTTP API ERROR]: Failed to react - {e}")
+        logger.error(f"Background Reaction Failed: {e}")
 
 
 # ============================================================
@@ -109,7 +106,7 @@ async def disable_react(bot: Client, message: Message):
 # ============================================================
 @Client.on_message((filters.group | filters.channel) & ~filters.bot, group=-5)
 async def auto_react_heart(bot: Client, message: Message):
-
+    
     if not react_db.is_enabled:
         return
 
@@ -117,12 +114,6 @@ async def auto_react_heart(bot: Client, message: Message):
     if message.from_user and message.from_user.is_bot:
         return
 
-    try:
-        print(
-            f"🚀 [AUTO-REACT]: Attempting HTTP Bot API bypass to send ❤️ to {message.id}..."
-        )
-        # Offload the HTTP request to a background thread so it doesn't slow down your bot
-        await asyncio.to_thread(send_reaction_via_api, message.chat.id, message.id)
-        print("✅ [AUTO-REACT]: Success! Reaction sent.")
-    except Exception as e:
-        logger.error(f"Reaction Bypass Failed: {e}")
+    # 🚀 FIRE AND FORGET! 
+    # This instantly pushes the reaction job to the background and lets the auto-filter run immediately.
+    asyncio.create_task(send_reaction_background(message.chat.id, message.id))
