@@ -57,7 +57,7 @@ class Bot(Client):
 
         # 2. Database Initializations
         await Media.ensure_indexes()
-        
+
         # 3. Start building the in-memory spellchecker dictionary in the background
         asyncio.create_task(load_known_titles())
 
@@ -119,7 +119,7 @@ class Bot(Client):
 
             for message in messages:
                 # Pyrogram V2 returns empty message objects for deleted messages
-                if not getattr(message, "empty", False): 
+                if not getattr(message, "empty", False):
                     yield message
                 current += 1
 
@@ -169,11 +169,11 @@ async def auto_delete_user_media_pm(client: Client, message: Message):
 if __name__ == "__main__":
 
     # --- 🧹 AUTO DELETE OLD SESSION FILES ---
-    # FIXED: The previous wildcard (*.session) deleted ALL sessions, including the one 
+    # FIXED: The previous wildcard (*.session) deleted ALL sessions, including the one
     # the bot needs to run! Now it safely ignores the active bot session.
     print("🔍 Checking for obsolete session files...")
     active_session = f"{SESSION}.session"
-    
+
     for file in glob.glob("*.session"):
         if file != active_session:
             try:
