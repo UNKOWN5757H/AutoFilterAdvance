@@ -14,6 +14,7 @@ try:
 except ImportError:
     DUMP_GROUP = None
 
+
 async def fetch_media_urls(link: str) -> list:
     """Helper function to fetch direct media URLs using multiple fallback APIs."""
     urls = []
@@ -23,10 +24,12 @@ async def fetch_media_urls(link: str) -> list:
         headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
         }
         async with aiohttp.ClientSession(headers=headers) as session:
-            async with session.post("https://api.cobalt.tools/api/json", json={"url": link}, timeout=10) as resp:
+            async with session.post(
+                "https://api.cobalt.tools/api/json", json={"url": link}, timeout=10
+            ) as resp:
                 if resp.status == 200:
                     data = await resp.json()
                     if data.get("status") in ["redirect", "stream", "success"]:
@@ -49,10 +52,14 @@ async def fetch_media_urls(link: str) -> list:
             }
             async with aiohttp.ClientSession(headers=headers) as session:
                 data = {"q": link, "t": "media", "lang": "en"}
-                async with session.post("https://saveig.app/api/ajaxSearch", data=data, timeout=10) as resp:
+                async with session.post(
+                    "https://saveig.app/api/ajaxSearch", data=data, timeout=10
+                ) as resp:
                     if resp.status == 200:
                         res = await resp.json()
-                        meta = re.findall(r'href="(https?://[^"]+)"', res.get("data", ""))
+                        meta = re.findall(
+                            r'href="(https?://[^"]+)"', res.get("data", "")
+                        )
                         for m in meta:
                             if "instagram" in m or "dl.php" in m or "cdn" in m:
                                 urls.append(m)
@@ -106,16 +113,18 @@ async def insta_command_handler(client, message):
         urls = await fetch_media_urls(clean_link)
 
         if not urls:
-            raise Exception("No media found. The account might be private or the APIs are down.")
+            raise Exception(
+                "No media found. The account might be private or the APIs are down."
+            )
 
         for url in urls:
             # Check whether media is a photo or a video to prevent Pyrogram crashing
             ext = ".mp4"
             if any(x in url.lower() for x in [".jpg", ".jpeg", ".webp", ".png"]):
                 ext = ".jpg"
-            
+
             filename = f"{random.randint(100000, 9999999)}{ext}"
-            
+
             try:
                 # 1. Download locally to avoid Telegram `WebpageCurlFailed` errors
                 async with aiohttp.ClientSession() as session:
@@ -125,13 +134,17 @@ async def insta_command_handler(client, message):
                                 f.write(await resp.read())
                         else:
                             continue
-                
+
                 # 2. Upload file securely to Telegram
                 if ext == ".jpg":
-                    sent_msg = await message.reply_photo(photo=filename, caption=caption)
+                    sent_msg = await message.reply_photo(
+                        photo=filename, caption=caption
+                    )
                 else:
-                    sent_msg = await message.reply_video(video=filename, caption=caption)
-                
+                    sent_msg = await message.reply_video(
+                        video=filename, caption=caption
+                    )
+
                 successful_messages.append(sent_msg)
 
             except Exception as inner_e:
@@ -140,9 +153,9 @@ async def insta_command_handler(client, message):
                 # 3. Always clean up the temporary file
                 if os.path.exists(filename):
                     os.remove(filename)
-            
+
             # Anti-FloodWait spacing
-            await asyncio.sleep(1.5) 
+            await asyncio.sleep(1.5)
 
         if not successful_messages:
             raise Exception("Found media links but failed to download/upload them.")
@@ -152,11 +165,11 @@ async def insta_command_handler(client, message):
             try:
                 await client.send_message(
                     DUMP_GROUP,
-                    f"**Instagram Error:** `{e}`\n**Link:** {link}\n\n```{traceback.format_exc()}```"
+                    f"**Instagram Error:** `{e}`\n**Link:** {link}\n\n```{traceback.format_exc()}```",
                 )
             except Exception:
                 pass
-        
+
         await message.reply_text(
             "400: Sorry, Unable To Find It. Make Sure It's Publicly Available or try again later :)"
         )
