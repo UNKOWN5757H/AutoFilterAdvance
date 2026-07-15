@@ -3,13 +3,14 @@ import glob
 import logging
 import logging.config
 import os
-from typing import AsyncGenerator, Optional, Union
+from typing import AsyncGenerator, Union
 
 from pyrogram import Client, __version__, filters, types
 from pyrogram.raw.all import layer
 from pyrogram.types import Message
 
-from database.ia_filterdb import Media
+# Import the load_known_titles function we built earlier!
+from database.ia_filterdb import Media, load_known_titles
 from database.users_chats_db import db
 from info import API_HASH, API_ID, BOT_TOKEN, LOG_STR, SESSION
 from utils import temp
@@ -20,7 +21,6 @@ from utils import temp
 if os.path.exists("logging.conf"):
     logging.config.fileConfig("logging.conf")
 else:
-    # FIXED: Fallback to prevent instant crashes if the file is missing
     logging.basicConfig(
         level=logging.INFO,
         format="[%(asctime)s - %(levelname)s] - %(name)s - %(message)s",
@@ -48,14 +48,18 @@ class Bot(Client):
         )
 
     async def start(self):
+        # 1. Load banned users/chats into memory
         b_users, b_chats = await db.get_banned()
         temp.BANNED_USERS = b_users
         temp.BANNED_CHATS = b_chats
 
         await super().start()
 
-        # Ensure MongoDB indexes for the umongo Media collection
+        # 2. Database Initializations
         await Media.ensure_indexes()
+        
+        # 3. Start building the in-memory spellchecker dictionary in the background
+        asyncio.create_task(load_known_titles())
 
         me = await self.get_me()
         temp.ME = me.id
@@ -69,7 +73,7 @@ class Bot(Client):
         logger.info(LOG_STR)
 
         # ============================================================
-        # ♻️ KOYEB RESTART SUCCESS HANDLER
+        # ♻️ SERVER RESTART SUCCESS HANDLER
         # ============================================================
         if os.path.exists("restart.txt"):
             try:
@@ -78,7 +82,6 @@ class Bot(Client):
                     chat_id = int(chat_id_str)
                     msg_id = int(msg_id_str)
 
-                # Edit the "Restarting..." message to show success
                 await self.edit_message_text(
                     chat_id=chat_id,
                     message_id=msg_id,
@@ -87,7 +90,6 @@ class Bot(Client):
             except Exception as e:
                 logger.error(f"Failed to edit restart success message: {e}")
             finally:
-                # Always remove the file so it doesn't trigger on regular bootups
                 if os.path.exists("restart.txt"):
                     os.remove("restart.txt")
 
@@ -103,7 +105,7 @@ class Bot(Client):
     ) -> AsyncGenerator[types.Message, None]:
         """
         Iterate through a chat sequentially by message IDs.
-        Useful for getting whole chat messages with a single call.
+        FIXED: Added empty check to prevent crashing when hitting deleted messages.
         """
         current = offset
         while True:
@@ -116,7 +118,9 @@ class Bot(Client):
             )
 
             for message in messages:
-                yield message
+                # Pyrogram V2 returns empty message objects for deleted messages
+                if not getattr(message, "empty", False): 
+                    yield message
                 current += 1
 
 
@@ -125,10 +129,18 @@ app = Bot()
 
 
 # ============================================================
-# 🗑️ AUTO DELETE PM MEDIA (MOVED TO GROUP 2)
+# 🗑️ AUTO DELETE PM MEDIA (30-MINUTES, MEMORY SAFE)
 # ============================================================
-# FIXED: Restricted the filter to media types only and assigned it to group=2.
-# This prevents it from swallowing /start commands and movie searches!
+async def delete_media_task(message: Message, delay: int):
+    """Background task to safely handle delayed deletions without blocking workers."""
+    await asyncio.sleep(delay)
+    try:
+        if message:
+            await message.delete()
+    except Exception as e:
+        logger.error(f"Failed to auto-delete PM media for {message.from_user.id}: {e}")
+
+
 @app.on_message(
     filters.private
     & (
@@ -146,11 +158,9 @@ async def auto_delete_user_media_pm(client: Client, message: Message):
     if not user or message.outgoing:
         return
 
-    await asyncio.sleep(14400)  # Wait 4 hours
-    try:
-        await message.delete()
-    except Exception as e:
-        logger.error(f"Failed to auto-delete PM media for {user.id}: {e}")
+    # Detached the sleep timer into a background task.
+    # Set to 1800 seconds (30 minutes)
+    asyncio.create_task(delete_media_task(message, delay=1800))
 
 
 # ============================================================
@@ -159,13 +169,18 @@ async def auto_delete_user_media_pm(client: Client, message: Message):
 if __name__ == "__main__":
 
     # --- 🧹 AUTO DELETE OLD SESSION FILES ---
-    print("🔍 Checking for old session files...")
+    # FIXED: The previous wildcard (*.session) deleted ALL sessions, including the one 
+    # the bot needs to run! Now it safely ignores the active bot session.
+    print("🔍 Checking for obsolete session files...")
+    active_session = f"{SESSION}.session"
+    
     for file in glob.glob("*.session"):
-        try:
-            os.remove(file)
-            print(f"🗑️ Deleted old session: {file}")
-        except Exception as e:
-            print(f"⚠️ Could not delete {file}: {e}")
+        if file != active_session:
+            try:
+                os.remove(file)
+                print(f"🗑️ Deleted obsolete session: {file}")
+            except Exception as e:
+                print(f"⚠️ Could not delete {file}: {e}")
     # -----------------------------------------
 
     app.run()
