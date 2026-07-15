@@ -19,7 +19,7 @@ async def fetch_media_urls(link: str) -> list:
     """Helper function to fetch direct media URLs using multiple fallback APIs."""
     urls = []
 
-    # Attempt 1: Cobalt API (Currently the most reliable and fastest for TG Bots)
+    # Attempt 1: Cobalt API
     try:
         headers = {
             "Accept": "application/json",
@@ -35,13 +35,12 @@ async def fetch_media_urls(link: str) -> list:
                     if data.get("status") in ["redirect", "stream", "success"]:
                         urls.append(data.get("url"))
                     elif data.get("status") == "picker":
-                        # Extracts all items if the post is a carousel (multiple images/videos)
                         for item in data.get("picker", []):
                             urls.append(item.get("url"))
     except Exception:
         pass
 
-    # Attempt 2: SaveIG API Fallback (Your original method, hardened)
+    # Attempt 2: SaveIG API Fallback
     if not urls:
         try:
             headers = {
@@ -80,31 +79,32 @@ async def fetch_media_urls(link: str) -> list:
         except Exception:
             pass
 
-    # Return unique URLs while preserving the order
     return list(dict.fromkeys(urls))
 
 
+# ==========================================
+# 🎯 REVERTED: Now explicitly requires the /insta command
+# ==========================================
 @Client.on_message(filters.command("insta") & filters.private)
 async def insta_command_handler(client, message):
+    
     if len(message.command) < 2:
         return await message.reply_text(
-            "⚠️ **Please provide an Instagram link!**\n\n**Usage:** `/insta <instagram_link>`"
+            "⚠️ **Please provide an Instagram link!**\n\n**Usage:** `/insta <link>`"
         )
 
     link = message.command[1]
 
-    # Strip query parameters (like ?igsh=...) for cleaner API processing
-    clean_link = link.split("?")[0] if "?igsh=" in link else link
-
-    if "instagram.com" not in clean_link:
+    if "instagram.com" not in link:
         return await message.reply_text(
             "⚠️ **That doesn't look like a valid Instagram link!**\nPlease check the URL and try again."
         )
 
-    # Send waiting sticker
-    m = await message.reply_sticker(
-        "CAACAgUAAxkBAAJwgmYsfgvGbfH7xYqlNzyFsMSOpPdXAAIGBwACc7LBVBHH8bMK6dZAHgQ"
-    )
+    # Strip query parameters (like ?igsh=...) for cleaner API processing
+    clean_link = link.split("?")[0] if "?igsh=" in link else link
+
+    # Replaced the broken sticker with a safe text message
+    m = await message.reply_text("⏳ **Processing your link... Please wait.**")
 
     caption = "𝐷𝑜𝑤𝑛𝑙𝑜𝑎𝑑 𝐵𝑦 👉 @sandalwood_kannada_moviesz"
     successful_messages = []
@@ -113,12 +113,9 @@ async def insta_command_handler(client, message):
         urls = await fetch_media_urls(clean_link)
 
         if not urls:
-            raise Exception(
-                "No media found. The account might be private or the APIs are down."
-            )
+            raise Exception("No media found. The account might be private or the APIs are down.")
 
         for url in urls:
-            # Check whether media is a photo or a video to prevent Pyrogram crashing
             ext = ".mp4"
             if any(x in url.lower() for x in [".jpg", ".jpeg", ".webp", ".png"]):
                 ext = ".jpg"
@@ -126,7 +123,7 @@ async def insta_command_handler(client, message):
             filename = f"{random.randint(100000, 9999999)}{ext}"
 
             try:
-                # 1. Download locally to avoid Telegram `WebpageCurlFailed` errors
+                # Download locally
                 async with aiohttp.ClientSession() as session:
                     async with session.get(url, timeout=20) as resp:
                         if resp.status == 200:
@@ -135,26 +132,20 @@ async def insta_command_handler(client, message):
                         else:
                             continue
 
-                # 2. Upload file securely to Telegram
+                # Upload securely
                 if ext == ".jpg":
-                    sent_msg = await message.reply_photo(
-                        photo=filename, caption=caption
-                    )
+                    sent_msg = await message.reply_photo(photo=filename, caption=caption)
                 else:
-                    sent_msg = await message.reply_video(
-                        video=filename, caption=caption
-                    )
+                    sent_msg = await message.reply_video(video=filename, caption=caption)
 
                 successful_messages.append(sent_msg)
 
             except Exception as inner_e:
                 print(f"Failed to send media part: {inner_e}")
             finally:
-                # 3. Always clean up the temporary file
                 if os.path.exists(filename):
                     os.remove(filename)
 
-            # Anti-FloodWait spacing
             await asyncio.sleep(1.5)
 
         if not successful_messages:
@@ -175,7 +166,7 @@ async def insta_command_handler(client, message):
         )
 
     finally:
-        # Delete waiting sticker safely
+        # Delete waiting message safely
         try:
             await m.delete()
         except Exception:
@@ -190,8 +181,9 @@ async def insta_command_handler(client, message):
                 except Exception:
                     pass
 
-        # Send footer message
-        await message.reply_text(
-            "<a href='https://t.me/sandalwood_kannada_moviesz'>Sandalwood Kannada Movies</a>",
-            disable_web_page_preview=True,
-        )
+        # Only send the footer if we successfully sent the media
+        if successful_messages:
+            await message.reply_text(
+                "<a href='https://t.me/sandalwood_kannada_moviesz'>Sandalwood Kannada Movies</a>",
+                disable_web_page_preview=True,
+            )
