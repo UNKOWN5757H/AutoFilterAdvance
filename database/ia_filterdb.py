@@ -128,7 +128,7 @@ async def get_search_results(
     # 1. Primary Text Search (Fast & Relevant)
     # Group all title words together to leverage MongoDB's text index
     if parsed.get("title_words"):
-        search_string = ' '.join(parsed["title_words"])
+        search_string = " ".join(parsed["title_words"])
         # Adding quotes around words forces exact word matching in Mongo
         conditions.append({"$text": {"$search": f'"{search_string}"'}})
         use_text_search = True
@@ -172,10 +172,11 @@ async def get_search_results(
         # If we used $text search, sort by textScore to show best matches first.
         # Otherwise, sort by _id descending (newest first).
         if use_text_search:
-            cursor = db[COLLECTION_NAME].find(
-                mongo_query, 
-                {"score": {"$meta": "textScore"}}
-            ).sort([("score", {"$meta": "textScore"})])
+            cursor = (
+                db[COLLECTION_NAME]
+                .find(mongo_query, {"score": {"$meta": "textScore"}})
+                .sort([("score", {"$meta": "textScore"})])
+            )
         else:
             cursor = db[COLLECTION_NAME].find(mongo_query).sort("_id", -1)
 
