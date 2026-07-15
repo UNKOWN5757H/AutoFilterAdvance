@@ -87,7 +87,7 @@ async def fetch_media_urls(link: str) -> list:
 # ==========================================
 @Client.on_message(filters.command("insta") & filters.private)
 async def insta_command_handler(client, message):
-    
+
     if len(message.command) < 2:
         return await message.reply_text(
             "⚠️ **Please provide an Instagram link!**\n\n**Usage:** `/insta <link>`"
@@ -113,7 +113,9 @@ async def insta_command_handler(client, message):
         urls = await fetch_media_urls(clean_link)
 
         if not urls:
-            raise Exception("No media found. The account might be private or the APIs are down.")
+            raise Exception(
+                "No media found. The account might be private or the APIs are down."
+            )
 
         for url in urls:
             ext = ".mp4"
@@ -134,9 +136,13 @@ async def insta_command_handler(client, message):
 
                 # Upload securely
                 if ext == ".jpg":
-                    sent_msg = await message.reply_photo(photo=filename, caption=caption)
+                    sent_msg = await message.reply_photo(
+                        photo=filename, caption=caption
+                    )
                 else:
-                    sent_msg = await message.reply_video(video=filename, caption=caption)
+                    sent_msg = await message.reply_video(
+                        video=filename, caption=caption
+                    )
 
                 successful_messages.append(sent_msg)
 
