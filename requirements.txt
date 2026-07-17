@@ -23,7 +23,7 @@ requests==2.32.3
 
 # --- HTML Parsing ---
 beautifulsoup4==4.12.3
-lxml==5.3.0
+lxml==6.1.0
 html5lib==1.1
 
 # --- Web Server (for Koyeb / Render / Heroku) ---
