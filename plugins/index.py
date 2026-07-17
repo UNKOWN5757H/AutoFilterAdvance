@@ -19,22 +19,65 @@ from info import ADMINS
 from info import INDEX_REQ_CHANNEL as LOG_CHANNEL
 from utils import temp
 
-# Safely import channel lists from info.py (handles different common variable names)
+# Safely import channel lists from info.py and ensure they are parsed as lists
+AUTO_INDEX_CHANNELS = []
 try:
     from info import CHANNELS
+    if isinstance(CHANNELS, list):
+        AUTO_INDEX_CHANNELS.extend(CHANNELS)
+    elif isinstance(CHANNELS, (int, str)):
+        AUTO_INDEX_CHANNELS.append(int(CHANNELS))
 except ImportError:
-    CHANNELS = []
+    pass
+
 try:
     from info import INDEX_CHANNELS
+    if isinstance(INDEX_CHANNELS, list):
+        AUTO_INDEX_CHANNELS.extend(INDEX_CHANNELS)
+    elif isinstance(INDEX_CHANNELS, (int, str)):
+        AUTO_INDEX_CHANNELS.append(int(INDEX_CHANNELS))
 except ImportError:
-    INDEX_CHANNELS = []
+    pass
 
-# Combine them just in case
-AUTO_INDEX_CHANNELS = list(set(CHANNELS + INDEX_CHANNELS))
+# Remove duplicates
+AUTO_INDEX_CHANNELS = list(set(AUTO_INDEX_CHANNELS))
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 lock = asyncio.Lock()
+
+
+# ============================================================
+# ⚡ THE AUTO-INDEX FEATURE (Listens for NEW messages)
+# ============================================================
+@Client.on_message(
+    filters.channel
+    & (filters.document | filters.video | filters.audio)
+    & ~filters.forwarded,
+    group=-4,
+)
+async def auto_index_new_files(bot: Client, message):
+    """
+    Listens for any NEW files posted to your channels and instantly indexes them.
+    """
+    # Restrict to specified channels if provided; otherwise, allow all admin channels
+    if AUTO_INDEX_CHANNELS and message.chat.id not in AUTO_INDEX_CHANNELS:
+        return
+
+    media = getattr(message, message.media.value, None)
+    if not media:
+        return
+
+    # Add required attributes for the database schema
+    media.file_type = message.media.value
+    media.caption = message.caption
+
+    try:
+        # Save it to the database quietly
+        await save_batch([media])
+        logger.info(f"Auto-indexed new file from {message.chat.title} ({message.chat.id})")
+    except Exception as e:
+        logger.error(f"Auto-index failed for {message.chat.title}: {e}")
 
 
 # ============================================================
@@ -56,14 +99,14 @@ async def index_files(bot, query):
         await query.message.delete()
         await bot.send_message(
             int(from_user),
-            f"Your submission for indexing {chat} has been declined by our moderators.",
+            f"Your submission for indexing `{chat}` has been declined by our moderators.",
             reply_to_message_id=int(lst_msg_id),
         )
         return
 
     if lock.locked():
         return await query.answer(
-            "Wait until the previous process completes.", show_alert=True
+            "Wait until the previous indexing process completes.", show_alert=True
         )
 
     msg = query.message
@@ -72,7 +115,7 @@ async def index_files(bot, query):
     if int(from_user) not in ADMINS:
         await bot.send_message(
             int(from_user),
-            f"Your submission for indexing {chat} has been accepted by our moderators and will be added soon.",
+            f"Your submission for indexing `{chat}` has been accepted by our moderators and will be added soon.",
             reply_to_message_id=int(lst_msg_id),
         )
 
@@ -92,12 +135,12 @@ async def index_files(bot, query):
 
 
 async def process_index_request(bot, message, chat_id, last_msg_id):
-    """Helper function to validate and process all indexing requests."""
+    """Helper function to validate and process all manual indexing requests."""
     try:
         await bot.get_chat(chat_id)
     except (ChannelInvalid, ChannelPrivate):
         return await message.reply(
-            "This may be a private channel/group. Make me an admin over there to index the files."
+            "This may be a private channel/group. Make me an admin there to index the files."
         )
     except (UsernameInvalid, UsernameNotModified):
         return await message.reply("Invalid Link/Username specified.")
@@ -109,7 +152,7 @@ async def process_index_request(bot, message, chat_id, last_msg_id):
         k = await bot.get_messages(chat_id, last_msg_id)
         if k.empty:
             return await message.reply(
-                "This may be a group and I am not an admin of the group, or the message does not exist."
+                "This may be a group and I am not an admin, or the message does not exist."
             )
     except Exception:
         return await message.reply(
@@ -158,7 +201,8 @@ async def process_index_request(bot, message, chat_id, last_msg_id):
 
     await bot.send_message(
         LOG_CHANNEL,
-        f"#IndexRequest\n\nBy: {message.from_user.mention} (<code>{message.from_user.id}</code>)\nChat ID/Username: <code>{chat_id}</code>\nLast Message ID: <code>{last_msg_id}</code>\nInviteLink: {link}",
+        f"#IndexRequest\n\nBy: {message.from_user.mention} (<code>{message.from_user.id}</code>)\n"
+        f"Chat ID/Username: <code>{chat_id}</code>\nLast Message ID: <code>{last_msg_id}</code>\nInviteLink: {link}",
         reply_markup=InlineKeyboardMarkup(buttons),
     )
     await message.reply(
@@ -183,7 +227,7 @@ async def index_command(bot, message):
     if len(message.command) != 3:
         return await message.reply(
             "**Usage:** `/index <chat_id_or_username> <last_message_id>`\n\n"
-            "*(Note: You can also just forward the message from the database channel or send a message link to start indexing, no need to use this command!)*"
+            "*(Note: You can also just forward a message from the channel or send a message link to start indexing, no need to use this command!)*"
         )
 
     chat_id = message.command[1]
@@ -248,7 +292,7 @@ async def set_skip_number(bot, message):
             return await message.reply("Skip number should be an integer.")
 
         temp.CURRENT = skip
-        await message.reply(f"Successfully set SKIP number to {skip}")
+        await message.reply(f"Successfully set SKIP number to {skip}. It will be used in your next /index command.")
     else:
         await message.reply("Give me a skip number. Usage: `/setskip 100`")
 
@@ -373,36 +417,6 @@ async def index_files_to_db(lst_msg_id, chat, msg, bot):
                     f"(Unsupported Media - `{unsupported}`)\n"
                     f"Errors Occurred: <code>{errors}</code>"
                 )
-
-
-# ============================================================
-# ⚡ THE MISSING FEATURE: AUTO-INDEX NEW MESSAGES
-# ============================================================
-@Client.on_message(
-    filters.channel
-    & (filters.document | filters.video | filters.audio)
-    & ~filters.forwarded,
-    group=-4,
-)
-async def auto_index_new_files(bot: Client, message):
-    """
-    Listens for any NEW files posted to your channels and instantly indexes them.
-    """
-    # If you explicitly defined specific channels in info.py, we restrict indexing to those.
-    # Otherwise, the bot will auto-index ANY channel it is made an admin in.
-    if AUTO_INDEX_CHANNELS and message.chat.id not in AUTO_INDEX_CHANNELS:
-        return
-
-    media = getattr(message, message.media.value, None)
-    if not media:
-        return
-
-    # Prepare the media object format expected by your MongoDB database
-    media.file_type = message.media.value
-    media.caption = message.caption
-
-    try:
-        # Save it to the database quietly
-        await save_batch([media])
-    except Exception as e:
-        logger.error(f"Auto-index failed for {message.chat.title}: {e}")
+        finally:
+            # Reset skip counter so it doesn't break future index commands
+            temp.CURRENT = 0
