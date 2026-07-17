@@ -23,6 +23,7 @@ from utils import temp
 AUTO_INDEX_CHANNELS = []
 try:
     from info import CHANNELS
+
     if isinstance(CHANNELS, list):
         AUTO_INDEX_CHANNELS.extend(CHANNELS)
     elif isinstance(CHANNELS, (int, str)):
@@ -32,6 +33,7 @@ except ImportError:
 
 try:
     from info import INDEX_CHANNELS
+
     if isinstance(INDEX_CHANNELS, list):
         AUTO_INDEX_CHANNELS.extend(INDEX_CHANNELS)
     elif isinstance(INDEX_CHANNELS, (int, str)):
@@ -75,7 +77,9 @@ async def auto_index_new_files(bot: Client, message):
     try:
         # Save it to the database quietly
         await save_batch([media])
-        logger.info(f"Auto-indexed new file from {message.chat.title} ({message.chat.id})")
+        logger.info(
+            f"Auto-indexed new file from {message.chat.title} ({message.chat.id})"
+        )
     except Exception as e:
         logger.error(f"Auto-index failed for {message.chat.title}: {e}")
 
@@ -292,7 +296,9 @@ async def set_skip_number(bot, message):
             return await message.reply("Skip number should be an integer.")
 
         temp.CURRENT = skip
-        await message.reply(f"Successfully set SKIP number to {skip}. It will be used in your next /index command.")
+        await message.reply(
+            f"Successfully set SKIP number to {skip}. It will be used in your next /index command."
+        )
     else:
         await message.reply("Give me a skip number. Usage: `/setskip 100`")
 
