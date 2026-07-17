@@ -28,7 +28,7 @@ html5lib==1.1
 
 # --- Web Server (for Koyeb / Render / Heroku) ---
 Flask==2.2.5
-gunicorn==21.2.0
+gunicorn==22.0.0
 
 # --- Optional Performance Optimizer ---
 uvloop==0.20.0; platform_system != "Windows"
