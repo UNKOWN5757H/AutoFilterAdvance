@@ -18,7 +18,7 @@ IMDbPY==2022.7.9
 cinemagoer==2023.5.1  # maintained IMDbPY fork
 
 # --- HTTP Clients ---
-aiohttp==3.10.10
+aiohttp==3.14.1
 requests==2.32.3
 
 # --- HTML Parsing ---
