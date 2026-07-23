@@ -1,9 +1,8 @@
 class script(object):
-    START_TXT = """<b>𝗛𝗲𝗹𝗹𝗼 {mention}, 𝗠𝘆𝗡𝗮𝗺𝗲 𝗶𝘀 {bname} \n \n𝗜 𝗮𝗺 𝗮𝗻 𝗔𝘂𝘁𝗼𝗙𝗶𝗹𝘁𝗲𝗿 𝗕𝗼𝘁 𝗠𝗮𝗱𝗲 𝗳𝗼𝗿 𝗧𝗲𝗮𝗺 @KR_PICTURE ™🎥 \n \n𝗝𝗼𝗶𝗻 𝗠𝘆 𝗚𝗿𝗼𝘂𝗽 & 𝗨𝗽𝗱𝗮𝘁𝗲𝘀 𝗖𝗵𝗮𝗻𝗻𝗲𝗹 𝗳𝗼𝗿 𝗠𝗼𝗿𝗲 𝗗𝗲𝘁𝗮𝗶𝗹𝘀.</b>"""
-    HELP_TXT = """<b>𝙷𝙴𝚈 {mention}
-𝙷𝙴𝚁𝙴 𝙸𝚂 𝚃𝙷𝙴 𝙷𝙴𝙻𝙿 𝙵𝙾𝚁 𝙼𝚈 𝙲𝙾𝙼𝙼𝙰𝙽𝙳𝚂.</b>"""
+    START_TXT = """<b>𝗛𝗲𝗹𝗹𝗼 {mention}, 𝗠𝘆𝗡𝗮𝗺𝗲 𝗶𝘀 {bname} \n \nJoin our gang — We've got Movies hotter than your ex's new filing 😊🎬</b>"""
+    HELP_TXT = """<b>You can find the bot commands here.\n \n‣ /help - Show this help message\n \n<quote>Tap on corresponding modules to get the commands of that module.</quote></b>"""
     ABOUT_TXT = """<b>○ 𝗠𝘆 𝗡𝗮𝗺𝗲 : {bname}
-○ 𝗖𝗿𝗲𝗮𝘁𝗼𝗿 : <a href=https://t.me/Nikhil5757h>Dictator🦊</a>
+○ 𝗖𝗿𝗲𝗮𝘁𝗼𝗿 : <a href=https://t.me/SandalwoodSupportBot><b>Sandalwood Support</b></a>
 ○ 𝗟𝗶𝗯𝗿𝗮𝗿𝘆 : 𝙿𝚈𝚁𝙾𝙶𝚁𝙰𝙼
 ○ 𝗟𝗮𝗻𝗴𝘂𝗮𝗴𝗲 : 𝙿𝚈𝚃𝙷𝙾𝙽 𝟹.10
 ○ 𝗗𝗮𝘁𝗮𝗕𝗮𝘀𝗲 : 𝙼𝙾𝙽𝙶𝙾 𝙳𝙱
