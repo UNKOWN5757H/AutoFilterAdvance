@@ -39,9 +39,9 @@ BATCH_FILES = {}
 DELETE_TIME = 1800  # 30 Minutes in seconds
 LOG_FILE = "TelegramBot.log"
 
-# Fixed unused/overwritten variables
-MESSAGE_EMOJI_PLANE = "<tg-emoji emoji-id='5258073068852485953'>✈️</tg-emoji>"
-MESSAGE_EMOJI_LINK = "<tg-emoji emoji-id='5260730055880876557'>🔗</tg-emoji>"
+# FIXED: Replaced single quotes with double quotes for the emoji-id attribute.
+MESSAGE_EMOJI_PLANE = '<tg-emoji emoji-id="5258073068852485953">✈️</tg-emoji>'
+MESSAGE_EMOJI_LINK = '<tg-emoji emoji-id="5260730055880876557">🔗</tg-emoji>'
 
 
 def get_start_buttons(user_id):
@@ -94,6 +94,7 @@ async def start(client: Client, message: Message):
                 bname=temp.B_NAME,
             ),
             reply_markup=reply_markup,
+            parse_mode=enums.ParseMode.HTML, # FIXED: Added missing parse_mode to render emojis
         )
         await asyncio.sleep(2)
 
@@ -546,14 +547,12 @@ async def delete_all_files(bot: Client, message):
             )
         ]
     ]
-    # FIXED: Added the missing closing parenthesis to this method.
     await message.reply_text(
         "⚠️ This will permanently delete **all indexed files**.\nDo you really want to continue?",
         reply_markup=InlineKeyboardMarkup(buttons),
     )
 
 
-# FIXED: Added the missing callback query handler for deleting all files
 @Client.on_callback_query(
     filters.regex("^confirm_delete_all_files$") & filters.user(ADMINS)
 )
