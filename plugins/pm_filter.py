@@ -641,7 +641,12 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 )
 
             buttons.append(
-                [InlineKeyboardButton("🔗 New Releases & OTT Updates", url="https://t.me/sandalwood_kannada_moviesz")]
+                [
+                    InlineKeyboardButton(
+                        "🔗 New Releases & OTT Updates",
+                        url="https://t.me/sandalwood_kannada_moviesz",
+                    )
+                ]
             )
 
             try:
