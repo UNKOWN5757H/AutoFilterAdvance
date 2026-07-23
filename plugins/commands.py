@@ -1,4 +1,3 @@
-
 import asyncio
 import base64
 import json
@@ -49,7 +48,9 @@ def get_start_buttons(user_id):
     """Helper to generate start buttons dynamically based on admin status."""
     buttons = [
         [
-            InlineKeyboardButton("✈️ Group 1", url="https://t.me/Sandalwood_Kannada_Group"),
+            InlineKeyboardButton(
+                "✈️ Group 1", url="https://t.me/Sandalwood_Kannada_Group"
+            ),
             InlineKeyboardButton("✈️ Group 2", url="http://t.me/Kannada_Filmy_Group"),
             InlineKeyboardButton("✈️ Group 3", url="https://t.me/+GLsPkRgLGGszMzY1"),
         ]
@@ -66,7 +67,10 @@ def get_start_buttons(user_id):
 
     buttons.append(
         [
-            InlineKeyboardButton("🔗 New Releases & OTT Updates", url="https://t.me/sandalwood_kannada_moviesz")
+            InlineKeyboardButton(
+                "🔗 New Releases & OTT Updates",
+                url="https://t.me/sandalwood_kannada_moviesz",
+            )
         ]
     )
     return InlineKeyboardMarkup(buttons)
@@ -220,7 +224,14 @@ async def start(client: Client, message: Message):
                     file_id=msg.get("file_id"),
                     caption=f_caption,
                     reply_markup=InlineKeyboardMarkup(
-                        [[InlineKeyboardButton("🎥 ಕನ್ನಡ ಹೊಸ ಮೂವೀಗಳು 🎥", url="https://t.me/Sandalwood_kannada_moviesz")]]
+                        [
+                            [
+                                InlineKeyboardButton(
+                                    "🎥 ಕನ್ನಡ ಹೊಸ ಮೂವೀಗಳು 🎥",
+                                    url="https://t.me/Sandalwood_kannada_moviesz",
+                                )
+                            ]
+                        ]
                     ),
                     protect_content=msg.get("protect", False),
                 )
@@ -355,7 +366,14 @@ async def start(client: Client, message: Message):
         file_id=file_id,
         caption=f_caption,
         reply_markup=InlineKeyboardMarkup(
-            [[InlineKeyboardButton("🎥 ಕನ್ನಡ ಹೊಸ ಮೂವೀಗಳು 🎥", url="https://t.me/Sandalwood_kannada_moviesz")]]
+            [
+                [
+                    InlineKeyboardButton(
+                        "🎥 ಕನ್ನಡ ಹೊಸ ಮೂವೀಗಳು 🎥",
+                        url="https://t.me/Sandalwood_kannada_moviesz",
+                    )
+                ]
+            ]
         ),
         protect_content=True if pre == "filep" else False,
     )
@@ -470,7 +488,9 @@ async def delete_file(bot: Client, message):
             try:
                 result = await Media.collection.delete_one({"_id": file_id})
                 if result.deleted_count:
-                    await message.reply_text(f"✅ File `{file_id}` deleted successfully.")
+                    await message.reply_text(
+                        f"✅ File `{file_id}` deleted successfully."
+                    )
                 else:
                     await message.reply_text("⚠️ File not found in database.")
             except Exception as e:
@@ -480,7 +500,9 @@ async def delete_file(bot: Client, message):
 
         reply = message.reply_to_message
         if not (reply and reply.media):
-            await message.reply_text("Usage:\n`/delete <file_id>`\nOr reply to file with /delete", quote=True)
+            await message.reply_text(
+                "Usage:\n`/delete <file_id>`\nOr reply to file with /delete", quote=True
+            )
             return
 
         msg = await message.reply_text("Processing...⏳", quote=True)
@@ -527,17 +549,22 @@ async def delete_all_files(bot: Client, message):
     # FIXED: Added the missing closing parenthesis to this method.
     await message.reply_text(
         "⚠️ This will permanently delete **all indexed files**.\nDo you really want to continue?",
-        reply_markup=InlineKeyboardMarkup(buttons)
+        reply_markup=InlineKeyboardMarkup(buttons),
     )
 
+
 # FIXED: Added the missing callback query handler for deleting all files
-@Client.on_callback_query(filters.regex("^confirm_delete_all_files$") & filters.user(ADMINS))
+@Client.on_callback_query(
+    filters.regex("^confirm_delete_all_files$") & filters.user(ADMINS)
+)
 async def confirm_delete_all(bot: Client, query: CallbackQuery):
     await query.answer("Deleting all files...", show_alert=True)
     try:
         await query.edit_message_text("Processing... This might take a while. ⏳")
         result = await Media.collection.delete_many({})
-        await query.edit_message_text(f"✅ Successfully deleted {result.deleted_count} files from the database.")
+        await query.edit_message_text(
+            f"✅ Successfully deleted {result.deleted_count} files from the database."
+        )
     except Exception as e:
         logger.exception("Error deleting all files")
         await query.edit_message_text(f"❌ Error while deleting files:\n`{e}`")
