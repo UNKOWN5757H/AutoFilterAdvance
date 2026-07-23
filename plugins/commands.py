@@ -39,25 +39,42 @@ BATCH_FILES = {}
 DELETE_TIME = 1800  # 30 Minutes in seconds
 LOG_FILE = "TelegramBot.log"
 
+message_text = "<tg-emoji emoji-id='5258073068852485953'>✈️</tg-emoji>"
+message_text = "<tg-emoji emoji-id='5260730055880876557'>🔗</tg-emoji>"
+
 
 def get_start_buttons(user_id):
     """Helper to generate start buttons dynamically based on admin status."""
     buttons = [
-        [
-            InlineKeyboardButton("💫 Group", url="http://t.me/Kannada_Filmy_Group"),
-            InlineKeyboardButton(
-                "🤖 Updates", url="https://t.me/Sandalwood_kannada_moviesz"
-            ),
-        ]
-    ]
-    if user_id in ADMINS or str(user_id) in ADMINS:
-        buttons.append(
-            [
-                InlineKeyboardButton("ℹ️ 𝙷𝚎𝚕𝚙", callback_data="help"),
-                InlineKeyboardButton("😊 𝙰𝚋𝚘𝚞𝚝", callback_data="about"),
+                [
+                    InlineKeyboardButton(
+                        "✈️ Group 1", url="https://t.me/Sandalwood_Kannada_Group"
+                    ),
+                    InlineKeyboardButton(
+                        "✈️ Group 2", url="http://t.me/Kannada_Filmy_Group"
+                    ),
+                    InlineKeyboardButton(
+                        "✈️ Group 3", url="https://t.me/+GLsPkRgLGGszMzY1"
+                    ),
+                ]
             ]
-        )
-    buttons.append([InlineKeyboardButton("© Dɪsᴄʟᴀɪᴍᴇʀ ©", callback_data="dics_btn")])
+
+            if query.from_user.id in ADMINS or str(query.from_user.id) in ADMINS:
+                buttons.append(
+                    [
+                        InlineKeyboardButton("ℹ️ 𝙷𝚎𝚕𝚙", callback_data="help"),
+                        InlineKeyboardButton("😊 𝙰𝚋𝚘𝚞𝚝", callback_data="about"),
+                    ]
+                )
+
+            buttons.append(
+                [
+                    InlineKeyboardButton(
+                        "🔗 New Releases & OTT Updates",
+                        url="https://t.me/sandalwood_kannada_moviesz",
+                    )
+                ]
+            )
     return InlineKeyboardMarkup(buttons)
 
 
