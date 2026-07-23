@@ -23,7 +23,7 @@ PORT = int(environ.get("PORT", "8080"))
 # Bot settings
 CACHE_TIME = int(environ.get("CACHE_TIME", 300))
 USE_CAPTION_FILTER = bool(environ.get("USE_CAPTION_FILTER", False))
-PICS = (environ.get("PICS", "https://envs.sh/MFu.jpg")).split()
+PICS = (environ.get("PICS", "https://iili.io/COHUHil.jpg")).split()
 
 # Admins, Channels & Users
 ADMINS = [
