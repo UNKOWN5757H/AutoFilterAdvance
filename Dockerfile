@@ -35,7 +35,7 @@ RUN pip install --upgrade pip setuptools wheel && \
         pymongo==4.6.3 \
         motor==3.3.2 \
         umongo==3.1.0 \
-        marshmallow==3.22.0 \
+        marshmallow==3.26.2 \
         -r requirements.txt
 
 # --- Copy Bot Source Code ---
