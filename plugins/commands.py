@@ -94,7 +94,7 @@ async def start(client: Client, message: Message):
                 bname=temp.B_NAME,
             ),
             reply_markup=reply_markup,
-            parse_mode=enums.ParseMode.HTML, # FIXED: Added missing parse_mode to render emojis
+            parse_mode=enums.ParseMode.HTML,  # FIXED: Added missing parse_mode to render emojis
         )
         await asyncio.sleep(2)
 
