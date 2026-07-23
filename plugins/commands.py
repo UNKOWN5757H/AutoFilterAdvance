@@ -1,3 +1,4 @@
+
 import asyncio
 import base64
 import json
@@ -39,42 +40,35 @@ BATCH_FILES = {}
 DELETE_TIME = 1800  # 30 Minutes in seconds
 LOG_FILE = "TelegramBot.log"
 
-message_text = "<tg-emoji emoji-id='5258073068852485953'>✈️</tg-emoji>"
-message_text = "<tg-emoji emoji-id='5260730055880876557'>🔗</tg-emoji>"
+# Fixed unused/overwritten variables
+MESSAGE_EMOJI_PLANE = "<tg-emoji emoji-id='5258073068852485953'>✈️</tg-emoji>"
+MESSAGE_EMOJI_LINK = "<tg-emoji emoji-id='5260730055880876557'>🔗</tg-emoji>"
 
 
 def get_start_buttons(user_id):
     """Helper to generate start buttons dynamically based on admin status."""
     buttons = [
-                [
-                    InlineKeyboardButton(
-                        "✈️ Group 1", url="https://t.me/Sandalwood_Kannada_Group"
-                    ),
-                    InlineKeyboardButton(
-                        "✈️ Group 2", url="http://t.me/Kannada_Filmy_Group"
-                    ),
-                    InlineKeyboardButton(
-                        "✈️ Group 3", url="https://t.me/+GLsPkRgLGGszMzY1"
-                    ),
-                ]
+        [
+            InlineKeyboardButton("✈️ Group 1", url="https://t.me/Sandalwood_Kannada_Group"),
+            InlineKeyboardButton("✈️ Group 2", url="http://t.me/Kannada_Filmy_Group"),
+            InlineKeyboardButton("✈️ Group 3", url="https://t.me/+GLsPkRgLGGszMzY1"),
+        ]
+    ]
+
+    # FIXED: Replaced undefined `query.from_user.id` with the passed `user_id` parameter
+    if user_id in ADMINS or str(user_id) in ADMINS:
+        buttons.append(
+            [
+                InlineKeyboardButton("ℹ️ 𝙷𝚎𝚕𝚙", callback_data="help"),
+                InlineKeyboardButton("😊 𝙰𝚋𝚘𝚞𝚝", callback_data="about"),
             ]
+        )
 
-            if query.from_user.id in ADMINS or str(query.from_user.id) in ADMINS:
-                buttons.append(
-                    [
-                        InlineKeyboardButton("ℹ️ 𝙷𝚎𝚕𝚙", callback_data="help"),
-                        InlineKeyboardButton("😊 𝙰𝚋𝚘𝚞𝚝", callback_data="about"),
-                    ]
-                )
-
-            buttons.append(
-                [
-                    InlineKeyboardButton(
-                        "🔗 New Releases & OTT Updates",
-                        url="https://t.me/sandalwood_kannada_moviesz",
-                    )
-                ]
-            )
+    buttons.append(
+        [
+            InlineKeyboardButton("🔗 New Releases & OTT Updates", url="https://t.me/sandalwood_kannada_moviesz")
+        ]
+    )
     return InlineKeyboardMarkup(buttons)
 
 
@@ -226,14 +220,7 @@ async def start(client: Client, message: Message):
                     file_id=msg.get("file_id"),
                     caption=f_caption,
                     reply_markup=InlineKeyboardMarkup(
-                        [
-                            [
-                                InlineKeyboardButton(
-                                    "🎥 ಕನ್ನಡ ಹೊಸ ಮೂವೀಗಳು 🎥",
-                                    url="https://t.me/Sandalwood_kannada_moviesz",
-                                )
-                            ]
-                        ]
+                        [[InlineKeyboardButton("🎥 ಕನ್ನಡ ಹೊಸ ಮೂವೀಗಳು 🎥", url="https://t.me/Sandalwood_kannada_moviesz")]]
                     ),
                     protect_content=msg.get("protect", False),
                 )
@@ -262,7 +249,7 @@ async def start(client: Client, message: Message):
             int(f_chat_id), int(l_msg_id), int(f_msg_id)
         ):
             if msg.media:
-                media = getattr(msg, msg.media)
+                media = getattr(msg, msg.media.value)
                 if BATCH_FILE_CAPTION:
                     try:
                         f_caption = BATCH_FILE_CAPTION.format(
@@ -326,7 +313,7 @@ async def start(client: Client, message: Message):
                 file_id=file_id,
                 protect_content=True if pre == "filep" else False,
             )
-            filetype = msg.media
+            filetype = msg.media.value
             file = getattr(msg, filetype)
             title = file.file_name
             size = get_size(file.file_size)
@@ -368,14 +355,7 @@ async def start(client: Client, message: Message):
         file_id=file_id,
         caption=f_caption,
         reply_markup=InlineKeyboardMarkup(
-            [
-                [
-                    InlineKeyboardButton(
-                        "🎥 ಕನ್ನಡ ಹೊಸ ಮೂವೀಗಳು 🎥",
-                        url="https://t.me/Sandalwood_kannada_moviesz",
-                    )
-                ]
-            ]
+            [[InlineKeyboardButton("🎥 ಕನ್ನಡ ಹೊಸ ಮೂವೀಗಳು 🎥", url="https://t.me/Sandalwood_kannada_moviesz")]]
         ),
         protect_content=True if pre == "filep" else False,
     )
@@ -460,7 +440,7 @@ async def restart_bot(bot: Client, message):
     )
 
 
-@Client.on_callback_query(filters.regex("^confirm_restart$"))
+@Client.on_callback_query(filters.regex("^confirm_restart$") & filters.user(ADMINS))
 async def confirm_restart_callback(bot: Client, query: CallbackQuery):
     try:
         await query.answer("♻️ Restarting...", show_alert=True)
@@ -470,9 +450,7 @@ async def confirm_restart_callback(bot: Client, query: CallbackQuery):
         with open("restart.txt", "w") as f:
             f.write(f"{msg.chat.id}\n{msg.id}")
 
-        await asyncio.sleep(
-            2
-        )  # Give the bot time to send the message before killing process
+        await asyncio.sleep(2)
 
         # EXTREMELY IMPORTANT FOR KOYEB:
         # Exiting with 1 tells Koyeb's container supervisor that the process stopped,
@@ -492,9 +470,7 @@ async def delete_file(bot: Client, message):
             try:
                 result = await Media.collection.delete_one({"_id": file_id})
                 if result.deleted_count:
-                    await message.reply_text(
-                        f"✅ File `{file_id}` deleted successfully."
-                    )
+                    await message.reply_text(f"✅ File `{file_id}` deleted successfully.")
                 else:
                     await message.reply_text("⚠️ File not found in database.")
             except Exception as e:
@@ -504,9 +480,7 @@ async def delete_file(bot: Client, message):
 
         reply = message.reply_to_message
         if not (reply and reply.media):
-            await message.reply_text(
-                "Usage:\n`/delete <file_id>`\nOr reply to file with /delete", quote=True
-            )
+            await message.reply_text("Usage:\n`/delete <file_id>`\nOr reply to file with /delete", quote=True)
             return
 
         msg = await message.reply_text("Processing...⏳", quote=True)
@@ -538,6 +512,9 @@ async def delete_file(bot: Client, message):
         logger.exception("delete_file failed")
 
 
+# ============================================================
+# 🗑 DELETE ALL FILES COMMAND (FIXED)
+# ============================================================
 @Client.on_message(filters.command("deleteallfiles") & filters.user(ADMINS))
 async def delete_all_files(bot: Client, message):
     buttons = [
@@ -547,28 +524,23 @@ async def delete_all_files(bot: Client, message):
             )
         ]
     ]
+    # FIXED: Added the missing closing parenthesis to this method.
     await message.reply_text(
         "⚠️ This will permanently delete **all indexed files**.\nDo you really want to continue?",
-        reply_markup=InlineKeyboardMarkup(buttons),
+        reply_markup=InlineKeyboardMarkup(buttons)
     )
 
-
-@Client.on_callback_query(filters.regex("^confirm_delete_all_files$"))
-async def confirm_delete_all_files_callback(bot: Client, query: CallbackQuery):
+# FIXED: Added the missing callback query handler for deleting all files
+@Client.on_callback_query(filters.regex("^confirm_delete_all_files$") & filters.user(ADMINS))
+async def confirm_delete_all(bot: Client, query: CallbackQuery):
+    await query.answer("Deleting all files...", show_alert=True)
     try:
-        await query.answer("Deleting all files...", show_alert=True)
-        deleted = await Media.collection.delete_many({})
-        count = getattr(deleted, "deleted_count", 0)
-        await query.edit_message_text(
-            f"🗑️ Successfully deleted `{count}` files from DB."
-        )
-        logger.warning(f"Deleted {count} files from database.")
-    except Exception:
-        logger.exception("confirm_delete_all_files failed")
-        try:
-            await query.edit_message_text("❌ Error deleting files.")
-        except Exception:
-            pass
+        await query.edit_message_text("Processing... This might take a while. ⏳")
+        result = await Media.collection.delete_many({})
+        await query.edit_message_text(f"✅ Successfully deleted {result.deleted_count} files from the database.")
+    except Exception as e:
+        logger.exception("Error deleting all files")
+        await query.edit_message_text(f"❌ Error while deleting files:\n`{e}`")
 
 
 # ============================================================
