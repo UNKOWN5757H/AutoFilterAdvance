@@ -621,10 +621,13 @@ async def cb_handler(client: Client, query: CallbackQuery):
             buttons = [
                 [
                     InlineKeyboardButton(
-                        "💫 Group", url="http://t.me/Kannada_Filmy_Group"
+                        "✈️ Group 1", url="https://t.me/Sandalwood_Kannada_Group"
                     ),
                     InlineKeyboardButton(
-                        "🤖 Updates", url="https://t.me/Sandalwood_kannada_moviesz"
+                        "✈️ Group 2", url="http://t.me/Kannada_Filmy_Group"
+                    ),
+                    InlineKeyboardButton(
+                        "✈️ Group 3", url="https://t.me/+GLsPkRgLGGszMzY1"
                     ),
                 ]
             ]
@@ -638,7 +641,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 )
 
             buttons.append(
-                [InlineKeyboardButton("© Dɪsᴄʟᴀɪᴍᴇʀ ©", callback_data="dics_btn")]
+                [InlineKeyboardButton("🔗 New Releases & OTT Updates", url="https://t.me/sandalwood_kannada_moviesz")]
             )
 
             try:
