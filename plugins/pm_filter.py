@@ -52,6 +52,11 @@ FILE_NOT_FOUND_PIC = (
 )
 NOT_FOUND_TEXT = "<b>🚫 File not found. Please note👇\n \n✅ Use correct spelling as given in Google.\n \n✅ DO NOT ask for files which are not released in OTT.\n \n✅ Request movies in this format - (Moviename) (Year of release) \nEg. Jai Ganesh 2024 </b>"
 
+# Define HTML text using the <tg-emoji> emoji_id
+# Replace '123456789012345' with your actual emoji ID
+message_text = "<tg-emoji emoji-id='5258073068852485953'>✈️</tg-emoji>"
+message_text = "<tg-emoji emoji-id='5260730055880876557'>🔗</tg-emoji>"
+
 
 async def delete_message_after_delay(message, delay: int):
     if not message:
