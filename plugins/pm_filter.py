@@ -58,9 +58,10 @@ NOT_FOUND_TEXT = (
     "Eg. Jai Ganesh 2024 </b>"
 )
 
-# Fixed: Renamed duplicate variables to distinct names
-MESSAGE_EMOJI_PLANE = "<tg-emoji emoji-id='5258073068852485953'>✈️</tg-emoji>"
-MESSAGE_EMOJI_LINK = "<tg-emoji emoji-id='5260730055880876557'>🔗</tg-emoji>"
+# FIXED: Replaced single quotes with double quotes for the emoji-id attribute.
+# Telegram HTML parser requires double quotes to render custom emojis.
+MESSAGE_EMOJI_PLANE = '<tg-emoji emoji-id="5258073068852485953">✈️</tg-emoji>'
+MESSAGE_EMOJI_LINK = '<tg-emoji emoji-id="5260730055880876557">🔗</tg-emoji>'
 
 
 async def delete_message_after_delay(message, delay: int):
@@ -606,7 +607,6 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 text=f"<blockquote><b><u>❗️❗️❗️IMPORTANT❗️️❗️❗️</u></b>\n\n⚠️ File will be deleted in 30 Minutes\n\n📌 Save or forward it.</blockquote>",
             )
 
-            # Fixed: Changed from 14400 (4 hours) to match your standard DELETE_TIME (30 mins)
             async def delete_and_notify():
                 await asyncio.sleep(DELETE_TIME)
                 try:
