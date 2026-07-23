@@ -1,5 +1,5 @@
 class script(object):
-    START_TXT = """<b>𝗛𝗲𝗹𝗹𝗼 {mention}, 𝗠𝘆𝗡𝗮𝗺𝗲 𝗶𝘀 {bname} \n \nJoin our gang — We've got Movies hotter than your ex's new filing 😊🎬</b>"""
+    START_TXT = """<b>Hey {mention} bro 🥂,\nI'm {bname}, the Moviebot! \n \nJoin our gang — We've got Movies hotter than your ex's new filing 😊🎬</b>"""
     HELP_TXT = """<b>You can find the bot commands here.\n \n‣ /help - Show this help message\n \n<quote>Tap on corresponding modules to get the commands of that module.</quote></b>"""
     ABOUT_TXT = """<b>○ 𝗠𝘆 𝗡𝗮𝗺𝗲 : {bname}
 ○ 𝗖𝗿𝗲𝗮𝘁𝗼𝗿 : <a href=https://t.me/SandalwoodSupportBot><b>Sandalwood Support</b></a>
