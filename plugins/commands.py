@@ -43,6 +43,7 @@ LOG_FILE = "TelegramBot.log"
 MESSAGE_EMOJI_PLANE = '<tg-emoji emoji-id="5875465628285931233">✈️</tg-emoji> Telegram'
 MESSAGE_EMOJI_LINK = '<tg-emoji emoji-id="5877465816030515018">🔗</tg-emoji> Link'
 
+
 def get_start_buttons(user_id):
     """Helper to generate start buttons dynamically based on admin status."""
     buttons = [
