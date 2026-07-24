@@ -626,7 +626,8 @@ async def cb_handler(client: Client, query: CallbackQuery):
             buttons = [
                 [
                     InlineKeyboardButton(
-                        "{plane_emoji} Group 1", url="https://t.me/Sandalwood_Kannada_Group"
+                        "{plane_emoji} Group 1",
+                        url="https://t.me/Sandalwood_Kannada_Group",
                     ),
                     InlineKeyboardButton(
                         "{plane_emoji} Group 2", url="http://t.me/Kannada_Filmy_Group"
@@ -660,7 +661,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                         mention=query.from_user.mention,
                         uname=temp.U_NAME,
                         bname=temp.B_NAME,
-                        plane_emoji=MESSAGE_EMOJI_PLANE, 
+                        plane_emoji=MESSAGE_EMOJI_PLANE,
                         link_emoji=MESSAGE_EMOJI_LINK,
                     ),
                     reply_markup=InlineKeyboardMarkup(buttons),
