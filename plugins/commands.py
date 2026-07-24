@@ -51,12 +51,8 @@ def get_start_buttons(user_id):
             InlineKeyboardButton(
                 "✈️ Group 1", url="https://t.me/Sandalwood_Kannada_Group"
             ),
-            InlineKeyboardButton(
-                "✈️ Group 2", url="http://t.me/Kannada_Filmy_Group"
-            ),
-            InlineKeyboardButton(
-                "✈️ Group 3", url="https://t.me/+GLsPkRgLGGszMzY1"
-            ),
+            InlineKeyboardButton("✈️ Group 2", url="http://t.me/Kannada_Filmy_Group"),
+            InlineKeyboardButton("✈️ Group 3", url="https://t.me/+GLsPkRgLGGszMzY1"),
         ]
     ]
 
