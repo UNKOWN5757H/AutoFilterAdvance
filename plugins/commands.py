@@ -43,6 +43,7 @@ LOG_FILE = "TelegramBot.log"
 MESSAGE_EMOJI_PLANE = "<emoji id=5258073068852485953>✈️</emoji>"
 MESSAGE_EMOJI_LINK = "<emoji id=5260730055880876557>🔗</emoji>"
 
+
 def get_start_buttons(user_id):
     """Helper to generate start buttons dynamically based on admin status."""
     buttons = [
@@ -91,7 +92,7 @@ async def start(client: Client, message: Message):
                 ),
                 uname=temp.U_NAME,
                 bname=temp.B_NAME,
-                plane_emoji=MESSAGE_EMOJI_PLANE, 
+                plane_emoji=MESSAGE_EMOJI_PLANE,
                 link_emoji=MESSAGE_EMOJI_LINK,
             ),
             reply_markup=reply_markup,
