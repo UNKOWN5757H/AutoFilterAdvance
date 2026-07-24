@@ -40,9 +40,8 @@ DELETE_TIME = 1800  # 30 Minutes in seconds
 LOG_FILE = "TelegramBot.log"
 
 # FIXED: Replaced single quotes with double quotes for the emoji-id attribute.
-MESSAGE_EMOJI_PLANE = "<emoji id=5258073068852485953>✈️</emoji>"
-MESSAGE_EMOJI_LINK = "<emoji id=5260730055880876557>🔗</emoji>"
-
+MESSAGE_EMOJI_PLANE = '<tg-emoji emoji-id="5875465628285931233">✈️</tg-emoji> Telegram'
+MESSAGE_EMOJI_LINK = '<tg-emoji emoji-id="5877465816030515018">🔗</tg-emoji> Link'
 
 def get_start_buttons(user_id):
     """Helper to generate start buttons dynamically based on admin status."""
