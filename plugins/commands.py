@@ -49,13 +49,13 @@ def get_start_buttons(user_id):
     buttons = [
         [
             InlineKeyboardButton(
-                "{plane_emoji} Group 1", url="https://t.me/Sandalwood_Kannada_Group"
+                "✈️ Group 1", url="https://t.me/Sandalwood_Kannada_Group"
             ),
             InlineKeyboardButton(
-                "{plane_emoji} Group 2", url="http://t.me/Kannada_Filmy_Group"
+                "✈️ Group 2", url="http://t.me/Kannada_Filmy_Group"
             ),
             InlineKeyboardButton(
-                "{plane_emoji} Group 3", url="https://t.me/+GLsPkRgLGGszMzY1"
+                "✈️ Group 3", url="https://t.me/+GLsPkRgLGGszMzY1"
             ),
         ]
     ]
@@ -72,7 +72,7 @@ def get_start_buttons(user_id):
     buttons.append(
         [
             InlineKeyboardButton(
-                "{link_emoji} New Releases & OTT Updates",
+                "🔗 New Releases & OTT Updates",
                 url="https://t.me/sandalwood_kannada_moviesz",
             )
         ]
