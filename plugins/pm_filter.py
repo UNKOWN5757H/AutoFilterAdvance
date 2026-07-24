@@ -60,8 +60,8 @@ NOT_FOUND_TEXT = (
 
 # FIXED: Replaced single quotes with double quotes for the emoji-id attribute.
 # Telegram HTML parser requires double quotes to render custom emojis.
-MESSAGE_EMOJI_PLANE = "<emoji id=5258073068852485953>✈️</emoji>"
-MESSAGE_EMOJI_LINK = "<emoji id=5260730055880876557>🔗</emoji>"
+MESSAGE_EMOJI_PLANE = '<tg-emoji emoji-id="5875465628285931233">✈️</tg-emoji> Telegram'
+MESSAGE_EMOJI_LINK = '<tg-emoji emoji-id="5877465816030515018">🔗</tg-emoji> Link'
 
 
 async def delete_message_after_delay(message, delay: int):
