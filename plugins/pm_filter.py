@@ -626,13 +626,13 @@ async def cb_handler(client: Client, query: CallbackQuery):
             buttons = [
                 [
                     InlineKeyboardButton(
-                        "✈️ Group 1", url="https://t.me/Sandalwood_Kannada_Group"
+                        "{plane_emoji} Group 1", url="https://t.me/Sandalwood_Kannada_Group"
                     ),
                     InlineKeyboardButton(
-                        "✈️ Group 2", url="http://t.me/Kannada_Filmy_Group"
+                        "{plane_emoji} Group 2", url="http://t.me/Kannada_Filmy_Group"
                     ),
                     InlineKeyboardButton(
-                        "✈️ Group 3", url="https://t.me/+GLsPkRgLGGszMzY1"
+                        "{plane_emoji} Group 3", url="https://t.me/+GLsPkRgLGGszMzY1"
                     ),
                 ]
             ]
@@ -648,7 +648,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
             buttons.append(
                 [
                     InlineKeyboardButton(
-                        "🔗 New Releases & OTT Updates",
+                        "{link_emoji} New Releases & OTT Updates",
                         url="https://t.me/sandalwood_kannada_moviesz",
                     )
                 ]
@@ -660,6 +660,8 @@ async def cb_handler(client: Client, query: CallbackQuery):
                         mention=query.from_user.mention,
                         uname=temp.U_NAME,
                         bname=temp.B_NAME,
+                        plane_emoji=MESSAGE_EMOJI_PLANE, 
+                        link_emoji=MESSAGE_EMOJI_LINK,
                     ),
                     reply_markup=InlineKeyboardMarkup(buttons),
                     parse_mode=enums.ParseMode.HTML,
