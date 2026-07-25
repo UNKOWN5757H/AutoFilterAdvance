@@ -33,7 +33,7 @@ gunicorn==22.0.0
 # --- Optional Performance Optimizer ---
 uvloop==0.20.0; platform_system != "Windows"
 
-
+pyromod
 thefuzz
 Levenshtein
 yt-dlp
