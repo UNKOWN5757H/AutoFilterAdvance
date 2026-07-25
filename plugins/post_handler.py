@@ -11,6 +11,7 @@ from pyrogram.types import (
     Message,
 )
 
+# Ensure you have 'pyromod' installed and imported in your main bot file to use client.listen()
 from info import ABOVE_PREVIEW, ADMINS, MOVIE_UPDATE_CHANNEL
 from plugins.Imdbposter import get_movie_detailsx
 from utils import temp
@@ -34,127 +35,18 @@ TEMPLATES = {
     "minimalist": """🎬 <b>{title}</b>
 🗓 <b>Year:</b> {year}
 🌟 <b>Rating:</b> {rating}""",
-    "sparkle_header": """✨ <b>{title}</b> ✨
-
-<b>🗓 Year:</b> {year} | <b>⭐️ Rating:</b> {rating}/10
-<b>🎭 Genres:</b> {genres}
-
-<i>{plot}</i>""",
-    "markdown_style": """🎥 **{title}** ({year})
-
-- **Rating**: {rating} / 10 🌟
-- **Genres**: {genres}
-
-**Plot Summary**:
-{plot}""",
-    "divider_list": """🎬 <b>{title} {year}</b>
-━━━━━━━━━━━━━━━━━━
-➥ <b>Rating :</b> <code>★ {rating}/10</code>
-➥ <b>Genres :</b> <code>{genres}</code>
-""",
-    "dashed_box": """- - - - - - - - - - - - - - - - - -
-🎥 <b>{title}</b>
-- - - - - - - - - - - - - - - - - -
-
-➛ <b>Year ∥</b> {year}
-➛ <b>Rating ∥</b> {rating}/10
-➛ <b>Genres ∥</b> {genres}
-
-<b><u>Synopsis</u></b>
-<i>{plot}</i>""",
-    "chevron_details": """<b>{title}</b>
-
-» <b>Year ➣</b> {year}
-» <b>Rating ➣</b> ★ {rating}/10
-» <b>Genres ➣</b> {genres}
-
-<b>∥ PLOT ∥</b>
-└─ <i>{plot}</i>""",
-    "bullet_points": """✨ <b><u>{title} ({year})</u></b> ✨
-
-● <b>Rating :</b> {rating}/10
-● <b>Genres :</b> {genres}
-
-<b>💬 Plot Summary ➥</b>
-<i>{plot}</i>""",
-    "clean_grid": """🎬 {title} ({year})
-
-🗓️ <b>Year ∥</b> {year}
-⭐️ <b>Rating ∥</b> {rating}/10
-🎭 <b>Genres ∥</b> {genres}
-
-➣ <i>{plot}</i>""",
+    "sparkle_header": """✨ <b>{title}</b> ✨\n\n<b>🗓 Year:</b> {year} | <b>⭐️ Rating:</b> {rating}/10\n<b>🎭 Genres:</b> {genres}\n\n<i>{plot}</i>""",
+    "markdown_style": """🎥 **{title}** ({year})\n\n- **Rating**: {rating} / 10 🌟\n- **Genres**: {genres}\n\n**Plot Summary**:\n{plot}""",
+    "divider_list": """🎬 <b>{title} {year}</b>\n━━━━━━━━━━━━━━━━━━\n➥ <b>Rating :</b> <code>★ {rating}/10</code>\n➥ <b>Genres :</b> <code>{genres}</code>\n""",
+    "dashed_box": """- - - - - - - - - - - - - - - - - -\n🎥 <b>{title}</b>\n- - - - - - - - - - - - - - - - - -\n\n➛ <b>Year ∥</b> {year}\n➛ <b>Rating ∥</b> {rating}/10\n➛ <b>Genres ∥</b> {genres}\n\n<b><u>Synopsis</u></b>\n<i>{plot}</i>""",
+    "chevron_details": """<b>{title}</b>\n\n» <b>Year ➣</b> {year}\n» <b>Rating ➣</b> ★ {rating}/10\n» <b>Genres ➣</b> {genres}\n\n<b>∥ PLOT ∥</b>\n└─ <i>{plot}</i>""",
+    "bullet_points": """✨ <b><u>{title} ({year})</u></b> ✨\n\n● <b>Rating :</b> {rating}/10\n● <b>Genres :</b> {genres}\n\n<b>💬 Plot Summary ➥</b>\n<i>{plot}</i>""",
+    "clean_grid": """🎬 {title} ({year})\n\n🗓️ <b>Year ∥</b> {year}\n⭐️ <b>Rating ∥</b> {rating}/10\n🎭 <b>Genres ∥</b> {genres}\n\n➣ <i>{plot}</i>""",
 }
-LANGUAGES = [
-    "Kannada",
-    "English",
-    "Gujarati",
-    "Hindi",
-    "Bengali",
-    "Malayalam",
-    "Marathi",
-    "Punjabi",
-    "Tamil",
-    "Telugu",
-    "Urdu",
-    "Arabic",
-    "French",
-    "German",
-    "Italian",
-    "Japanese",
-    "Korean",
-    "Mandarin",
-    "Portuguese",
-    "Russian",
-    "Spanish",
-]
-RESOLUTIONS = [
-    "144p",
-    "240p",
-    "480p",
-    "720p",
-    "1080p",
-    "1440p",
-    "2160p",
-    "4320p",
-    "BluRay",
-    "BDRip",
-    "WEB-DL",
-    "VOD",
-    "WEBRip",
-    "HDTV",
-    "DVDRip",
-    "DVDScr",
-    "TS",
-    "CAM",
-    "AV1",
-    "HEVC",
-    "x264",
-]
 
-OTT_PLATFORMS = [
-    "Aha",
-    "ALTBalaji",
-    "JioHotstar",
-    "Eros Now",
-    "Hoichoi",
-    "JioCinema",
-    "MX Player",
-    "SonyLIV",
-    "Sun NXT",
-    "Voot",
-    "Zee5",
-    "Amazon Prime Video",
-    "Apple TV+",
-    "Crunchyroll",
-    "Discovery+",
-    "HBO Max",
-    "Hulu",
-    "Netflix",
-    "Paramount+",
-    "Peacock",
-    "YouTube Premium",
-]
+LANGUAGES = ["Kannada", "English", "Gujarati", "Hindi", "Bengali", "Malayalam", "Marathi", "Punjabi", "Tamil", "Telugu", "Urdu", "Arabic", "French", "German", "Italian", "Japanese", "Korean", "Mandarin", "Portuguese", "Russian", "Spanish"]
+RESOLUTIONS = ["144p", "240p", "480p", "720p", "1080p", "1440p", "2160p", "4320p", "BluRay", "BDRip", "WEB-DL", "VOD", "WEBRip", "HDTV", "DVDRip", "DVDScr", "TS", "CAM", "AV1", "HEVC", "x264"]
+OTT_PLATFORMS = ["Aha", "ALTBalaji", "JioHotstar", "Eros Now", "Hoichoi", "JioCinema", "MX Player", "SonyLIV", "Sun NXT", "Voot", "Zee5", "Amazon Prime Video", "Apple TV+", "Crunchyroll", "Discovery+", "HBO Max", "Hulu", "Netflix", "Paramount+", "Peacock", "YouTube Premium"]
 
 
 @Client.on_message(filters.command("post") & filters.user(ADMINS), group=-4)
@@ -180,9 +72,7 @@ async def start_post_session(
 
     logger.info(f"User {user_id} is starting post session for '{movie_name}'.")
 
-    if user_id in post_sessions and post_sessions[user_id].get(
-        "last_preview_message_id"
-    ):
+    if user_id in post_sessions and post_sessions[user_id].get("last_preview_message_id"):
         try:
             await client.delete_messages(
                 message.chat.id, post_sessions[user_id]["last_preview_message_id"]
@@ -195,7 +85,7 @@ async def start_post_session(
         "caption": None,
         "buttons": [],
         "photo_mode": False,
-        "use_landscape": True if movie_details.get("backdrop_url") else False,
+        "use_landscape": bool(movie_details.get("backdrop_url")),
         "custom_languages": [],
         "custom_resolutions": [],
         "custom_otts": [],
@@ -211,14 +101,7 @@ async def start_post_session(
     }
 
     if USE_GETFILE_BUTTON_BY_DEFAULT:
-        title = movie_details.get("title", "movie")
-        year = movie_details.get("year", "")
-        movie_year = f"{title} {year}".strip()
-        movie_year = re.sub(r"[ *:\.]", "-", movie_year)
-        url = f"https://telegram.me/{temp.U_NAME}?start=getfile-{movie_year}"
-        post_sessions[user_id]["buttons"].append(
-            [InlineKeyboardButton("📥 Get Files 📥", url=url)]
-        )
+        await handle_add_get_files(post_sessions[user_id])
         logger.info(f"Default 'Get Files' button added for session {user_id}")
 
     await update_post_preview(client, user_id, message.chat.id, force_resend=True)
@@ -234,15 +117,13 @@ async def _build_final_post_content(session: dict, session_id: int):
             title=movie_details.get("title", "N/A"),
             year=movie_details.get("year", "N/A"),
             rating=movie_details.get("rating", "N/A"),
-            genres=", ".join(
-                movie_details.get("genres", []) if movie_details.get("genres") else []
-            ),
+            genres=", ".join(movie_details.get("genres", []) or []),
             plot=movie_details.get("plot", "N/A"),
         )
 
     final_caption = session["caption"]
     if session.get("custom_languages"):
-        final_caption += session["lang_format"].format(
+        final_caption += "\n" + session["lang_format"].format(
             langs=", ".join(session["custom_languages"])
         )
     if session.get("custom_resolutions"):
@@ -304,9 +185,11 @@ async def update_post_preview(
     try:
         if session["photo_mode"] and poster_to_use:
             if force_resend:
-                await client.delete_messages(
-                    chat_id, session["last_preview_message_id"]
-                )
+                try:
+                    await client.delete_messages(chat_id, session["last_preview_message_id"])
+                except Exception:
+                    pass
+                    
                 sent_message = await client.send_photo(
                     chat_id,
                     photo=poster_to_use,
@@ -350,31 +233,17 @@ def build_keyboard(session: dict, session_id: int):
     rows.extend(
         [
             [
-                InlineKeyboardButton(
-                    "✏️ Buttons", callback_data=f"post:buttons_menu:{session_id}"
-                ),
-                InlineKeyboardButton(
-                    "✏️ Caption", callback_data=f"post:edit_caption:{session_id}"
-                ),
+                InlineKeyboardButton("✏️ Buttons", callback_data=f"post:buttons_menu:{session_id}"),
+                InlineKeyboardButton("✏️ Caption", callback_data=f"post:edit_caption:{session_id}"),
             ],
             [
-                InlineKeyboardButton(
-                    "🖼️ Poster", callback_data=f"post:set_poster:{session_id}"
-                ),
-                InlineKeyboardButton(
-                    "✨ Templates", callback_data=f"post:templates:{session_id}"
-                ),
-                InlineKeyboardButton(
-                    "💧 Watermark", callback_data=f"post:set_watermark:{session_id}"
-                ),
+                InlineKeyboardButton("🖼️ Poster", callback_data=f"post:set_poster:{session_id}"),
+                InlineKeyboardButton("✨ Templates", callback_data=f"post:templates:{session_id}"),
+                InlineKeyboardButton("💧 Watermark", callback_data=f"post:set_watermark:{session_id}"),
             ],
             [
-                InlineKeyboardButton(
-                    "🗣️ Languages", callback_data=f"post:languages:{session_id}"
-                ),
-                InlineKeyboardButton(
-                    "📺 Qualities", callback_data=f"post:resolutions:{session_id}"
-                ),
+                InlineKeyboardButton("🗣️ Languages", callback_data=f"post:languages:{session_id}"),
+                InlineKeyboardButton("📺 Qualities", callback_data=f"post:resolutions:{session_id}"),
                 InlineKeyboardButton("🌐 OTT", callback_data=f"post:otts:{session_id}"),
             ],
             [
@@ -388,12 +257,8 @@ def build_keyboard(session: dict, session_id: int):
                 ),
             ],
             [
-                InlineKeyboardButton(
-                    "✅ Post", callback_data=f"post:finalize:{session_id}"
-                ),
-                InlineKeyboardButton(
-                    "❌ Cancel", callback_data=f"post:cancel:{session_id}"
-                ),
+                InlineKeyboardButton("✅ Post", callback_data=f"post:finalize:{session_id}"),
+                InlineKeyboardButton("❌ Cancel", callback_data=f"post:cancel:{session_id}"),
             ],
         ]
     )
@@ -404,7 +269,12 @@ def build_keyboard(session: dict, session_id: int):
 async def post_callbacks(client: Client, query: CallbackQuery):
     data_parts = query.data.split(":")
     action = data_parts[1]
-    session_id = int(data_parts[2])
+    
+    try:
+        session_id = int(data_parts[2])
+    except ValueError:
+        return await query.answer("Invalid Session ID.", show_alert=True)
+        
     extra_data = data_parts[3:]
 
     if query.from_user.id != session_id:
@@ -413,28 +283,23 @@ async def post_callbacks(client: Client, query: CallbackQuery):
     session = post_sessions.get(session_id)
     if not session:
         await query.answer("Session expired or was cancelled.", show_alert=True)
-        return await query.message.delete()
+        try:
+            return await query.message.delete()
+        except Exception:
+            return
 
     force_resend = False
 
     if action == "back":
         await query.answer()
 
-    elif action in [
-        "languages",
-        "resolutions",
-        "templates",
-        "buttons_menu",
-        "remove_buttons_menu",
-        "otts",
-    ]:
+    elif action in ["languages", "resolutions", "templates", "buttons_menu", "remove_buttons_menu", "otts"]:
         await query.answer()
         if action == "languages":
             await show_selection_menu(query, session_id, "languages")
         elif action == "resolutions":
             await show_selection_menu(query, session_id, "resolutions")
         elif action == "otts":
-
             await show_selection_menu(query, session_id, "otts")
         elif action == "templates":
             await handle_templates_menu(query, session)
@@ -453,12 +318,14 @@ async def post_callbacks(client: Client, query: CallbackQuery):
             else:
                 session["custom_languages"].remove(item)
             await show_selection_menu(query, session_id, "languages")
+            
         elif action == "select_res":
             if item not in session["custom_resolutions"]:
                 session["custom_resolutions"].append(item)
             else:
                 session["custom_resolutions"].remove(item)
             await show_selection_menu(query, session_id, "resolutions")
+            
         elif action == "select_ott":
             if item not in session["custom_otts"]:
                 session["custom_otts"].append(item)
@@ -468,12 +335,11 @@ async def post_callbacks(client: Client, query: CallbackQuery):
         return
 
     else:
-
         if action == "edit_buttons":
             await handle_edit_buttons(client, query, session)
         elif action == "add_get_files":
-            await handle_add_get_files(session)
-            await query.answer("✅ 'Get Files' button added!")
+            added = await handle_add_get_files(session)
+            await query.answer("✅ 'Get Files' button added!" if added else "⚠️ Button already exists!", show_alert=not added)
         elif action == "edit_caption":
             await handle_edit_caption(client, query, session)
         elif action == "set_poster":
@@ -495,7 +361,6 @@ async def post_callbacks(client: Client, query: CallbackQuery):
         elif action == "format_res":
             await handle_format_res(client, query, session)
         elif action == "format_ott":
-
             await handle_format_ott(client, query, session)
         elif action == "finalize":
             return await finalize_and_post(client, query, session_id)
@@ -509,107 +374,69 @@ async def show_selection_menu(query: CallbackQuery, session_id: int, menu_type: 
     session = post_sessions[session_id]
 
     if menu_type == "languages":
-        items, selected, action_prefix, format_action = (
-            LANGUAGES,
-            session["custom_languages"],
-            "select_lang",
-            "format_lang",
-        )
+        items, selected, action_prefix, format_action = (LANGUAGES, session["custom_languages"], "select_lang", "format_lang")
     elif menu_type == "resolutions":
-        items, selected, action_prefix, format_action = (
-            RESOLUTIONS,
-            session["custom_resolutions"],
-            "select_res",
-            "format_res",
-        )
+        items, selected, action_prefix, format_action = (RESOLUTIONS, session["custom_resolutions"], "select_res", "format_res")
     elif menu_type == "otts":
-        items, selected, action_prefix, format_action = (
-            OTT_PLATFORMS,
-            session["custom_otts"],
-            "select_ott",
-            "format_ott",
-        )
+        items, selected, action_prefix, format_action = (OTT_PLATFORMS, session["custom_otts"], "select_ott", "format_ott")
     else:
         return
 
     buttons = [
-        InlineKeyboardButton(
-            f"✅ {i}" if i in selected else i,
-            callback_data=f"post:{action_prefix}:{session_id}:{i}",
-        )
+        InlineKeyboardButton(f"✅ {i}" if i in selected else i, callback_data=f"post:{action_prefix}:{session_id}:{i}")
         for i in items
     ]
     keyboard = [buttons[i : i + 3] for i in range(0, len(buttons), 3)]
-    keyboard.append(
-        [
-            InlineKeyboardButton(
-                "⚙️ Change Format", callback_data=f"post:{format_action}:{session_id}"
-            )
-        ]
-    )
-    keyboard.append(
-        [InlineKeyboardButton("✅ Done", callback_data=f"post:back:{session_id}")]
-    )
+    
+    keyboard.append([InlineKeyboardButton("⚙️ Change Format", callback_data=f"post:{format_action}:{session_id}")])
+    keyboard.append([InlineKeyboardButton("✅ Done", callback_data=f"post:back:{session_id}")])
     await query.edit_message_reply_markup(InlineKeyboardMarkup(keyboard))
 
 
 async def get_user_input(client, query, session, prompt_text):
-    ask_msg = await query.message.reply_text(
-        prompt_text, reply_to_message_id=session.get("original_message_id")
-    )
+    ask_msg = await query.message.reply_text(prompt_text, reply_to_message_id=session.get("original_message_id"))
     try:
-        response = await client.listen(
-            chat_id=query.message.chat.id, user_id=query.from_user.id, timeout=300
-        )
-        await ask_msg.delete()
+        response = await client.listen(chat_id=query.message.chat.id, user_id=query.from_user.id, timeout=300)
+        try:
+            await ask_msg.delete()
+        except Exception:
+            pass
+            
         if response:
-            await response.delete()
+            try:
+                await response.delete()
+            except Exception:
+                pass
             return response
     except asyncio.TimeoutError:
-        await ask_msg.edit("Timeout (5 minutes). The operation was cancelled.")
-        await asyncio.sleep(5)
-        await ask_msg.delete()
+        try:
+            await ask_msg.edit("Timeout (5 minutes). The operation was cancelled.")
+            await asyncio.sleep(5)
+            await ask_msg.delete()
+        except Exception:
+            pass
     return None
 
 
 async def handle_buttons_menu(query, session_id):
     buttons = [
-        [
-            InlineKeyboardButton(
-                "➕ Add/Edit Layout", callback_data=f"post:edit_buttons:{session_id}"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "📥 Add 'Get Files' Button",
-                callback_data=f"post:add_get_files:{session_id}",
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "🗑️ Remove a Button",
-                callback_data=f"post:remove_buttons_menu:{session_id}",
-            )
-        ],
+        [InlineKeyboardButton("➕ Add/Edit Layout", callback_data=f"post:edit_buttons:{session_id}")],
+        [InlineKeyboardButton("📥 Add 'Get Files' Button", callback_data=f"post:add_get_files:{session_id}")],
+        [InlineKeyboardButton("🗑️ Remove a Button", callback_data=f"post:remove_buttons_menu:{session_id}")],
         [InlineKeyboardButton("Back", callback_data=f"post:back:{session_id}")],
     ]
     await query.edit_message_reply_markup(InlineKeyboardMarkup(buttons))
 
 
 async def handle_edit_buttons(client: Client, query: CallbackQuery, session: dict):
-    response = await get_user_input(
-        client,
-        query,
-        session,
-        "Send the button layout. Format:\n`Button 1 - URL1 | Button 2 - URL2` (for same row)\n`Button 3 - URL3` (for new row)",
-    )
+    prompt = "Send the button layout. Format:\n`Button 1 - URL1 | Button 2 - URL2` (for same row)\n`Button 3 - URL3` (for new row)"
+    response = await get_user_input(client, query, session, prompt)
     if response and response.text:
         new_layout = []
         for row_str in response.text.strip().split("\n"):
             row_btns = [
                 InlineKeyboardButton(text.strip(), url=url.strip())
-                for btn_str in row_str.split("|")
-                if " - " in btn_str
+                for btn_str in row_str.split("|") if " - " in btn_str
                 for text, url in [btn_str.split(" - ", 1)]
             ]
             if row_btns:
@@ -617,39 +444,42 @@ async def handle_edit_buttons(client: Client, query: CallbackQuery, session: dic
         session["buttons"] = new_layout
 
 
-async def handle_add_get_files(session):
+async def handle_add_get_files(session) -> bool:
     movie_details = session["movie_details"]
     if movie_details:
         title = movie_details.get("title", "movie")
         year = movie_details.get("year", "")
         movie_year = f"{title} {year}".strip()
         url = f"https://telegram.me/{temp.U_NAME}?start=getfile-{movie_year.replace(' ', '-')}"
+        
+        # Prevent adding duplicate button
+        for row in session["buttons"]:
+            for btn in row:
+                if btn.url == url:
+                    return False
+                    
         session["buttons"].append([InlineKeyboardButton("📥 Get Files 📥", url=url)])
+        return True
+    return False
 
 
 async def handle_edit_caption(client: Client, query: CallbackQuery, session: dict):
-    response = await get_user_input(
-        client, query, session, "Send the new caption text."
-    )
+    response = await get_user_input(client, query, session, "Send the new caption text.")
     if response and response.text:
         session["caption"] = response.text
 
 
 async def handle_set_poster(client: Client, query: CallbackQuery, session: dict):
     response = await get_user_input(
-        client,
-        query,
-        session,
-        "Send a photo or an image URL. Send `/reset` to use the default poster.",
+        client, query, session,
+        "Send a photo or an image URL. Send `/reset` to use the default poster."
     )
     if response:
         if response.photo:
             session["custom_poster"] = response.photo.file_id
             if not session["photo_mode"]:
                 session["photo_mode"] = True
-                await query.answer(
-                    "Switched to Photo mode as you uploaded an image.", show_alert=True
-                )
+                await query.answer("Switched to Photo mode as you uploaded an image.", show_alert=True)
         elif response.text and response.text.startswith("http"):
             session["custom_poster"] = response.text
         elif response.text and response.text == "/reset":
@@ -658,11 +488,7 @@ async def handle_set_poster(client: Client, query: CallbackQuery, session: dict)
 
 
 async def handle_set_watermark(client, query, session):
-    prompt_text = (
-        "Send the watermark text. Markdown is supported.\n\n"
-        "• Send `/reset` to remove the watermark.\n"
-        "• Send `/default` to use the default watermark."
-    )
+    prompt_text = "Send the watermark text. Markdown is supported.\n\n• Send `/reset` to remove the watermark.\n• Send `/default` to use the default watermark."
     response = await get_user_input(client, query, session, prompt_text)
     if response and response.text:
         if response.text == "/reset":
@@ -675,61 +501,53 @@ async def handle_set_watermark(client, query, session):
 
 async def handle_format_lang(client, query, session):
     response = await get_user_input(
-        client,
-        query,
-        session,
-        "Send the format for languages. Use `{langs}` as a placeholder. Send `/reset` for default.\n\n Current: "
-        + session["lang_format"],
+        client, query, session,
+        f"Send the format for languages. Must include `{{langs}}` as a placeholder. Send `/reset` for default.\n\n Current: {session['lang_format']}"
     )
     if response and response.text:
-        session["lang_format"] = (
-            LANGUAGES_FORMAT if response.text == "/reset" else response.text
-        )
+        if response.text == "/reset":
+            session["lang_format"] = LANGUAGES_FORMAT
+        elif "{langs}" not in response.text:
+            await query.message.reply_text("⚠️ Invalid format! The format must contain `{langs}` placeholder.", quote=True)
+        else:
+            session["lang_format"] = response.text
 
 
 async def handle_format_res(client, query, session):
     response = await get_user_input(
-        client,
-        query,
-        session,
-        "Send the format for qualities. Use `{resolutions}` as a placeholder. Send `/reset` for default.\n\n Current: "
-        + session["res_format"],
+        client, query, session,
+        f"Send the format for qualities. Must include `{{resolutions}}` as a placeholder. Send `/reset` for default.\n\n Current: {session['res_format']}"
     )
     if response and response.text:
-        session["res_format"] = (
-            RESOLUTIONS_FORMAT if response.text == "/reset" else response.text
-        )
+        if response.text == "/reset":
+            session["res_format"] = RESOLUTIONS_FORMAT
+        elif "{resolutions}" not in response.text:
+            await query.message.reply_text("⚠️ Invalid format! The format must contain `{resolutions}` placeholder.", quote=True)
+        else:
+            session["res_format"] = response.text
 
 
 async def handle_format_ott(client, query, session):
     response = await get_user_input(
-        client,
-        query,
-        session,
-        "Send the format for OTT. Use `{otts}` as a placeholder. Send `/reset` for default.\n\n Current: "
-        + session["ott_format"],
+        client, query, session,
+        f"Send the format for OTT. Must include `{{otts}}` as a placeholder. Send `/reset` for default.\n\n Current: {session['ott_format']}"
     )
     if response and response.text:
-        session["ott_format"] = (
-            OTT_FORMAT if response.text == "/reset" else response.text
-        )
+        if response.text == "/reset":
+            session["ott_format"] = OTT_FORMAT
+        elif "{otts}" not in response.text:
+            await query.message.reply_text("⚠️ Invalid format! The format must contain `{otts}` placeholder.", quote=True)
+        else:
+            session["ott_format"] = response.text
 
 
 async def handle_templates_menu(query, session):
     buttons = []
     for name in TEMPLATES:
         text = f"✅ {name}" if session.get("active_template") == name else name
-        buttons.append(
-            [
-                InlineKeyboardButton(
-                    text,
-                    callback_data=f"post:select_template:{query.from_user.id}:{name}",
-                )
-            ]
-        )
-    buttons.append(
-        [InlineKeyboardButton("Back", callback_data=f"post:back:{query.from_user.id}")]
-    )
+        buttons.append([InlineKeyboardButton(text, callback_data=f"post:select_template:{query.from_user.id}:{name}")])
+        
+    buttons.append([InlineKeyboardButton("Back", callback_data=f"post:back:{query.from_user.id}")])
     await query.edit_message_reply_markup(InlineKeyboardMarkup(buttons))
 
 
@@ -742,21 +560,12 @@ async def handle_remove_buttons_menu(query, session):
     buttons = []
     for i, row in enumerate(session["buttons"]):
         for j, btn in enumerate(row):
-            buttons.append(
-                [
-                    InlineKeyboardButton(
-                        f"❌ {btn.text}",
-                        callback_data=f"post:remove_button:{query.from_user.id}:{i}:{j}",
-                    )
-                ]
-            )
+            buttons.append([InlineKeyboardButton(f"❌ {btn.text}", callback_data=f"post:remove_button:{query.from_user.id}:{i}:{j}")])
+            
     if not buttons:
-        buttons.append(
-            [InlineKeyboardButton("No buttons to remove", callback_data="noop")]
-        )
-    buttons.append(
-        [InlineKeyboardButton("Back", callback_data=f"post:back:{query.from_user.id}")]
-    )
+        buttons.append([InlineKeyboardButton("No buttons to remove", callback_data="noop")])
+        
+    buttons.append([InlineKeyboardButton("Back", callback_data=f"post:back:{query.from_user.id}")])
     await query.edit_message_reply_markup(InlineKeyboardMarkup(buttons))
 
 
@@ -772,9 +581,7 @@ async def handle_remove_button(session, extra_data):
 
 async def handle_toggle_preview(query: CallbackQuery, session: dict):
     if session.get("custom_poster") and not session["custom_poster"].startswith("http"):
-        await query.answer(
-            "Cannot switch to Text mode with an uploaded photo.", show_alert=True
-        )
+        await query.answer("Cannot switch to Text mode with an uploaded photo.", show_alert=True)
         return False
     session["photo_mode"] = not session["photo_mode"]
     return True
@@ -788,46 +595,35 @@ async def handle_toggle_poster(session):
 async def handle_cancel(client: Client, query: CallbackQuery, session_id: int, _=None):
     if session := post_sessions.pop(session_id, None):
         if session.get("last_preview_message_id"):
-            await client.delete_messages(
-                query.message.chat.id, session["last_preview_message_id"]
-            )
+            try:
+                await client.delete_messages(query.message.chat.id, session["last_preview_message_id"])
+            except Exception:
+                pass
     await query.message.reply_to_message.reply_text("Post creation cancelled.")
 
 
-async def finalize_and_post(
-    client: Client, query: CallbackQuery, session_id: int, _=None
-):
+async def finalize_and_post(client: Client, query: CallbackQuery, session_id: int, _=None):
     session = post_sessions.pop(session_id, None)
     if not session:
-        logger.warning(
-            f"Finalize called for an expired or invalid session_id: {session_id}"
-        )
+        logger.warning(f"Finalize called for an expired or invalid session_id: {session_id}")
         return
 
-    await client.delete_messages(
-        query.message.chat.id, session["last_preview_message_id"]
-    )
-    status_msg = await query.message.reply_to_message.reply_text(
-        "<i>Finalizing and posting...</i>"
-    )
+    try:
+        await client.delete_messages(query.message.chat.id, session["last_preview_message_id"])
+    except Exception:
+        pass
+        
+    status_msg = await query.message.reply_to_message.reply_text("<i>Finalizing and posting...</i>")
 
-    final_caption, _, poster_to_use = await _build_final_post_content(
-        session, session_id
-    )
-    final_keyboard = (
-        InlineKeyboardMarkup(session["buttons"]) if session["buttons"] else None
-    )
+    final_caption, _, poster_to_use = await _build_final_post_content(session, session_id)
+    final_keyboard = InlineKeyboardMarkup(session["buttons"]) if session["buttons"] else None
 
     if not final_caption:
-        logger.error(
-            f"Failed to fetch movie details for '{session['movie_name']}' during finalization."
-        )
+        logger.error(f"Failed to fetch movie details for '{session['movie_name']}' during finalization.")
         return await status_msg.edit("Could not fetch movie details to post. Aborting.")
 
     mode = "Photo" if session["photo_mode"] and poster_to_use else "Text"
     logger.info(f"Finalizing post for '{session['movie_name']}'. Mode: {mode}")
-    logger.info(f"Poster to use: {poster_to_use}")
-    logger.info(f"Final Caption Length: {len(final_caption)} characters.")
 
     try:
         if mode == "Photo":
@@ -838,11 +634,7 @@ async def finalize_and_post(
                 reply_markup=final_keyboard,
             )
         else:
-            text_content = (
-                f"<a href='{poster_to_use}'>&#8205;</a>{final_caption}"
-                if poster_to_use
-                else final_caption
-            )
+            text_content = (f"<a href='{poster_to_use}'>&#8205;</a>{final_caption}" if poster_to_use else final_caption)
             await client.send_message(
                 chat_id=MOVIE_UPDATE_CHANNEL,
                 text=text_content,
@@ -852,23 +644,13 @@ async def finalize_and_post(
             )
 
         await status_msg.edit("✅ Post has been sent to the update channel.")
-        logger.info(
-            f"Successfully posted '{session['movie_name']}' to the update channel."
-        )
+        logger.info(f"Successfully posted '{session['movie_name']}' to the update channel.")
 
     except MessageTooLong:
         error_text = "<b>Post Failed</b>\n\nThe final caption is too long for a Telegram message (limit is 4096 characters). Please shorten the plot or other text and try again."
         await status_msg.edit(error_text)
-        logger.error(
-            f"Failed to post '{session['movie_name']}': MessageTooLong error.",
-            exc_info=True,
-        )
+        logger.error(f"Failed to post '{session['movie_name']}': MessageTooLong error.", exc_info=True)
     except Exception as e:
-        error_text = (
-            f"Failed to post to update channel.\n<b>Error:</b> <code>{e}</code>"
-        )
+        error_text = f"Failed to post to update channel.\n<b>Error:</b> <code>{e}</code>"
         await status_msg.edit(error_text)
-        logger.error(
-            f"An unexpected error occurred while posting '{session['movie_name']}':",
-            exc_info=True,
-        )
+        logger.error(f"An unexpected error occurred while posting '{session['movie_name']}':", exc_info=True)
