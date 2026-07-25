@@ -12,6 +12,12 @@ from info import (
     SPELL_CHECK_REPLY,
 )
 
+# Safe fallback import to prevent NameError crashes
+try:
+    from info import MOVIE_UPDATE_NOTIFICATION
+except ImportError:
+    MOVIE_UPDATE_NOTIFICATION = True
+
 
 class Database:
     def __init__(self, uri, database_name):
@@ -19,6 +25,7 @@ class Database:
         self.db = self._client[database_name]
         self.col = self.db.users
         self.grp = self.db.groups
+        self.bot_settings = self.db.bot_settings  # Added collection for bot settings
 
     def new_user(self, id, name):
         return dict(
@@ -69,7 +76,6 @@ class Database:
         return user.get("ban_status", default)
 
     async def get_all_users(self):
-        # FIXED: Return a list so len() works on the output
         return await self.col.find({}).to_list(length=None)
 
     async def delete_user(self, user_id):
@@ -131,13 +137,31 @@ class Database:
         return await self.grp.count_documents({})
 
     async def get_all_chats(self):
-        # FIXED: Return a list so len() works on the output
         return await self.grp.find({}).to_list(length=None)
 
     async def get_db_size(self):
         stats = await self.db.command("dbstats")
         return stats.get("dataSize", 0)
 
+    # ============================================================
+    # ADDED MISSING BOT SETTINGS METHODS
+    # ============================================================
+    async def get_bot_setting(self, bot_id, setting_name, default):
+        bot_doc = await self.bot_settings.find_one({"id": int(bot_id)})
+        if bot_doc:
+            return bot_doc.get(setting_name, default)
+        return default
+
+    async def update_bot_setting(self, bot_id, setting_name, value):
+        await self.bot_settings.update_one(
+            {"id": int(bot_id)}, 
+            {"$set": {setting_name: value}}, 
+            upsert=True
+        )
+
+    # ============================================================
+    # FIXED MOVIE UPDATE STATUS METHODS
+    # ============================================================
     async def movie_update_status(self, bot_id):
         return await self.get_bot_setting(
             bot_id, "MOVIE_UPDATE_NOTIFICATION", MOVIE_UPDATE_NOTIFICATION
