@@ -182,7 +182,9 @@ async def process_index_request(bot, message, chat_id, last_msg_id):
         )
         try:
             response = await bot.listen(
-                chat_id=message.chat.id, user_id=message.from_user.id, timeout=60
+                chat_id=message.chat.id, 
+                filters=filters.user(message.from_user.id), 
+                timeout=60
             )
             if response and response.text:
                 try:
@@ -380,11 +382,13 @@ async def index_files_to_db(lst_msg_id, chat, msg, bot):
 
     async with lock:
         try:
-            current = getattr(temp, "CURRENT", 0)
+            skip_number = getattr(temp, "CURRENT", 0)
+            start_id = max(1, skip_number)
+            fetched_count = 0
             temp.CANCEL = False
             last_update_time = time.time()
 
-            message_ids = list(range(current, lst_msg_id + 1))
+            message_ids = list(range(start_id, lst_msg_id + 1))
 
             for i in range(0, len(message_ids), 200):
                 if temp.CANCEL:
@@ -420,7 +424,7 @@ async def index_files_to_db(lst_msg_id, chat, msg, bot):
                 media_to_save = []
 
                 for message in messages:
-                    current += 1
+                    fetched_count += 1
 
                     if time.time() - last_update_time > 10:
                         reply = InlineKeyboardMarkup(
@@ -435,7 +439,7 @@ async def index_files_to_db(lst_msg_id, chat, msg, bot):
                         try:
                             await msg.edit_text(
                                 text=f"⚡ **Ultra-Speed Indexing...** ⚡\n\n"
-                                f"Total messages fetched: <code>{current}</code>\n"
+                                f"Total messages fetched: <code>{fetched_count}</code>\n"
                                 f"Total messages saved: <code>{total_files}</code>\n"
                                 f"Duplicate Files Skipped: <code>{duplicate}</code>\n"
                                 f"Deleted/Non-Media Skipped: <code>{deleted + no_media}</code>\n"
