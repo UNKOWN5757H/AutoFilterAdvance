@@ -88,6 +88,18 @@ MELCOW_NEW_USERS = is_enabled((environ.get("MELCOW_NEW_USERS", "False")), True)
 PROTECT_CONTENT = is_enabled((environ.get("PROTECT_CONTENT", "False")), False)
 PUBLIC_FILE_STORE = is_enabled((environ.get("PUBLIC_FILE_STORE", "True")), True)
 
+# ============================
+# Movie Notification & Update Settings
+# ============================
+MOVIE_UPDATE_NOTIFICATION = is_enabled(environ.get('MOVIE_UPDATE_NOTIFICATION', "False"), False)  # Notification On (True) / Off (False)
+MOVIE_UPDATE_CHANNEL = int(environ.get('MOVIE_UPDATE_CHANNEL', '-100'))  # Notification of sent to your channel
+DREAMXBOTZ_IMAGE_FETCH = is_enabled(environ.get('DREAMXBOTZ_IMAGE_FETCH', "True"), True)  # On (True) / Off (False)
+LINK_PREVIEW = is_enabled(environ.get('LINK_PREVIEW', "False"), False) # Shows link preview in notification msg instead of image
+ABOVE_PREVIEW = is_enabled(environ.get('ABOVE_PREVIEW', "True"), True) # Shows link preview above the text in notification msg if True else below the msg
+TMDB_API_KEY = environ.get('TMDB_API_KEY', '') # preffer to use your own tmdb API Key get it from https://www.themoviedb.org/settings/api
+TMDB_POSTER = is_enabled(environ.get('TMDB_POSTER', "False"), False) # Shows TMDB poster in notification msg
+LANDSCAPE_POSTER = is_enabled(environ.get('LANDSCAPE_POSTER', "True"), True) # Shows landscape poster in notification msg
+
 LOG_STR = "Current Cusomized Configurations are:-\n"
 LOG_STR += (
     "IMDB Results are enabled, Bot will be showing imdb details for you queries.\n"
