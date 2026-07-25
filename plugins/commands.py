@@ -736,19 +736,25 @@ async def settings_callback(client: Client, query: CallbackQuery):
         logger.exception("Error in settings_callback")
         await query.answer("An error occurred!", show_alert=True)
 
-@Client.on_message(filters.private & filters.command("movie_update") & filters.user(ADMINS))
+
+@Client.on_message(
+    filters.private & filters.command("movie_update") & filters.user(ADMINS)
+)
 async def set_movie_update_notification(client, message):
     bot_id = client.me.id
     try:
         option = message.text.split(" ", 1)[1].strip().lower()
-        enable_status = option in ['on', 'true']
+        enable_status = option in ["on", "true"]
     except (IndexError, ValueError):
-        await message.reply_text("<b>💔 Invalid option. Please send 'on' or 'off' after the command.</b>")
+        await message.reply_text(
+            "<b>💔 Invalid option. Please send 'on' or 'off' after the command.</b>"
+        )
         return
     try:
         await db.update_movie_update_status(bot_id, enable_status)
         response_text = (
-            "<b>ᴍᴏᴠɪᴇ ᴜᴘᴅᴀᴛᴇ ɴᴏᴛɪꜰɪᴄᴀᴛɪᴏɴ ᴇɴᴀʙʟᴇᴅ ✅</b>" if enable_status
+            "<b>ᴍᴏᴠɪᴇ ᴜᴘᴅᴀᴛᴇ ɴᴏᴛɪꜰɪᴄᴀᴛɪᴏɴ ᴇɴᴀʙʟᴇᴅ ✅</b>"
+            if enable_status
             else "<b>ᴍᴏᴠɪᴇ ᴜᴘᴅᴀᴛᴇ ɴᴏᴛɪꜰɪᴄᴀᴛɪᴏɴ ᴅɪꜱᴀʙʟᴇᴅ ❌</b>"
         )
         await message.reply_text(response_text)
