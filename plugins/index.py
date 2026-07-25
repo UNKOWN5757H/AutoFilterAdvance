@@ -2,7 +2,6 @@ import asyncio
 import logging
 import re
 import time
-from math import ceil
 
 from pyrogram import Client, enums, filters
 from pyrogram.errors import (
@@ -12,191 +11,269 @@ from pyrogram.errors import (
     FloodWait,
     UsernameInvalid,
     UsernameNotModified,
-)
-from pyrogram.errors.exceptions.bad_request_400 import (
-    ChannelInvalid,
-    ChatAdminRequired,
-    UsernameInvalid,
-    UsernameNotModified,
+    MessageNotModified,
 )
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from database.ia_filterdb import save_batch
 from info import ADMINS
 from info import INDEX_REQ_CHANNEL as LOG_CHANNEL
-from utils import get_readable_time, temp
+from utils import temp
+
+# Safely import channel lists from info.py and ensure they are parsed as lists
+AUTO_INDEX_CHANNELS = []
+try:
+    from info import CHANNELS
+
+    if isinstance(CHANNELS, list):
+        AUTO_INDEX_CHANNELS.extend(CHANNELS)
+    elif isinstance(CHANNELS, (int, str)):
+        AUTO_INDEX_CHANNELS.append(int(CHANNELS))
+except ImportError:
+    pass
+
+try:
+    from info import INDEX_CHANNELS
+
+    if isinstance(INDEX_CHANNELS, list):
+        AUTO_INDEX_CHANNELS.extend(INDEX_CHANNELS)
+    elif isinstance(INDEX_CHANNELS, (int, str)):
+        AUTO_INDEX_CHANNELS.append(int(INDEX_CHANNELS))
+except ImportError:
+    pass
+
+# Remove duplicates
+AUTO_INDEX_CHANNELS = list(set(AUTO_INDEX_CHANNELS))
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-
 lock = asyncio.Lock()
 
 
+# ============================================================
+# ⚡ THE AUTO-INDEX FEATURE (Listens for NEW messages)
+# ============================================================
+@Client.on_message(
+    filters.channel
+    & (filters.document | filters.video | filters.audio)
+    & ~filters.forwarded,
+    group=-4,
+)
+async def auto_index_new_files(bot: Client, message):
+    """
+    Listens for any NEW files posted to your channels and instantly indexes them.
+    """
+    # Restrict to specified channels if provided; otherwise, allow all admin channels
+    if AUTO_INDEX_CHANNELS and message.chat.id not in AUTO_INDEX_CHANNELS:
+        return
+
+    media = getattr(message, message.media.value, None)
+    if not media:
+        return
+
+    # Add required attributes for the database schema
+    media.file_type = message.media.value
+    media.caption = message.caption
+
+    try:
+        # Save it to the database quietly
+        await save_batch([media])
+        logger.info(f"Auto-indexed new file from {message.chat.title} ({message.chat.id})")
+    except Exception as e:
+        logger.error(f"Auto-index failed for {message.chat.title}: {e}")
+
+
+# ============================================================
+# ⚙️ MANUAL INDEXING (Commands & Callbacks)
+# ============================================================
 @Client.on_callback_query(filters.regex(r"^index"))
 async def index_files(bot, query):
     if query.data.startswith("index_cancel"):
         temp.CANCEL = True
-        return await query.answer("Cancelling Indexing")
-    _, raju, chat, lst_msg_id, from_user = query.data.split("#")
-    if raju == "reject":
-        await query.message.delete()
-        await bot.send_message(
-            int(from_user),
-            f"Your Submission for indexing {chat} has been declined by our moderators.",
-            reply_to_message_id=int(lst_msg_id),
-        )
+        return await query.answer("Cancelling Indexing...")
+
+    data_parts = query.data.split("#")
+    if len(data_parts) != 5:
+        return await query.answer("Invalid callback data.", show_alert=True)
+
+    _, action, chat, lst_msg_id, from_user = data_parts
+
+    if action == "reject":
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+        
+        try:
+            await bot.send_message(
+                int(from_user),
+                f"Your submission for indexing `{chat}` has been declined by our moderators.",
+                reply_to_message_id=int(lst_msg_id),  # In reject, lst_msg_id is the user's message ID
+            )
+        except Exception as e:
+            logger.error(f"Failed to send rejection to user {from_user}: {e}")
         return
 
     if lock.locked():
-        return await query.answer(
-            "Wait until previous process complete.", show_alert=True
-        )
-    msg = query.message
+        return await query.answer("Wait until the previous indexing process completes.", show_alert=True)
 
+    msg = query.message
     await query.answer("Processing...⏳", show_alert=True)
+
     if int(from_user) not in ADMINS:
-        await bot.send_message(
-            int(from_user),
-            f"Your Submission for indexing {chat} has been accepted by our moderators and will be added soon.",
-            reply_to_message_id=int(lst_msg_id),
+        try:
+            # Send notification without reply_to_message_id to avoid MessageIdInvalid crash
+            await bot.send_message(
+                int(from_user),
+                f"Your submission for indexing `{chat}` has been accepted by our moderators and will be added soon."
+            )
+        except Exception as e:
+            logger.error(f"Failed to send acceptance notification to {from_user}: {e}")
+
+    try:
+        await msg.edit(
+            "Starting Indexing...",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Cancel", callback_data="index_cancel")]]),
         )
-    await msg.edit(
-        "Starting Indexing",
-        reply_markup=InlineKeyboardMarkup(
-            [[InlineKeyboardButton("Cancel", callback_data="index_cancel")]]
-        ),
-    )
+    except MessageNotModified:
+        pass
+
     try:
         chat = int(chat)
-    except Exception:
-        chat = chat
+    except ValueError:
+        pass
+
     await index_files_to_db(int(lst_msg_id), chat, msg, bot)
+
+
+async def process_index_request(bot, message, chat_id, last_msg_id):
+    """Helper function to validate and process all manual indexing requests."""
+    try:
+        # Normalize chat_id to integer to prevent 64-byte callback data limit crashes
+        chat_obj = await bot.get_chat(chat_id)
+        chat_id = chat_obj.id
+    except (ChannelInvalid, ChannelPrivate):
+        return await message.reply("This may be a private channel/group. Make me an admin there to index the files.")
+    except (UsernameInvalid, UsernameNotModified):
+        return await message.reply("Invalid Link/Username specified.")
+    except Exception as e:
+        logger.exception(e)
+        return await message.reply(f"Error accessing chat: {e}")
+
+    try:
+        k = await bot.get_messages(chat_id, last_msg_id)
+        if k.empty:
+            return await message.reply("This may be a group and I am not an admin, or the message does not exist.")
+    except Exception:
+        return await message.reply("Make sure that I am an admin in the channel (if the channel is private).")
+
+    if message.from_user.id in ADMINS:
+        buttons = [
+            [InlineKeyboardButton("Yes", callback_data=f"index#accept#{chat_id}#{last_msg_id}#{message.from_user.id}")],
+            [InlineKeyboardButton("Close", callback_data="close_data")],
+        ]
+        return await message.reply(
+            f"Do you want to index this Channel/Group?\n\nChat ID: <code>{chat_id}</code>\nLast Message ID: <code>{last_msg_id}</code>",
+            reply_markup=InlineKeyboardMarkup(buttons),
+        )
+
+    # Secure link generation
+    if chat_obj.username:
+        link = f"https://t.me/{chat_obj.username}"
+    else:
+        try:
+            link = (await bot.create_chat_invite_link(chat_id)).invite_link
+        except ChatAdminRequired:
+            link = str(chat_id)
+
+    buttons = [
+        [InlineKeyboardButton("Accept Index", callback_data=f"index#accept#{chat_id}#{last_msg_id}#{message.from_user.id}")],
+        [InlineKeyboardButton("Reject Index", callback_data=f"index#reject#{chat_id}#{message.id}#{message.from_user.id}")],
+    ]
+
+    await bot.send_message(
+        LOG_CHANNEL,
+        f"#IndexRequest\n\nBy: {message.from_user.mention} (<code>{message.from_user.id}</code>)\n"
+        f"Chat ID: <code>{chat_id}</code>\nLast Message ID: <code>{last_msg_id}</code>\nInviteLink: {link}",
+        reply_markup=InlineKeyboardMarkup(buttons),
+    )
+    await message.reply("Thank you for the contribution! Wait for my moderators to verify the files.")
+
+
+@Client.on_message(filters.command("index") & filters.private & filters.incoming)
+async def index_command(bot, message):
+    if (
+        message.reply_to_message
+        and message.reply_to_message.forward_from_chat
+        and message.reply_to_message.forward_from_chat.type == enums.ChatType.CHANNEL
+    ):
+        chat_id = message.reply_to_message.forward_from_chat.username or message.reply_to_message.forward_from_chat.id
+        last_msg_id = message.reply_to_message.forward_from_message_id
+        return await process_index_request(bot, message, chat_id, last_msg_id)
+
+    if len(message.command) != 3:
+        return await message.reply(
+            "**Usage:** `/index <chat_id_or_username> <last_message_id>`\n\n"
+            "*(Note: You can also just forward a message from the channel or send a message link to start indexing, no need to use this command!)*"
+        )
+
+    chat_id = message.command[1]
+    try:
+        last_msg_id = int(message.command[2])
+    except ValueError:
+        return await message.reply("Last message ID must be an integer.")
+
+    if chat_id.isnumeric() or (chat_id.startswith("-100") and chat_id[4:].isnumeric()):
+        chat_id = int(chat_id)
+
+    await process_index_request(bot, message, chat_id, last_msg_id)
 
 
 @Client.on_message(
     (
         filters.forwarded
-        | (
-            filters.regex(
-                r"(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$"
-            )
-        )
-        & filters.text
+        | filters.regex(r"(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$")
     )
+    & filters.text
     & filters.private
     & filters.incoming
 )
 async def send_for_index(bot, message):
-    if message.text:
-        regex = re.compile(
-            r"(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$"
-        )
-        match = regex.match(message.text)
-        if not match:
-            return await message.reply("Invalid link")
-        chat_id = match.group(4)
-        last_msg_id = int(match.group(5))
-        if chat_id.isnumeric():
-            chat_id = int(("-100" + chat_id))
-    elif (
-        message.forward_from_chat
-        and message.forward_from_chat.type == enums.ChatType.CHANNEL
-    ):
+    chat_id = None
+    last_msg_id = None
+
+    if message.forward_from_chat and message.forward_from_chat.type == enums.ChatType.CHANNEL:
         last_msg_id = message.forward_from_message_id
         chat_id = message.forward_from_chat.username or message.forward_from_chat.id
+    elif message.text:
+        regex = re.compile(r"(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$")
+        match = regex.match(message.text)
+        if match:
+            chat_id = match.group(4)
+            last_msg_id = int(match.group(5))
+            if chat_id.isnumeric():
+                chat_id = int(f"-100{chat_id}")
+        else:
+            return await message.reply("Invalid link format.")
     else:
         return
-    try:
-        await bot.get_chat(chat_id)
-    except ChannelInvalid:
-        return await message.reply(
-            "This may be a private channel / group. Make me an admin over there to index the files."
-        )
-    except (UsernameInvalid, UsernameNotModified):
-        return await message.reply("Invalid Link specified.")
-    except Exception as e:
-        logger.exception(e)
-        return await message.reply(f"Errors - {e}")
-    try:
-        k = await bot.get_messages(chat_id, last_msg_id)
-    except Exception:
-        return await message.reply(
-            "Make Sure That Iam An Admin In The Channel, if channel is private"
-        )
-    if k.empty:
-        return await message.reply(
-            "This may be group and i am not a admin of the group."
-        )
 
-    if message.from_user.id in ADMINS:
-        buttons = [
-            [
-                InlineKeyboardButton(
-                    "Yes",
-                    callback_data=f"index#accept#{chat_id}#{last_msg_id}#{message.from_user.id}",
-                )
-            ],
-            [InlineKeyboardButton("Close", callback_data="close_data")],
-        ]
-        reply_markup = InlineKeyboardMarkup(buttons)
-        return await message.reply(
-            f"Do you Want To Index This Channel/ Group ?\n\nChat ID/ Username: <code>{chat_id}</code>\nLast Message ID: <code>{last_msg_id}</code>\n\nɴᴇᴇᴅ sᴇᴛsᴋɪᴘ 👉🏻 /setskip",
-            reply_markup=reply_markup,
-        )
-
-    if type(chat_id) is int:
-        try:
-            link = (await bot.create_chat_invite_link(chat_id)).invite_link
-        except ChatAdminRequired:
-            return await message.reply(
-                "Make sure I am an admin in the chat and have permission to invite users."
-            )
-    else:
-        link = f"@{message.forward_from_chat.username}"
-    buttons = [
-        [
-            InlineKeyboardButton(
-                "Accept Index",
-                callback_data=f"index#accept#{chat_id}#{last_msg_id}#{message.from_user.id}",
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "Reject Index",
-                callback_data=f"index#reject#{chat_id}#{message.id}#{message.from_user.id}",
-            )
-        ],
-    ]
-    reply_markup = InlineKeyboardMarkup(buttons)
-    await bot.send_message(
-        LOG_CHANNEL,
-        f"#IndexRequest\n\nBy : {message.from_user.mention} (<code>{message.from_user.id}</code>)\nChat ID/ Username - <code> {chat_id}</code>\nLast Message ID - <code>{last_msg_id}</code>\nInviteLink - {link}",
-        reply_markup=reply_markup,
-    )
-    await message.reply(
-        "ThankYou For the Contribution, Wait For My Moderators to verify the files."
-    )
+    await process_index_request(bot, message, chat_id, last_msg_id)
 
 
 @Client.on_message(filters.command("setskip") & filters.user(ADMINS))
 async def set_skip_number(bot, message):
-    if " " in message.text:
-        _, skip = message.text.split(" ")
+    if len(message.command) > 1:
+        skip = message.command[1]
         try:
             skip = int(skip)
-        except Exception:
+        except ValueError:
             return await message.reply("Skip number should be an integer.")
-        await message.reply(f"Successfully set SKIP number as {skip}")
-        temp.CURRENT = int(skip)
+
+        temp.CURRENT = skip
+        await message.reply(f"Successfully set SKIP number to {skip}. It will be used in your next /index command.")
     else:
-        await message.reply("Give me a skip number")
-
-
-def get_progress_bar(percent, length=10):
-    """Creates an emoji-based progress bar."""
-    filled = int(length * percent / 100)
-    unfilled = length - filled
-    return "🟩" * filled + "⬜️" * unfilled
+        await message.reply("Give me a skip number. Usage: `/setskip 100`")
 
 
 async def index_files_to_db(lst_msg_id, chat, msg, bot):
@@ -206,136 +283,112 @@ async def index_files_to_db(lst_msg_id, chat, msg, bot):
     deleted = 0
     no_media = 0
     unsupported = 0
-    BATCH_SIZE = 200
-    start_time = time.time()
 
     async with lock:
         try:
-            current = temp.CURRENT
+            current = getattr(temp, "CURRENT", 0)
             temp.CANCEL = False
-            total_messages = lst_msg_id
-            total_fetch = lst_msg_id - current
-            if total_messages <= 0:
-                await msg.edit(
-                    "🚫 No Messages To Index.",
-                    reply_markup=InlineKeyboardMarkup(
-                        [[InlineKeyboardButton("Close", callback_data="close_data")]]
-                    ),
-                )
-                return
-            batches = ceil(total_messages / BATCH_SIZE)
-            batch_times = []
-            await msg.edit(
-                f"📊 Indexing Starting......\n"
-                f"💬 Total Messages: <code>{total_messages}</code>\n"
-                f"📋 Total Fetch: <code> {total_fetch}</code>\n"
-                f"⏰ Elapsed: <code>{get_readable_time(time.time() - start_time)}</code>",
-                reply_markup=InlineKeyboardMarkup(
-                    [[InlineKeyboardButton("Cancel", callback_data="index_cancel")]]
-                ),
-            )
-            for batch in range(batches):
+            last_update_time = time.time()
+
+            message_ids = list(range(current, lst_msg_id + 1))
+
+            for i in range(0, len(message_ids), 200):
                 if temp.CANCEL:
+                    await msg.edit(
+                        f"**Successfully Cancelled!!**\n\n"
+                        f"Saved <code>{total_files}</code> files to database!\n"
+                        f"Duplicate Files Skipped: <code>{duplicate}</code>\n"
+                        f"Deleted Messages Skipped: <code>{deleted}</code>\n"
+                        f"Non-Media messages skipped: <code>{no_media + unsupported}</code> "
+                        f"(Unsupported Media - `{unsupported}`)\n"
+                        f"Errors Occurred: <code>{errors}</code>"
+                    )
                     break
-                batch_start = time.time()
-                start_id = current + 1
-                end_id = min(current + BATCH_SIZE, lst_msg_id)
-                message_ids = range(start_id, end_id + 1)
-                try:
-                    messages = await bot.get_messages(chat, list(message_ids))
-                    if not isinstance(messages, list):
-                        messages = [messages]
-                except Exception:
-                    errors += len(message_ids)
-                    current += len(message_ids)
+
+                chunk = message_ids[i : i + 200]
+                messages = []
+
+                max_retries = 3
+                while max_retries > 0:
+                    try:
+                        messages = await bot.get_messages(chat, chunk)
+                        break
+                    except FloodWait as e:
+                        await asyncio.sleep(e.value + 1)
+                        max_retries -= 1
+                    except Exception as e:
+                        logger.error(f"Error fetching messages: {e}")
+                        break
+
+                if not messages:
                     continue
-                save_tasks = []
+
+                media_to_save = []
+
                 for message in messages:
                     current += 1
-                    try:
-                        if message.empty:
-                            deleted += 1
-                            continue
-                        elif not message.media:
-                            no_media += 1
-                            continue
-                        elif message.media not in [
-                            enums.MessageMediaType.VIDEO,
-                            enums.MessageMediaType.AUDIO,
-                            enums.MessageMediaType.DOCUMENT,
-                        ]:
-                            unsupported += 1
-                            continue
-                        media = getattr(message, message.media.value, None)
-                        if not media:
-                            unsupported += 1
-                            continue
-                        media.file_type = message.media.value
-                        media.caption = message.caption
-                        save_tasks.append(save_file(media))
 
-                    except Exception:
-                        errors += 1
+                    if time.time() - last_update_time > 10:
+                        reply = InlineKeyboardMarkup([[InlineKeyboardButton("Cancel", callback_data="index_cancel")]])
+                        try:
+                            await msg.edit_text(
+                                text=f"⚡ **Ultra-Speed Indexing...** ⚡\n\n"
+                                f"Total messages fetched: <code>{current}</code>\n"
+                                f"Total messages saved: <code>{total_files}</code>\n"
+                                f"Duplicate Files Skipped: <code>{duplicate}</code>\n"
+                                f"Deleted/Non-Media Skipped: <code>{deleted + no_media}</code>\n"
+                                f"Errors Occurred: <code>{errors}</code>",
+                                reply_markup=reply,
+                            )
+                        except FloodWait as e:
+                            await asyncio.sleep(e.value + 1)
+                        except MessageNotModified:
+                            pass
+                        last_update_time = time.time()
+
+                    if message.empty:
+                        deleted += 1
                         continue
-                results = await asyncio.gather(*save_tasks, return_exceptions=True)
-                for result in results:
-                    if isinstance(result, Exception):
-                        errors += 1
-                    else:
-                        ok, code = result
-                        if ok:
-                            total_files += 1
-                        elif code == 0:
-                            duplicate += 1
-                        elif code == 2:
-                            errors += 1
-                batch_time = time.time() - batch_start
-                batch_times.append(batch_time)
-                elapsed = time.time() - start_time
-                progress = current - temp.CURRENT
-                percentage = (progress / total_fetch) * 100
-                avg_batch_time = (
-                    sum(batch_times) / len(batch_times) if batch_times else 1
-                )
-                eta = (total_fetch - progress) / BATCH_SIZE * avg_batch_time
-                progress_bar = get_progress_bar(int(percentage))
-                await msg.edit(
-                    f"📊 Indexing Progress 📦 Batch {batch + 1}/{batches}\n"
-                    f"{progress_bar} <code>{percentage:.1f}%</code>\n\n"
-                    f"Total Messages: <code>{total_messages}</code>\n"
-                    f"Total Fetched: <code>{total_fetch}</code>\n"
-                    f"Fetched: <code>{current}</code>\n"
-                    f"Saved: <code>{total_files}</code>\n"
-                    f"Duplicates: <code>{duplicate}</code>\n"
-                    f"Deleted: <code>{deleted}</code>\n"
-                    f"Non-Media: <code>{no_media + unsupported}</code> (Unsupported: <code>{unsupported}</code>)\n"
-                    f"Errors: <code>{errors}</code>\n"
-                    f"⏱️ Elapsed: <code>{get_readable_time(elapsed)}</code>\n"
-                    f"⏰ ETA: <code>{get_readable_time(eta)}</code>",
-                    reply_markup=InlineKeyboardMarkup(
-                        [[InlineKeyboardButton("Cancel", callback_data="index_cancel")]]
-                    ),
-                )
-            elapsed = time.time() - start_time
-            await msg.edit(
-                f"✅ Indexing Completed!\n"
-                f"Total Messages: <code>{total_messages}</code>\n"
-                f"Total Fetched: <code>{total_fetch}</code>\n"
-                f"Fetched: <code>{current}</code>\n"
-                f"Saved: <code>{total_files}</code>\n"
-                f"Duplicates: <code>{duplicate}</code>\n"
-                f"Deleted: <code>{deleted}</code>\n"
-                f"Non-Media: <code>{no_media + unsupported}</code> (Unsupported: <code>{unsupported}</code>)\n"
-                f"Errors: <code>{errors}</code>\n"
-                f"⏱️ Elapsed: <code>{get_readable_time(elapsed)}</code>",
-                reply_markup=InlineKeyboardMarkup(
-                    [[InlineKeyboardButton("Close", callback_data="close_data")]]
-                ),
-            )
+                    elif not message.media:
+                        no_media += 1
+                        continue
+                    elif message.media not in [
+                        enums.MessageMediaType.VIDEO,
+                        enums.MessageMediaType.AUDIO,
+                        enums.MessageMediaType.DOCUMENT,
+                    ]:
+                        unsupported += 1
+                        continue
+
+                    media = getattr(message, message.media.value, None)
+                    if not media:
+                        unsupported += 1
+                        continue
+
+                    media.file_type = message.media.value
+                    media.caption = message.caption
+                    media_to_save.append(media)
+
+                if media_to_save:
+                    saved, dups, errs = await save_batch(media_to_save)
+                    total_files += saved
+                    duplicate += dups
+                    errors += errs
+
         except Exception as e:
-            await msg.edit(
-                f"❌ Error: <code>{e}</code>",
-                reply_markup=InlineKeyboardMarkup(
-                    [[InlineKeyboardButton("Close", callback_data="close_data")]]
-                ),
-            )
+            logger.exception(e)
+            await msg.edit(f"Error: {e}")
+        else:
+            if not temp.CANCEL:
+                await msg.edit(
+                    f"🎉 **Indexing Complete!**\n\n"
+                    f"Successfully saved <code>{total_files}</code> files to database!\n"
+                    f"Duplicate Files Skipped: <code>{duplicate}</code>\n"
+                    f"Deleted Messages Skipped: <code>{deleted}</code>\n"
+                    f"Non-Media messages skipped: <code>{no_media + unsupported}</code> "
+                    f"(Unsupported Media - `{unsupported}`)\n"
+                    f"Errors Occurred: <code>{errors}</code>"
+                )
+        finally:
+            # Reset skip counter so it doesn't break future index commands
+            temp.CURRENT = 0
