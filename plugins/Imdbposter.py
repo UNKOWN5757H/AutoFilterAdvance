@@ -9,7 +9,7 @@ from io import BytesIO
 import aiohttp
 from PIL import Image
 
-from info import DREAMXBOTZ_IMAGE_FETCH, MAX_LIST_ELM, TMDB_API_KEY
+from info import IMAGE_FETCH, MAX_LIST_ELM, TMDB_API_KEY
 
 logger = logging.getLogger(__name__)
 LONG_IMDB_DESCRIPTION = False
@@ -36,7 +36,7 @@ async def get_session():
 
 
 async def fetch_image(url, size=(860, 1200)):
-    if not DREAMXBOTZ_IMAGE_FETCH:
+    if not IMAGE_FETCH:
         logger.info("Image fetching is disabled.")
         return url
 
