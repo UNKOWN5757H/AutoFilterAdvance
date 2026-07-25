@@ -182,9 +182,9 @@ async def process_index_request(bot, message, chat_id, last_msg_id):
         )
         try:
             response = await bot.listen(
-                chat_id=message.chat.id, 
-                filters=filters.user(message.from_user.id), 
-                timeout=60
+                chat_id=message.chat.id,
+                filters=filters.user(message.from_user.id),
+                timeout=60,
             )
             if response and response.text:
                 try:
