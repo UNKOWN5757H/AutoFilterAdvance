@@ -75,7 +75,9 @@ async def auto_index_new_files(bot: Client, message):
 
     try:
         await save_batch([media])
-        logger.info(f"Auto-indexed new file from {message.chat.title} ({message.chat.id})")
+        logger.info(
+            f"Auto-indexed new file from {message.chat.title} ({message.chat.id})"
+        )
     except Exception as e:
         logger.error(f"Auto-index failed for {message.chat.title}: {e}")
 
@@ -112,7 +114,9 @@ async def index_files(bot, query):
         return
 
     if lock.locked():
-        return await query.answer("Wait until the previous indexing process completes.", show_alert=True)
+        return await query.answer(
+            "Wait until the previous indexing process completes.", show_alert=True
+        )
 
     msg = query.message
     await query.answer("Processing...⏳", show_alert=True)
@@ -129,7 +133,9 @@ async def index_files(bot, query):
     try:
         await msg.edit(
             "Starting Indexing...",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Cancel", callback_data="index_cancel")]]),
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("Cancel", callback_data="index_cancel")]]
+            ),
         )
     except MessageNotModified:
         pass
@@ -148,7 +154,9 @@ async def process_index_request(bot, message, chat_id, last_msg_id):
         chat_obj = await bot.get_chat(chat_id)
         chat_id = chat_obj.id
     except (ChannelInvalid, ChannelPrivate):
-        return await message.reply("This may be a private channel/group. Make me an admin there to index the files.")
+        return await message.reply(
+            "This may be a private channel/group. Make me an admin there to index the files."
+        )
     except (UsernameInvalid, UsernameNotModified):
         return await message.reply("Invalid Link/Username specified.")
     except Exception as e:
@@ -158,35 +166,44 @@ async def process_index_request(bot, message, chat_id, last_msg_id):
     try:
         k = await bot.get_messages(chat_id, last_msg_id)
         if k.empty:
-            return await message.reply("This may be a group and I am not an admin, or the message does not exist.")
+            return await message.reply(
+                "This may be a group and I am not an admin, or the message does not exist."
+            )
     except Exception:
-        return await message.reply("Make sure that I am an admin in the channel (if the channel is private).")
+        return await message.reply(
+            "Make sure that I am an admin in the channel (if the channel is private)."
+        )
 
     # --- AUTOMATIC SKIP PROMPT FOR ADMINS ---
     if message.from_user.id in ADMINS:
         ask_msg = await message.reply(
             "**Indexing Initiated!**\n\nHow many messages do you want to **skip**? (Send `0` for no skip)\n\n*(You have 60 seconds to reply)*",
-            quote=True
+            quote=True,
         )
         try:
-            response = await bot.listen(chat_id=message.chat.id, user_id=message.from_user.id, timeout=60)
+            response = await bot.listen(
+                chat_id=message.chat.id, user_id=message.from_user.id, timeout=60
+            )
             if response and response.text:
                 try:
                     temp.CURRENT = int(response.text)
                 except ValueError:
                     temp.CURRENT = 0
-                    await message.reply("⚠️ Invalid number provided. Defaulting to skip `0`.", quote=True)
-                
+                    await message.reply(
+                        "⚠️ Invalid number provided. Defaulting to skip `0`.",
+                        quote=True,
+                    )
+
                 try:
                     await response.delete()
                 except Exception:
                     pass
-            
+
             try:
                 await ask_msg.delete()
             except Exception:
                 pass
-                
+
         except asyncio.TimeoutError:
             temp.CURRENT = 0
             try:
@@ -196,7 +213,12 @@ async def process_index_request(bot, message, chat_id, last_msg_id):
 
         current_skip = getattr(temp, "CURRENT", 0)
         buttons = [
-            [InlineKeyboardButton("Yes, Start Indexing", callback_data=f"index#accept#{chat_id}#{last_msg_id}#{message.from_user.id}")],
+            [
+                InlineKeyboardButton(
+                    "Yes, Start Indexing",
+                    callback_data=f"index#accept#{chat_id}#{last_msg_id}#{message.from_user.id}",
+                )
+            ],
             [InlineKeyboardButton("Close", callback_data="close_data")],
         ]
         return await message.reply(
@@ -217,8 +239,18 @@ async def process_index_request(bot, message, chat_id, last_msg_id):
             link = str(chat_id)
 
     buttons = [
-        [InlineKeyboardButton("Accept Index", callback_data=f"index#accept#{chat_id}#{last_msg_id}#{message.from_user.id}")],
-        [InlineKeyboardButton("Reject Index", callback_data=f"index#reject#{chat_id}#{message.id}#{message.from_user.id}")],
+        [
+            InlineKeyboardButton(
+                "Accept Index",
+                callback_data=f"index#accept#{chat_id}#{last_msg_id}#{message.from_user.id}",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "Reject Index",
+                callback_data=f"index#reject#{chat_id}#{message.id}#{message.from_user.id}",
+            )
+        ],
     ]
 
     await bot.send_message(
@@ -227,7 +259,9 @@ async def process_index_request(bot, message, chat_id, last_msg_id):
         f"Chat ID: <code>{chat_id}</code>\nLast Message ID: <code>{last_msg_id}</code>\nInviteLink: {link}",
         reply_markup=InlineKeyboardMarkup(buttons),
     )
-    await message.reply("Thank you for the contribution! Wait for my moderators to verify the files.")
+    await message.reply(
+        "Thank you for the contribution! Wait for my moderators to verify the files."
+    )
 
 
 @Client.on_message(filters.command("index") & filters.private & filters.incoming)
@@ -237,7 +271,10 @@ async def index_command(bot, message):
         and message.reply_to_message.forward_from_chat
         and message.reply_to_message.forward_from_chat.type == enums.ChatType.CHANNEL
     ):
-        chat_id = message.reply_to_message.forward_from_chat.username or message.reply_to_message.forward_from_chat.id
+        chat_id = (
+            message.reply_to_message.forward_from_chat.username
+            or message.reply_to_message.forward_from_chat.id
+        )
         last_msg_id = message.reply_to_message.forward_from_message_id
         return await process_index_request(bot, message, chat_id, last_msg_id)
 
@@ -262,7 +299,9 @@ async def index_command(bot, message):
 @Client.on_message(
     (
         filters.forwarded
-        | filters.regex(r"(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$")
+        | filters.regex(
+            r"(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$"
+        )
     )
     & filters.text
     & filters.private
@@ -272,11 +311,16 @@ async def send_for_index(bot, message):
     chat_id = None
     last_msg_id = None
 
-    if message.forward_from_chat and message.forward_from_chat.type == enums.ChatType.CHANNEL:
+    if (
+        message.forward_from_chat
+        and message.forward_from_chat.type == enums.ChatType.CHANNEL
+    ):
         last_msg_id = message.forward_from_message_id
         chat_id = message.forward_from_chat.username or message.forward_from_chat.id
     elif message.text:
-        regex = re.compile(r"(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$")
+        regex = re.compile(
+            r"(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$"
+        )
         match = regex.match(message.text)
         if match:
             chat_id = match.group(4)
@@ -304,7 +348,9 @@ async def set_skip_number(bot, message):
             return await message.reply("Skip number should be an integer.")
 
         temp.CURRENT = skip
-        await message.reply(f"Successfully set SKIP number to `{skip}`. It will be used in your next /index command.")
+        await message.reply(
+            f"Successfully set SKIP number to `{skip}`. It will be used in your next /index command."
+        )
     else:
         await message.reply("Give me a skip number. Usage: `/setskip 100`")
 
@@ -377,7 +423,15 @@ async def index_files_to_db(lst_msg_id, chat, msg, bot):
                     current += 1
 
                     if time.time() - last_update_time > 10:
-                        reply = InlineKeyboardMarkup([[InlineKeyboardButton("Cancel", callback_data="index_cancel")]])
+                        reply = InlineKeyboardMarkup(
+                            [
+                                [
+                                    InlineKeyboardButton(
+                                        "Cancel", callback_data="index_cancel"
+                                    )
+                                ]
+                            ]
+                        )
                         try:
                             await msg.edit_text(
                                 text=f"⚡ **Ultra-Speed Indexing...** ⚡\n\n"
