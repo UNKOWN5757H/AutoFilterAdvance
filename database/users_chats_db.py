@@ -139,4 +139,11 @@ class Database:
         return stats.get("dataSize", 0)
 
 
+    async def movie_update_status(self, bot_id):
+        return await self.get_bot_setting(bot_id, 'MOVIE_UPDATE_NOTIFICATION', MOVIE_UPDATE_NOTIFICATION)
+
+    async def update_movie_update_status(self, bot_id, enable):
+        await self.update_bot_setting(bot_id, 'MOVIE_UPDATE_NOTIFICATION', enable)
+
+
 db = Database(DATABASE_URI, DATABASE_NAME)
