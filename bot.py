@@ -6,7 +6,6 @@ import os
 from typing import AsyncGenerator, Union
 
 import pyromod  # ⚡ ADDED: This injects .listen() into Pyrogram globally
-
 from pyrogram import Client, __version__, filters, types
 from pyrogram.raw.all import layer
 from pyrogram.types import Message
