@@ -154,9 +154,7 @@ class Database:
 
     async def update_bot_setting(self, bot_id, setting_name, value):
         await self.bot_settings.update_one(
-            {"id": int(bot_id)}, 
-            {"$set": {setting_name: value}}, 
-            upsert=True
+            {"id": int(bot_id)}, {"$set": {setting_name: value}}, upsert=True
         )
 
     # ============================================================
