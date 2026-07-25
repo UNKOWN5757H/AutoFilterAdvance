@@ -12,7 +12,7 @@ from pyrogram.types import (
 )
 
 from info import ABOVE_PREVIEW, ADMINS, MOVIE_UPDATE_CHANNEL
-from plugins.Dreamxfutures.Imdbposter import get_movie_detailsx
+from plugins.Imdbposter import get_movie_detailsx
 from utils import temp
 
 logger = logging.getLogger(__name__)
