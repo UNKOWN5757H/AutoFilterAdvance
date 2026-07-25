@@ -92,13 +92,13 @@ PUBLIC_FILE_STORE = is_enabled((environ.get("PUBLIC_FILE_STORE", "True")), True)
 # Movie Notification & Update Settings
 # ============================
 MOVIE_UPDATE_NOTIFICATION = is_enabled(
-    environ.get("MOVIE_UPDATE_NOTIFICATION", "False"), False
+    environ.get("MOVIE_UPDATE_NOTIFICATION", "True"), False
 )  # Notification On (True) / Off (False)
 MOVIE_UPDATE_CHANNEL = int(
-    environ.get("MOVIE_UPDATE_CHANNEL", "-100")
+    environ.get("MOVIE_UPDATE_CHANNEL", "-1001923564465")
 )  # Notification of sent to your channel
 DREAMXBOTZ_IMAGE_FETCH = is_enabled(
-    environ.get("DREAMXBOTZ_IMAGE_FETCH", "True"), True
+    environ.get("IMAGE_FETCH", "True"), True
 )  # On (True) / Off (False)
 LINK_PREVIEW = is_enabled(
     environ.get("LINK_PREVIEW", "False"), False
