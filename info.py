@@ -97,7 +97,7 @@ MOVIE_UPDATE_NOTIFICATION = is_enabled(
 MOVIE_UPDATE_CHANNEL = int(
     environ.get("MOVIE_UPDATE_CHANNEL", "-1001923564465")
 )  # Notification of sent to your channel
-DREAMXBOTZ_IMAGE_FETCH = is_enabled(
+IMAGE_FETCH = is_enabled(
     environ.get("IMAGE_FETCH", "True"), True
 )  # On (True) / Off (False)
 LINK_PREVIEW = is_enabled(
