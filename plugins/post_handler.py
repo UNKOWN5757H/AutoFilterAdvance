@@ -619,7 +619,8 @@ async def handle_add_get_files(session) -> bool:
         title = movie_details.get("title", "movie")
         year = movie_details.get("year", "")
         movie_year = f"{title} {year}".strip()
-        url = f"https://telegram.me/{temp.U_NAME}?start=getfile-{movie_year.replace(' ', '-')}"
+
+        url = f"https://telegram.me/{temp.U_NAME}?start=search-{movie_year.replace(' ', '-')}"
 
         # Prevent adding duplicate button
         for row in session["buttons"]:
@@ -627,36 +628,32 @@ async def handle_add_get_files(session) -> bool:
                 if btn.url == url:
                     return False
 
-        # Add the two Group buttons side-by-side to a first row (🔵 Dark Blue Button style)
-        session["buttons"].append(
-            [
-                InlineKeyboardButton(
-                    text="Group 1 🎬",
-                    url="https://t.me/Sandalwood_Kannada_Group",
-                    icon_custom_emoji_id=5258096772776991776,
-                    style=ButtonStyle.PRIMARY,
-                ),
-                InlineKeyboardButton(
-                    text="Group 2 🎬",
-                    url="https://t.me/+GLsPkRgLGGszMzY1",
-                    icon_custom_emoji_id=5258096772776991776,
-                    style=ButtonStyle.PRIMARY,
-                ),
-            ]
-        )
+        # Add the two Group buttons side-by-side to the first row (🔵 Dark Blue Button style)
+        session["buttons"].append([
+            InlineKeyboardButton(
+                text="Group 1 🎬",
+                url="https://t.me/Sandalwood_Kannada_Group",
+                icon_custom_emoji_id=5258096772776991776,
+                style=ButtonStyle.PRIMARY,
+            ),
+            InlineKeyboardButton(
+                text="Group 2 🎬",
+                url="https://t.me/+GLsPkRgLGGszMzY1",
+                icon_custom_emoji_id=5258096772776991776,
+                style=ButtonStyle.PRIMARY,
+            )
+        ])
 
         # Add the Direct Search button to the second row (🟢 Green Button style)
-        session["buttons"].append(
-            [
-                InlineKeyboardButton(
-                    text="Direct Search 🔎",
-                    url=url,
-                    icon_custom_emoji_id=5258503720928288433,
-                    style=ButtonStyle.SUCCESS,
-                ),
-            ]
-        )
-
+        session["buttons"].append([
+            InlineKeyboardButton(
+                text="Direct Search 🔎",
+                url=url,
+                icon_custom_emoji_id=5258503720928288433,
+                style=ButtonStyle.SUCCESS,
+            )
+        ])
+        
         return True
     return False
 
