@@ -114,7 +114,7 @@ OTT_PLATFORMS = [
     "Peacock",
     "YouTube Premium",
 ]
-PRINTS = [ 
+PRINTS = [
     "HDRip",
     "WEB-DL",
     "WEB-Rip",
@@ -641,7 +641,7 @@ async def handle_add_get_files(session) -> bool:
                     url="https://t.me/+GLsPkRgLGGszMzY1",
                     icon_custom_emoji_id=5258096772776991776,
                     style=ButtonStyle.PRIMARY,
-                )
+                ),
             ]
         )
 
