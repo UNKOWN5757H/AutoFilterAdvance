@@ -10,6 +10,8 @@ from pyrogram.types import (
     InlineKeyboardMarkup,
     Message,
 )
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram.enums import ButtonStyle
 
 # Ensure you have 'pyromod' installed and imported in your main bot file to use client.listen()
 from info import ABOVE_PREVIEW, ADMINS, MOVIE_UPDATE_CHANNEL
@@ -604,7 +606,23 @@ async def handle_add_get_files(session) -> bool:
                 if btn.url == url:
                     return False
 
-        session["buttons"].append([InlineKeyboardButton("Direct Search 🔎", url=url)])
+        # Add the two Group buttons to a new row up it
+        session["buttons"].append([
+            InlineKeyboardButton("Group 1 🎬", url="https://t.me/Sandalwood_Kannada_Group", icon_custom_emoji_id=5258096772776991776, style=ButtonStyle.PRIMARY # 🔵 Dark Blue Button),
+            InlineKeyboardButton("Group 2 🎬", url="https://t.me/+GLsPkRgLGGszMzY1", icon_custom_emoji_id=5258096772776991776, style=ButtonStyle.PRIMARY # 🔵 Dark Blue Button),
+        ])
+
+        # Add the Direct Search button to the below row
+        session["buttons"].append([InlineKeyboardButton("Direct Search 🔎", url=url, icon_custom_emoji_id=5258503720928288433, style=ButtonStyle.SUCCESS  # 🟢 Green Button)])
+
+await message.reply(
+    "Choose a button color! 🎨\n\n"
+    "🔵 Primary → Dark Blue Button\n"
+    "🟢 Success → Green Button\n"
+    "🔴 Danger → Red Button",
+    reply_markup=buttons
+)
+                                                        
         return True
     return False
 
