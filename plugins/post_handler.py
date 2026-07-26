@@ -29,8 +29,7 @@ RESOLUTIONS_FORMAT = "\n➥ <b>Qualities :</b> <code>{resolutions}</code>"
 OTT_FORMAT = "\n➥ <b>Available on :</b> <code>{otts}</code>"
 
 TEMPLATES = {
-    "divider_list": """🎬 <b>{title} {year}</b>\n━━━━━━━━━━━━━━━━━━\n➥ <b>Rating :</b> <code>★ {rating}/10</code>\n➥ <b>Genres :</b> <code>{genres}</code>""",
-    "clean_grid": """✅ {title} ({year})\n\n<blockquote><b>🔊: {LANGUAGES}</b>\n<b>🖥️: {RESOLUTIONS}</b>\n<b>🎥: {genres}</b>\n<b>📺: {OTT_PLATFORMS}</b>\n<b>📟: Available In Files.</b>\n\n<b>===============</b></blockquote>""",
+    "clean_grid": """<b>✅ {title} ({year})</b>\n\n<blockquote><b>🔊 : {langs}</b>\n<b>🖥️ : {resolutions}</b>\n<b>🎥 : {genres}</b>\n<b>📺 : #{otts}</b>\n<b>📟 : Available In Files.</b>\n\n<b>============================</b></blockquote>""",
 }
 
 LANGUAGES = [
@@ -75,7 +74,7 @@ RESOLUTIONS = [
     "DVDScr",
     "TS",
     "CAM",
-    "AV1",
+    "HDRip",
     "HEVC",
     "x264",
 ]
