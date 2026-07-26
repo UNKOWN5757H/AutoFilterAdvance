@@ -3,6 +3,7 @@ import logging
 import re
 
 from pyrogram import Client, filters
+from pyrogram.enums import ButtonStyle
 from pyrogram.errors import MessageNotModified, MessageTooLong
 from pyrogram.types import (
     CallbackQuery,
@@ -604,22 +605,31 @@ async def handle_add_get_files(session) -> bool:
                 if btn.url == url:
                     return False
 
-        # Add the Direct Search button to the first row (with green emojis)
-        session["buttons"].append(
-            [InlineKeyboardButton("🟢 Direct Search 🔎 🟢", url=url)]
-        )
-
-        # Add the two Group buttons side-by-side to a new row below it (with blue emojis)
-        session["buttons"].append(
-            [
-                InlineKeyboardButton(
-                    "🔵 Group 1 🎬", url="https://t.me/Sandalwood_Kannada_Group"
-                ),
-                InlineKeyboardButton(
-                    "🔵 Group 2 🎬", url="https://t.me/+GLsPkRgLGGszMzY1"
-                ),
-            ]
-        )
+        # Add the Direct Search button to the first row (🟢 Green Button style)
+        session["buttons"].append([
+            InlineKeyboardButton(
+                text="Direct Search 🔎",
+                url=url,
+                icon_custom_emoji_id=5258503720928288433,
+                style=ButtonStyle.SUCCESS
+            )
+        ])
+        
+        # Add the two Group buttons side-by-side to a new row below it (🔵 Dark Blue Button style)
+        session["buttons"].append([
+            InlineKeyboardButton(
+                text="Group 1 🎬",
+                url="https://t.me/Sandalwood_Kannada_Group",
+                icon_custom_emoji_id=5258096772776991776,
+                style=ButtonStyle.PRIMARY
+            ),
+            InlineKeyboardButton(
+                text="Group 2 🎬",
+                url="https://t.me/+GLsPkRgLGGszMzY1",
+                icon_custom_emoji_id=5258096772776991776,
+                style=ButtonStyle.PRIMARY
+            )
+        ])
 
         return True
     return False
