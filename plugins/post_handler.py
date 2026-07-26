@@ -20,9 +20,7 @@ logger = logging.getLogger(__name__)
 post_sessions = {}
 
 USE_GETFILE_BUTTON_BY_DEFAULT = True
-DEFAULT_WATERMARK = (
-    "Join [Sandalwood New Movies](https://t.me/sandalwood_kannada_moviesz)"
-)
+DEFAULT_WATERMARK = ("Join [Sandalwood New Movies](https://t.me/sandalwood_kannada_moviesz)")
 LANGUAGES_FORMAT = "➥ <b>Languages :</b> <code>{langs}</code>"
 RESOLUTIONS_FORMAT = "\n➥ <b>Qualities :</b> <code>{resolutions}</code>"
 OTT_FORMAT = "\n➥ <b>Available on :</b> <code>{otts}</code>"
@@ -37,7 +35,7 @@ TEMPLATES = {
 🌟 <b>Rating:</b> {rating}""",
     "sparkle_header": """✨ <b>{title}</b> ✨\n\n<b>🗓 Year:</b> {year} | <b>⭐️ Rating:</b> {rating}/10\n<b>🎭 Genres:</b> {genres}\n\n<i>{plot}</i>""",
     "markdown_style": """🎥 **{title}** ({year})\n\n- **Rating**: {rating} / 10 🌟\n- **Genres**: {genres}\n\n**Plot Summary**:\n{plot}""",
-    "divider_list": """🎬 <b>{title} {year}</b>\n━━━━━━━━━━━━━━━━━━\n➥ <b>Rating :</b> <code>★ {rating}/10</code>\n➥ <b>Genres :</b> <code>{genres}</code>\n""",
+    "divider_list": """🎬 <b>{title} {year}</b>\n━━━━━━━━━━━━━━━━━━\n➥ <b>Rating :</b> <code>★ {rating}/10</code>\n➥ <b>Genres :</b> <code>{genres}</code>""",
     "dashed_box": """- - - - - - - - - - - - - - - - - -\n🎥 <b>{title}</b>\n- - - - - - - - - - - - - - - - - -\n\n➛ <b>Year ∥</b> {year}\n➛ <b>Rating ∥</b> {rating}/10\n➛ <b>Genres ∥</b> {genres}\n\n<b><u>Synopsis</u></b>\n<i>{plot}</i>""",
     "chevron_details": """<b>{title}</b>\n\n» <b>Year ➣</b> {year}\n» <b>Rating ➣</b> ★ {rating}/10\n» <b>Genres ➣</b> {genres}\n\n<b>∥ PLOT ∥</b>\n└─ <i>{plot}</i>""",
     "bullet_points": """✨ <b><u>{title} ({year})</u></b> ✨\n\n● <b>Rating :</b> {rating}/10\n● <b>Genres :</b> {genres}\n\n<b>💬 Plot Summary ➥</b>\n<i>{plot}</i>""",
