@@ -1,5 +1,5 @@
 # --- Core Telegram Framework ---
-pyrogram==2.0.106
+pyrogram @ git+https://github.com/KurimuzonAkuma/pyrogram.git
 tgcrypto==1.2.5
 
 # --- MongoDB Async Drivers ---
