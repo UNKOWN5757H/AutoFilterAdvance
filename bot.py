@@ -48,13 +48,15 @@ class Bot(Client):
             sleep_threshold=5,
         )
 
-    async def start(self):
+    # FIXED: Added *args and **kwargs to handle Kurigram's 'use_qr' injection
+    async def start(self, *args, **kwargs):
         # 1. Load banned users/chats into memory
         b_users, b_chats = await db.get_banned()
         temp.BANNED_USERS = b_users
         temp.BANNED_CHATS = b_chats
 
-        await super().start()
+        # Pass the extra arguments up to the parent Pyrogram class
+        await super().start(*args, **kwargs)
 
         # ============================================================
         # 2. DATABASE INITIALIZATION & CRASH FIX
@@ -106,8 +108,9 @@ class Bot(Client):
                 if os.path.exists("restart.txt"):
                     os.remove("restart.txt")
 
-    async def stop(self, *args):
-        await super().stop()
+    # FIXED: Ensured stop() also accepts external arguments gracefully
+    async def stop(self, *args, **kwargs):
+        await super().stop(*args, **kwargs)
         logger.info("Bot stopped. Bye.")
 
     async def iter_messages(
