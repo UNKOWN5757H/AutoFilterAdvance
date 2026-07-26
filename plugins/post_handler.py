@@ -605,15 +605,21 @@ async def handle_add_get_files(session) -> bool:
                     return False
 
         # Add the Direct Search button to the first row (with green emojis)
-        session["buttons"].append([
-            InlineKeyboardButton("🟢 Direct Search 🔎 🟢", url=url)
-        ])
-        
+        session["buttons"].append(
+            [InlineKeyboardButton("🟢 Direct Search 🔎 🟢", url=url)]
+        )
+
         # Add the two Group buttons side-by-side to a new row below it (with blue emojis)
-        session["buttons"].append([
-            InlineKeyboardButton("🔵 Group 1 🎬", url="https://t.me/Sandalwood_Kannada_Group"),
-            InlineKeyboardButton("🔵 Group 2 🎬", url="https://t.me/+GLsPkRgLGGszMzY1")
-        ])
+        session["buttons"].append(
+            [
+                InlineKeyboardButton(
+                    "🔵 Group 1 🎬", url="https://t.me/Sandalwood_Kannada_Group"
+                ),
+                InlineKeyboardButton(
+                    "🔵 Group 2 🎬", url="https://t.me/+GLsPkRgLGGszMzY1"
+                ),
+            ]
+        )
 
         return True
     return False
