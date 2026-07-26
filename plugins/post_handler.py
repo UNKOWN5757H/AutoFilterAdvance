@@ -286,7 +286,7 @@ async def update_post_preview(
                 session["last_preview_message_id"],
                 text_content,
                 reply_markup=keyboard,
-                disable_web_page_preview=False
+                disable_web_page_preview=False,
             )
     except MessageNotModified:
         pass
@@ -848,7 +848,7 @@ async def finalize_and_post(
                 chat_id=MOVIE_UPDATE_CHANNEL,
                 text=text_content,
                 reply_markup=final_keyboard,
-                disable_web_page_preview=False
+                disable_web_page_preview=False,
             )
 
         await status_msg.edit("✅ Post has been sent to the update channel.")
