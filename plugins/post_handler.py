@@ -114,6 +114,28 @@ OTT_PLATFORMS = [
     "Peacock",
     "YouTube Premium",
 ]
+PRINTS = [ 
+    "HDRip",
+    "WEB-DL",
+    "WEB-Rip",
+    "BLURAY",
+    "DVD-Rip",
+    "Jio-Hotstar",
+    "PRE-HDRip",
+    "CAM-Rip",
+    "HEVC",
+    "DVDRip",
+    "DVDScr",
+    "HDTVRip",
+    "BDRip",
+    "BluRay",
+    "x264",
+    "AV1",
+    "TSRip",
+    "CAMRip",
+    "DVDRip",
+    "HDTC",
+]
 
 
 @Client.on_message(filters.command("post") & filters.user(ADMINS), group=-4)
@@ -605,19 +627,7 @@ async def handle_add_get_files(session) -> bool:
                 if btn.url == url:
                     return False
 
-        # Add the Direct Search button to the first row (🟢 Green Button style)
-        session["buttons"].append(
-            [
-                InlineKeyboardButton(
-                    text="Direct Search 🔎",
-                    url=url,
-                    icon_custom_emoji_id=5258503720928288433,
-                    style=ButtonStyle.SUCCESS,
-                )
-            ]
-        )
-
-        # Add the two Group buttons side-by-side to a new row below it (🔵 Dark Blue Button style)
+        # Add the two Group buttons side-by-side to a first row (🔵 Dark Blue Button style)
         session["buttons"].append(
             [
                 InlineKeyboardButton(
@@ -631,6 +641,18 @@ async def handle_add_get_files(session) -> bool:
                     url="https://t.me/+GLsPkRgLGGszMzY1",
                     icon_custom_emoji_id=5258096772776991776,
                     style=ButtonStyle.PRIMARY,
+                )
+            ]
+        )
+
+        # Add the Direct Search button to the second row (🟢 Green Button style)
+        session["buttons"].append(
+            [
+                InlineKeyboardButton(
+                    text="Direct Search 🔎",
+                    url=url,
+                    icon_custom_emoji_id=5258503720928288433,
+                    style=ButtonStyle.SUCCESS,
                 ),
             ]
         )
