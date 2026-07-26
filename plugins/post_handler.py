@@ -30,7 +30,7 @@ RESOLUTIONS_FORMAT = "\n➥ <b>Qualities :</b> <code>{resolutions}</code>"
 OTT_FORMAT = "\n➥ <b>Available on :</b> <code>{otts}</code>"
 
 TEMPLATES = {
-    "divider_list": """🎬 <b>{title} ({year})</b>\n━━━━━━━━━━━━━━━━━━\n<blockquote><b>🔊 : {LANGUAGES}</b>\n<b>🖥️ : {RESOLUTIONS}</b>\n<b>📺 : {OTT_PLATFORMS}</b></blockquote>""",
+    "divider_list": """🎬 <b>{title} ({year})</b>\n\n<blockquote><b>🔊 : {LANGUAGES}</b>\n<b>🖥️ : {RESOLUTIONS}</b>\n<b>📺 : {OTT_PLATFORMS}</b></blockquote>""",
 }
 
 LANGUAGES = [
@@ -166,7 +166,6 @@ async def start_post_session(
 
 class SafeDict(dict):
     """Safely handles missing keys in templates so it doesn't crash the bot."""
-
     def __missing__(self, key):
         return "{" + key + "}"
 
@@ -187,47 +186,33 @@ async def _build_final_post_content(session: dict, session_id: int):
     plot_str = movie_details.get("plot", "N/A")
 
     if not session.get("caption"):
-        format_args = SafeDict(
-            {
-                "title": movie_details.get("title", "N/A"),
-                "year": movie_details.get("year", "N/A"),
-                "rating": rating_str,
-                "genres": genres_str,
-                "plot": plot_str,
-                "LANGUAGES": langs_str,
-                "RESOLUTIONS": res_str,
-                "OTT_PLATFORMS": otts_str,
-                "langs": langs_str,
-                "resolutions": res_str,
-                "otts": otts_str,
-            }
-        )
-
+        format_args = SafeDict({
+            "title": movie_details.get("title", "N/A"),
+            "year": movie_details.get("year", "N/A"),
+            "rating": rating_str,
+            "genres": genres_str,
+            "plot": plot_str,
+            "LANGUAGES": langs_str,
+            "RESOLUTIONS": res_str,
+            "OTT_PLATFORMS": otts_str,
+            "langs": langs_str,
+            "resolutions": res_str,
+            "otts": otts_str
+        })
+        
         formatter = string.Formatter()
         session["caption"] = formatter.vformat(template_str, (), format_args)
 
     final_caption = session["caption"]
-
+    
     # If the user's template DOES NOT have {LANGUAGES} built in, append the old format to the bottom
-    if (
-        session.get("custom_languages")
-        and "{LANGUAGES}" not in template_str
-        and "{langs}" not in template_str
-    ):
+    if session.get("custom_languages") and "{LANGUAGES}" not in template_str and "{langs}" not in template_str:
         final_caption += "\n" + session["lang_format"].format(langs=langs_str)
-
-    if (
-        session.get("custom_resolutions")
-        and "{RESOLUTIONS}" not in template_str
-        and "{resolutions}" not in template_str
-    ):
+        
+    if session.get("custom_resolutions") and "{RESOLUTIONS}" not in template_str and "{resolutions}" not in template_str:
         final_caption += session["res_format"].format(resolutions=res_str)
-
-    if (
-        session.get("custom_otts")
-        and "{OTT_PLATFORMS}" not in template_str
-        and "{otts}" not in template_str
-    ):
+        
+    if session.get("custom_otts") and "{OTT_PLATFORMS}" not in template_str and "{otts}" not in template_str:
         final_caption += session["ott_format"].format(otts=otts_str)
 
     if session.get("watermark"):
@@ -324,7 +309,7 @@ async def update_post_preview(
 
 def build_keyboard(session: dict, session_id: int):
     rows = []
-
+    
     # 1. Custom Button Links
     if session.get("buttons"):
         rows.extend(session["buttons"])
@@ -638,34 +623,30 @@ async def handle_add_get_files(session) -> bool:
                     return False
 
         # Add the two Group buttons side-by-side to the first row (🔵 Dark Blue Button style)
-        session["buttons"].append(
-            [
-                InlineKeyboardButton(
-                    text="Group 1 🎬",
-                    url="https://t.me/Sandalwood_Kannada_Group",
-                    icon_custom_emoji_id=5258096772776991776,
-                    style=ButtonStyle.PRIMARY,
-                ),
-                InlineKeyboardButton(
-                    text="Group 2 🎬",
-                    url="https://t.me/+GLsPkRgLGGszMzY1",
-                    icon_custom_emoji_id=5258096772776991776,
-                    style=ButtonStyle.PRIMARY,
-                ),
-            ]
-        )
+        session["buttons"].append([
+            InlineKeyboardButton(
+                text="Group 1 🎬",
+                url="https://t.me/Sandalwood_Kannada_Group",
+                icon_custom_emoji_id=5258096772776991776,
+                style=ButtonStyle.PRIMARY,
+            ),
+            InlineKeyboardButton(
+                text="Group 2 🎬",
+                url="https://t.me/+GLsPkRgLGGszMzY1",
+                icon_custom_emoji_id=5258096772776991776,
+                style=ButtonStyle.PRIMARY,
+            )
+        ])
 
         # Add the Direct Search button to the second row (🟢 Green Button style)
-        session["buttons"].append(
-            [
-                InlineKeyboardButton(
-                    text="Direct Search 🔎",
-                    url=url,
-                    icon_custom_emoji_id=5258503720928288433,
-                    style=ButtonStyle.SUCCESS,
-                )
-            ]
-        )
+        session["buttons"].append([
+            InlineKeyboardButton(
+                text="Direct Search 🔎",
+                url=url,
+                icon_custom_emoji_id=5258503720928288433,
+                style=ButtonStyle.SUCCESS,
+            )
+        ])
 
         return True
     return False
@@ -858,11 +839,11 @@ async def handle_cancel(client: Client, query: CallbackQuery, session_id: int, _
 def get_final_keyboard(session: dict):
     """Builds the final keyboard strictly without admin controls for the channel post."""
     rows = []
-
+    
     # Custom Link Buttons (Groups & Search)
     if session.get("buttons"):
         rows.extend(session["buttons"])
-
+        
     return InlineKeyboardMarkup(rows) if rows else None
 
 
@@ -890,7 +871,7 @@ async def finalize_and_post(
     final_caption, _, poster_to_use = await _build_final_post_content(
         session, session_id
     )
-
+    
     # Generate the clean keyboard without admin tools
     final_keyboard = get_final_keyboard(session)
 
