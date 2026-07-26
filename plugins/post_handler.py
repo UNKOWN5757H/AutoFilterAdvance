@@ -29,20 +29,8 @@ RESOLUTIONS_FORMAT = "\n➥ <b>Qualities :</b> <code>{resolutions}</code>"
 OTT_FORMAT = "\n➥ <b>Available on :</b> <code>{otts}</code>"
 
 TEMPLATES = {
-    "classic_emoji": """<b>{title} ({year})</b>
-⭐️ <b>Rating:</b> {rating}/10
-🎭 <b>Genre:</b> {genres}
-💬 <b>Plot:</b> {plot}""",
-    "minimalist": """🎬 <b>{title}</b>
-🗓 <b>Year:</b> {year}
-🌟 <b>Rating:</b> {rating}""",
-    "sparkle_header": """✨ <b>{title}</b> ✨\n\n<b>🗓 Year:</b> {year} | <b>⭐️ Rating:</b> {rating}/10\n<b>🎭 Genres:</b> {genres}\n\n<i>{plot}</i>""",
-    "markdown_style": """🎥 **{title}** ({year})\n\n- **Rating**: {rating} / 10 🌟\n- **Genres**: {genres}\n\n**Plot Summary**:\n{plot}""",
     "divider_list": """🎬 <b>{title} {year}</b>\n━━━━━━━━━━━━━━━━━━\n➥ <b>Rating :</b> <code>★ {rating}/10</code>\n➥ <b>Genres :</b> <code>{genres}</code>""",
-    "dashed_box": """- - - - - - - - - - - - - - - - - -\n🎥 <b>{title}</b>\n- - - - - - - - - - - - - - - - - -\n\n➛ <b>Year ∥</b> {year}\n➛ <b>Rating ∥</b> {rating}/10\n➛ <b>Genres ∥</b> {genres}\n\n<b><u>Synopsis</u></b>\n<i>{plot}</i>""",
-    "chevron_details": """<b>{title}</b>\n\n» <b>Year ➣</b> {year}\n» <b>Rating ➣</b> ★ {rating}/10\n» <b>Genres ➣</b> {genres}\n\n<b>∥ PLOT ∥</b>\n└─ <i>{plot}</i>""",
-    "bullet_points": """✨ <b><u>{title} ({year})</u></b> ✨\n\n● <b>Rating :</b> {rating}/10\n● <b>Genres :</b> {genres}\n\n<b>💬 Plot Summary ➥</b>\n<i>{plot}</i>""",
-    "clean_grid": """✅ {title} ({year})\n\n<quote><b>🔊: {LANGUAGES}</b>\n<b>🖥️: {RESOLUTIONS}</b>\n<b>🎥: {genres}</b>\n<b>📺: {OTT_PLATFORMS}</b>\n<b>📟: Available In Files.</b>\n\n<b>===============</b></quote>""",
+    "clean_grid": """✅ {title} ({year})\n\n<blockquote><b>🔊: {LANGUAGES}</b>\n<b>🖥️: {RESOLUTIONS}</b>\n<b>🎥: {genres}</b>\n<b>📺: {OTT_PLATFORMS}</b>\n<b>📟: Available In Files.</b>\n\n<b>===============</b></blockquote>""",
 }
 
 LANGUAGES = [
@@ -85,34 +73,34 @@ RESOLUTIONS = [
     "HDTV",
     "DVDRip",
     "DVDScr",
-    "TSRip",
-    "CAMRip",
+    "TS",
+    "CAM",
     "AV1",
     "HEVC",
-    "HDTC",
+    "x264",
 ]
 OTT_PLATFORMS = [
-    "#Aha",
-    "#ALTBalaji",
-    "#JioHotstar",
-    "#Eros-Now",
-    "#Hoichoi",
-    "#JioCinema",
-    "#MX-Player",
-    "#SonyLIV",
-    "#SunNXT",
-    "#Voot",
-    "#Zee5",
-    "#AmazonPrime",
-    "#AppleTV+",
-    "#Crunchyroll",
-    "#Discovery+",
-    "#HBOMax",
-    "#Hulu",
-    "#Netflix",
-    "#Paramount+",
-    "#Peacock",
-    "#YouTube_Premium",
+    "Aha",
+    "ALTBalaji",
+    "JioHotstar",
+    "Eros Now",
+    "Hoichoi",
+    "JioCinema",
+    "MX Player",
+    "SonyLIV",
+    "Sun NXT",
+    "Voot",
+    "Zee5",
+    "Amazon Prime Video",
+    "Apple TV+",
+    "Crunchyroll",
+    "Discovery+",
+    "HBO Max",
+    "Hulu",
+    "Netflix",
+    "Paramount+",
+    "Peacock",
+    "YouTube Premium",
 ]
 
 
@@ -165,7 +153,7 @@ async def start_post_session(
         "lang_format": LANGUAGES_FORMAT,
         "ott_format": OTT_FORMAT,
         "res_format": RESOLUTIONS_FORMAT,
-        "active_template": "divider_list",
+        "active_template": "clean_grid",
         "movie_details": movie_details,
     }
 
@@ -181,25 +169,41 @@ async def _build_final_post_content(session: dict, session_id: int):
     if not movie_details:
         return None, None, None
 
+    template_str = TEMPLATES[session["active_template"]]
+
+    # Build the string values for the new template variables
+    langs_str = ", ".join(session.get("custom_languages", [])) or "N/A"
+    res_str = ", ".join(session.get("custom_resolutions", [])) or "N/A"
+    otts_str = ", ".join(session.get("custom_otts", [])) or "N/A"
+
     if not session.get("caption"):
-        session["caption"] = TEMPLATES[session["active_template"]].format(
-            title=movie_details.get("title", "N/A"),
-            year=movie_details.get("year", "N/A"),
-            rating=movie_details.get("rating", "N/A"),
-            genres=", ".join(movie_details.get("genres", []) or []),
-            plot=movie_details.get("plot", "N/A"),
-        )
+        try:
+            session["caption"] = template_str.format(
+                title=movie_details.get("title", "N/A"),
+                year=movie_details.get("year", "N/A"),
+                rating=movie_details.get("rating", "N/A"),
+                genres=", ".join(movie_details.get("genres", []) or []),
+                plot=movie_details.get("plot", "N/A"),
+                LANGUAGES=langs_str,
+                RESOLUTIONS=res_str,
+                OTT_PLATFORMS=otts_str
+            )
+        except KeyError as e:
+            logger.error(f"Template formatting error: {e}")
+            session["caption"] = "Error formatting template."
 
     final_caption = session["caption"]
-    if session.get("custom_languages"):
+    
+    # Only append to the bottom if the template didn't already include them!
+    if session.get("custom_languages") and "{LANGUAGES}" not in template_str:
         final_caption += "\n" + session["lang_format"].format(
             langs=", ".join(session["custom_languages"])
         )
-    if session.get("custom_resolutions"):
+    if session.get("custom_resolutions") and "{RESOLUTIONS}" not in template_str:
         final_caption += session["res_format"].format(
             resolutions=", ".join(session["custom_resolutions"])
         )
-    if session.get("custom_otts"):
+    if session.get("custom_otts") and "{OTT_PLATFORMS}" not in template_str:
         final_caption += session["ott_format"].format(
             otts=", ".join(session["custom_otts"])
         )
@@ -323,7 +327,7 @@ def build_keyboard(session: dict, session_id: int):
             ],
             [
                 InlineKeyboardButton(
-                    "🔊 Languages", callback_data=f"post:languages:{session_id}"
+                    "🗣️ Languages", callback_data=f"post:languages:{session_id}"
                 ),
                 InlineKeyboardButton(
                     "📺 Qualities", callback_data=f"post:resolutions:{session_id}"
@@ -598,7 +602,7 @@ async def handle_add_get_files(session) -> bool:
         year = movie_details.get("year", "")
         movie_year = f"{title} {year}".strip()
 
-        url = f"https://telegram.me/{temp.U_NAME}?start=search_{movie_year.replace(' ', '_')}"
+        url = f"https://telegram.me/{temp.U_NAME}?start=search-{movie_year.replace(' ', '-')}"
 
         # Prevent adding duplicate button
         for row in session["buttons"]:
@@ -607,34 +611,30 @@ async def handle_add_get_files(session) -> bool:
                     return False
 
         # Add the two Group buttons side-by-side to the first row (🔵 Dark Blue Button style)
-        session["buttons"].append(
-            [
-                InlineKeyboardButton(
-                    text="Group 1 🎬",
-                    url="https://t.me/Sandalwood_Kannada_Group",
-                    icon_custom_emoji_id=5258096772776991776,
-                    style=ButtonStyle.PRIMARY,
-                ),
-                InlineKeyboardButton(
-                    text="Group 2 🎬",
-                    url="https://t.me/+GLsPkRgLGGszMzY1",
-                    icon_custom_emoji_id=5258096772776991776,
-                    style=ButtonStyle.PRIMARY,
-                ),
-            ]
-        )
+        session["buttons"].append([
+            InlineKeyboardButton(
+                text="Group 1 🎬",
+                url="https://t.me/Sandalwood_Kannada_Group",
+                icon_custom_emoji_id=5258096772776991776,
+                style=ButtonStyle.PRIMARY,
+            ),
+            InlineKeyboardButton(
+                text="Group 2 🎬",
+                url="https://t.me/+GLsPkRgLGGszMzY1",
+                icon_custom_emoji_id=5258096772776991776,
+                style=ButtonStyle.PRIMARY,
+            )
+        ])
 
         # Add the Direct Search button to the second row (🟢 Green Button style)
-        session["buttons"].append(
-            [
-                InlineKeyboardButton(
-                    text="Direct Search 🔎",
-                    url=url,
-                    icon_custom_emoji_id=5258503720928288433,
-                    style=ButtonStyle.SUCCESS,
-                )
-            ]
-        )
+        session["buttons"].append([
+            InlineKeyboardButton(
+                text="Direct Search 🔎",
+                url=url,
+                icon_custom_emoji_id=5258503720928288433,
+                style=ButtonStyle.SUCCESS,
+            )
+        ])
 
         return True
     return False
