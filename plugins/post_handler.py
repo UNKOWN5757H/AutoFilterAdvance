@@ -42,7 +42,7 @@ TEMPLATES = {
     "dashed_box": """- - - - - - - - - - - - - - - - - -\n🎥 <b>{title}</b>\n- - - - - - - - - - - - - - - - - -\n\n➛ <b>Year ∥</b> {year}\n➛ <b>Rating ∥</b> {rating}/10\n➛ <b>Genres ∥</b> {genres}\n\n<b><u>Synopsis</u></b>\n<i>{plot}</i>""",
     "chevron_details": """<b>{title}</b>\n\n» <b>Year ➣</b> {year}\n» <b>Rating ➣</b> ★ {rating}/10\n» <b>Genres ➣</b> {genres}\n\n<b>∥ PLOT ∥</b>\n└─ <i>{plot}</i>""",
     "bullet_points": """✨ <b><u>{title} ({year})</u></b> ✨\n\n● <b>Rating :</b> {rating}/10\n● <b>Genres :</b> {genres}\n\n<b>💬 Plot Summary ➥</b>\n<i>{plot}</i>""",
-    "clean_grid": """🎬 {title} ({year})\n\n🗓️ <b>Year ∥</b> {year}\n⭐️ <b>Rating ∥</b> {rating}/10\n🎭 <b>Genres ∥</b> {genres}\n\n➣ <i>{plot}</i>""",
+    "clean_grid": """✅ {title} ({year})\n\n<quote><b>🔊: {LANGUAGES}</b>\n<b>🖥️: {RESOLUTIONS}</b>\n<b>🎥: {genres}</b>\n<b>📺: {OTT_PLATFORMS}</b>\n<b>📟: Available In Files.</b>\n\n<b>===============</b></quote>""",
 }
 
 LANGUAGES = [
@@ -85,56 +85,34 @@ RESOLUTIONS = [
     "HDTV",
     "DVDRip",
     "DVDScr",
-    "TS",
-    "CAM",
-    "AV1",
-    "HEVC",
-    "x264",
-]
-OTT_PLATFORMS = [
-    "Aha",
-    "ALTBalaji",
-    "JioHotstar",
-    "Eros Now",
-    "Hoichoi",
-    "JioCinema",
-    "MX Player",
-    "SonyLIV",
-    "Sun NXT",
-    "Voot",
-    "Zee5",
-    "Amazon Prime Video",
-    "Apple TV+",
-    "Crunchyroll",
-    "Discovery+",
-    "HBO Max",
-    "Hulu",
-    "Netflix",
-    "Paramount+",
-    "Peacock",
-    "YouTube Premium",
-]
-PRINTS = [
-    "HDRip",
-    "WEB-DL",
-    "WEB-Rip",
-    "BLURAY",
-    "DVD-Rip",
-    "Jio-Hotstar",
-    "PRE-HDRip",
-    "CAM-Rip",
-    "HEVC",
-    "DVDRip",
-    "DVDScr",
-    "HDTVRip",
-    "BDRip",
-    "BluRay",
-    "x264",
-    "AV1",
     "TSRip",
     "CAMRip",
-    "DVDRip",
+    "AV1",
+    "HEVC",
     "HDTC",
+]
+OTT_PLATFORMS = [
+    "#Aha",
+    "#ALTBalaji",
+    "#JioHotstar",
+    "#Eros-Now",
+    "#Hoichoi",
+    "#JioCinema",
+    "#MX-Player",
+    "#SonyLIV",
+    "#SunNXT",
+    "#Voot",
+    "#Zee5",
+    "#AmazonPrime",
+    "#AppleTV+",
+    "#Crunchyroll",
+    "#Discovery+",
+    "#HBOMax",
+    "#Hulu",
+    "#Netflix",
+    "#Paramount+",
+    "#Peacock",
+    "#YouTube_Premium",
 ]
 
 
@@ -345,7 +323,7 @@ def build_keyboard(session: dict, session_id: int):
             ],
             [
                 InlineKeyboardButton(
-                    "🗣️ Languages", callback_data=f"post:languages:{session_id}"
+                    "🔊 Languages", callback_data=f"post:languages:{session_id}"
                 ),
                 InlineKeyboardButton(
                     "📺 Qualities", callback_data=f"post:resolutions:{session_id}"
@@ -620,7 +598,7 @@ async def handle_add_get_files(session) -> bool:
         year = movie_details.get("year", "")
         movie_year = f"{title} {year}".strip()
 
-        url = f"https://telegram.me/{temp.U_NAME}?start=search-{movie_year.replace(' ', '-')}"
+        url = f"https://telegram.me/{temp.U_NAME}?start=search_{movie_year.replace(' ', '_')}"
 
         # Prevent adding duplicate button
         for row in session["buttons"]:
