@@ -20,7 +20,9 @@ logger = logging.getLogger(__name__)
 post_sessions = {}
 
 USE_GETFILE_BUTTON_BY_DEFAULT = True
-DEFAULT_WATERMARK = ("Join [Sandalwood New Movies](https://t.me/sandalwood_kannada_moviesz)")
+DEFAULT_WATERMARK = (
+    "Join [Sandalwood New Movies](https://t.me/sandalwood_kannada_moviesz)"
+)
 LANGUAGES_FORMAT = "➥ <b>Languages :</b> <code>{langs}</code>"
 RESOLUTIONS_FORMAT = "\n➥ <b>Qualities :</b> <code>{resolutions}</code>"
 OTT_FORMAT = "\n➥ <b>Available on :</b> <code>{otts}</code>"
