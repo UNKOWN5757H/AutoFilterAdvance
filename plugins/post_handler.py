@@ -604,7 +604,7 @@ async def handle_add_get_files(session) -> bool:
                 if btn.url == url:
                     return False
 
-        session["buttons"].append([InlineKeyboardButton("📥 Get Files 📥", url=url)])
+        session["buttons"].append([InlineKeyboardButton("Direct Search 🔎", url=url)])
         return True
     return False
 
