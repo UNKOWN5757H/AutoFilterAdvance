@@ -1,17 +1,15 @@
 import logging
-
 from pyrogram import Client, filters
-from pyrogram.errors import StopPropagation
+from pyrogram import StopPropagation
 from pyrogram.types import Message
 
 logger = logging.getLogger(__name__)
-
 
 # group=-99 guarantees this runs BEFORE the standard bot /start command
 @Client.on_message(filters.command("start") & filters.private, group=-99)
 async def intercept_direct_search(client: Client, message: Message):
     # Check if the start command contains our custom 'search_' payload
-    if len(message.command) > 1 and message.command[1].startswith("search-"):
+    if len(message.command) > 1 and message.command[1].startswith("search_"):
 
         # Extract the movie name (e.g., "search_The_Dark_Knight" -> "The Dark Knight")
         query = message.command[1].replace("search_", "").replace("_", " ")
