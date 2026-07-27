@@ -35,110 +35,35 @@ TEMPLATES = {
 }
 
 LANGUAGES = [
-    "Kannada",
-    "English",
-    "Gujarati",
-    "Hindi",
-    "Bengali",
-    "Malayalam",
-    "Marathi",
-    "Punjabi",
-    "Tamil",
-    "Telugu",
-    "Urdu",
-    "Arabic",
-    "French",
-    "German",
-    "Italian",
-    "Japanese",
-    "Korean",
-    "Mandarin",
-    "Portuguese",
-    "Russian",
-    "Spanish",
+    "Kannada", "English", "Gujarati", "Hindi", "Bengali",
+    "Malayalam", "Marathi", "Punjabi", "Tamil", "Telugu",
+    "Urdu", "Arabic", "French", "German", "Italian",
+    "Japanese", "Korean", "Mandarin", "Portuguese",
+    "Russian", "Spanish",
 ]
 RESOLUTIONS = [
-    "144p",
-    "240p",
-    "480p",
-    "720p",
-    "1080p",
-    "1440p",
-    "2160p",
-    "4320p",
-    "BluRay",
-    "BDRip",
-    "WEB-DL",
-    "VOD",
-    "WEBRip",
-    "HDTV",
-    "DVDRip",
-    "DVDScr",
-    "TS",
-    "CAM",
-    "AV1",
-    "HEVC",
-    "x264",
+    "144p", "240p", "480p", "720p", "1080p", "1440p",
+    "2160p", "4320p", "BluRay", "BDRip", "WEB-DL", "VOD",
+    "WEBRip", "HDTV", "DVDRip", "DVDScr", "TS", "CAM",
+    "AV1", "HEVC", "x264",
 ]
 GENRES = [
-    "Action",
-    "Adventure",
-    "Animation",
-    "Biography",
-    "Comedy",
-    "Crime",
-    "Documentary" "Drama",
-    "Family",
-    "Fantasy",
-    "History",
-    "Horror",
-    "Music",
-    "Musical" "Mystery",
-    "Romance",
-    "Sci-Fi",
-    "Sport",
-    "Thriller",
-    "War",
-    "Western" "Superhero",
-    "Psychological",
-    "Suspense",
-    "Noir",
-    "Disaster",
-    "Survival",
-    "Teen" "Slice of Life",
-    "Coming of Age",
-    "Martial Arts",
-    "Political",
-    "Legal",
-    "Medical",
-    "Spy" "Erotic",
-    "Mythology",
-    "Short",
-    "Experimental",
-    "Independent",
+    "Action", "Adventure", "Animation", "Biography", "Comedy",
+    "Crime", "Documentary", "Drama", "Family", "Fantasy",
+    "History", "Horror", "Music", "Musical", "Mystery",
+    "Romance", "Sci-Fi", "Sport", "Thriller", "War",
+    "Western", "Superhero", "Psychological", "Suspense",
+    "Noir", "Disaster", "Survival", "Teen", "Slice of Life",
+    "Coming of Age", "Martial Arts", "Political", "Legal",
+    "Medical", "Spy", "Erotic", "Mythology", "Short",
+    "Experimental", "Independent",
 ]
 OTT_PLATFORMS = [
-    "Aha",
-    "ALTBalaji",
-    "JioHotstar",
-    "Eros Now",
-    "Hoichoi",
-    "JioCinema",
-    "MX Player",
-    "SonyLIV",
-    "Sun NXT",
-    "Voot",
-    "Zee5",
-    "Amazon Prime Video",
-    "Apple TV+",
-    "Crunchyroll",
-    "Discovery+",
-    "HBO Max",
-    "Hulu",
-    "Netflix",
-    "Paramount+",
-    "Peacock",
-    "YouTube Premium",
+    "Aha", "ALTBalaji", "JioHotstar", "Eros Now", "Hoichoi",
+    "JioCinema", "MX Player", "SonyLIV", "Sun NXT", "Voot",
+    "Zee5", "Amazon Prime Video", "Apple TV+", "Crunchyroll",
+    "Discovery+", "HBO Max", "Hulu", "Netflix", "Paramount+",
+    "Peacock", "YouTube Premium",
 ]
 
 
@@ -178,7 +103,7 @@ async def start_post_session(
     post_sessions[user_id] = {
         "movie_name": movie_name,
         "caption": None,
-        "is_manual_caption": False,  # Tracks if the user typed a custom caption
+        "is_manual_caption": False,
         "buttons": [],
         "photo_mode": False,
         "use_landscape": bool(movie_details.get("backdrop_url")),
@@ -192,7 +117,7 @@ async def start_post_session(
         "watermark": DEFAULT_WATERMARK,
         "lang_format": LANGUAGES_FORMAT,
         "ott_format": OTT_FORMAT,
-        "genres_format": GENRES_FORMAT,
+        "gen_format": GENRES_FORMAT,
         "res_format": RESOLUTIONS_FORMAT,
         "active_template": "clean_grid",
         "movie_details": movie_details,
@@ -206,7 +131,6 @@ async def start_post_session(
 
 class SafeDict(dict):
     """Safely handles missing keys in templates so it NEVER crashes the bot."""
-
     def __missing__(self, key):
         return "{" + key + "}"
 
@@ -220,38 +144,38 @@ async def _build_final_post_content(session: dict, session_id: int):
         session.get("active_template"), TEMPLATES["clean_grid"]
     )
 
-    # Dynamically fetch the real-time selections!
+    # Dynamically fetch the real-time selections
     langs_str = ", ".join(session.get("custom_languages", [])) or "N/A"
     res_str = ", ".join(session.get("custom_resolutions", [])) or "N/A"
     genres_str = ", ".join(session.get("custom_genres", [])) or "N/A"
     otts_str = ", ".join(session.get("custom_otts", [])) or "N/A"
+    
+    rating_str = str(movie_details.get("rating", "N/A"))
+    plot_str = str(movie_details.get("plot", "N/A"))
 
-    # Force rebuild the template dynamically UNLESS they used the "Edit Caption" button
     if not session.get("is_manual_caption"):
+        # FIXED: Removed duplicate 'genres' to stop the SyntaxError crash
         format_args = SafeDict(
             title=str(movie_details.get("title", "N/A")),
             year=str(movie_details.get("year", "N/A")),
             rating=rating_str,
-            genres=genres_str,
             plot=plot_str,
             LANGUAGES=langs_str,
             RESOLUTIONS=res_str,
-            GENRES=gen_str,
+            GENRES=genres_str,
             OTT_PLATFORMS=otts_str,
             langs=langs_str,
             resolutions=res_str,
-            genres=gen_str,
+            genres=genres_str,
             otts=otts_str,
         )
-        # format_map is completely crash-proof compared to standard .format()
         base_caption = template_str.format_map(format_args)
     else:
-        # Use the custom caption they typed manually
         base_caption = session.get("caption", "")
 
     final_caption = base_caption
 
-    # Safely format and append extra elements if they aren't directly inside the template
+    # Safely format and append extra elements if they aren't explicitly inside the template
     if (
         session.get("custom_languages")
         and "{LANGUAGES}" not in template_str
@@ -275,8 +199,9 @@ async def _build_final_post_content(session: dict, session_id: int):
         and "{GENRES}" not in template_str
         and "{genres}" not in template_str
     ):
+        # FIXED: Used genres_str correctly
         final_caption += session["gen_format"].format_map(
-            SafeDict(genres=gen_str, GENRES=gen_str)
+            SafeDict(genres=genres_str, GENRES=genres_str)
         )
 
     if (
@@ -325,7 +250,6 @@ async def update_post_preview(
         )
         session["last_preview_message_id"] = status_msg.id
 
-    # Added a failsafe so it never gets stuck on "Fetching Details..." again!
     try:
         final_caption, keyboard, poster_to_use = await _build_final_post_content(
             session, session_id
@@ -425,7 +349,7 @@ def build_keyboard(session: dict, session_id: int):
                     "🖥️", callback_data=f"post:resolutions:{session_id}"
                 ),
                 InlineKeyboardButton(
-                    "🎥", callback_data=f"post:resolutions:{session_id}"
+                    "🎥", callback_data=f"post:genres:{session_id}"
                 ),
                 InlineKeyboardButton("📺", callback_data=f"post:otts:{session_id}"),
             ],
@@ -486,7 +410,8 @@ async def post_callbacks(client: Client, query: CallbackQuery):
         "templates",
         "buttons_menu",
         "remove_buttons_menu",
-        "genres" "otts",
+        "genres",
+        "otts",
     ]:
         await query.answer()
         if action == "languages":
@@ -509,7 +434,6 @@ async def post_callbacks(client: Client, query: CallbackQuery):
         await query.answer()
         item = extra_data[0]
 
-        # Make sure the session updates instantly!
         if action == "select_lang":
             if item not in session["custom_languages"]:
                 session["custom_languages"].append(item)
@@ -528,7 +452,8 @@ async def post_callbacks(client: Client, query: CallbackQuery):
             if item not in session["custom_genres"]:
                 session["custom_genres"].append(item)
             else:
-                session["custom_resolutions"].remove(item)
+                # FIXED: It used to remove custom_resolutions due to copy-paste bug!
+                session["custom_genres"].remove(item) 
             await show_selection_menu(query, session_id, "genres")
 
         elif action == "select_ott":
@@ -604,7 +529,7 @@ async def show_selection_menu(query: CallbackQuery, session_id: int, menu_type: 
     elif menu_type == "genres":
         items, selected, action_prefix, format_action = (
             GENRES,
-            session["custom_GENRES"],
+            session["custom_genres"], # FIXED: This must be lowercase 'genres'
             "select_gen",
             "format_gen",
         )
@@ -719,13 +644,11 @@ async def handle_add_get_files(session) -> bool:
 
         url = f"https://telegram.me/{temp.U_NAME}?start=search-{movie_year.replace(' ', '-')}"
 
-        # Prevent adding duplicate button
         for row in session["buttons"]:
             for btn in row:
                 if btn.url == url:
                     return False
 
-        # Add the two Group buttons side-by-side to the first row (🔵 Dark Blue Button style)
         session["buttons"].append(
             [
                 InlineKeyboardButton(
@@ -743,7 +666,6 @@ async def handle_add_get_files(session) -> bool:
             ]
         )
 
-        # Add the Direct Search button to the second row (🟢 Green Button style)
         session["buttons"].append(
             [
                 InlineKeyboardButton(
@@ -899,7 +821,7 @@ async def handle_templates_menu(query, session):
 
 async def handle_select_template(session, template_name):
     session["active_template"] = template_name
-    session["is_manual_caption"] = False  # Reverts to dynamically updating
+    session["is_manual_caption"] = False
     session["caption"] = None
 
 
@@ -968,7 +890,6 @@ def get_final_keyboard(session: dict):
     """Builds the final keyboard strictly without admin controls for the channel post."""
     rows = []
 
-    # Custom Link Buttons (Groups & Search)
     if session.get("buttons"):
         rows.extend(session["buttons"])
 
@@ -1000,7 +921,6 @@ async def finalize_and_post(
         session, session_id
     )
 
-    # Generate the clean keyboard without admin tools
     final_keyboard = get_final_keyboard(session)
 
     if not final_caption:
