@@ -35,35 +35,115 @@ TEMPLATES = {
 }
 
 LANGUAGES = [
-    "Kannada", "English", "Gujarati", "Hindi", "Bengali",
-    "Malayalam", "Marathi", "Punjabi", "Tamil", "Telugu",
-    "Urdu", "Arabic", "French", "German", "Italian",
-    "Japanese", "Korean", "Mandarin", "Portuguese",
-    "Russian", "Spanish",
+    "Kannada",
+    "English",
+    "Gujarati",
+    "Hindi",
+    "Bengali",
+    "Malayalam",
+    "Marathi",
+    "Punjabi",
+    "Tamil",
+    "Telugu",
+    "Urdu",
+    "Arabic",
+    "French",
+    "German",
+    "Italian",
+    "Japanese",
+    "Korean",
+    "Mandarin",
+    "Portuguese",
+    "Russian",
+    "Spanish",
 ]
 RESOLUTIONS = [
-    "144p", "240p", "480p", "720p", "1080p", "1440p",
-    "2160p", "4320p", "BluRay", "BDRip", "WEB-DL", "VOD",
-    "WEBRip", "HDTV", "DVDRip", "DVDScr", "TS", "CAM",
-    "AV1", "HEVC", "x264",
+    "144p",
+    "240p",
+    "480p",
+    "720p",
+    "1080p",
+    "1440p",
+    "2160p",
+    "4320p",
+    "BluRay",
+    "BDRip",
+    "WEB-DL",
+    "VOD",
+    "WEBRip",
+    "HDTV",
+    "DVDRip",
+    "DVDScr",
+    "TS",
+    "CAM",
+    "AV1",
+    "HEVC",
+    "x264",
 ]
 GENRES = [
-    "Action", "Adventure", "Animation", "Biography", "Comedy",
-    "Crime", "Documentary", "Drama", "Family", "Fantasy",
-    "History", "Horror", "Music", "Musical", "Mystery",
-    "Romance", "Sci-Fi", "Sport", "Thriller", "War",
-    "Western", "Superhero", "Psychological", "Suspense",
-    "Noir", "Disaster", "Survival", "Teen", "Slice of Life",
-    "Coming of Age", "Martial Arts", "Political", "Legal",
-    "Medical", "Spy", "Erotic", "Mythology", "Short",
-    "Experimental", "Independent",
+    "Action",
+    "Adventure",
+    "Animation",
+    "Biography",
+    "Comedy",
+    "Crime",
+    "Documentary",
+    "Drama",
+    "Family",
+    "Fantasy",
+    "History",
+    "Horror",
+    "Music",
+    "Musical",
+    "Mystery",
+    "Romance",
+    "Sci-Fi",
+    "Sport",
+    "Thriller",
+    "War",
+    "Western",
+    "Superhero",
+    "Psychological",
+    "Suspense",
+    "Noir",
+    "Disaster",
+    "Survival",
+    "Teen",
+    "Slice of Life",
+    "Coming of Age",
+    "Martial Arts",
+    "Political",
+    "Legal",
+    "Medical",
+    "Spy",
+    "Erotic",
+    "Mythology",
+    "Short",
+    "Experimental",
+    "Independent",
 ]
 OTT_PLATFORMS = [
-    "Aha", "ALTBalaji", "JioHotstar", "Eros Now", "Hoichoi",
-    "JioCinema", "MX Player", "SonyLIV", "Sun NXT", "Voot",
-    "Zee5", "Amazon Prime Video", "Apple TV+", "Crunchyroll",
-    "Discovery+", "HBO Max", "Hulu", "Netflix", "Paramount+",
-    "Peacock", "YouTube Premium",
+    "Aha",
+    "ALTBalaji",
+    "JioHotstar",
+    "Eros Now",
+    "Hoichoi",
+    "JioCinema",
+    "MX Player",
+    "SonyLIV",
+    "Sun NXT",
+    "Voot",
+    "Zee5",
+    "Amazon Prime Video",
+    "Apple TV+",
+    "Crunchyroll",
+    "Discovery+",
+    "HBO Max",
+    "Hulu",
+    "Netflix",
+    "Paramount+",
+    "Peacock",
+    "YouTube Premium",
 ]
 
 
@@ -131,6 +211,7 @@ async def start_post_session(
 
 class SafeDict(dict):
     """Safely handles missing keys in templates so it NEVER crashes the bot."""
+
     def __missing__(self, key):
         return "{" + key + "}"
 
@@ -149,7 +230,7 @@ async def _build_final_post_content(session: dict, session_id: int):
     res_str = ", ".join(session.get("custom_resolutions", [])) or "N/A"
     genres_str = ", ".join(session.get("custom_genres", [])) or "N/A"
     otts_str = ", ".join(session.get("custom_otts", [])) or "N/A"
-    
+
     rating_str = str(movie_details.get("rating", "N/A"))
     plot_str = str(movie_details.get("plot", "N/A"))
 
@@ -348,9 +429,7 @@ def build_keyboard(session: dict, session_id: int):
                 InlineKeyboardButton(
                     "🖥️", callback_data=f"post:resolutions:{session_id}"
                 ),
-                InlineKeyboardButton(
-                    "🎥", callback_data=f"post:genres:{session_id}"
-                ),
+                InlineKeyboardButton("🎥", callback_data=f"post:genres:{session_id}"),
                 InlineKeyboardButton("📺", callback_data=f"post:otts:{session_id}"),
             ],
             [
@@ -453,7 +532,7 @@ async def post_callbacks(client: Client, query: CallbackQuery):
                 session["custom_genres"].append(item)
             else:
                 # FIXED: It used to remove custom_resolutions due to copy-paste bug!
-                session["custom_genres"].remove(item) 
+                session["custom_genres"].remove(item)
             await show_selection_menu(query, session_id, "genres")
 
         elif action == "select_ott":
@@ -529,7 +608,7 @@ async def show_selection_menu(query: CallbackQuery, session_id: int, menu_type: 
     elif menu_type == "genres":
         items, selected, action_prefix, format_action = (
             GENRES,
-            session["custom_genres"], # FIXED: This must be lowercase 'genres'
+            session["custom_genres"],  # FIXED: This must be lowercase 'genres'
             "select_gen",
             "format_gen",
         )
