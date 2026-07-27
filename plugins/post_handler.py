@@ -28,10 +28,10 @@ DEFAULT_WATERMARK = (
 LANGUAGES_FORMAT = "<b>🔊 : {langs}</b>"
 RESOLUTIONS_FORMAT = "\n<b>🖥️ : {resolutions}</b>"
 GENRES_FORMAT = "\n<b>🎥 : {genres}</b>"
-OTT_FORMAT = "\n<b>📺 : {otts}</b>"
+OTT_FORMAT = "\n<b>📺 : #{otts}</b>"
 
 TEMPLATES = {
-    "clean_grid": """✅ <b>{title} ({year})</b>\n\n<blockquote><b>🔊 : {LANGUAGES}</b>\n<b>🖥️ : {RESOLUTIONS}</b>\n<b>🎥 : {genres}</b>\n<b>📺 : {OTT_PLATFORMS}</b>\n<b>📟 : Available In Files.</b>\n\n<b>=========================</b></blockquote>""",
+    "clean_grid": """✅ <b>{title} ({year})</b>\n\n<blockquote><b>🔊 : {LANGUAGES}</b>\n<b>🖥️ : {RESOLUTIONS}</b>\n<b>🎥 : {genres}</b>\n<b>📺 : #{OTT_PLATFORMS}</b>\n<b>📟 : Available In Files.</b>\n\n<b>=========================</b></blockquote>""",
 }
 
 LANGUAGES = [
@@ -56,6 +56,7 @@ LANGUAGES = [
     "Portuguese",
     "Russian",
     "Spanish",
+    "#NotAvailable",
 ]
 RESOLUTIONS = [
     "144p",
@@ -69,16 +70,16 @@ RESOLUTIONS = [
     "BluRay",
     "BDRip",
     "WEB-DL",
-    "VOD",
+    "HDRip",
     "WEBRip",
-    "HDTV",
+    "HDTVRip",
     "DVDRip",
     "DVDScr",
-    "TS",
-    "CAM",
-    "AV1",
+    "TSRip",
+    "CAMRip",
+    "HDTC",
     "HEVC",
-    "x264",
+    "#NotAvailable",
 ]
 GENRES = [
     "Action",
@@ -120,18 +121,18 @@ GENRES = [
     "Mythology",
     "Short",
     "Experimental",
-    "Independent",
+    "#NotAvalaible",
 ]
 OTT_PLATFORMS = [
     "Aha",
     "ALTBalaji",
     "JioHotstar",
-    "Eros Now",
+    "ErosNow",
     "Hoichoi",
     "JioCinema",
-    "MX Player",
+    "MXPlayer",
     "SonyLIV",
-    "Sun NXT",
+    "SunNXT",
     "Voot",
     "Zee5",
     "Amazon Prime Video",
@@ -144,6 +145,7 @@ OTT_PLATFORMS = [
     "Paramount+",
     "Peacock",
     "YouTube Premium",
+    "NotAvailable",
 ]
 
 
@@ -721,7 +723,7 @@ async def handle_add_get_files(session) -> bool:
         year = movie_details.get("year", "")
         movie_year = f"{title} {year}".strip()
 
-        url = f"https://telegram.me/{temp.U_NAME}?start=search-{movie_year.replace(' ', '-')}"
+        url = f"https://telegram.me/{temp.U_NAME}?start=search_{movie_year.replace(' ', '_')}"
 
         for row in session["buttons"]:
             for btn in row:
