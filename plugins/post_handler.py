@@ -32,120 +32,39 @@ OTT_FORMAT = "\n<b>📺 : #{otts}</b>"
 
 TEMPLATES = {
     "clean_grid": """✅ <b>{title} ({year})</b>\n\n<blockquote><b>🔊 : {LANGUAGES}</b>\n<b>🖥️ : {RESOLUTIONS}</b>\n<b>🎥 : {genres}</b>\n<b>📺 : #{OTT_PLATFORMS}</b>\n<b>📟 : Available In Files.</b>\n\n<b>=========================</b></blockquote>""",
+    "divider_list": """🎬 <b>{title} ({year})</b>\n━━━━━━━━━━━━━━━━━━\n<blockquote><b>🔊 : {LANGUAGES}</b>\n<b>🖥️ : {RESOLUTIONS}</b>\n<b>📺 : {OTT_PLATFORMS}</b></blockquote>""",
 }
 
 LANGUAGES = [
-    "Kannada",
-    "English",
-    "Gujarati",
-    "Hindi",
-    "Bengali",
-    "Malayalam",
-    "Marathi",
-    "Punjabi",
-    "Tamil",
-    "Telugu",
-    "Urdu",
-    "Arabic",
-    "French",
-    "German",
-    "Italian",
-    "Japanese",
-    "Korean",
-    "Mandarin",
-    "Portuguese",
-    "Russian",
-    "Spanish",
-    "#NotAvailable",
+    "Kannada", "English", "Gujarati", "Hindi", "Bengali",
+    "Malayalam", "Marathi", "Punjabi", "Tamil", "Telugu",
+    "Urdu", "Arabic", "French", "German", "Italian",
+    "Japanese", "Korean", "Mandarin", "Portuguese",
+    "Russian", "Spanish", "#NotAvailable",
 ]
 RESOLUTIONS = [
-    "144p",
-    "240p",
-    "480p",
-    "720p",
-    "1080p",
-    "1440p",
-    "2160p",
-    "4320p",
-    "BluRay",
-    "BDRip",
-    "WEB-DL",
-    "HDRip",
-    "WEBRip",
-    "HDTVRip",
-    "DVDRip",
-    "DVDScr",
-    "TSRip",
-    "CAMRip",
-    "HDTC",
-    "HEVC",
-    "#NotAvailable",
+    "144p", "240p", "480p", "720p", "1080p", "1440p",
+    "2160p", "4320p", "BluRay", "BDRip", "WEB-DL", "HDRip",
+    "WEBRip", "HDTVRip", "DVDRip", "DVDScr", "TSRip", "CAMRip",
+    "HDTC", "HEVC", "#NotAvailable",
 ]
 GENRES = [
-    "Action",
-    "Adventure",
-    "Animation",
-    "Biography",
-    "Comedy",
-    "Crime",
-    "Documentary",
-    "Drama",
-    "Family",
-    "Fantasy",
-    "History",
-    "Horror",
-    "Music",
-    "Musical",
-    "Mystery",
-    "Romance",
-    "Sci-Fi",
-    "Sport",
-    "Thriller",
-    "War",
-    "Western",
-    "Superhero",
-    "Psychological",
-    "Suspense",
-    "Noir",
-    "Disaster",
-    "Survival",
-    "Teen",
-    "Slice of Life",
-    "Coming of Age",
-    "Martial Arts",
-    "Political",
-    "Legal",
-    "Medical",
-    "Spy",
-    "Erotic",
-    "Mythology",
-    "Short",
-    "Experimental",
-    "#NotAvalaible",
+    "Action", "Adventure", "Animation", "Biography", "Comedy",
+    "Crime", "Documentary", "Drama", "Family", "Fantasy",
+    "History", "Horror", "Music", "Musical", "Mystery",
+    "Romance", "Sci-Fi", "Sport", "Thriller", "War",
+    "Western", "Superhero", "Psychological", "Suspense",
+    "Noir", "Disaster", "Survival", "Teen", "Slice of Life",
+    "Coming of Age", "Martial Arts", "Political", "Legal",
+    "Medical", "Spy", "Erotic", "Mythology", "Short",
+    "Experimental", "#NotAvailable",
 ]
 OTT_PLATFORMS = [
-    "Aha",
-    "ALTBalaji",
-    "JioHotstar",
-    "ErosNow",
-    "Hoichoi",
-    "JioCinema",
-    "MXPlayer",
-    "SonyLIV",
-    "SunNXT",
-    "Voot",
-    "Zee5",
-    "Amazon Prime Video",
-    "Apple TV+",
-    "Crunchyroll",
-    "Discovery+",
-    "HBO Max",
-    "Hulu",
-    "Netflix",
-    "Paramount+",
-    "Peacock",
-    "YouTube Premium",
-    "NotAvailable",
+    "Aha", "ALTBalaji", "JioHotstar", "ErosNow", "Hoichoi",
+    "JioCinema", "MXPlayer", "SonyLIV", "SunNXT", "Voot",
+    "Zee5", "Amazon Prime Video", "Apple TV+", "Crunchyroll",
+    "Discovery+", "HBO Max", "Hulu", "Netflix", "Paramount+",
+    "Peacock", "YouTube Premium", "NotAvailable",
 ]
 
 
@@ -213,7 +132,6 @@ async def start_post_session(
 
 class SafeDict(dict):
     """Safely handles missing keys in templates so it NEVER crashes the bot."""
-
     def __missing__(self, key):
         return "{" + key + "}"
 
@@ -237,7 +155,6 @@ async def _build_final_post_content(session: dict, session_id: int):
     plot_str = str(movie_details.get("plot", "N/A"))
 
     if not session.get("is_manual_caption"):
-        # FIXED: Removed duplicate 'genres' to stop the SyntaxError crash
         format_args = SafeDict(
             title=str(movie_details.get("title", "N/A")),
             year=str(movie_details.get("year", "N/A")),
@@ -282,7 +199,6 @@ async def _build_final_post_content(session: dict, session_id: int):
         and "{GENRES}" not in template_str
         and "{genres}" not in template_str
     ):
-        # FIXED: Used genres_str correctly
         final_caption += session["gen_format"].format_map(
             SafeDict(genres=genres_str, GENRES=genres_str)
         )
@@ -431,7 +347,9 @@ def build_keyboard(session: dict, session_id: int):
                 InlineKeyboardButton(
                     "🖥️", callback_data=f"post:resolutions:{session_id}"
                 ),
-                InlineKeyboardButton("🎥", callback_data=f"post:genres:{session_id}"),
+                InlineKeyboardButton(
+                    "🎥", callback_data=f"post:genres:{session_id}"
+                ),
                 InlineKeyboardButton("📺", callback_data=f"post:otts:{session_id}"),
             ],
             [
@@ -533,7 +451,6 @@ async def post_callbacks(client: Client, query: CallbackQuery):
             if item not in session["custom_genres"]:
                 session["custom_genres"].append(item)
             else:
-                # FIXED: It used to remove custom_resolutions due to copy-paste bug!
                 session["custom_genres"].remove(item)
             await show_selection_menu(query, session_id, "genres")
 
@@ -610,7 +527,7 @@ async def show_selection_menu(query: CallbackQuery, session_id: int, menu_type: 
     elif menu_type == "genres":
         items, selected, action_prefix, format_action = (
             GENRES,
-            session["custom_genres"],  # FIXED: This must be lowercase 'genres'
+            session["custom_genres"],
             "select_gen",
             "format_gen",
         )
