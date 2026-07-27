@@ -242,7 +242,7 @@ async def rem_all_fsub(bot: Client, message: Message):
 # ============================================================
 # 📄 (6) Show FSub Channel Details (Links)
 # ============================================================
-@Client.on_message(filters.command("get_fsub") & filters.user(info.ADMINS))
+@Client.on_message(filters.command("getfsub") & filters.user(info.ADMINS))
 async def get_fsub(bot: Client, message: Message):
     if not info.AUTH_CHANNEL and not info.REQ_CHANNEL:
         return await message.reply_text("❌ No ForceSub channels configured.")
