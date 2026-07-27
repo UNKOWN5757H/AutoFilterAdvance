@@ -35,24 +35,73 @@ TEMPLATES = {
 }
 
 LANGUAGES = [
-    "Kannada", "English", "Gujarati", "Hindi", "Bengali",
-    "Malayalam", "Marathi", "Punjabi", "Tamil", "Telugu",
-    "Urdu", "Arabic", "French", "German", "Italian",
-    "Japanese", "Korean", "Mandarin", "Portuguese",
-    "Russian", "Spanish",
+    "Kannada",
+    "English",
+    "Gujarati",
+    "Hindi",
+    "Bengali",
+    "Malayalam",
+    "Marathi",
+    "Punjabi",
+    "Tamil",
+    "Telugu",
+    "Urdu",
+    "Arabic",
+    "French",
+    "German",
+    "Italian",
+    "Japanese",
+    "Korean",
+    "Mandarin",
+    "Portuguese",
+    "Russian",
+    "Spanish",
 ]
 RESOLUTIONS = [
-    "144p", "240p", "480p", "720p", "1080p", "1440p",
-    "2160p", "4320p", "BluRay", "BDRip", "WEB-DL", "VOD",
-    "WEBRip", "HDTV", "DVDRip", "DVDScr", "TS", "CAM",
-    "AV1", "HEVC", "x264",
+    "144p",
+    "240p",
+    "480p",
+    "720p",
+    "1080p",
+    "1440p",
+    "2160p",
+    "4320p",
+    "BluRay",
+    "BDRip",
+    "WEB-DL",
+    "VOD",
+    "WEBRip",
+    "HDTV",
+    "DVDRip",
+    "DVDScr",
+    "TS",
+    "CAM",
+    "AV1",
+    "HEVC",
+    "x264",
 ]
 OTT_PLATFORMS = [
-    "Aha", "ALTBalaji", "JioHotstar", "Eros Now", "Hoichoi",
-    "JioCinema", "MX Player", "SonyLIV", "Sun NXT", "Voot",
-    "Zee5", "Amazon Prime Video", "Apple TV+", "Crunchyroll",
-    "Discovery+", "HBO Max", "Hulu", "Netflix", "Paramount+",
-    "Peacock", "YouTube Premium",
+    "Aha",
+    "ALTBalaji",
+    "JioHotstar",
+    "Eros Now",
+    "Hoichoi",
+    "JioCinema",
+    "MX Player",
+    "SonyLIV",
+    "Sun NXT",
+    "Voot",
+    "Zee5",
+    "Amazon Prime Video",
+    "Apple TV+",
+    "Crunchyroll",
+    "Discovery+",
+    "HBO Max",
+    "Hulu",
+    "Netflix",
+    "Paramount+",
+    "Peacock",
+    "YouTube Premium",
 ]
 
 
@@ -118,6 +167,7 @@ async def start_post_session(
 
 class SafeDict(dict):
     """Safely handles missing keys in templates so it NEVER crashes the bot."""
+
     def __missing__(self, key):
         return "{" + key + "}"
 
@@ -127,15 +177,21 @@ async def _build_final_post_content(session: dict, session_id: int):
     if not movie_details:
         return None, None, None
 
-    template_str = TEMPLATES.get(session.get("active_template"), TEMPLATES["clean_grid"])
+    template_str = TEMPLATES.get(
+        session.get("active_template"), TEMPLATES["clean_grid"]
+    )
 
     # Build strings out of the selected lists safely
     langs_str = ", ".join(session.get("custom_languages", [])) or "N/A"
     res_str = ", ".join(session.get("custom_resolutions", [])) or "N/A"
     otts_str = ", ".join(session.get("custom_otts", [])) or "N/A"
-    
+
     raw_genres = movie_details.get("genres", [])
-    genres_str = ", ".join(raw_genres) if isinstance(raw_genres, list) else str(raw_genres or "N/A")
+    genres_str = (
+        ", ".join(raw_genres)
+        if isinstance(raw_genres, list)
+        else str(raw_genres or "N/A")
+    )
     rating_str = str(movie_details.get("rating", "N/A"))
     plot_str = str(movie_details.get("plot", "N/A"))
 
@@ -151,22 +207,40 @@ async def _build_final_post_content(session: dict, session_id: int):
             OTT_PLATFORMS=otts_str,
             langs=langs_str,
             resolutions=res_str,
-            otts=otts_str
+            otts=otts_str,
         )
         # format_map is entirely crash-proof compared to standard .format()
         session["caption"] = template_str.format_map(format_args)
 
     final_caption = session["caption"]
-    
+
     # Safely format and append extra elements if they aren't embedded in the template
-    if session.get("custom_languages") and "{LANGUAGES}" not in template_str and "{langs}" not in template_str:
-        final_caption += "\n" + session["lang_format"].format_map(SafeDict(langs=langs_str, LANGUAGES=langs_str))
-        
-    if session.get("custom_resolutions") and "{RESOLUTIONS}" not in template_str and "{resolutions}" not in template_str:
-        final_caption += session["res_format"].format_map(SafeDict(resolutions=res_str, RESOLUTIONS=res_str))
-        
-    if session.get("custom_otts") and "{OTT_PLATFORMS}" not in template_str and "{otts}" not in template_str:
-        final_caption += session["ott_format"].format_map(SafeDict(otts=otts_str, OTT_PLATFORMS=otts_str))
+    if (
+        session.get("custom_languages")
+        and "{LANGUAGES}" not in template_str
+        and "{langs}" not in template_str
+    ):
+        final_caption += "\n" + session["lang_format"].format_map(
+            SafeDict(langs=langs_str, LANGUAGES=langs_str)
+        )
+
+    if (
+        session.get("custom_resolutions")
+        and "{RESOLUTIONS}" not in template_str
+        and "{resolutions}" not in template_str
+    ):
+        final_caption += session["res_format"].format_map(
+            SafeDict(resolutions=res_str, RESOLUTIONS=res_str)
+        )
+
+    if (
+        session.get("custom_otts")
+        and "{OTT_PLATFORMS}" not in template_str
+        and "{otts}" not in template_str
+    ):
+        final_caption += session["ott_format"].format_map(
+            SafeDict(otts=otts_str, OTT_PLATFORMS=otts_str)
+        )
 
     if session.get("watermark"):
         final_caption += f"\n\n{session['watermark']}"
@@ -213,9 +287,9 @@ async def update_post_preview(
     except Exception as e:
         logger.error(f"Error building preview: {e}", exc_info=True)
         await client.edit_message_text(
-            chat_id, 
-            session["last_preview_message_id"], 
-            f"❌ **Error generating preview:**\n<code>{e}</code>"
+            chat_id,
+            session["last_preview_message_id"],
+            f"❌ **Error generating preview:**\n<code>{e}</code>",
         )
         return
 
@@ -272,7 +346,7 @@ async def update_post_preview(
 
 def build_keyboard(session: dict, session_id: int):
     rows = []
-    
+
     if session.get("buttons"):
         rows.extend(session["buttons"])
 
@@ -583,30 +657,34 @@ async def handle_add_get_files(session) -> bool:
                     return False
 
         # Add the two Group buttons side-by-side to the first row (🔵 Dark Blue Button style)
-        session["buttons"].append([
-            InlineKeyboardButton(
-                text="Group 1 🎬",
-                url="https://t.me/Sandalwood_Kannada_Group",
-                icon_custom_emoji_id=5258096772776991776,
-                style=ButtonStyle.PRIMARY,
-            ),
-            InlineKeyboardButton(
-                text="Group 2 🎬",
-                url="https://t.me/+GLsPkRgLGGszMzY1",
-                icon_custom_emoji_id=5258096772776991776,
-                style=ButtonStyle.PRIMARY,
-            )
-        ])
+        session["buttons"].append(
+            [
+                InlineKeyboardButton(
+                    text="Group 1 🎬",
+                    url="https://t.me/Sandalwood_Kannada_Group",
+                    icon_custom_emoji_id=5258096772776991776,
+                    style=ButtonStyle.PRIMARY,
+                ),
+                InlineKeyboardButton(
+                    text="Group 2 🎬",
+                    url="https://t.me/+GLsPkRgLGGszMzY1",
+                    icon_custom_emoji_id=5258096772776991776,
+                    style=ButtonStyle.PRIMARY,
+                ),
+            ]
+        )
 
         # Add the Direct Search button to the second row (🟢 Green Button style)
-        session["buttons"].append([
-            InlineKeyboardButton(
-                text="Direct Search 🔎",
-                url=url,
-                icon_custom_emoji_id=5258503720928288433,
-                style=ButtonStyle.SUCCESS,
-            )
-        ])
+        session["buttons"].append(
+            [
+                InlineKeyboardButton(
+                    text="Direct Search 🔎",
+                    url=url,
+                    icon_custom_emoji_id=5258503720928288433,
+                    style=ButtonStyle.SUCCESS,
+                )
+            ]
+        )
 
         return True
     return False
@@ -799,11 +877,11 @@ async def handle_cancel(client: Client, query: CallbackQuery, session_id: int, _
 def get_final_keyboard(session: dict):
     """Builds the final keyboard strictly without admin controls for the channel post."""
     rows = []
-    
+
     # Custom Link Buttons (Groups & Search)
     if session.get("buttons"):
         rows.extend(session["buttons"])
-        
+
     return InlineKeyboardMarkup(rows) if rows else None
 
 
@@ -831,7 +909,7 @@ async def finalize_and_post(
     final_caption, _, poster_to_use = await _build_final_post_content(
         session, session_id
     )
-    
+
     # Generate the clean keyboard without admin tools
     final_keyboard = get_final_keyboard(session)
 
