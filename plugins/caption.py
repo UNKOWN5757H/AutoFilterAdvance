@@ -1,4 +1,5 @@
 import logging
+
 from pyrogram import Client, filters
 from pyrogram.types import Message
 
@@ -28,7 +29,9 @@ async def set_custom_caption(bot: Client, message: Message):
     # Check if user wants to turn it off
     if len(message.command) > 1 and message.command[1].lower() == "off":
         info.CUSTOM_FILE_CAPTION = None
-        return await message.reply_text("✅ **Custom File Caption has been DISABLED.**\nFiles will now use their original database captions.")
+        return await message.reply_text(
+            "✅ **Custom File Caption has been DISABLED.**\nFiles will now use their original database captions."
+        )
 
     # Require a replied message to set the caption
     if not message.reply_to_message:
@@ -44,7 +47,7 @@ async def set_custom_caption(bot: Client, message: Message):
         )
 
     replied = message.reply_to_message
-    
+
     # Extract text with markdown formatting preserved (if available)
     raw_text = None
     if replied.text:
@@ -53,12 +56,14 @@ async def set_custom_caption(bot: Client, message: Message):
         raw_text = replied.caption.markdown
 
     if not raw_text:
-        return await message.reply_text("❌ **No text found in the replied message.** Please reply to a text message.")
+        return await message.reply_text(
+            "❌ **No text found in the replied message.** Please reply to a text message."
+        )
 
     info.CUSTOM_FILE_CAPTION = raw_text
     await message.reply_text(
         f"✅ **Custom Caption successfully updated!**\n\n**New Format:**\n{raw_text}",
-        disable_web_page_preview=True
+        disable_web_page_preview=True,
     )
 
 
@@ -73,7 +78,9 @@ async def set_caption_plus(bot: Client, message: Message):
     # Check if user wants to turn it off
     if len(message.command) > 1 and message.command[1].lower() == "off":
         info.CAPTION_PLUS = None
-        return await message.reply_text("✅ **Additional Caption (Caption Plus) has been DISABLED.**")
+        return await message.reply_text(
+            "✅ **Additional Caption (Caption Plus) has been DISABLED.**"
+        )
 
     # Require a replied message to set the additional caption
     if not message.reply_to_message:
@@ -86,7 +93,7 @@ async def set_caption_plus(bot: Client, message: Message):
         )
 
     replied = message.reply_to_message
-    
+
     # Extract text with markdown formatting preserved
     raw_text = None
     if replied.text:
@@ -95,10 +102,12 @@ async def set_caption_plus(bot: Client, message: Message):
         raw_text = replied.caption.markdown
 
     if not raw_text:
-        return await message.reply_text("❌ **No text found in the replied message.** Please reply to a text message.")
+        return await message.reply_text(
+            "❌ **No text found in the replied message.** Please reply to a text message."
+        )
 
     info.CAPTION_PLUS = raw_text
     await message.reply_text(
         f"✅ **Caption Plus successfully updated!**\n\n**Additional Text:**\n{raw_text}",
-        disable_web_page_preview=True
+        disable_web_page_preview=True,
     )
