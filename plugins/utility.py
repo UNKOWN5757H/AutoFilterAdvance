@@ -182,63 +182,6 @@ async def bot_stats_cmd(bot: Client, message: Message):
 
 
 # ============================================================
-# 📢 Broadcast Message
-# ============================================================
-@Client.on_message(filters.command("broadcast") & filters.user(info.ADMINS))
-async def broadcast_cmd(bot: Client, message: Message):
-    if not message.reply_to_message:
-        return await message.reply_text(
-            "⚠️ **Please reply to a message you want to broadcast.**"
-        )
-
-    b_msg = message.reply_to_message
-    status_msg = await message.reply_text("⏳ **Broadcast Started...**")
-
-    users = await db.get_all_users()
-    total_users = await db.total_users_count()
-
-    successful = 0
-    blocked = 0
-    deleted = 0
-    failed = 0
-
-    for user in users:
-        user_id = user.get("id")
-        try:
-            await b_msg.copy(chat_id=user_id)
-            successful += 1
-        except FloodWait as e:
-            await asyncio.sleep(e.value)
-            await b_msg.copy(chat_id=user_id)
-            successful += 1
-        except UserIsBlocked:
-            blocked += 1
-            await db.delete_user(user_id)
-        except InputUserDeactivated:
-            deleted += 1
-            await db.delete_user(user_id)
-        except PeerIdInvalid:
-            deleted += 1
-            await db.delete_user(user_id)
-        except Exception:
-            failed += 1
-
-        # Optional: Add a tiny sleep to prevent massive floodwaits
-        await asyncio.sleep(0.1)
-
-    text = (
-        "📢 **Broadcast Completed!**\n"
-        "━━━━━━━━━━━━━━━━━━━━━\n"
-        f"👥 **Total Users:** `{total_users}`\n"
-        f"✅ **Successful:** `{successful}`\n"
-        f"🚫 **Blocked:** `{blocked}`\n"
-        f"💀 **Deleted Accounts:** `{deleted}`\n"
-        f"❌ **Failed:** `{failed}`"
-    )
-    await status_msg.edit_text(text)
-
-
-# ============================================================
 # 📁 Total DB Files
 # ============================================================
 @Client.on_message(filters.command("total") & filters.user(info.ADMINS))
