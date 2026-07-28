@@ -474,46 +474,6 @@ async def channel_info(bot, message):
         await message.reply_document(file)
         os.remove(file)
 
-
-@Client.on_message(filters.command("logs") & filters.user(ADMINS))
-async def send_logs(bot: Client, message):
-    try:
-        if not os.path.exists(LOG_FILE) and not os.path.exists("TelegramBot.log"):
-            return await message.reply_text("⚠️ Log file not found.")
-        log_file_name = (
-            "TelegramBot.log" if os.path.exists("TelegramBot.log") else LOG_FILE
-        )
-        await message.reply_document(log_file_name, caption="📜 **Latest Bot Logs**")
-    except Exception as e:
-        logger.exception("send_logs failed")
-        await message.reply_text(f"❌ Failed to send logs:\n`{e}`")
-
-
-@Client.on_message(filters.command("restart") & filters.user(ADMINS))
-async def restart_bot(bot: Client, message):
-    buttons = [
-        [InlineKeyboardButton("✅ Confirm Restart", callback_data="confirm_restart")]
-    ]
-    await message.reply_text(
-        "⚠️ Are you sure you want to restart the bot?",
-        reply_markup=InlineKeyboardMarkup(buttons),
-    )
-
-
-@Client.on_callback_query(filters.regex("^confirm_restart$") & filters.user(ADMINS))
-async def confirm_restart_callback(bot: Client, query: CallbackQuery):
-    try:
-        await query.answer("♻️ Restarting...", show_alert=True)
-        msg = await query.edit_message_text("♻️ Bot is restarting... Please wait.")
-        with open("restart.txt", "w") as f:
-            f.write(f"{msg.chat.id}\n{msg.id}")
-        await asyncio.sleep(2)
-        os._exit(1)
-    except Exception as e:
-        logger.exception("confirm_restart_callback failed")
-        await query.edit_message_text(f"❌ Error during restart:\n`{e}`")
-
-
 # ============================================================
 # ⚙️ SETTINGS CONFIGURATIONS
 # ============================================================
