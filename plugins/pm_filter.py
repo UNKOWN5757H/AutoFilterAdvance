@@ -715,18 +715,46 @@ async def cb_handler(client: Client, query: CallbackQuery):
         elif query.data == "help":
             buttons = [
                 [
-                    InlineKeyboardButton("⍟  Auto Fɪʟᴛᴇʀ", callback_data="autofilter"),
+                    InlineKeyboardButton("🚫 Bans", callback_data="bans"),
                     InlineKeyboardButton(
-                        "⍟  Manual Filter", callback_data="manuelfilter"
+                        "💬 Custom Messages", callback_data="custommessages"
                     ),
                 ],
                 [
-                    InlineKeyboardButton("⍟  Connection", callback_data="coct"),
-                    InlineKeyboardButton("⍟  ForceSub", callback_data="fsubs"),
-                    InlineKeyboardButton("⍟  Admin Mod", callback_data="extra"),
+                    InlineKeyboardButton("📝 Custom Captions", callback_data="customcaption"),
+                    InlineKeyboardButton(
+                        "🗑️ Delete", callback_data="delete"
+                    ),
                 ],
                 [
-                    InlineKeyboardButton("🏘 Hᴏᴍᴇ", callback_data="start"),
+                    InlineKeyboardButton("📱 Force Sub", callback_data="forcesub"),
+                    InlineKeyboardButton(
+                        "📝 Filters", callback_data="filters"
+                    ),
+                ],
+                [
+                    InlineKeyboardButton("📚 Index", callback_data="index"),
+                    InlineKeyboardButton(
+                        "⍟📢 Promotions", callback_data="promotions"
+                    ),
+                ],
+                [
+                    InlineKeyboardButton("⚙️ Settings", callback_data="settings"),
+                    InlineKeyboardButton(
+                        "📊 Utilities", callback_data="utilities"
+                    ),
+                ],
+                [
+                    InlineKeyboardButton("🌐 Connections", callback_data="connections"),
+                    InlineKeyboardButton(
+                        "👥 Force Add", callback_data="forceadd"
+                    ),
+                ],
+                [
+                    InlineKeyboardButton("💾 Backup", callback_data="backup"),
+                ],
+                [
+                    InlineKeyboardButton("🔙 Back", callback_data="start"),
                     InlineKeyboardButton("🔐 Cʟᴏsᴇ", callback_data="close_data"),
                 ],
             ]
@@ -756,87 +784,151 @@ async def cb_handler(client: Client, query: CallbackQuery):
             except (MessageIdInvalid, MessageNotModified):
                 pass
 
-        elif query.data == "fsubs":
-            buttons = [[InlineKeyboardButton("⇌ Bᴀᴄᴋ ⇌", callback_data="help")]]
+        elif query.data == "bans":
+            buttons = [[InlineKeyboardButton("🔙 Back", callback_data="help")]]
             try:
                 await query.message.edit_text(
-                    text=script.FRSUB_TXT,
+                    text=script.BANS_TXT,
                     reply_markup=InlineKeyboardMarkup(buttons),
                     parse_mode=enums.ParseMode.HTML,
                 )
             except (MessageIdInvalid, MessageNotModified):
                 pass
 
-        elif query.data == "manuelfilter":
+        elif query.data == "custommessages":
             buttons = [
                 [
-                    InlineKeyboardButton("⇌ Bᴀᴄᴋ ⇌", callback_data="help"),
-                    InlineKeyboardButton("⏹️ Buttons", callback_data="button"),
+                    InlineKeyboardButton("🔙 Back", callback_data="help")
                 ]
             ]
             try:
                 await query.message.edit_text(
-                    text=script.MANUELFILTER_TXT,
+                    text=script.CUSTOMMESSAGES_TXT,
                     reply_markup=InlineKeyboardMarkup(buttons),
                     parse_mode=enums.ParseMode.HTML,
                 )
             except (MessageIdInvalid, MessageNotModified):
                 pass
 
-        elif query.data == "button":
-            buttons = [[InlineKeyboardButton("⇌ Bᴀᴄᴋ ⇌", callback_data="manuelfilter")]]
+        elif query.data == "customcaption":
+            buttons = [[InlineKeyboardButton("🔙 Back", callback_data="manuelfilter")]]
             try:
                 await query.message.edit_text(
-                    text=script.BUTTON_TXT,
+                    text=script.CUSTOMCAPTION_TXT,
                     reply_markup=InlineKeyboardMarkup(buttons),
                     parse_mode=enums.ParseMode.HTML,
                 )
             except (MessageIdInvalid, MessageNotModified):
                 pass
 
-        elif query.data == "autofilter":
-            buttons = [[InlineKeyboardButton("⇌ Bᴀᴄᴋ ⇌", callback_data="help")]]
+        elif query.data == "delete":
+            buttons = [[InlineKeyboardButton("🔙 Back", callback_data="help")]]
             try:
                 await query.message.edit_text(
-                    text=script.AUTOFILTER_TXT,
+                    text=script.DELETE_TXT,
                     reply_markup=InlineKeyboardMarkup(buttons),
                     parse_mode=enums.ParseMode.HTML,
                 )
             except (MessageIdInvalid, MessageNotModified):
                 pass
 
-        elif query.data == "coct":
-            buttons = [[InlineKeyboardButton("⇌ Bᴀᴄᴋ ⇌", callback_data="help")]]
+        elif query.data == "forcesub":
+            buttons = [[InlineKeyboardButton("🔙 Back", callback_data="help")]]
             try:
                 await query.message.edit_text(
-                    text=script.CONNECTION_TXT,
+                    text=script.FORCESUB_TXT,
                     reply_markup=InlineKeyboardMarkup(buttons),
                     parse_mode=enums.ParseMode.HTML,
                 )
             except (MessageIdInvalid, MessageNotModified):
                 pass
 
-        elif query.data == "extra":
+        elif query.data == "filters":
             buttons = [
                 [
-                    InlineKeyboardButton("⇌ Bᴀᴄᴋ ⇌", callback_data="help"),
-                    InlineKeyboardButton("👮‍♂️ Admin", callback_data="admin"),
+                    InlineKeyboardButton("🔙 Back", callback_data="help")
                 ]
             ]
             try:
                 await query.message.edit_text(
-                    text=script.EXTRAMOD_TXT,
+                    text=script.FILTERS_TXT,
                     reply_markup=InlineKeyboardMarkup(buttons),
                     parse_mode=enums.ParseMode.HTML,
                 )
             except (MessageIdInvalid, MessageNotModified):
                 pass
 
-        elif query.data == "admin":
-            buttons = [[InlineKeyboardButton("⇌ Bᴀᴄᴋ ⇌", callback_data="extra")]]
+        elif query.data == "index":
+            buttons = [[InlineKeyboardButton("🔙 Back", callback_data="help")]]
             try:
                 await query.message.edit_text(
-                    text=script.ADMIN_TXT,
+                    text=script.INDEX_TXT,
+                    reply_markup=InlineKeyboardMarkup(buttons),
+                    parse_mode=enums.ParseMode.HTML,
+                )
+            except (MessageIdInvalid, MessageNotModified):
+                pass
+
+        elif query.data == "promotions":
+            buttons = [[InlineKeyboardButton("🔙 Back", callback_data="help")]]
+            try:
+                await query.message.edit_text(
+                    text=script.PROMOTIONS_TXT,
+                    reply_markup=InlineKeyboardMarkup(buttons),
+                    parse_mode=enums.ParseMode.HTML,
+                )
+            except (MessageIdInvalid, MessageNotModified):
+                pass
+
+        elif query.data == "settings":
+            buttons = [[InlineKeyboardButton("🔙 Back", callback_data="help")]]
+            try:
+                await query.message.edit_text(
+                    text=script.SETTINGS_TXT,
+                    reply_markup=InlineKeyboardMarkup(buttons),
+                    parse_mode=enums.ParseMode.HTML,
+                )
+            except (MessageIdInvalid, MessageNotModified):
+                pass
+
+        elif query.data == "utilities":
+            buttons = [[InlineKeyboardButton("🔙 Back", callback_data="help")]]
+            try:
+                await query.message.edit_text(
+                    text=script.UTILITIES_TXT,
+                    reply_markup=InlineKeyboardMarkup(buttons),
+                    parse_mode=enums.ParseMode.HTML,
+                )
+            except (MessageIdInvalid, MessageNotModified):
+                pass
+
+        elif query.data == "connections":
+            buttons = [[InlineKeyboardButton("🔙 Back", callback_data="help")]]
+            try:
+                await query.message.edit_text(
+                    text=script.CONNECTIONS_TXT,
+                    reply_markup=InlineKeyboardMarkup(buttons),
+                    parse_mode=enums.ParseMode.HTML,
+                )
+            except (MessageIdInvalid, MessageNotModified):
+                pass
+
+        elif query.data == "forceadd":
+            buttons = [[InlineKeyboardButton("🔙 Back", callback_data="help")]]
+            try:
+                await query.message.edit_text(
+                    text=script.FORCEADD_TXT,
+                    reply_markup=InlineKeyboardMarkup(buttons),
+                    parse_mode=enums.ParseMode.HTML,
+                )
+            except (MessageIdInvalid, MessageNotModified):
+                pass
+
+        elif query.data == "backup":
+            buttons = [[InlineKeyboardButton("🔙 Back", callback_data="help")]]
+            try:
+                await query.message.edit_text(
+                    text=script.BACKUP_TXT,
                     reply_markup=InlineKeyboardMarkup(buttons),
                     parse_mode=enums.ParseMode.HTML,
                 )
