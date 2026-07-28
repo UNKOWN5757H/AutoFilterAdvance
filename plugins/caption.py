@@ -1,0 +1,104 @@
+import logging
+from pyrogram import Client, filters
+from pyrogram.types import Message
+
+import info
+
+logger = logging.getLogger(__name__)
+
+# ============================================================
+# ⚙️ Initialize Runtime States for Captions
+# ============================================================
+# Ensures variables exist in info.py to prevent runtime errors
+if not hasattr(info, "CUSTOM_FILE_CAPTION"):
+    info.CUSTOM_FILE_CAPTION = None
+
+if not hasattr(info, "CAPTION_PLUS"):
+    info.CAPTION_PLUS = None
+
+
+# ============================================================
+# 📝 1. Set Custom File Caption (/customcaption)
+# ============================================================
+@Client.on_message(filters.command("customcaption") & filters.user(info.ADMINS))
+async def set_custom_caption(bot: Client, message: Message):
+    """
+    Sets or disables the global custom file caption.
+    """
+    # Check if user wants to turn it off
+    if len(message.command) > 1 and message.command[1].lower() == "off":
+        info.CUSTOM_FILE_CAPTION = None
+        return await message.reply_text("✅ **Custom File Caption has been DISABLED.**\nFiles will now use their original database captions.")
+
+    # Require a replied message to set the caption
+    if not message.reply_to_message:
+        return await message.reply_text(
+            "⚙️ **Usage:**\n"
+            "1️⃣ Send a message with your desired caption format.\n"
+            "2️⃣ Reply to that message with `/customcaption`.\n\n"
+            "💡 **Available Placeholders:**\n"
+            "`{file_name}` - Name of the file\n"
+            "`{file_size}` - Size of the file\n"
+            "`{file_caption}` - Original file caption\n\n"
+            "🛑 To disable: `/customcaption off`"
+        )
+
+    replied = message.reply_to_message
+    
+    # Extract text with markdown formatting preserved (if available)
+    raw_text = None
+    if replied.text:
+        raw_text = replied.text.markdown
+    elif replied.caption:
+        raw_text = replied.caption.markdown
+
+    if not raw_text:
+        return await message.reply_text("❌ **No text found in the replied message.** Please reply to a text message.")
+
+    info.CUSTOM_FILE_CAPTION = raw_text
+    await message.reply_text(
+        f"✅ **Custom Caption successfully updated!**\n\n**New Format:**\n{raw_text}",
+        disable_web_page_preview=True
+    )
+
+
+# ============================================================
+# ➕ 2. Set Additional Caption (Caption Plus) (/captionplus)
+# ============================================================
+@Client.on_message(filters.command("captionplus") & filters.user(info.ADMINS))
+async def set_caption_plus(bot: Client, message: Message):
+    """
+    Sets or disables an additional caption appended to the end of files.
+    """
+    # Check if user wants to turn it off
+    if len(message.command) > 1 and message.command[1].lower() == "off":
+        info.CAPTION_PLUS = None
+        return await message.reply_text("✅ **Additional Caption (Caption Plus) has been DISABLED.**")
+
+    # Require a replied message to set the additional caption
+    if not message.reply_to_message:
+        return await message.reply_text(
+            "⚙️ **Usage:**\n"
+            "1️⃣ Send a message with your extra text/links.\n"
+            "2️⃣ Reply to that message with `/captionplus`.\n\n"
+            "💡 *This text will be attached to the bottom of all sent files.*\n\n"
+            "🛑 To disable: `/captionplus off`"
+        )
+
+    replied = message.reply_to_message
+    
+    # Extract text with markdown formatting preserved
+    raw_text = None
+    if replied.text:
+        raw_text = replied.text.markdown
+    elif replied.caption:
+        raw_text = replied.caption.markdown
+
+    if not raw_text:
+        return await message.reply_text("❌ **No text found in the replied message.** Please reply to a text message.")
+
+    info.CAPTION_PLUS = raw_text
+    await message.reply_text(
+        f"✅ **Caption Plus successfully updated!**\n\n**Additional Text:**\n{raw_text}",
+        disable_web_page_preview=True
+    )
