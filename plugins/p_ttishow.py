@@ -189,33 +189,6 @@ async def enable_chat(bot, message):
     await message.reply_text(f"✅ Chat `{chat_id}` successfully re-enabled.")
 
 
-# ============================================================
-# 📊 /stats — Show database stats
-# ============================================================
-@Client.on_message(filters.command("stats") & filters.user(ADMINS))
-async def get_stats(bot, message):
-    status_msg = await message.reply_text("📊 Fetching stats...")
-
-    try:
-        # FIXED: Updated to the correct function names from users_chats_db.py
-        total_users = await db.total_users_count()
-        total_chats = await db.total_chat_count()
-        total_files = await Media.count_documents({})
-        size_bytes = await db.get_db_size() if hasattr(db, "get_db_size") else 0
-    except Exception as e:
-        return await status_msg.edit(f"⚠️ Error fetching stats: `{e}`")
-
-    free_space = 536870912 - size_bytes
-    await status_msg.edit(
-        script.STATUS_TXT.format(
-            total_files,
-            total_users,
-            total_chats,
-            get_size(size_bytes),
-            get_size(free_space),
-        )
-    )
-
 
 # ============================================================
 # 🧑‍🤝‍🧑 /users — List users
