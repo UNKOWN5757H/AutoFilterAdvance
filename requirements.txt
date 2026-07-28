@@ -38,3 +38,5 @@ pyromod
 thefuzz
 Levenshtein
 yt-dlp
+bson
+psutil
