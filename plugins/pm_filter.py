@@ -721,34 +721,26 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     ),
                 ],
                 [
-                    InlineKeyboardButton("📝 Custom Captions", callback_data="customcaption"),
                     InlineKeyboardButton(
-                        "🗑️ Delete", callback_data="delete"
+                        "📝 Custom Captions", callback_data="customcaption"
                     ),
+                    InlineKeyboardButton("🗑️ Delete", callback_data="delete"),
                 ],
                 [
                     InlineKeyboardButton("📱 Force Sub", callback_data="forcesub"),
-                    InlineKeyboardButton(
-                        "📝 Filters", callback_data="filters"
-                    ),
+                    InlineKeyboardButton("📝 Filters", callback_data="filters"),
                 ],
                 [
                     InlineKeyboardButton("📚 Index", callback_data="index"),
-                    InlineKeyboardButton(
-                        "⍟📢 Promotions", callback_data="promotions"
-                    ),
+                    InlineKeyboardButton("⍟📢 Promotions", callback_data="promotions"),
                 ],
                 [
                     InlineKeyboardButton("⚙️ Settings", callback_data="settings"),
-                    InlineKeyboardButton(
-                        "📊 Utilities", callback_data="utilities"
-                    ),
+                    InlineKeyboardButton("📊 Utilities", callback_data="utilities"),
                 ],
                 [
                     InlineKeyboardButton("🌐 Connections", callback_data="connections"),
-                    InlineKeyboardButton(
-                        "👥 Force Add", callback_data="forceadd"
-                    ),
+                    InlineKeyboardButton("👥 Force Add", callback_data="forceadd"),
                 ],
                 [
                     InlineKeyboardButton("💾 Backup", callback_data="backup"),
@@ -796,11 +788,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 pass
 
         elif query.data == "custommessages":
-            buttons = [
-                [
-                    InlineKeyboardButton("🔙 Back", callback_data="help")
-                ]
-            ]
+            buttons = [[InlineKeyboardButton("🔙 Back", callback_data="help")]]
             try:
                 await query.message.edit_text(
                     text=script.CUSTOMMESSAGES_TXT,
@@ -844,11 +832,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 pass
 
         elif query.data == "filters":
-            buttons = [
-                [
-                    InlineKeyboardButton("🔙 Back", callback_data="help")
-                ]
-            ]
+            buttons = [[InlineKeyboardButton("🔙 Back", callback_data="help")]]
             try:
                 await query.message.edit_text(
                     text=script.FILTERS_TXT,
