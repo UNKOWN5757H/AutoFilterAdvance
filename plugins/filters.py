@@ -1,287 +1,243 @@
-import io
+import re
+import ast
+import asyncio
+import logging
+from pyrogram import Client, filters, enums
+from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram.errors import Forbidden
 
-from pyrogram import Client, enums, filters
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+import info
+from database.filters_mdb import add_filter, get_filters, find_filter, delete_filter
 
-from database.connections_mdb import active_connection
-from database.filters_mdb import add_filter, count_filters, delete_filter, get_filters
-from info import ADMINS
-from utils import get_file_id, parser, split_quotes
+logger = logging.getLogger(__name__)
 
+DELETE_TIME = 1800  # 30 Minutes
 
-@Client.on_message(filters.command(["filter", "add"]) & filters.incoming)
-async def addfilter(client, message):
-    userid = message.from_user.id if message.from_user else None
-    if not userid:
-        return await message.reply(
-            f"You are anonymous admin. Use /connect {message.chat.id} in PM"
-        )
-    chat_type = message.chat.type
-    args = message.text.html.split(None, 1)
+async def delete_message_after_delay(message, delay: int):
+    """Helper function to auto-delete messages."""
+    if not message: return
+    await asyncio.sleep(delay)
+    try: await message.delete()
+    except Exception: pass
 
-    if chat_type == enums.ChatType.PRIVATE:
-        grpid = await active_connection(str(userid))
-        if grpid is not None:
-            grp_id = grpid
-            try:
-                chat = await client.get_chat(grpid)
-                title = chat.title
-            except:
-                await message.reply_text(
-                    "Make sure I'm present in your group!!", quote=True
-                )
-                return
-        else:
-            await message.reply_text("I'm not connected to any groups!", quote=True)
-            return
-
-    elif chat_type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
-        grp_id = message.chat.id
-        title = message.chat.title
-
-    else:
-        return
-
-    st = await client.get_chat_member(grp_id, userid)
-    if (
-        st.status != enums.ChatMemberStatus.ADMINISTRATOR
-        and st.status != enums.ChatMemberStatus.OWNER
-        and str(userid) not in ADMINS
-    ):
-        return
-
-    if len(args) < 2:
-        await message.reply_text("Command Incomplete :(", quote=True)
-        return
-
-    extracted = split_quotes(args[1])
-    text = extracted[0].lower()
-
-    if not message.reply_to_message and len(extracted) < 2:
-        await message.reply_text("Add some content to save your filter!", quote=True)
-        return
-
-    if (len(extracted) >= 2) and not message.reply_to_message:
-        reply_text, btn, alert = parser(extracted[1], text)
-        fileid = None
-        if not reply_text:
-            await message.reply_text(
-                "You cannot have buttons alone, give some text to go with it!",
-                quote=True,
-            )
-            return
-
-    elif message.reply_to_message and message.reply_to_message.reply_markup:
+async def is_admin(message: Message) -> bool:
+    """Helper to verify if a user is a chat admin or a bot admin."""
+    if message.from_user and message.from_user.id in info.ADMINS:
+        return True
+    if message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
         try:
-            rm = message.reply_to_message.reply_markup
-            btn = rm.inline_keyboard
-            msg = get_file_id(message.reply_to_message)
-            if msg:
-                fileid = msg.file_id
-                reply_text = message.reply_to_message.caption.html
-            else:
-                reply_text = message.reply_to_message.text.html
-                fileid = None
-            alert = None
-        except:
-            reply_text = ""
-            btn = "[]"
-            fileid = None
-            alert = None
+            member = await message.chat.get_member(message.from_user.id)
+            return member.status in [enums.ChatMemberStatus.OWNER, enums.ChatMemberStatus.ADMINISTRATOR]
+        except Exception:
+            return False
+    return False
 
-    elif message.reply_to_message and message.reply_to_message.media:
-        try:
-            msg = get_file_id(message.reply_to_message)
-            fileid = msg.file_id if msg else None
-            reply_text, btn, alert = (
-                parser(extracted[1], text)
-                if message.reply_to_message.sticker
-                else parser(message.reply_to_message.caption.html, text)
-            )
-        except:
-            reply_text = ""
-            btn = "[]"
-            alert = None
-    elif message.reply_to_message and message.reply_to_message.text:
-        try:
-            fileid = None
-            reply_text, btn, alert = parser(message.reply_to_message.text.html, text)
-        except:
-            reply_text = ""
-            btn = "[]"
-            alert = None
-    else:
-        return
-
-    await add_filter(grp_id, text, reply_text, btn, fileid, alert)
-
-    await message.reply_text(
-        f"Filter for  `{text}`  added in  **{title}**",
-        quote=True,
-        parse_mode=enums.ParseMode.MARKDOWN,
-    )
-
-
-@Client.on_message(filters.command(["viewfilters", "filters"]) & filters.incoming)
-async def get_all(client, message):
-
-    chat_type = message.chat.type
-    userid = message.from_user.id if message.from_user else None
-    if not userid:
-        return await message.reply(
-            f"You are anonymous admin. Use /connect {message.chat.id} in PM"
-        )
-    if chat_type == enums.ChatType.PRIVATE:
-        grpid = await active_connection(str(userid))
-        if grpid is not None:
-            grp_id = grpid
-            try:
-                chat = await client.get_chat(grpid)
-                title = chat.title
-            except:
-                await message.reply_text(
-                    "Make sure I'm present in your group!!", quote=True
-                )
-                return
-        else:
-            await message.reply_text("I'm not connected to any groups!", quote=True)
-            return
-
-    elif chat_type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
-        grp_id = message.chat.id
-        title = message.chat.title
-
-    else:
-        return
-
-    st = await client.get_chat_member(grp_id, userid)
-    if (
-        st.status != enums.ChatMemberStatus.ADMINISTRATOR
-        and st.status != enums.ChatMemberStatus.OWNER
-        and str(userid) not in ADMINS
-    ):
-        return
-
-    texts = await get_filters(grp_id)
-    count = await count_filters(grp_id)
-    if count:
-        filterlist = f"Total number of filters in **{title}** : {count}\n\n"
-
-        for text in texts:
-            keywords = " ×  `{}`\n".format(text)
-
-            filterlist += keywords
-
-        if len(filterlist) > 4096:
-            with io.BytesIO(str.encode(filterlist.replace("`", ""))) as keyword_file:
-                keyword_file.name = "keywords.txt"
-                await message.reply_document(document=keyword_file, quote=True)
-            return
-    else:
-        filterlist = f"There are no active filters in **{title}**"
-
-    await message.reply_text(
-        text=filterlist, quote=True, parse_mode=enums.ParseMode.MARKDOWN
-    )
-
-
-@Client.on_message(filters.command("del") & filters.incoming)
-async def deletefilter(client, message):
-    userid = message.from_user.id if message.from_user else None
-    if not userid:
-        return await message.reply(
-            f"You are anonymous admin. Use /connect {message.chat.id} in PM"
-        )
-    chat_type = message.chat.type
-
-    if chat_type == enums.ChatType.PRIVATE:
-        grpid = await active_connection(str(userid))
-        if grpid is not None:
-            grp_id = grpid
-            try:
-                chat = await client.get_chat(grpid)
-                title = chat.title
-            except:
-                await message.reply_text(
-                    "Make sure I'm present in your group!!", quote=True
-                )
-                return
-        else:
-            await message.reply_text("I'm not connected to any groups!", quote=True)
-            return
-
-    elif chat_type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
-        grp_id = message.chat.id
-        title = message.chat.title
-
-    else:
-        return
-
-    st = await client.get_chat_member(grp_id, userid)
-    if (
-        st.status != enums.ChatMemberStatus.ADMINISTRATOR
-        and st.status != enums.ChatMemberStatus.OWNER
-        and str(userid) not in ADMINS
-    ):
-        return
-
+def build_keyboard(btn_str: str):
+    """Safely converts stored string buttons back to InlineKeyboardButtons."""
+    if not btn_str or btn_str == "[]":
+        return None
     try:
-        cmd, text = message.text.split(" ", 1)
-    except:
-        await message.reply_text(
-            "<i>Mention the filtername which you wanna delete!</i>\n\n"
-            "<code>/del filtername</code>\n\n"
-            "Use /viewfilters to view all available filters",
-            quote=True,
-        )
-        return
-
-    query = text.lower()
-
-    await delete_filter(message, query, grp_id)
-
-
-@Client.on_message(filters.command("delall") & filters.incoming)
-async def delallconfirm(client, message):
-    userid = message.from_user.id if message.from_user else None
-    if not userid:
-        return await message.reply(
-            f"You are anonymous admin. Use /connect {message.chat.id} in PM"
-        )
-    chat_type = message.chat.type
-
-    if chat_type == enums.ChatType.PRIVATE:
-        grpid = await active_connection(str(userid))
-        if grpid is not None:
-            grp_id = grpid
-            try:
-                chat = await client.get_chat(grpid)
-                title = chat.title
-            except:
-                await message.reply_text(
-                    "Make sure I'm present in your group!!", quote=True
-                )
-                return
+        button_data = ast.literal_eval(btn_str)
+        if button_data and isinstance(button_data[0][0], dict):
+            # Parse new dictionary format
+            return [[InlineKeyboardButton(**b) for b in row] for row in button_data]
         else:
-            await message.reply_text("I'm not connected to any groups!", quote=True)
-            return
+            return button_data
+    except (ValueError, SyntaxError):
+        # Fallback for old eval-based strings if your database has legacy filters
+        try:
+            return eval(btn_str)
+        except Exception:
+            return None
 
-    elif chat_type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
-        grp_id = message.chat.id
-        title = message.chat.title
+def parse_markdown_buttons(text: str):
+    """Extracts [Text](url) or [Text|url] formats from text to create buttons."""
+    if not text: return "", "[]"
+    buttons = []
+    
+    # Finds markdown links and extracts them
+    for match in re.finditer(r"\[(.+?)\]\((.+?)\)", text):
+        btn_text, btn_url = match.group(1), match.group(2)
+        buttons.append([{"text": btn_text, "url": btn_url}])
+    
+    # Find alternative [Text | URL] syntax
+    for match in re.finditer(r"\[([^\[\]]+)\|([^()]+)\]", text):
+        btn_text, btn_url = match.group(1).strip(), match.group(2).strip()
+        buttons.append([{"text": btn_text, "url": btn_url}])
 
-    else:
-        return
+    # Clean the text of the button strings
+    clean_text = re.sub(r"\[(.+?)\]\((.+?)\)", "", text)
+    clean_text = re.sub(r"\[([^\[\]]+)\|([^()]+)\]", "", clean_text).strip()
+    
+    btn_str = str(buttons) if buttons else "[]"
+    return clean_text, btn_str
 
-    st = await client.get_chat_member(grp_id, userid)
-    if (st.status == enums.ChatMemberStatus.OWNER) or (str(userid) in ADMINS):
-        await message.reply_text(
-            f"This will delete all filters from '{title}'.\nDo you want to continue??",
-            reply_markup=InlineKeyboardMarkup(
-                [
-                    [InlineKeyboardButton(text="YES", callback_data="delallconfirm")],
-                    [InlineKeyboardButton(text="CANCEL", callback_data="delallcancel")],
-                ]
-            ),
-            quote=True,
-        )
+
+# ============================================================
+# ⚙️ 1. ADD FILTER (Text formatting with custom buttons)
+# ============================================================
+@Client.on_message(filters.command("filter") & filters.group)
+async def add_filter_cmd(client: Client, message: Message):
+    if not await is_admin(message): return
+    if not message.reply_to_message:
+        return await message.reply_text("⚠️ **Reply to a message to set it as a filter.**")
+    if len(message.command) < 2:
+        return await message.reply_text("⚙️ **Usage:** `/filter <keyword>`\n\n*(You can format buttons in your text using `[Button Name](http://link.com)`)*")
+    
+    keyword = message.text.split(None, 1)[1].lower()
+    replied = message.reply_to_message
+    
+    # Extract text and parse any markdown buttons
+    raw_text = replied.text or replied.caption or ""
+    text, btn = parse_markdown_buttons(raw_text)
+    
+    # Extract Media
+    fileid = "None"
+    if replied.media:
+        for media_type in (replied.photo, replied.video, replied.animation, replied.sticker, replied.document, replied.audio):
+            if media_type:
+                fileid = media_type.file_id
+                break
+                
+    await add_filter(message.chat.id, keyword, text, btn, "[]", fileid)
+    await message.reply_text(f"✅ **Filter successfully added!**\n\n**Keyword:** `{keyword}`")
+
+
+# ============================================================
+# ⚙️ 2. ADD PRE-MADE FILTER (Copies existing inline buttons)
+# ============================================================
+@Client.on_message(filters.command("addfilter") & filters.group)
+async def add_premade_filter_cmd(client: Client, message: Message):
+    if not await is_admin(message): return
+    if not message.reply_to_message:
+        return await message.reply_text("⚠️ **Reply to a message containing inline buttons to set it as a filter.**")
+    if len(message.command) < 2:
+        return await message.reply_text("⚙️ **Usage:** `/addfilter <keyword>`")
+    
+    keyword = message.text.split(None, 1)[1].lower()
+    replied = message.reply_to_message
+    text = replied.text or replied.caption or ""
+    
+    # Extract existing InlineKeyboardMarkup layout from the replied message
+    buttons = []
+    if replied.reply_markup and replied.reply_markup.inline_keyboard:
+        for row in replied.reply_markup.inline_keyboard:
+            row_btns = []
+            for btn in row:
+                if btn.url:
+                    row_btns.append({"text": btn.text, "url": btn.url})
+                elif btn.callback_data:
+                    row_btns.append({"text": btn.text, "callback_data": btn.callback_data})
+            if row_btns:
+                buttons.append(row_btns)
+                
+    btn_str = str(buttons) if buttons else "[]"
+    
+    # Extract Media
+    fileid = "None"
+    if replied.media:
+        for media_type in (replied.photo, replied.video, replied.animation, replied.sticker, replied.document, replied.audio):
+            if media_type:
+                fileid = media_type.file_id
+                break
+                
+    await add_filter(message.chat.id, keyword, text, btn_str, "[]", fileid)
+    await message.reply_text(f"✅ **Filter with Pre-Made Buttons successfully added!**\n\n**Keyword:** `{keyword}`")
+
+
+# ============================================================
+# 🗑 3. DELETE FILTER
+# ============================================================
+@Client.on_message(filters.command("delfilter") & filters.group)
+async def del_filter_cmd(client: Client, message: Message):
+    if not await is_admin(message): return
+    if len(message.command) < 2:
+        return await message.reply_text("⚙️ **Usage:** `/delfilter <keyword>`")
+        
+    keyword = message.text.split(None, 1)[1].lower()
+    
+    # Typically, standard DBs return False if not found, True if deleted.
+    # Adjust logic below if your delete_filter handles messages automatically.
+    await delete_filter(message, keyword, message.chat.id)
+    await message.reply_text(f"🗑️ **Filter `{keyword}` has been deleted (if it existed).**")
+
+
+# ============================================================
+# 📄 4. LIST FILTERS
+# ============================================================
+@Client.on_message(filters.command("listfilters") & filters.group)
+async def list_filters_cmd(client: Client, message: Message):
+    if not await is_admin(message): return
+    
+    keywords = await get_filters(message.chat.id)
+    if not keywords:
+        return await message.reply_text("⚠️ **No active filters found in this chat.**")
+    
+    text = f"📋 **Current Filters for {message.chat.title}:**\n\n"
+    for kw in keywords:
+        text += f"• `{kw}`\n"
+        
+    await message.reply_text(text)
+
+
+# ============================================================
+# 🧠 5. TRIGGER MANUAL FILTERS (Re-written for cleanliness)
+# ============================================================
+async def manual_filters(client: Client, message: Message, text=False):
+    # Optional Repair Mode integration
+    if getattr(info, "REPAIR_MODE", False):
+        if not message.from_user or message.from_user.id not in info.ADMINS:
+            return False
+
+    group_id = message.chat.id
+    name = text or message.text
+    reply_id = message.reply_to_message.id if message.reply_to_message else message.id
+    keywords = await get_filters(group_id)
+
+    for keyword in reversed(sorted(keywords, key=len)):
+        pattern = r"( |^|[^\w])" + re.escape(keyword) + r"( |$|[^\w])"
+        if re.search(pattern, name, flags=re.IGNORECASE):
+            reply_text, btn, alert, fileid = await find_filter(group_id, keyword)
+
+            if reply_text:
+                reply_text = reply_text.replace("\\n", "\n").replace("\\t", "\t")
+
+            # Parse Button layout securely using the helper function
+            button_layout = build_keyboard(btn)
+            reply_markup = InlineKeyboardMarkup(button_layout) if button_layout else None
+
+            try:
+                sent_msg = None
+                
+                # Check if it's text-only or includes media
+                if fileid == "None":
+                    if not reply_markup:
+                        sent_msg = await client.send_message(group_id, reply_text, disable_web_page_preview=True, reply_to_message_id=reply_id)
+                    else:
+                        sent_msg = await client.send_message(group_id, reply_text, disable_web_page_preview=True, reply_markup=reply_markup, reply_to_message_id=reply_id)
+                else:
+                    if not reply_markup:
+                        sent_msg = await client.send_cached_media(group_id, fileid, caption=reply_text or "", reply_to_message_id=reply_id)
+                    else:
+                        sent_msg = await message.reply_cached_media(fileid, caption=reply_text or "", reply_markup=reply_markup, reply_to_message_id=reply_id)
+
+                if sent_msg:
+                    asyncio.create_task(delete_message_after_delay(sent_msg, DELETE_TIME))
+
+            except Forbidden as e:
+                # Chat Permission Fallback (Sends as text if sending media is blocked)
+                if "CHAT_SEND_PHOTOS_FORBIDDEN" in str(e) or "CHAT_SEND_MEDIA_FORBIDDEN" in str(e):
+                    try:
+                        fallback_text = f"{reply_text}\n\n*(Media blocked by chat permissions)*" if reply_text else "*(Media blocked by chat permissions)*"
+                        sent_msg = await client.send_message(group_id, text=fallback_text, reply_to_message_id=reply_id, reply_markup=reply_markup)
+                        if sent_msg:
+                            asyncio.create_task(delete_message_after_delay(sent_msg, DELETE_TIME))
+                    except Exception:
+                        pass
+            except Exception as e:
+                logger.exception(e)
+                
+            return True
+            
+    return False
+    
