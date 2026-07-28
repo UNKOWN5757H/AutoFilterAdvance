@@ -30,6 +30,7 @@ from database.filters_mdb import del_all, find_filter, get_filters
 from database.ia_filterdb import Media, get_file_details, get_search_results
 from database.users_chats_db import db
 from info import ADMINS, AUTH_CHANNEL, CUSTOM_FILE_CAPTION, REQ_CHANNEL
+from plugins.bans import ban_db
 from Script import script
 from utils import (
     get_poster,
@@ -46,11 +47,8 @@ logger.setLevel(logging.ERROR)
 
 BUTTONS = {}
 SPELL_CHECK = {}
-DELETE_TIME = 1800  # 30 Minutes
 
-FILE_NOT_FOUND_PIC = (
-    "https://telegra.ph/file/c4f0458d30f61993aad45-086b84e8363b3c582e.jpg"
-)
+FILE_NOT_FOUND_PIC = "https://telegra.ph/file/c4f0458d30f61993aad45-086b84e8363b3c582e.jpg"
 NOT_FOUND_TEXT = (
     "<b>🚫 File not found. Please note👇\n \n"
     "✅ Use correct spelling as given in Google.\n \n"
@@ -85,6 +83,10 @@ async def give_filter(client, message):
                 "🛠️ **Bot is currently under maintenance!**\n\n"
                 "We are performing some upgrades/fixes. Please try again later."
             )
+            
+    # 🚫 BANNED USER CHECK
+    if message.from_user and await ban_db.is_banned(message.from_user.id):
+        return
 
     k = await manual_filters(client, message)
     if not k:
@@ -306,18 +308,22 @@ async def advantage_spoll_choker(bot, query):
                 await query.message.delete()
             except MessageIdInvalid:
                 pass
+                
+            # 🖼️ APPLY CUSTOM NOT FOUND IMAGES/MESSAGES
+            pic_to_use = getattr(info, "NOT_FOUND_IMG", None) or FILE_NOT_FOUND_PIC
+            text_to_use = getattr(info, "NOT_FOUND_MSG", None) or NOT_FOUND_TEXT
 
             try:
                 k_msg = await bot.send_photo(
                     chat_id=query.message.chat.id,
-                    photo=FILE_NOT_FOUND_PIC,
-                    caption=NOT_FOUND_TEXT,
+                    photo=pic_to_use,
+                    caption=text_to_use,
                 )
             except Forbidden as e:
                 if "CHAT_SEND_PHOTOS_FORBIDDEN" in str(e):
                     k_msg = await bot.send_message(
                         chat_id=query.message.chat.id,
-                        text=f"{NOT_FOUND_TEXT}\n\n*(No photo attached due to chat permissions)*",
+                        text=f"{text_to_use}\n\n*(No photo attached due to chat permissions)*",
                     )
                 else:
                     k_msg = None
@@ -325,7 +331,9 @@ async def advantage_spoll_choker(bot, query):
                 k_msg = None
 
             if k_msg:
-                asyncio.create_task(delete_message_after_delay(k_msg, DELETE_TIME))
+                delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
+                if delete_timer > 0:
+                    asyncio.create_task(delete_message_after_delay(k_msg, delete_timer))
 
 
 # ============================================================
@@ -335,7 +343,6 @@ async def advantage_spoll_choker(bot, query):
 async def cb_handler(client: Client, query: CallbackQuery):
     # 🛠️ REPAIR MODE CHECK FOR CALLBACKS
     if getattr(info, "REPAIR_MODE", False):
-        # We allow admins to bypass, or if the user is just closing a menu ("close_data") they can do that.
         if query.from_user.id not in info.ADMINS and query.data != "close_data":
             return await query.answer(
                 "🛠️ Bot is currently under maintenance! We are performing some upgrades. Please try again later.",
@@ -639,7 +646,8 @@ async def cb_handler(client: Client, query: CallbackQuery):
             )
 
             async def delete_and_notify():
-                await asyncio.sleep(DELETE_TIME)
+                delete_timer = getattr(info, "FILE_AUTO_DELETE", 1800)
+                await asyncio.sleep(delete_timer)
                 try:
                     await m.delete()
                     await k.edit_text(
@@ -647,8 +655,11 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     )
                 except Exception:
                     pass
-
-            asyncio.create_task(delete_and_notify())
+            
+            # ⏱️ Apply File Auto Delete Configuration
+            file_timer = getattr(info, "FILE_AUTO_DELETE", 1800)
+            if file_timer > 0:
+                asyncio.create_task(delete_and_notify())
 
         elif query.data == "pages":
             await query.answer()
@@ -985,7 +996,11 @@ async def auto_filter(client, msg, spoll=False):
             await msg.message.delete()
         except MessageIdInvalid:
             pass
-    asyncio.create_task(delete_message_after_delay(m, DELETE_TIME))
+            
+    # ⏱️ Apply Button Auto Delete Configuration
+    delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
+    if delete_timer > 0:
+        asyncio.create_task(delete_message_after_delay(m, delete_timer))
 
 
 async def advantage_spell_chok(msg):
@@ -1002,28 +1017,35 @@ async def advantage_spell_chok(msg):
     g_s += await search_gagala(msg.text)
     gs_parsed = []
 
+    # 🖼️ Fetch Custom Not Found Message and Image
+    pic_to_use = getattr(info, "NOT_FOUND_IMG", None) or FILE_NOT_FOUND_PIC
+    text_to_use = getattr(info, "NOT_FOUND_MSG", None) or NOT_FOUND_TEXT
+
     if not g_s:
         try:
             k_msg = await msg.reply_photo(
-                photo=FILE_NOT_FOUND_PIC, caption=NOT_FOUND_TEXT
+                photo=pic_to_use, caption=text_to_use
             )
         except RandomIdDuplicate:
             k_msg = None
         except Forbidden as e:
             if "CHAT_SEND_PHOTOS_FORBIDDEN" in str(e):
                 try:
-                    not_found_msg = await msg.reply_text(
-                        text=f"{NOT_FOUND_TEXT}\n\n*(No photo attached due to chat permissions)*"
+                    k_msg = await msg.reply_text(
+                        text=f"{text_to_use}\n\n*(No photo attached due to chat permissions)*"
                     )
-                    k_msg = not_found_msg
                 except Exception:
                     k_msg = None
             else:
                 k_msg = None
         except Exception:
             k_msg = None
+            
         if k_msg:
-            asyncio.create_task(delete_message_after_delay(k_msg, DELETE_TIME))
+            # ⏱️ Apply Button Auto Delete Configuration
+            delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
+            if delete_timer > 0:
+                asyncio.create_task(delete_message_after_delay(k_msg, delete_timer))
         return
 
     regex = re.compile(r".*(imdb|wikipedia).*", re.IGNORECASE)
@@ -1065,7 +1087,7 @@ async def advantage_spell_chok(msg):
     if not movielist:
         try:
             k_msg = await msg.reply_photo(
-                photo=FILE_NOT_FOUND_PIC, caption=NOT_FOUND_TEXT
+                photo=pic_to_use, caption=text_to_use
             )
         except RandomIdDuplicate:
             k_msg = None
@@ -1073,7 +1095,7 @@ async def advantage_spell_chok(msg):
             if "CHAT_SEND_PHOTOS_FORBIDDEN" in str(e):
                 try:
                     k_msg = await msg.reply_text(
-                        text=f"{NOT_FOUND_TEXT}\n\n*(No photo attached due to chat permissions)*"
+                        text=f"{text_to_use}\n\n*(No photo attached due to chat permissions)*"
                     )
                 except Exception:
                     k_msg = None
@@ -1083,7 +1105,10 @@ async def advantage_spell_chok(msg):
             k_msg = None
 
         if k_msg:
-            asyncio.create_task(delete_message_after_delay(k_msg, DELETE_TIME))
+            # ⏱️ Apply Button Auto Delete Configuration
+            delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
+            if delete_timer > 0:
+                asyncio.create_task(delete_message_after_delay(k_msg, delete_timer))
         return
 
     SPELL_CHECK[msg.id] = movielist
@@ -1109,3 +1134,83 @@ async def advantage_spell_chok(msg):
         )
     except Forbidden:
         pass
+
+
+async def manual_filters(client, message, text=False):
+    group_id = message.chat.id
+    name = text or message.text
+    reply_id = message.reply_to_message.id if message.reply_to_message else message.id
+    keywords = await get_filters(group_id)
+
+    for keyword in reversed(sorted(keywords, key=len)):
+        pattern = r"( |^|[^\w])" + re.escape(keyword) + r"( |$|[^\w])"
+        if re.search(pattern, name, flags=re.IGNORECASE):
+            reply_text, btn, alert, fileid = await find_filter(group_id, keyword)
+
+            if reply_text:
+                reply_text = reply_text.replace("\\n", "\n").replace("\\t", "\t")
+
+            if btn is not None:
+                try:
+                    sent_msg = None
+                    if fileid == "None":
+                        if btn == "[]":
+                            sent_msg = await client.send_message(
+                                group_id, reply_text, disable_web_page_preview=True
+                            )
+                        else:
+                            button = ast.literal_eval(btn)
+                            sent_msg = await client.send_message(
+                                group_id,
+                                reply_text,
+                                disable_web_page_preview=True,
+                                reply_markup=InlineKeyboardMarkup(button),
+                                reply_to_message_id=reply_id,
+                            )
+                    elif btn == "[]":
+                        sent_msg = await client.send_cached_media(
+                            group_id,
+                            fileid,
+                            caption=reply_text or "",
+                            reply_to_message_id=reply_id,
+                        )
+                    else:
+                        button = ast.literal_eval(btn)
+                        sent_msg = await message.reply_cached_media(
+                            fileid,
+                            caption=reply_text or "",
+                            reply_markup=InlineKeyboardMarkup(button),
+                            reply_to_message_id=reply_id,
+                        )
+
+                    if sent_msg:
+                        # ⏱️ Apply Button Auto Delete Configuration
+                        delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
+                        if delete_timer > 0:
+                            asyncio.create_task(delete_message_after_delay(sent_msg, delete_timer))
+
+                except Forbidden as e:
+                    if "CHAT_SEND_PHOTOS_FORBIDDEN" in str(
+                        e
+                    ) or "CHAT_SEND_MEDIA_FORBIDDEN" in str(e):
+                        try:
+                            sent_msg = await client.send_message(
+                                group_id,
+                                text=(
+                                    f"{reply_text}\n\n*(Media blocked by chat permissions)*"
+                                    if reply_text
+                                    else "*(Media blocked by chat permissions)*"
+                                ),
+                                reply_to_message_id=reply_id,
+                            )
+                            if sent_msg:
+                                # ⏱️ Apply Button Auto Delete Configuration
+                                delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
+                                if delete_timer > 0:
+                                    asyncio.create_task(delete_message_after_delay(sent_msg, delete_timer))
+                        except Exception:
+                            pass
+                except Exception as e:
+                    logger.exception(e)
+            return True
+    return False
