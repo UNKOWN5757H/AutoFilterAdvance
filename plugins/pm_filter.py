@@ -48,7 +48,9 @@ logger.setLevel(logging.ERROR)
 BUTTONS = {}
 SPELL_CHECK = {}
 
-FILE_NOT_FOUND_PIC = "https://telegra.ph/file/c4f0458d30f61993aad45-086b84e8363b3c582e.jpg"
+FILE_NOT_FOUND_PIC = (
+    "https://telegra.ph/file/c4f0458d30f61993aad45-086b84e8363b3c582e.jpg"
+)
 NOT_FOUND_TEXT = (
     "<b>🚫 File not found. Please note👇\n \n"
     "✅ Use correct spelling as given in Google.\n \n"
@@ -83,7 +85,7 @@ async def give_filter(client, message):
                 "🛠️ **Bot is currently under maintenance!**\n\n"
                 "We are performing some upgrades/fixes. Please try again later."
             )
-            
+
     # 🚫 BANNED USER CHECK
     if message.from_user and await ban_db.is_banned(message.from_user.id):
         return
@@ -308,7 +310,7 @@ async def advantage_spoll_choker(bot, query):
                 await query.message.delete()
             except MessageIdInvalid:
                 pass
-                
+
             # 🖼️ APPLY CUSTOM NOT FOUND IMAGES/MESSAGES
             pic_to_use = getattr(info, "NOT_FOUND_IMG", None) or FILE_NOT_FOUND_PIC
             text_to_use = getattr(info, "NOT_FOUND_MSG", None) or NOT_FOUND_TEXT
@@ -655,7 +657,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     )
                 except Exception:
                     pass
-            
+
             # ⏱️ Apply File Auto Delete Configuration
             file_timer = getattr(info, "FILE_AUTO_DELETE", 1800)
             if file_timer > 0:
@@ -996,7 +998,7 @@ async def auto_filter(client, msg, spoll=False):
             await msg.message.delete()
         except MessageIdInvalid:
             pass
-            
+
     # ⏱️ Apply Button Auto Delete Configuration
     delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
     if delete_timer > 0:
@@ -1023,9 +1025,7 @@ async def advantage_spell_chok(msg):
 
     if not g_s:
         try:
-            k_msg = await msg.reply_photo(
-                photo=pic_to_use, caption=text_to_use
-            )
+            k_msg = await msg.reply_photo(photo=pic_to_use, caption=text_to_use)
         except RandomIdDuplicate:
             k_msg = None
         except Forbidden as e:
@@ -1040,7 +1040,7 @@ async def advantage_spell_chok(msg):
                 k_msg = None
         except Exception:
             k_msg = None
-            
+
         if k_msg:
             # ⏱️ Apply Button Auto Delete Configuration
             delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
@@ -1086,9 +1086,7 @@ async def advantage_spell_chok(msg):
 
     if not movielist:
         try:
-            k_msg = await msg.reply_photo(
-                photo=pic_to_use, caption=text_to_use
-            )
+            k_msg = await msg.reply_photo(photo=pic_to_use, caption=text_to_use)
         except RandomIdDuplicate:
             k_msg = None
         except Forbidden as e:
@@ -1187,7 +1185,9 @@ async def manual_filters(client, message, text=False):
                         # ⏱️ Apply Button Auto Delete Configuration
                         delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
                         if delete_timer > 0:
-                            asyncio.create_task(delete_message_after_delay(sent_msg, delete_timer))
+                            asyncio.create_task(
+                                delete_message_after_delay(sent_msg, delete_timer)
+                            )
 
                 except Forbidden as e:
                     if "CHAT_SEND_PHOTOS_FORBIDDEN" in str(
@@ -1207,7 +1207,11 @@ async def manual_filters(client, message, text=False):
                                 # ⏱️ Apply Button Auto Delete Configuration
                                 delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
                                 if delete_timer > 0:
-                                    asyncio.create_task(delete_message_after_delay(sent_msg, delete_timer))
+                                    asyncio.create_task(
+                                        delete_message_after_delay(
+                                            sent_msg, delete_timer
+                                        )
+                                    )
                         except Exception:
                             pass
                 except Exception as e:
