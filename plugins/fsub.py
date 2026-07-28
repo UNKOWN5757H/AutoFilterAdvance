@@ -2,7 +2,7 @@ import asyncio
 import logging
 
 from pyrogram import Client, enums, filters
-from pyrogram.errors import UserNotParticipant
+from pyrogram.errors import UserNotParticipant, ChatAdminRequired
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 import info
@@ -13,23 +13,36 @@ db = JoinReqs()
 logger = logging.getLogger(__name__)
 
 # ============================================================
-# 🗄️ FSub Database & Runtime States
+# 🗄️ FSub Database & Dynamic State Variables
 # ============================================================
+# Core Toggles
 if not hasattr(info, "IS_FSUB_ENABLED"):
     info.IS_FSUB_ENABLED = True
 
-if not hasattr(info, "FSUB_TARGETS"):
-    info.FSUB_TARGETS = {}
+# Dynamic FSub Storage and Queue System
+if not hasattr(info, "FSUB_MAX_COUNT"):
+    info.FSUB_MAX_COUNT = 0  # 0 means unlimited active channels
+
+if not hasattr(info, "FSUB_CHANNELS"):
+    info.FSUB_CHANNELS = {}  
+    # Structure: { "chat_id": {"title": "...", "link": "...", "target": "...", "type": "req/regular", "status": "active/pending"} }
+
+# Legacy Migration (Moves old AUTH/REQ channels to the new dynamic system on startup)
+def migrate_legacy_fsub():
+    if getattr(info, "AUTH_CHANNEL", None) and str(info.AUTH_CHANNEL) not in info.FSUB_CHANNELS:
+        info.FSUB_CHANNELS[str(info.AUTH_CHANNEL)] = {"title": "Main Channel", "link": None, "target": None, "type": "regular", "status": "active"}
+    if getattr(info, "REQ_CHANNEL", None) and str(info.REQ_CHANNEL) not in info.FSUB_CHANNELS:
+        info.FSUB_CHANNELS[str(info.REQ_CHANNEL)] = {"title": "Request Channel", "link": None, "target": None, "type": "req", "status": "active"}
+
+migrate_legacy_fsub()
 
 
-# Simple FSubDB to track users who passed FSub
 class FSubDB:
     def __init__(self):
         self.db_url = getattr(info, "DATABASE_URI", None)
         if self.db_url:
             try:
                 from motor.motor_asyncio import AsyncIOMotorClient
-
                 self.client = AsyncIOMotorClient(self.db_url)
                 self.database = self.client["BotDatabase"]
                 self.col = self.database["fsub_users"]
@@ -44,9 +57,7 @@ class FSubDB:
 
     async def add_user(self, user_id: int):
         if self.use_mongo:
-            await self.col.update_one(
-                {"_id": user_id}, {"$set": {"_id": user_id}}, upsert=True
-            )
+            await self.col.update_one({"_id": user_id}, {"$set": {"_id": user_id}}, upsert=True)
         else:
             self.mock_db.add(user_id)
 
@@ -61,52 +72,42 @@ class FSubDB:
         else:
             self.mock_db.clear()
 
-
 fsub_db = FSubDB()
 
-# Cache for invite links to prevent API rate limits (FloodWait)
-INVITE_LINKS = {}
 
-
-async def get_invite_link(bot: Client, chat_id: int | str) -> str:
-    """Helper to fetch and cache invite links properly."""
-    if not chat_id:
-        return ""
-
-    chat_id_str = str(chat_id)
-
-    # Check if a custom target was set via /updatefsubtarget
-    if chat_id_str in info.FSUB_TARGETS:
-        return info.FSUB_TARGETS[chat_id_str]
-
-    if chat_id_str in INVITE_LINKS:
-        return INVITE_LINKS[chat_id_str]
-
-    # Handle public channels
-    if chat_id_str.startswith("@") or not chat_id_str.startswith("-100"):
-        link = f"https://t.me/{chat_id_str.replace('@', '')}"
-        INVITE_LINKS[chat_id_str] = link
-        return link
-
-    # Handle private channels
+# ============================================================
+# 🔗 Link Generation & Caching
+# ============================================================
+async def get_invite_link(bot: Client, chat_id: str) -> str:
+    """Helper to fetch and cache dynamic invite links."""
+    channel_data = info.FSUB_CHANNELS.get(chat_id, {})
+    
+    # 1. Return Custom Target if set
+    if channel_data.get("target"):
+        return channel_data["target"]
+        
+    # 2. Return Cached Link if already generated
+    if channel_data.get("link"):
+        return channel_data["link"]
+        
+    # 3. Generate New Link if missing
     try:
         chat = await bot.get_chat(int(chat_id))
-        link = (
-            chat.invite_link
-            or (await bot.create_chat_invite_link(int(chat_id))).invite_link
-        )
-        INVITE_LINKS[chat_id_str] = link
-        return link
+        is_req = channel_data.get("type") == "req"
+        invite = await bot.create_chat_invite_link(int(chat_id), creates_join_request=is_req)
+        
+        info.FSUB_CHANNELS[chat_id]["link"] = invite.invite_link
+        info.FSUB_CHANNELS[chat_id]["title"] = chat.title
+        return invite.invite_link
     except Exception as e:
         logger.error(f"Failed to fetch invite link for {chat_id}: {e}")
         return ""
 
 
 # ============================================================
-# 🧠 Runtime ForceSub Checker
+# 🧠 Runtime Dynamic ForceSub Checker
 # ============================================================
 async def check_user_in_channel(bot: Client, channel_id: int, user_id: int) -> bool:
-    """Checks if a user is in a specific channel."""
     try:
         member = await bot.get_chat_member(channel_id, user_id)
         return member.status in [
@@ -121,58 +122,39 @@ async def check_user_in_channel(bot: Client, channel_id: int, user_id: int) -> b
         return False
 
 
-async def ForceSub(
-    bot: Client, message: Message, file_id: str = None, mode: str = None
-) -> bool:
-    """Checks if user is subscribed to AUTH_CHANNEL and REQ_CHANNEL."""
+async def ForceSub(bot: Client, message: Message, file_id: str = None, mode: str = None) -> bool:
+    """Dynamically checks if user is subscribed to all ACTIVE channels."""
     user = message.from_user
 
-    # Bypass if admin, or if FSub is globally disabled
+    # Global bypass checks
     if not user or user.id in info.ADMINS or not getattr(info, "IS_FSUB_ENABLED", True):
         return True
 
-    # No channels configured
-    if not info.AUTH_CHANNEL and not info.REQ_CHANNEL:
+    active_fsubs = {k: v for k, v in info.FSUB_CHANNELS.items() if v.get("status") == "active"}
+    
+    if not active_fsubs:
         return True
 
+    not_joined_buttons = []
+    
     try:
-        not_joined_buttons = []
-
-        # 1. Check AUTH_CHANNEL
-        if info.AUTH_CHANNEL:
-            is_in_auth = await check_user_in_channel(
-                bot, int(info.AUTH_CHANNEL), user.id
-            )
-            if not is_in_auth:
-                link = await get_invite_link(bot, info.AUTH_CHANNEL)
+        for chat_id_str, data in active_fsubs.items():
+            chat_id = int(chat_id_str)
+            is_participant = await check_user_in_channel(bot, chat_id, user.id)
+            
+            if not is_participant:
+                link = await get_invite_link(bot, chat_id_str)
                 if link:
-                    not_joined_buttons.append(
-                        [InlineKeyboardButton("🔐 Join Main Channel", url=link)]
-                    )
-
-        # 2. Check REQ_CHANNEL
-        if info.REQ_CHANNEL:
-            is_in_req = await check_user_in_channel(bot, int(info.REQ_CHANNEL), user.id)
-            if not is_in_req:
-                link = await get_invite_link(bot, info.REQ_CHANNEL)
-                if link:
-                    not_joined_buttons.append(
-                        [InlineKeyboardButton("📨 Join Request Channel", url=link)]
-                    )
+                    btn_text = f"📨 Join {data.get('title', 'Channel')}" if data.get('type') == 'req' else f"🔐 Join {data.get('title', 'Channel')}"
+                    not_joined_buttons.append([InlineKeyboardButton(btn_text, url=link)])
 
         # Passed all checks
         if not not_joined_buttons:
-            await fsub_db.add_user(user.id)  # Log user to db on success
+            await fsub_db.add_user(user.id)
             return True
 
-        # Send Prompt if missing subscriptions
-        not_joined_buttons.append(
-            [
-                InlineKeyboardButton(
-                    "✅ I've Joined", callback_data=f"refresh_fsub_{file_id or 0}"
-                )
-            ]
-        )
+        # Failed checks, prompt user
+        not_joined_buttons.append([InlineKeyboardButton("✅ I've Joined", callback_data=f"refresh_fsub_{file_id or 0}")])
         await message.reply_text(
             "🔒 **You must join our update channel(s) to use this bot.**\n\n"
             "Once you’ve joined, click **‘I’ve Joined’** to access your files.",
@@ -183,11 +165,11 @@ async def ForceSub(
 
     except Exception as e:
         logger.exception(f"[ForceSub Error] {e}")
-        return True  # Fail-safe bypass
+        return True
 
 
 # ============================================================
-# ⚙️ Enable / Disable Force Subscribe
+# ⚙️ Basic Controls & Queue Configuration
 # ============================================================
 @Client.on_message(filters.command("enablefsub") & filters.user(info.ADMINS))
 async def enable_fsub(bot: Client, message: Message):
@@ -201,215 +183,234 @@ async def disable_fsub(bot: Client, message: Message):
     await message.reply_text("❌ **Force Subscribe has been DISABLED.**")
 
 
+@Client.on_message(filters.command("setfsubcount") & filters.user(info.ADMINS))
+async def set_fsub_count(bot: Client, message: Message):
+    if len(message.command) < 2:
+        return await message.reply_text("⚙️ **Usage:** `/setfsubcount [number]`\n*Set to 0 for unlimited active channels.*")
+    
+    try:
+        count = int(message.command[1])
+        if count < 0: raise ValueError
+        info.FSUB_MAX_COUNT = count
+        
+        limit_text = f"maximum `{count}` active channels" if count > 0 else "unlimited active channels"
+        await message.reply_text(f"✅ **FSub Queue Limit Updated!**\nThe system will now allow a {limit_text}.")
+    except ValueError:
+        await message.reply_text("❌ **Invalid number.** Please provide a valid positive integer.")
+
+
 # ============================================================
-# 🎯 Update & Remove FSub Targets (NEW)
+# ➕ Interactive Add / Set FSub
 # ============================================================
+@Client.on_message(filters.command("setfsub") & filters.user(info.ADMINS))
+async def add_dynamic_fsub(bot: Client, message: Message):
+    if len(message.command) < 2:
+        return await message.reply_text("⚙️ **Usage:** `/setfsub [channel_id]`")
+    
+    channel_id = message.command[1]
+    
+    try:
+        chat = await bot.get_chat(int(channel_id))
+    except Exception as e:
+        return await message.reply_text(f"❌ **Failed to fetch channel.** Make sure the bot is an admin in `{channel_id}`.\n`Error: {e}`")
+
+    try:
+        # Ask for channel type
+        await message.reply_text(f"🎯 **Target:** `{chat.title}`\n\nDo you want this to be a **Join Request** channel?\n\nReply with `y` for Yes, or `n` for No (Normal invite).")
+        resp = await bot.listen(message.chat.id, timeout=30)
+        
+        is_req = resp.text.lower() == 'y'
+        fsub_type = "req" if is_req else "regular"
+        
+        # Determine Status based on Queue Limit
+        active_count = len([c for c in info.FSUB_CHANNELS.values() if c.get("status") == "active"])
+        if info.FSUB_MAX_COUNT > 0 and active_count >= info.FSUB_MAX_COUNT:
+            status = "pending"
+        else:
+            status = "active"
+
+        # Generate Link
+        invite = await bot.create_chat_invite_link(chat.id, creates_join_request=is_req)
+        
+        # Save to DB
+        info.FSUB_CHANNELS[channel_id] = {
+            "title": chat.title,
+            "link": invite.invite_link,
+            "target": None,
+            "type": fsub_type,
+            "status": status
+        }
+        
+        await message.reply_text(
+            f"✅ **Successfully Configured FSub!**\n\n"
+            f"📢 **Channel:** `{chat.title}`\n"
+            f"🔗 **Link:** {invite.invite_link}\n"
+            f"⚙️ **Type:** `{'Join Request' if is_req else 'Normal'}`\n"
+            f"🟢 **Status:** `{status.upper()}`\n\n"
+            f"*(If status is PENDING, it was queued due to your `/setfsubcount` limit)*",
+            disable_web_page_preview=True
+        )
+        
+    except ChatAdminRequired:
+        await message.reply_text("❌ **The bot is not an admin in that channel or lacks 'Invite Users' rights.**")
+    except asyncio.TimeoutError:
+        await message.reply_text("⌛ **Timeout.** Setup cancelled.")
+    except Exception as e:
+        await message.reply_text(f"❌ **Error:** {e}")
+
+
+# ============================================================
+# 🔄 Manage Status & Targets (Queue System)
+# ============================================================
+@Client.on_message(filters.command("activatefsub") & filters.user(info.ADMINS))
+async def activate_fsub(bot: Client, message: Message):
+    if len(message.command) < 2: return await message.reply_text("⚙️ **Usage:** `/activatefsub [channel_id]`")
+    channel_id = message.command[1]
+    
+    if channel_id not in info.FSUB_CHANNELS:
+        return await message.reply_text("❌ Channel not found in FSub database.")
+        
+    active_count = len([c for c in info.FSUB_CHANNELS.values() if c.get("status") == "active"])
+    if info.FSUB_MAX_COUNT > 0 and active_count >= info.FSUB_MAX_COUNT:
+        return await message.reply_text(f"⚠️ **Queue Full!** You already have `{active_count}` active channels (Limit: {info.FSUB_MAX_COUNT}).\nUse `/deactivatefsub` on another channel first.")
+
+    info.FSUB_CHANNELS[channel_id]["status"] = "active"
+    await message.reply_text(f"✅ FSub for `{channel_id}` is now **ACTIVE**.")
+
+
+@Client.on_message(filters.command("deactivatefsub") & filters.user(info.ADMINS))
+async def deactivate_fsub(bot: Client, message: Message):
+    if len(message.command) < 2: return await message.reply_text("⚙️ **Usage:** `/deactivatefsub [channel_id]`")
+    channel_id = message.command[1]
+    
+    if channel_id in info.FSUB_CHANNELS:
+        info.FSUB_CHANNELS[channel_id]["status"] = "pending"
+        await message.reply_text(f"⏸ FSub for `{channel_id}` is now **PENDING (Deactivated)**.")
+    else:
+        await message.reply_text("❌ Channel not found in FSub database.")
+
+
 @Client.on_message(filters.command("updatefsubtarget") & filters.user(info.ADMINS))
 async def update_fsub_target(bot: Client, message: Message):
     if len(message.command) < 3:
-        return await message.reply_text(
-            "⚙️ Usage: <code>/updatefsubtarget [channel_id] [target_link]</code>"
-        )
+        return await message.reply_text("⚙️ **Usage:** `/updatefsubtarget [channel_id] [target_link]`\n*Use 'none' to remove custom target.*")
 
     channel_id = str(message.command[1])
     target = message.command[2]
 
-    info.FSUB_TARGETS[channel_id] = target
-    await message.reply_text(
-        f"✅ FSub target for <code>{channel_id}</code> successfully updated to:\n{target}"
-    )
+    if channel_id not in info.FSUB_CHANNELS:
+        return await message.reply_text(f"❌ Channel `{channel_id}` is not configured in FSub.")
 
-
-@Client.on_message(filters.command("rmfsubtarget") & filters.user(info.ADMINS))
-async def rm_fsub_target(bot: Client, message: Message):
-    if len(message.command) < 2:
-        return await message.reply_text(
-            "⚙️ Usage: <code>/rmfsubtarget [channel_id]</code>"
-        )
-
-    channel_id = str(message.command[1])
-
-    if channel_id in info.FSUB_TARGETS:
-        del info.FSUB_TARGETS[channel_id]
-        # Clear cached link if it exists
-        if channel_id in INVITE_LINKS:
-            del INVITE_LINKS[channel_id]
-        await message.reply_text(
-            f"🗑️ FSub target for <code>{channel_id}</code> has been removed."
-        )
+    if target.lower() == "none":
+        info.FSUB_CHANNELS[channel_id]["target"] = None
+        await message.reply_text(f"✅ Custom target removed. Bot will use standard invite link.")
     else:
-        await message.reply_text(
-            f"❌ No custom target found for <code>{channel_id}</code>."
-        )
+        info.FSUB_CHANNELS[channel_id]["target"] = target
+        await message.reply_text(f"✅ Target for `{channel_id}` updated to:\n{target}")
 
 
 # ============================================================
-# 👥 FSub Users DB Management (NEW)
+# 🗑 Remove Channels
+# ============================================================
+@Client.on_message(filters.command("rmfsub") & filters.user(info.ADMINS))
+async def rem_fsub(bot: Client, message: Message):
+    if len(message.command) < 2: return await message.reply_text("⚙️ **Usage:** `/rmfsub [channel_id]`")
+    channel_id = message.command[1]
+    
+    if channel_id in info.FSUB_CHANNELS:
+        del info.FSUB_CHANNELS[channel_id]
+        await message.reply_text(f"🗑️ **ForceSub channel `{channel_id}` removed.**")
+    else:
+        await message.reply_text("❌ Channel not found in FSub database.")
+
+
+@Client.on_message(filters.command("rmallfsub") & filters.user(info.ADMINS))
+async def rem_all_fsub(bot: Client, message: Message):
+    info.FSUB_CHANNELS.clear()
+    await message.reply_text("🗑️ **ALL ForceSub channels have been removed and queue is empty.**")
+
+
+# ============================================================
+# 📊 Get Lists (All / Active / Pending)
+# ============================================================
+def build_fsub_list_text(title_prefix: str, filter_status: str = None) -> str:
+    channels = info.FSUB_CHANNELS.items()
+    if filter_status:
+        channels = [(k, v) for k, v in channels if v.get("status") == filter_status]
+        
+    if not channels:
+        return f"❌ No {title_prefix.lower()} ForceSub channels found."
+        
+    text = f"📋 **{title_prefix} ForceSub Channels:**\n\n"
+    for idx, (cid, data) in enumerate(channels, 1):
+        status_emoji = "🟢" if data.get("status") == "active" else "🟡"
+        req_type = "Req" if data.get("type") == "req" else "Normal"
+        active_link = data.get("target") or data.get("link") or "No Link Generated"
+        
+        text += f"{idx}. {status_emoji} **{data.get('title', 'Unknown')}**\n"
+        text += f"├ ID: `{cid}`\n"
+        text += f"├ Type: `{req_type}`\n"
+        text += f"└ Link: {active_link}\n\n"
+        
+    return text
+
+
+@Client.on_message(filters.command("getallfsub") & filters.user(info.ADMINS))
+async def get_all_fsub(bot: Client, message: Message):
+    text = f"⚙️ **Queue Limit:** `{info.FSUB_MAX_COUNT if info.FSUB_MAX_COUNT > 0 else 'Unlimited'}`\n\n"
+    text += build_fsub_list_text("All")
+    await message.reply_text(text, disable_web_page_preview=True)
+
+
+@Client.on_message(filters.command("getactivefsub") & filters.user(info.ADMINS))
+async def get_active_fsub(bot: Client, message: Message):
+    await message.reply_text(build_fsub_list_text("Active", "active"), disable_web_page_preview=True)
+
+
+@Client.on_message(filters.command("getpendingfsub") & filters.user(info.ADMINS))
+async def get_pending_fsub(bot: Client, message: Message):
+    await message.reply_text(build_fsub_list_text("Pending", "pending"), disable_web_page_preview=True)
+
+
+# ============================================================
+# 👥 Users & Requests Management
 # ============================================================
 @Client.on_message(filters.command("checkfsubusers") & filters.user(info.ADMINS))
 async def check_fsub_users(bot: Client, message: Message):
     count = await fsub_db.get_count()
-    await message.reply_text(
-        f"👥 **Total Force Subscribed Users (DB):** <code>{count}</code>"
-    )
+    await message.reply_text(f"👥 **Total Force Subscribed Users (DB):** <code>{count}</code>")
 
 
 @Client.on_message(filters.command("clearfsubusers") & filters.user(info.ADMINS))
 async def clear_fsub_users(bot: Client, message: Message):
     try:
-        await message.reply_text(
-            "⚠️ Are you sure you want to clear all FSub users from the database? Reply with 'y' to confirm."
-        )
+        await message.reply_text("⚠️ Are you sure you want to clear all FSub users from the database? Reply with 'y' to confirm.")
         resp = await bot.listen(message.chat.id, timeout=30)
 
         if resp.text.lower() == "y":
             await fsub_db.clear_all()
-            await message.reply_text(
-                "✅ All force subscribed users have been cleared from the database."
-            )
+            await message.reply_text("✅ All force subscribed users have been cleared from the database.")
         else:
             await message.reply_text("❌ Cancelled.")
     except asyncio.TimeoutError:
         await message.reply_text("⌛ Timeout: Operation cancelled.")
-    except Exception as e:
-        await message.reply_text(
-            f"⚠️ Error clearing FSub users.\nError: <code>{e}</code>"
-        )
 
 
-# ============================================================
-# 🔍 Check ForceSub Status
-# ============================================================
-@Client.on_message(filters.command("fsub") & filters.user(info.ADMINS))
-async def fsub_status(bot: Client, message: Message):
-    status = (
-        "🟢 **ENABLED**"
-        if getattr(info, "IS_FSUB_ENABLED", True)
-        else "🔴 **DISABLED**"
-    )
-    text = f"🔐 **Force Subscription Status:** {status}\n\n"
-
-    if not info.AUTH_CHANNEL and not info.REQ_CHANNEL:
-        text += "⚠️ No channels are currently configured."
-        return await message.reply_text(text)
-
-    if info.AUTH_CHANNEL:
-        try:
-            chat = await bot.get_chat(int(info.AUTH_CHANNEL))
-            text += (
-                f"📢 **Main FSub Channel:** {chat.title}\nID: <code>{chat.id}</code>\n"
-            )
-        except Exception:
-            text += f"📢 **Main FSub Channel:** ID <code>{info.AUTH_CHANNEL}</code> (Bot not admin)\n"
-
-    if info.REQ_CHANNEL:
-        try:
-            chat = await bot.get_chat(int(info.REQ_CHANNEL))
-            text += f"\n📨 **Request FSub Channel:** {chat.title}\nID: <code>{chat.id}</code>\n"
-        except Exception:
-            text += f"\n📨 **Request FSub Channel:** ID <code>{info.REQ_CHANNEL}</code> (Bot not admin)\n"
-
-    await message.reply_text(text)
-
-
-# ============================================================
-# ➕ Add FSub Channels
-# ============================================================
-@Client.on_message(filters.command("setfsub") & filters.user(info.ADMINS))
-async def add_fsub(bot: Client, message: Message):
-    if len(message.command) < 2:
-        return await message.reply_text("⚙️ Usage: <code>/setfsub [channel_id]</code>")
-    try:
-        info.AUTH_CHANNEL = int(message.command[1])
-        await message.reply_text(
-            f"✅ Main ForceSub channel updated to <code>{info.AUTH_CHANNEL}</code>."
-        )
-    except ValueError:
-        await message.reply_text(
-            "❌ Channel ID must be an integer (e.g., -100123456789)."
-        )
-
-
-@Client.on_message(filters.command("setfsubreq") & filters.user(info.ADMINS))
-async def add_fsub_req(bot: Client, message: Message):
-    if len(message.command) < 2:
-        return await message.reply_text(
-            "⚙️ Usage: <code>/setfsubreq [channel_id]</code>"
-        )
-    try:
-        info.REQ_CHANNEL = int(message.command[1])
-        await message.reply_text(
-            f"✅ Request ForceSub channel updated to <code>{info.REQ_CHANNEL}</code>."
-        )
-    except ValueError:
-        await message.reply_text("❌ Channel ID must be an integer.")
-
-
-# ============================================================
-# ➖ Remove FSub Channels
-# ============================================================
-@Client.on_message(filters.command("rmfsub") & filters.user(info.ADMINS))
-async def rem_fsub(bot: Client, message: Message):
-    info.AUTH_CHANNEL = None
-    await message.reply_text("🗑️ **Main ForceSub channel removed.**")
-
-
-@Client.on_message(filters.command("remfsubreq") & filters.user(info.ADMINS))
-async def rem_fsub_req(bot: Client, message: Message):
-    info.REQ_CHANNEL = None
-    await message.reply_text("🗑️ **Request ForceSub channel removed.**")
-
-
-@Client.on_message(filters.command("rmallfsub") & filters.user(info.ADMINS))
-async def rem_all_fsub(bot: Client, message: Message):
-    info.AUTH_CHANNEL = None
-    info.REQ_CHANNEL = None
-    await message.reply_text(
-        "🗑️ **All ForceSub channels (Main & Request) have been removed.**"
-    )
-
-
-# ============================================================
-# 📄 Show FSub Channel Details (Links)
-# ============================================================
-@Client.on_message(filters.command("getallfsub") & filters.user(info.ADMINS))
-async def get_fsub(bot: Client, message: Message):
-    if not info.AUTH_CHANNEL and not info.REQ_CHANNEL:
-        return await message.reply_text("❌ No ForceSub channels configured.")
-
-    text = "🔗 **Active ForceSub Links:**\n\n"
-    if info.AUTH_CHANNEL:
-        link = await get_invite_link(bot, info.AUTH_CHANNEL)
-        text += f"📢 Main Channel: {link}\n"
-    if info.REQ_CHANNEL:
-        link = await get_invite_link(bot, info.REQ_CHANNEL)
-        text += f"📨 Request Channel: {link}\n"
-
-    await message.reply_text(text, disable_web_page_preview=True)
-
-
-# ============================================================
-# 📊 Join Requests Tracking
-# ============================================================
 @Client.on_message(filters.command("ttreq") & filters.user(info.ADMINS))
 async def total_requests(bot: Client, message: Message):
     try:
         total = await db.total_requests()
         await message.reply_text(f"📨 **Total Join Requests:** <code>{total}</code>")
     except Exception as e:
-        await message.reply_text(
-            f"⚠️ Failed to fetch join requests.\nError: <code>{e}</code>"
-        )
+        await message.reply_text(f"⚠️ Failed to fetch join requests.\nError: <code>{e}</code>")
 
 
 @Client.on_message(filters.command("clreq") & filters.user(info.ADMINS))
 async def clear_requests(bot: Client, message: Message):
     try:
-        await message.reply_text(
-            "⚠️ Are you sure? This will delete all join requests. Reply with 'y' to confirm."
-        )
+        await message.reply_text("⚠️ Are you sure? This will delete all join requests. Reply with 'y' to confirm.")
         resp = await bot.listen(message.chat.id, timeout=30)
-
+        
         if resp.text.lower() == "y":
             await db.clear_all()
             await message.reply_text("✅ All join requests cleared successfully.")
@@ -417,7 +418,3 @@ async def clear_requests(bot: Client, message: Message):
             await message.reply_text("❌ Cancelled.")
     except asyncio.TimeoutError:
         await message.reply_text("⌛ Timeout: Operation cancelled.")
-    except Exception as e:
-        await message.reply_text(
-            f"⚠️ Error clearing requests.\nError: <code>{e}</code>"
-        )
