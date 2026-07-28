@@ -1,7 +1,7 @@
-import os
-import time
 import asyncio
 import logging
+import os
+import time
 from datetime import datetime
 
 from pyrogram import Client, filters
@@ -13,8 +13,9 @@ logger = logging.getLogger(__name__)
 
 # Try importing MongoDB dependencies
 try:
-    from motor.motor_asyncio import AsyncIOMotorClient
     from bson.json_util import dumps, loads
+    from motor.motor_asyncio import AsyncIOMotorClient
+
     HAS_MONGO = True
 except ImportError:
     HAS_MONGO = False
@@ -39,27 +40,30 @@ last_backup_time = None
 next_backup_time = None
 scheduler_running = False
 
+
 async def auto_backup_task(bot: Client):
     """Background task to automatically backup DB every 24 hours to the primary Admin."""
     global last_backup_time, next_backup_time, scheduler_running
     scheduler_running = True
-    
+
     # Send automated backups to the first admin in the list
     target_admin_id = info.ADMINS[0] if getattr(info, "ADMINS", None) else None
-    
+
     while True:
         last_backup_time = time.time()
         next_backup_time = last_backup_time + BACKUP_INTERVAL
-        
+
         await asyncio.sleep(BACKUP_INTERVAL)
-        
+
         if not bot_db or not target_admin_id:
             continue
-            
+
         try:
             file_path = await generate_backup_file()
             caption = f"🔄 **Automated Daily Database Backup**\n\n📅 Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-            await bot.send_document(chat_id=target_admin_id, document=file_path, caption=caption)
+            await bot.send_document(
+                chat_id=target_admin_id, document=file_path, caption=caption
+            )
             os.remove(file_path)
         except Exception as e:
             logger.error(f"Auto-backup failed: {e}")
@@ -72,15 +76,15 @@ async def generate_backup_file() -> str:
     """Fetches all collections and dumps them to a local JSON file."""
     collections = await bot_db.list_collection_names()
     backup_data = {}
-    
+
     for coll_name in collections:
         docs = await bot_db[coll_name].find({}).to_list(length=None)
         backup_data[coll_name] = docs
-        
+
     file_name = f"DB_Backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
     with open(file_name, "w", encoding="utf-8") as f:
         f.write(dumps(backup_data, indent=4))
-        
+
     return file_name
 
 
@@ -90,21 +94,22 @@ async def generate_backup_file() -> str:
 @Client.on_message(filters.command("dbbackup") & filters.user(info.ADMINS))
 async def db_backup_cmd(bot: Client, message: Message):
     if not bot_db:
-        return await message.reply_text("❌ **MongoDB is not configured or dependencies are missing.**")
+        return await message.reply_text(
+            "❌ **MongoDB is not configured or dependencies are missing.**"
+        )
 
-    status_msg = await message.reply_text("⏳ **Generating database backup...**\nThis might take a few moments.")
-    
+    status_msg = await message.reply_text(
+        "⏳ **Generating database backup...**\nThis might take a few moments."
+    )
+
     try:
         file_path = await generate_backup_file()
         caption = f"✅ **Database Backup Complete!**\n\n📅 Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n👤 **Requested By:** {message.from_user.mention}"
-        
-        await message.reply_document(
-            document=file_path,
-            caption=caption
-        )
+
+        await message.reply_document(document=file_path, caption=caption)
         os.remove(file_path)
         await status_msg.delete()
-        
+
     except Exception as e:
         await status_msg.edit_text(f"⚠️ **Backup Failed!**\n\nError: `{e}`")
 
@@ -125,15 +130,17 @@ async def db_restore_cmd(bot: Client, message: Message):
 
     doc = message.reply_to_message.document
     if not doc.file_name.endswith(".json"):
-        return await message.reply_text("❌ **Invalid File Format!** Please reply to a valid `.json` backup file.")
+        return await message.reply_text(
+            "❌ **Invalid File Format!** Please reply to a valid `.json` backup file."
+        )
 
     status_msg = await message.reply_text("⏳ **Downloading backup file...**")
-    
+
     try:
         file_path = await message.reply_to_message.download()
-        
+
         await status_msg.edit_text("⏳ **Restoring database...**")
-        
+
         with open(file_path, "r", encoding="utf-8") as f:
             backup_data = loads(f.read())
 
@@ -157,7 +164,7 @@ async def db_restore_cmd(bot: Client, message: Message):
 
     except Exception as e:
         await status_msg.edit_text(f"⚠️ **Restore Failed!**\n\nError: `{e}`")
-        if 'file_path' in locals() and os.path.exists(file_path):
+        if "file_path" in locals() and os.path.exists(file_path):
             os.remove(file_path)
 
 
@@ -172,22 +179,22 @@ async def db_stats_cmd(bot: Client, message: Message):
     try:
         stats = await bot_db.command("dbstats")
         colls = await bot_db.list_collection_names()
-        
+
         total_size_mb = stats.get("dataSize", 0) / (1024 * 1024)
-        
+
         text = "📊 **Database Statistics**\n\n"
         text += f"🗄️ **Database:** `BotDatabase`\n"
         text += f"📦 **Collections Count:** `{stats.get('collections', 0)}`\n"
         text += f"📄 **Total Documents:** `{stats.get('objects', 0)}`\n"
         text += f"💾 **Data Size:** `{total_size_mb:.2f} MB`\n\n"
-        
+
         text += "📁 **Collection Breakdown:**\n"
         for coll in colls:
             count = await bot_db[coll].count_documents({})
             text += f"  - `{coll}`: {count} docs\n"
 
         await message.reply_text(text)
-        
+
     except Exception as e:
         await message.reply_text(f"⚠️ **Failed to fetch stats:**\n`{e}`")
 
@@ -203,13 +210,15 @@ async def db_schedule_cmd(bot: Client, message: Message):
     if not scheduler_running:
         # Start the background task if it hasn't been started yet
         asyncio.create_task(auto_backup_task(bot))
-        return await message.reply_text("✅ **Auto-backup scheduler initiated!**\nThe first automated backup will run in 24 hours.")
+        return await message.reply_text(
+            "✅ **Auto-backup scheduler initiated!**\nThe first automated backup will run in 24 hours."
+        )
 
     if next_backup_time:
         time_left = next_backup_time - time.time()
         hours, remainder = divmod(int(time_left), 3600)
         minutes, seconds = divmod(remainder, 60)
-        
+
         time_str = f"{hours}h {minutes}m {seconds}s"
         await message.reply_text(
             f"⏰ **Scheduled Backup Status**\n\n"
