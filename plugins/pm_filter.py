@@ -6,6 +6,7 @@ import re
 
 from pyrogram import Client, enums, filters
 from pyrogram.errors import (
+    ButtonUrlInvalid,
     FloodWait,
     Forbidden,
     MessageIdInvalid,
@@ -14,7 +15,6 @@ from pyrogram.errors import (
     QueryIdInvalid,
     RandomIdDuplicate,
     UserIsBlocked,
-    ButtonUrlInvalid,
 )
 from pyrogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -49,7 +49,9 @@ logger.setLevel(logging.ERROR)
 BUTTONS = {}
 SPELL_CHECK = {}
 
-FILE_NOT_FOUND_PIC = "https://telegra.ph/file/c4f0458d30f61993aad45-086b84e8363b3c582e.jpg"
+FILE_NOT_FOUND_PIC = (
+    "https://telegra.ph/file/c4f0458d30f61993aad45-086b84e8363b3c582e.jpg"
+)
 NOT_FOUND_TEXT = (
     "<b>🚫 File not found. Please note👇\n \n"
     "✅ Use correct spelling as given in Google.\n \n"
@@ -721,10 +723,14 @@ async def cb_handler(client: Client, query: CallbackQuery):
             buttons = [
                 [
                     InlineKeyboardButton("🚫 Bans", callback_data="bans"),
-                    InlineKeyboardButton("💬 Custom Messages", callback_data="custommessages"),
+                    InlineKeyboardButton(
+                        "💬 Custom Messages", callback_data="custommessages"
+                    ),
                 ],
                 [
-                    InlineKeyboardButton("📝 Custom Captions", callback_data="customcaption"),
+                    InlineKeyboardButton(
+                        "📝 Custom Captions", callback_data="customcaption"
+                    ),
                     InlineKeyboardButton("🗑️ Delete", callback_data="delete"),
                 ],
                 [
