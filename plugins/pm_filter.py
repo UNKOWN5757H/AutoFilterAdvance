@@ -716,14 +716,10 @@ async def cb_handler(client: Client, query: CallbackQuery):
             buttons = [
                 [
                     InlineKeyboardButton("🚫 Bans", callback_data="bans"),
-                    InlineKeyboardButton(
-                        "💬 Custom Messages", callback_data="custommessages"
-                    ),
+                    InlineKeyboardButton("💬 Custom Messages", callback_data="custommessages"),
                 ],
                 [
-                    InlineKeyboardButton(
-                        "📝 Custom Captions", callback_data="customcaption"
-                    ),
+                    InlineKeyboardButton("📝 Custom Captions", callback_data="customcaption"),
                     InlineKeyboardButton("🗑️ Delete", callback_data="delete"),
                 ],
                 [
