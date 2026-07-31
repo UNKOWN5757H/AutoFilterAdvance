@@ -14,6 +14,7 @@ from pyrogram.errors import (
     QueryIdInvalid,
     RandomIdDuplicate,
     UserIsBlocked,
+    ButtonUrlInvalid,
 )
 from pyrogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -48,9 +49,7 @@ logger.setLevel(logging.ERROR)
 BUTTONS = {}
 SPELL_CHECK = {}
 
-FILE_NOT_FOUND_PIC = (
-    "https://telegra.ph/file/c4f0458d30f61993aad45-086b84e8363b3c582e.jpg"
-)
+FILE_NOT_FOUND_PIC = "https://telegra.ph/file/c4f0458d30f61993aad45-086b84e8363b3c582e.jpg"
 NOT_FOUND_TEXT = (
     "<b>🚫 File not found. Please note👇\n \n"
     "✅ Use correct spelling as given in Google.\n \n"
@@ -251,6 +250,8 @@ async def next_page(bot, query):
         await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(btn))
     except (MessageNotModified, MessageIdInvalid):
         pass
+    except ButtonUrlInvalid:
+        logger.error(f"ButtonUrlInvalid during pagination next_page.")
     except FloodWait as e:
         await asyncio.sleep(e.value)
         try:
@@ -603,6 +604,8 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     )
             except UserIsBlocked:
                 await query.answer("Unblock the bot mahn !", show_alert=True)
+            except ButtonUrlInvalid:
+                logger.error(f"ButtonUrlInvalid during file send.")
             except (PeerIdInvalid, Exception):
                 await query.answer(
                     url=f"https://t.me/{temp.U_NAME}?start={ident}_{file_id}"
@@ -709,6 +712,8 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 )
             except (MessageIdInvalid, MessageNotModified):
                 pass
+            except ButtonUrlInvalid:
+                pass
             await query.answer("Join: @KR_PICTURE")
 
         # Basic Navigational Callbacks
@@ -716,14 +721,10 @@ async def cb_handler(client: Client, query: CallbackQuery):
             buttons = [
                 [
                     InlineKeyboardButton("🚫 Bans", callback_data="bans"),
-                    InlineKeyboardButton(
-                        "💬 Custom Messages", callback_data="custommessages"
-                    ),
+                    InlineKeyboardButton("💬 Custom Messages", callback_data="custommessages"),
                 ],
                 [
-                    InlineKeyboardButton(
-                        "📝 Custom Captions", callback_data="customcaption"
-                    ),
+                    InlineKeyboardButton("📝 Custom Captions", callback_data="customcaption"),
                     InlineKeyboardButton("🗑️ Delete", callback_data="delete"),
                 ],
                 [
@@ -791,7 +792,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
             buttons = [[InlineKeyboardButton("🔙 Back", callback_data="help")]]
             try:
                 await query.message.edit_text(
-                    text=script.CUSTOMMESSAGES_TXT,
+                    text=script.CUSTOMMESSAGE_TXT,
                     reply_markup=InlineKeyboardMarkup(buttons),
                     parse_mode=enums.ParseMode.HTML,
                 )
@@ -802,7 +803,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
             buttons = [[InlineKeyboardButton("🔙 Back", callback_data="help")]]
             try:
                 await query.message.edit_text(
-                    text=script.CUSTOMCAPTION_TXT,
+                    text=script.CUSTOMCAPTIONS,
                     reply_markup=InlineKeyboardMarkup(buttons),
                     parse_mode=enums.ParseMode.HTML,
                 )
@@ -890,7 +891,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
             buttons = [[InlineKeyboardButton("🔙 Back", callback_data="help")]]
             try:
                 await query.message.edit_text(
-                    text=script.CONNECTIONS_TXT,
+                    text=script.CONNECTION_TXT,
                     reply_markup=InlineKeyboardMarkup(buttons),
                     parse_mode=enums.ParseMode.HTML,
                 )
@@ -901,7 +902,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
             buttons = [[InlineKeyboardButton("🔙 Back", callback_data="help")]]
             try:
                 await query.message.edit_text(
-                    text=script.FORCEADD_TXT,
+                    text="This module manages force adding users to specific channels.",
                     reply_markup=InlineKeyboardMarkup(buttons),
                     parse_mode=enums.ParseMode.HTML,
                 )
@@ -1063,6 +1064,9 @@ async def auto_filter(client, msg, spoll=False):
 
     try:
         m = await message.reply_text(cap, reply_markup=InlineKeyboardMarkup(btn))
+    except ButtonUrlInvalid:
+        logger.error(f"ButtonUrlInvalid during auto_filter send.")
+        return
     except Forbidden:
         return
     except Exception as e:
@@ -1265,6 +1269,8 @@ async def manual_filters(client, message, text=False):
                                 delete_message_after_delay(sent_msg, delete_timer)
                             )
 
+                except ButtonUrlInvalid:
+                    logger.error(f"ButtonUrlInvalid during manual filter trigger.")
                 except Forbidden as e:
                     if "CHAT_SEND_PHOTOS_FORBIDDEN" in str(
                         e
