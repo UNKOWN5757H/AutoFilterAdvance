@@ -62,7 +62,7 @@ You can just forward the message from database channel for starting indexing, no
 ‣ /dbrestore - Restore the database\n
 ‣ /dbstats - Get database stats\n
 ‣ /dbschedule - Get scheduled backup status</b>"""
-    
+
     MANUELFILTER_TXT = """𝗙𝗶𝗹𝘁𝗲𝗿𝘀
 
 - Filter is the feature were users can set automated replies for a particular keyword and I will respond whenever a keyword is found the message
