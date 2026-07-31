@@ -799,7 +799,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 pass
 
         elif query.data == "customcaption":
-            buttons = [[InlineKeyboardButton("🔙 Back", callback_data="manuelfilter")]]
+            buttons = [[InlineKeyboardButton("🔙 Back", callback_data="help")]]
             try:
                 await query.message.edit_text(
                     text=script.CUSTOMCAPTION_TXT,
