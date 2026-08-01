@@ -5,15 +5,16 @@ import logging.config
 import os
 from typing import AsyncGenerator, Union
 
-import pyromod  # ⚡ ADDED: This injects .listen() into Pyrogram globally
-from pyrogram import Client, __version__, filters, types
+from aiohttp import web
+import pyromod  # ⚡ Injects .listen() into Pyrogram globally
+from pyrogram import Client, __version__, filters, types, idle
 from pyrogram.raw.all import layer
 from pyrogram.types import Message
 
-# Fixed: Removed the heavy load_known_titles import to speed up Koyeb boot times
 from database.ia_filterdb import Media
-from database.users_chats_db import db
-from info import API_HASH, API_ID, BOT_TOKEN, LOG_STR, SESSION
+from database.users_chats_db import db as old_db
+from database.plugin_dbs import plugin_db
+from info import API_HASH, API_ID, BOT_TOKEN, LOG_STR, SESSION, PORT
 from utils import temp
 
 # ============================================================
@@ -32,7 +33,6 @@ logging.getLogger("pyrogram").setLevel(logging.ERROR)
 logging.getLogger("imdbpy").setLevel(logging.ERROR)
 logger = logging.getLogger(__name__)
 
-
 # ============================================================
 # 🤖 BOT CLASS
 # ============================================================
@@ -48,30 +48,45 @@ class Bot(Client):
             sleep_threshold=5,
         )
 
-    # FIXED: Added *args and **kwargs to handle Kurigram's 'use_qr' injection
     async def start(self, *args, **kwargs):
-        # 1. Load banned users/chats into memory
-        b_users, b_chats = await db.get_banned()
+        # Pass arguments up to parent
+        await super().start(*args, **kwargs)
+
+        # 1. LOAD BANNED USERS/CHATS (Centralized & Legacy)
+        b_users = []
+        b_chats = []
+        try:
+            # Fetch disabled chats
+            async for chat in old_db.grp.find({"chat_status.is_disabled": True}):
+                if chat.get("id"):
+                    b_chats.append(chat["id"])
+                
+            # Fetch banned users from the new centralized DB
+            async for user in plugin_db.ban_col.find({}):
+                if user.get("_id"):
+                    b_users.append(user["_id"])
+                
+            # Fetch legacy banned users from the old users DB
+            async for user in old_db.col.find({"ban_status.is_banned": True}):
+                u_id = user.get("id")
+                if u_id and u_id not in b_users:
+                    b_users.append(u_id)
+        except Exception as e:
+            logger.error(f"Error loading bans: {e}")
+
         temp.BANNED_USERS = b_users
         temp.BANNED_CHATS = b_chats
 
-        # Pass the extra arguments up to the parent Pyrogram class
-        await super().start(*args, **kwargs)
-
-        # ============================================================
-        # 2. DATABASE INITIALIZATION & CRASH FIX
-        # ============================================================
+        # 2. DATABASE INITIALIZATION
         try:
-            # Force drop the old conflicting index before applying the new one
             await Media.collection.drop_index("file_name_text")
-            logger.info("🗑️ Successfully dropped the old text index 'file_name_text'.")
         except Exception:
-            # If the index is already deleted or doesn't exist, safely ignore
             pass
 
-        # Now safely build the new compound index
-        await Media.ensure_indexes()
-        # ============================================================
+        try:
+            await Media.ensure_indexes()
+        except Exception as e:
+            logger.error(f"Error ensuring DB indexes: {e}")
 
         me = await self.get_me()
         temp.ME = me.id
@@ -79,24 +94,17 @@ class Bot(Client):
         temp.B_NAME = me.first_name
         self.username = f"@{me.username}"
 
-        logger.info(
-            f"{me.first_name} with Pyrogram v{__version__} (Layer {layer}) started on {me.username}."
-        )
+        logger.info(f"{me.first_name} with Pyrogram v{__version__} (Layer {layer}) started on {me.username}.")
         logger.info(LOG_STR)
 
-        # ============================================================
-        # ♻️ SERVER RESTART SUCCESS HANDLER
-        # ============================================================
+        # 3. RESTART SUCCESS HANDLER
         if os.path.exists("restart.txt"):
             try:
                 with open("restart.txt", "r") as f:
                     chat_id_str, msg_id_str = f.read().strip().split("\n")
-                    chat_id = int(chat_id_str)
-                    msg_id = int(msg_id_str)
-
                 await self.edit_message_text(
-                    chat_id=chat_id,
-                    message_id=msg_id,
+                    chat_id=int(chat_id_str),
+                    message_id=int(msg_id_str),
                     text="✅ **Bot Restarted Successfully!**",
                 )
             except Exception as e:
@@ -105,47 +113,28 @@ class Bot(Client):
                 if os.path.exists("restart.txt"):
                     os.remove("restart.txt")
 
-    # FIXED: Ensured stop() also accepts external arguments gracefully
     async def stop(self, *args, **kwargs):
         await super().stop(*args, **kwargs)
         logger.info("Bot stopped. Bye.")
 
-    async def iter_messages(
-        self,
-        chat_id: Union[int, str],
-        limit: int,
-        offset: int = 0,
-    ) -> AsyncGenerator[types.Message, None]:
-        """
-        Iterate through a chat sequentially by message IDs.
-        FIXED: Added empty check to prevent crashing when hitting deleted messages.
-        """
+    async def iter_messages(self, chat_id: Union[int, str], limit: int, offset: int = 0) -> AsyncGenerator[types.Message, None]:
         current = offset
         while True:
             new_diff = min(200, limit - current)
             if new_diff <= 0:
                 return
-
-            messages = await self.get_messages(
-                chat_id, list(range(current, current + new_diff + 1))
-            )
-
+            messages = await self.get_messages(chat_id, list(range(current, current + new_diff + 1)))
             for message in messages:
-                # Pyrogram V2 returns empty message objects for deleted messages
                 if not getattr(message, "empty", False):
                     yield message
                 current += 1
 
-
-# Instantiating the app here so root-level handlers can bind to it
 app = Bot()
-
 
 # ============================================================
 # 🗑️ AUTO DELETE PM MEDIA (30-MINUTES, MEMORY SAFE)
 # ============================================================
 async def delete_media_task(message: Message, delay: int):
-    """Background task to safely handle delayed deletions without blocking workers."""
     await asyncio.sleep(delay)
     try:
         if message:
@@ -153,40 +142,23 @@ async def delete_media_task(message: Message, delay: int):
     except Exception as e:
         logger.error(f"Failed to auto-delete PM media for {message.from_user.id}: {e}")
 
-
-@app.on_message(
-    filters.private
-    & (
-        filters.document
-        | filters.video
-        | filters.audio
-        | filters.photo
-        | filters.voice
-        | filters.video_note
-    ),
-    group=2,
-)
+@app.on_message(filters.private & (filters.document | filters.video | filters.audio | filters.photo | filters.voice | filters.video_note), group=2)
 async def auto_delete_user_media_pm(client: Client, message: Message):
     user = message.from_user
     if not user or message.outgoing:
         return
-
-    # Detached the sleep timer into a background task.
-    # Set to 1800 seconds (30 minutes)
     asyncio.create_task(delete_media_task(message, delay=1800))
 
-
 # ============================================================
-# 🚀 LAUNCH SEQUENCE
+# 🌐 AIOHTTP WEB SERVER FOR KOYEB HEALTH CHECKS
 # ============================================================
-if __name__ == "__main__":
+async def health_check(request):
+    return web.Response(text="Bot is running and healthy!")
 
-    # --- 🧹 AUTO DELETE OLD SESSION FILES ---
-    # FIXED: The previous wildcard (*.session) deleted ALL sessions, including the one
-    # the bot needs to run! Now it safely ignores the active bot session.
+async def start_services():
+    # 1. Clean obsolete sessions
     print("🔍 Checking for obsolete session files...")
     active_session = f"{SESSION}.session"
-
     for file in glob.glob("*.session"):
         if file != active_session:
             try:
@@ -194,6 +166,30 @@ if __name__ == "__main__":
                 print(f"🗑️ Deleted obsolete session: {file}")
             except Exception as e:
                 print(f"⚠️ Could not delete {file}: {e}")
-    # -----------------------------------------
 
-    app.run()
+    # 2. Start Web Server (For Koyeb Port Binding)
+    web_app = web.Application()
+    web_app.router.add_get('/', health_check)
+    runner = web.AppRunner(web_app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', PORT)
+    await site.start()
+    logger.info(f"🌐 Web server listening on port {PORT} for health checks.")
+
+    # 3. Start Bot and Idle
+    await app.start()
+    await idle()
+    
+    # 4. Shutdown cleanly
+    await app.stop()
+    await runner.cleanup()
+
+# ============================================================
+# 🚀 LAUNCH SEQUENCE
+# ============================================================
+if __name__ == "__main__":
+    try:
+        # Run everything gracefully in one event loop
+        asyncio.get_event_loop().run_until_complete(start_services())
+    except KeyboardInterrupt:
+        logger.info("Process interrupted. Shutting down...")
