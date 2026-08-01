@@ -10,6 +10,7 @@ from database.plugin_dbs import plugin_db
 
 logger = logging.getLogger(__name__)
 
+
 # ============================================================
 # 🚫 1. Ban User
 # ============================================================
