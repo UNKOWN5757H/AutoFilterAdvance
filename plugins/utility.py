@@ -27,11 +27,13 @@ from plugins.fsub import fsub_db
 
 logger = logging.getLogger(__name__)
 
-try: 
+try:
     import psutil
 except ImportError:
     psutil = None
-    logger.warning("psutil is not installed. /server command will have limited functionality.")
+    logger.warning(
+        "psutil is not installed. /server command will have limited functionality."
+    )
 
 
 # ============================================================
@@ -40,11 +42,13 @@ except ImportError:
 @Client.on_message(filters.command("logs") & filters.user(info.ADMINS))
 async def get_logs_cmd(bot: Client, message: Message):
     log_file = "TelegramBot.log"
-    if not os.path.exists(log_file): 
+    if not os.path.exists(log_file):
         return await message.reply_text("⚠️ **Log file not found!**")
-    try: 
-        await message.reply_document(document=log_file, caption="📜 **Here are the latest bot logs.**")
-    except Exception as e: 
+    try:
+        await message.reply_document(
+            document=log_file, caption="📜 **Here are the latest bot logs.**"
+        )
+    except Exception as e:
         await message.reply_text(f"❌ **Failed to send logs:**\n`{e}`")
 
 
@@ -53,8 +57,10 @@ async def get_logs_cmd(bot: Client, message: Message):
 # ============================================================
 def get_size_str(bytes_size):
     for unit in ["B", "KB", "MB", "GB", "TB"]:
-        if bytes_size < 1024.0: return f"{bytes_size:.2f} {unit}"
+        if bytes_size < 1024.0:
+            return f"{bytes_size:.2f} {unit}"
         bytes_size /= 1024.0
+
 
 @Client.on_message(filters.command("server") & filters.user(info.ADMINS))
 async def server_stats_cmd(bot: Client, message: Message):
@@ -68,7 +74,8 @@ async def server_stats_cmd(bot: Client, message: Message):
         text += f"📉 **RAM Usage:** `{ram.percent}%`\n"
         text += f"💾 **RAM Total:** `{get_size_str(ram.total)}`\n"
         text += f"💿 **RAM Free:** `{get_size_str(ram.available)}`\n\n"
-    else: text += "⚠️ `psutil` not installed. Cannot fetch CPU/RAM.\n\n"
+    else:
+        text += "⚠️ `psutil` not installed. Cannot fetch CPU/RAM.\n\n"
 
     total, used, free = shutil.disk_usage("/")
     text += f"💽 **Disk Total:** `{get_size_str(total)}`\n"
@@ -84,14 +91,18 @@ async def server_stats_cmd(bot: Client, message: Message):
 async def restart_bot_cmd(bot: Client, message: Message):
     await message.reply_text(
         "⚠️ **Are you sure you want to restart the bot?**",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ Confirm Restart", callback_data="util_restart")]]),
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton("✅ Confirm Restart", callback_data="util_restart")]]
+        ),
     )
+
 
 @Client.on_callback_query(filters.regex("^util_restart$") & filters.user(info.ADMINS))
 async def confirm_restart_cb(bot: Client, query: CallbackQuery):
     await query.answer("♻️ Restarting...", show_alert=True)
     msg = await query.edit_message_text("♻️ **Bot is restarting... Please wait.**")
-    with open("restart.txt", "w") as f: f.write(f"{msg.chat.id}\n{msg.id}")
+    with open("restart.txt", "w") as f:
+        f.write(f"{msg.chat.id}\n{msg.id}")
     await asyncio.sleep(2)
     os._exit(1)
 
@@ -102,13 +113,13 @@ async def confirm_restart_cb(bot: Client, query: CallbackQuery):
 @Client.on_message(filters.command("stats") & filters.user(info.ADMINS))
 async def bot_stats_cmd(bot: Client, message: Message):
     status_msg = await message.reply_text("⏳ **Fetching Database Stats...**")
-    
+
     total_users = await db.total_users_count()
     total_chats = await db.total_chat_count()
     total_files = await Media.count_documents()
     db_size = await db.get_db_size()
     db_size_str = get_size_str(db_size)
-    
+
     stats_text = (
         "📊 **Bot Database Statistics**\n"
         "━━━━━━━━━━━━━━━━━━━━━\n"
@@ -127,7 +138,9 @@ async def bot_stats_cmd(bot: Client, message: Message):
 # ============================================================
 @Client.on_message(filters.command("cleanusers") & filters.user(info.ADMINS))
 async def clean_users_cmd(bot: Client, message: Message):
-    status_msg = await message.reply_text("⏳ **Starting Deep Clean...**\n*This will take time due to Telegram API limits. The bot will process this in the background.*")
+    status_msg = await message.reply_text(
+        "⏳ **Starting Deep Clean...**\n*This will take time due to Telegram API limits. The bot will process this in the background.*"
+    )
 
     users = await db.get_all_users()
     total_users = await db.total_users_count()
@@ -135,12 +148,12 @@ async def clean_users_cmd(bot: Client, message: Message):
     active_users = 0
     blocked_users = 0
     deleted_accounts = 0
-    
+
     # Process in optimized batches of 50 to speed it up without triggering major flood limits
     chunk_size = 50
     for i in range(0, len(users), chunk_size):
-        chunk = users[i:i + chunk_size]
-        
+        chunk = users[i : i + chunk_size]
+
         async def check_user(user):
             user_id = user.get("id")
             try:
@@ -162,19 +175,24 @@ async def clean_users_cmd(bot: Client, message: Message):
                 return "active"
 
         results = await asyncio.gather(*[check_user(u) for u in chunk])
-        
+
         for res in results:
-            if res == "active": active_users += 1
-            elif res == "blocked": blocked_users += 1
-            elif res == "deleted": deleted_accounts += 1
-            
+            if res == "active":
+                active_users += 1
+            elif res == "blocked":
+                blocked_users += 1
+            elif res == "deleted":
+                deleted_accounts += 1
+
         processed = i + len(chunk)
         if processed % 500 == 0 or processed == total_users:
             try:
-                await status_msg.edit_text(f"⏳ **Cleaning users:** `{processed} / {total_users}`")
-            except: 
+                await status_msg.edit_text(
+                    f"⏳ **Cleaning users:** `{processed} / {total_users}`"
+                )
+            except:
                 pass
-                
+
         # Mandatory sleep to respect Telegram's limits
         await asyncio.sleep(1.5)
 
@@ -199,7 +217,8 @@ async def total_files_cmd(bot: Client, message: Message):
     try:
         total = await Media.count_documents()
         await msg.edit_text(f"📁 **Total Files in Database:** `{total}`")
-    except Exception as e: await msg.edit_text(f"❌ **Error fetching total files:**\n`{e}`")
+    except Exception as e:
+        await msg.edit_text(f"❌ **Error fetching total files:**\n`{e}`")
 
 
 # ============================================================
@@ -209,24 +228,52 @@ async def total_files_cmd(bot: Client, message: Message):
 async def clear_files_cmd(bot: Client, message: Message):
     await message.reply_text(
         "⚠️ **WARNING!** ⚠️\nThis will permanently delete **ALL** files indexed in your database.\n\nAre you absolutely sure?",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔥 YES, DELETE ALL FILES", callback_data="nuke_files")], [InlineKeyboardButton("❌ Cancel", callback_data="close_data")]]),
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "🔥 YES, DELETE ALL FILES", callback_data="nuke_files"
+                    )
+                ],
+                [InlineKeyboardButton("❌ Cancel", callback_data="close_data")],
+            ]
+        ),
     )
+
 
 @Client.on_message(filters.command("clearusers") & filters.user(info.ADMINS))
 async def clear_users_cmd(bot: Client, message: Message):
     await message.reply_text(
         "⚠️ **WARNING!** ⚠️\nThis will permanently delete **ALL** users from your database. (Bot stats will reset to 0)\n\nAre you absolutely sure?",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔥 YES, DELETE ALL USERS", callback_data="nuke_users")], [InlineKeyboardButton("❌ Cancel", callback_data="close_data")]]),
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "🔥 YES, DELETE ALL USERS", callback_data="nuke_users"
+                    )
+                ],
+                [InlineKeyboardButton("❌ Cancel", callback_data="close_data")],
+            ]
+        ),
     )
+
 
 @Client.on_message(filters.command("clearfsubusers") & filters.user(info.ADMINS))
 async def clear_fsub_cmd(bot: Client, message: Message):
     await message.reply_text(
         "⚠️ **WARNING!** ⚠️\nThis will clear the Force Sub DB. Everyone will have to rejoin the channels.\n\nAre you sure?",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔥 YES, CLEAR FSUB", callback_data="nuke_fsub")], [InlineKeyboardButton("❌ Cancel", callback_data="close_data")]]),
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton("🔥 YES, CLEAR FSUB", callback_data="nuke_fsub")],
+                [InlineKeyboardButton("❌ Cancel", callback_data="close_data")],
+            ]
+        ),
     )
 
-@Client.on_callback_query(filters.regex(r"^nuke_(files|users|fsub)$") & filters.user(info.ADMINS))
+
+@Client.on_callback_query(
+    filters.regex(r"^nuke_(files|users|fsub)$") & filters.user(info.ADMINS)
+)
 async def nuke_callbacks(bot: Client, query: CallbackQuery):
     action = query.data.split("_")[1]
     await query.answer("Wiping database... please wait.", show_alert=True)
@@ -235,13 +282,19 @@ async def nuke_callbacks(bot: Client, query: CallbackQuery):
     try:
         if action == "files":
             res = await Media.collection.delete_many({})
-            await query.message.edit_text(f"✅ **Database Wiped!**\n🗑 **Deleted Files:** `{res.deleted_count}`")
+            await query.message.edit_text(
+                f"✅ **Database Wiped!**\n🗑 **Deleted Files:** `{res.deleted_count}`"
+            )
         elif action == "users":
             res = await db.col.delete_many({})
-            await query.message.edit_text(f"✅ **Database Wiped!**\n🗑 **Deleted Users:** `{res.deleted_count}`")
+            await query.message.edit_text(
+                f"✅ **Database Wiped!**\n🗑 **Deleted Users:** `{res.deleted_count}`"
+            )
         elif action == "fsub":
             await fsub_db.clear_all()
-            await query.message.edit_text("✅ **Force Subscribe Database has been completely cleared.**")
+            await query.message.edit_text(
+                "✅ **Force Subscribe Database has been completely cleared.**"
+            )
     except Exception as e:
         logger.exception(f"Error during nuke_{action}")
         await query.message.edit_text(f"❌ **Error occurred:**\n`{e}`")
