@@ -48,21 +48,30 @@ def get_start_buttons(user_id):
     """Helper to generate start buttons dynamically based on admin status."""
     buttons = [
         [
-            InlineKeyboardButton("✈️ Group 1", url="https://t.me/Sandalwood_Kannada_Group"),
+            InlineKeyboardButton(
+                "✈️ Group 1", url="https://t.me/Sandalwood_Kannada_Group"
+            ),
             InlineKeyboardButton("✈️ Group 2", url="http://t.me/Kannada_Filmy_Group"),
             InlineKeyboardButton("✈️ Group 3", url="https://t.me/+GLsPkRgLGGszMzY1"),
         ]
     ]
 
     if user_id in ADMINS or str(user_id) in ADMINS:
-        buttons.append([
-            InlineKeyboardButton("ℹ️ 𝙷𝚎𝚕𝚙", callback_data="help"),
-            InlineKeyboardButton("😊 𝙰𝚋𝚘𝚞𝚝", callback_data="about"),
-        ])
+        buttons.append(
+            [
+                InlineKeyboardButton("ℹ️ 𝙷𝚎𝚕𝚙", callback_data="help"),
+                InlineKeyboardButton("😊 𝙰𝚋𝚘𝚞𝚝", callback_data="about"),
+            ]
+        )
 
-    buttons.append([
-        InlineKeyboardButton("🔗 New Releases & OTT Updates", url="https://t.me/sandalwood_kannada_moviesz")
-    ])
+    buttons.append(
+        [
+            InlineKeyboardButton(
+                "🔗 New Releases & OTT Updates",
+                url="https://t.me/sandalwood_kannada_moviesz",
+            )
+        ]
+    )
     return InlineKeyboardMarkup(buttons)
 
 
@@ -73,17 +82,30 @@ def get_start_buttons(user_id):
 async def start(client: Client, message: Message):
     if getattr(info, "REPAIR_MODE", False):
         if not message.from_user or message.from_user.id not in info.ADMINS:
-            return await message.reply_text("🛠️ **Bot is currently under maintenance!**\n\nWe are performing some upgrades/fixes. Please try again later.")
+            return await message.reply_text(
+                "🛠️ **Bot is currently under maintenance!**\n\nWe are performing some upgrades/fixes. Please try again later."
+            )
 
     if message.from_user and await ban_db.is_banned(message.from_user.id):
-        return await message.reply_text("🚫 **You have been banned from using this bot.**\nIf you believe this is a mistake, please contact the administrators.")
+        return await message.reply_text(
+            "🚫 **You have been banned from using this bot.**\nIf you believe this is a mistake, please contact the administrators."
+        )
 
     if message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
-        reply_markup = get_start_buttons(message.from_user.id if message.from_user else 0)
+        reply_markup = get_start_buttons(
+            message.from_user.id if message.from_user else 0
+        )
         await message.reply(
             script.START_TXT.format(
-                mention=(message.from_user.mention if message.from_user else message.chat.title),
-                uname=temp.U_NAME, bname=temp.B_NAME, plane_emoji=MESSAGE_EMOJI_PLANE, link_emoji=MESSAGE_EMOJI_LINK,
+                mention=(
+                    message.from_user.mention
+                    if message.from_user
+                    else message.chat.title
+                ),
+                uname=temp.U_NAME,
+                bname=temp.B_NAME,
+                plane_emoji=MESSAGE_EMOJI_PLANE,
+                link_emoji=MESSAGE_EMOJI_LINK,
             ),
             reply_markup=reply_markup,
             parse_mode=enums.ParseMode.HTML,
@@ -92,19 +114,40 @@ async def start(client: Client, message: Message):
 
         if not await db.get_chat(message.chat.id):
             total = await client.get_chat_members_count(message.chat.id)
-            try: await client.send_message(LOG_CHANNEL, script.LOG_TEXT_G.format(message.chat.title, message.chat.id, total, "Unknown"))
-            except Exception as e: logger.error(f"Failed to log new group: {e}")
+            try:
+                await client.send_message(
+                    LOG_CHANNEL,
+                    script.LOG_TEXT_G.format(
+                        message.chat.title, message.chat.id, total, "Unknown"
+                    ),
+                )
+            except Exception as e:
+                logger.error(f"Failed to log new group: {e}")
             await db.add_chat(message.chat.id, message.chat.title)
         return
 
     if not await db.is_user_exist(message.from_user.id):
         await db.add_user(message.from_user.id, message.from_user.first_name)
-        try: await client.send_message(LOG_CHANNEL, script.LOG_TEXT_P.format(message.from_user.id, message.from_user.mention))
-        except Exception as e: logger.error(f"Failed to log new user: {e}")
+        try:
+            await client.send_message(
+                LOG_CHANNEL,
+                script.LOG_TEXT_P.format(
+                    message.from_user.id, message.from_user.mention
+                ),
+            )
+        except Exception as e:
+            logger.error(f"Failed to log new user: {e}")
 
     if len(message.command) != 2:
         reply_markup = get_start_buttons(message.from_user.id)
-        await message.reply_photo(photo=random.choice(PICS), caption=script.START_TXT.format(mention=message.from_user.mention, uname=temp.U_NAME, bname=temp.B_NAME), reply_markup=reply_markup, parse_mode=enums.ParseMode.HTML)
+        await message.reply_photo(
+            photo=random.choice(PICS),
+            caption=script.START_TXT.format(
+                mention=message.from_user.mention, uname=temp.U_NAME, bname=temp.B_NAME
+            ),
+            reply_markup=reply_markup,
+            parse_mode=enums.ParseMode.HTML,
+        )
         return
 
     if message.command[1] in ["subscribe", "error", "okay", "help", "start", "hehe"]:
@@ -112,7 +155,14 @@ async def start(client: Client, message: Message):
             return await ForceSub(client, message)
 
         reply_markup = get_start_buttons(message.from_user.id)
-        await message.reply_photo(photo=random.choice(PICS), caption=script.START_TXT.format(mention=message.from_user.mention, uname=temp.U_NAME, bname=temp.B_NAME), reply_markup=reply_markup, parse_mode=enums.ParseMode.HTML)
+        await message.reply_photo(
+            photo=random.choice(PICS),
+            caption=script.START_TXT.format(
+                mention=message.from_user.mention, uname=temp.U_NAME, bname=temp.B_NAME
+            ),
+            reply_markup=reply_markup,
+            parse_mode=enums.ParseMode.HTML,
+        )
         return
 
     cmd_data = message.command[1]
@@ -120,10 +170,12 @@ async def start(client: Client, message: Message):
     pre = ("checksubp" if kk == "filep" else "checksub") if kk else False
 
     status = await ForceSub(client, message, file_id=file_id or cmd_data, mode=pre)
-    if not status: return
+    if not status:
+        return
 
     data = cmd_data
-    if not file_id: file_id = data
+    if not file_id:
+        file_id = data
 
     if data.split("-", 1)[0] == "BATCH":
         sts = await message.reply("Please wait...")
@@ -133,14 +185,18 @@ async def start(client: Client, message: Message):
         if not msgs:
             file = await client.download_media(file_id)
             try:
-                with open(file) as file_data: msgs = json.loads(file_data.read())
+                with open(file) as file_data:
+                    msgs = json.loads(file_data.read())
             except Exception:
                 await sts.edit("FAILED")
-                try: await client.send_message(LOG_CHANNEL, "UNABLE TO OPEN BATCH FILE.")
-                except Exception: pass
+                try:
+                    await client.send_message(LOG_CHANNEL, "UNABLE TO OPEN BATCH FILE.")
+                except Exception:
+                    pass
                 return
             finally:
-                if os.path.exists(file): os.remove(file)
+                if os.path.exists(file):
+                    os.remove(file)
             BATCH_FILES[file_id] = msgs
 
         for msg in msgs:
@@ -149,16 +205,45 @@ async def start(client: Client, message: Message):
             f_caption = msg.get("caption", "")
 
             if BATCH_FILE_CAPTION:
-                try: f_caption = BATCH_FILE_CAPTION.format(file_name="" if title is None else title, file_size="" if size is None else size, file_caption="" if f_caption is None else f_caption)
-                except Exception as e: logger.exception(e)
+                try:
+                    f_caption = BATCH_FILE_CAPTION.format(
+                        file_name="" if title is None else title,
+                        file_size="" if size is None else size,
+                        file_caption="" if f_caption is None else f_caption,
+                    )
+                except Exception as e:
+                    logger.exception(e)
 
-            if not f_caption: f_caption = f"{title}"
-            if getattr(info, "CAPTION_PLUS", None): f_caption += f"\n\n{info.CAPTION_PLUS}"
+            if not f_caption:
+                f_caption = f"{title}"
+            if getattr(info, "CAPTION_PLUS", None):
+                f_caption += f"\n\n{info.CAPTION_PLUS}"
 
-            try: await client.send_cached_media(chat_id=message.from_user.id, file_id=msg.get("file_id"), caption=f_caption, protect_content=msg.get("protect", False))
+            try:
+                await client.send_cached_media(
+                    chat_id=message.from_user.id,
+                    file_id=msg.get("file_id"),
+                    caption=f_caption,
+                    protect_content=msg.get("protect", False),
+                )
             except FloodWait as e:
                 await asyncio.sleep(e.value)
-                await client.send_cached_media(chat_id=message.from_user.id, file_id=msg.get("file_id"), caption=f_caption, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🎥 ಕನ್ನಡ ಹೊಸ ಮೂವೀಗಳು 🎥", url="https://t.me/Sandalwood_kannada_moviesz")]]), protect_content=msg.get("protect", False))
+                await client.send_cached_media(
+                    chat_id=message.from_user.id,
+                    file_id=msg.get("file_id"),
+                    caption=f_caption,
+                    reply_markup=InlineKeyboardMarkup(
+                        [
+                            [
+                                InlineKeyboardButton(
+                                    "🎥 ಕನ್ನಡ ಹೊಸ ಮೂವೀಗಳು 🎥",
+                                    url="https://t.me/Sandalwood_kannada_moviesz",
+                                )
+                            ]
+                        ]
+                    ),
+                    protect_content=msg.get("protect", False),
+                )
             except Exception as e:
                 logger.warning(e, exc_info=True)
                 continue
@@ -169,37 +254,66 @@ async def start(client: Client, message: Message):
     elif data.split("-", 1)[0] == "DSTORE":
         sts = await message.reply("Please wait...")
         b_string = data.split("-", 1)[1]
-        decoded = base64.urlsafe_b64decode(b_string + "=" * (-len(b_string) % 4)).decode("ascii")
-        try: f_msg_id, l_msg_id, f_chat_id, protect = decoded.split("_", 3)
+        decoded = base64.urlsafe_b64decode(
+            b_string + "=" * (-len(b_string) % 4)
+        ).decode("ascii")
+        try:
+            f_msg_id, l_msg_id, f_chat_id, protect = decoded.split("_", 3)
         except ValueError:
             f_msg_id, l_msg_id, f_chat_id = decoded.split("_", 2)
             protect = "/pbatch" if PROTECT_CONTENT else "batch"
 
-        async for msg in client.iter_messages(int(f_chat_id), int(l_msg_id), int(f_msg_id)):
+        async for msg in client.iter_messages(
+            int(f_chat_id), int(l_msg_id), int(f_msg_id)
+        ):
             if msg.media:
                 media = getattr(msg, msg.media.value)
                 if BATCH_FILE_CAPTION:
-                    try: f_caption = BATCH_FILE_CAPTION.format(file_name=getattr(media, "file_name", ""), file_size=getattr(media, "file_size", ""), file_caption=getattr(msg, "caption", ""))
+                    try:
+                        f_caption = BATCH_FILE_CAPTION.format(
+                            file_name=getattr(media, "file_name", ""),
+                            file_size=getattr(media, "file_size", ""),
+                            file_caption=getattr(msg, "caption", ""),
+                        )
                     except Exception as e:
                         logger.exception(e)
                         f_caption = getattr(msg, "caption", "")
-                else: f_caption = getattr(msg, "caption", getattr(media, "file_name", ""))
-                
-                if getattr(info, "CAPTION_PLUS", None): f_caption += f"\n\n{info.CAPTION_PLUS}"
+                else:
+                    f_caption = getattr(msg, "caption", getattr(media, "file_name", ""))
 
-                try: await msg.copy(message.chat.id, caption=f_caption, protect_content=True if protect == "/pbatch" else False)
+                if getattr(info, "CAPTION_PLUS", None):
+                    f_caption += f"\n\n{info.CAPTION_PLUS}"
+
+                try:
+                    await msg.copy(
+                        message.chat.id,
+                        caption=f_caption,
+                        protect_content=True if protect == "/pbatch" else False,
+                    )
                 except FloodWait as e:
                     await asyncio.sleep(e.value)
-                    await msg.copy(message.chat.id, caption=f_caption, protect_content=True if protect == "/pbatch" else False)
+                    await msg.copy(
+                        message.chat.id,
+                        caption=f_caption,
+                        protect_content=True if protect == "/pbatch" else False,
+                    )
                 except Exception as e:
                     logger.exception(e)
                     continue
-            elif msg.empty: continue
+            elif msg.empty:
+                continue
             else:
-                try: await msg.copy(message.chat.id, protect_content=True if protect == "/pbatch" else False)
+                try:
+                    await msg.copy(
+                        message.chat.id,
+                        protect_content=True if protect == "/pbatch" else False,
+                    )
                 except FloodWait as e:
                     await asyncio.sleep(e.value)
-                    await msg.copy(message.chat.id, protect_content=True if protect == "/pbatch" else False)
+                    await msg.copy(
+                        message.chat.id,
+                        protect_content=True if protect == "/pbatch" else False,
+                    )
                 except Exception as e:
                     logger.exception(e)
                     continue
@@ -209,19 +323,35 @@ async def start(client: Client, message: Message):
     files_ = await get_file_details(file_id)
     if not files_:
         try:
-            pre, file_id = ((base64.urlsafe_b64decode(data + "=" * (-len(data) % 4))).decode("ascii").split("_", 1))
-            msg = await client.send_cached_media(chat_id=message.from_user.id, file_id=file_id, protect_content=True if pre == "filep" else False)
+            pre, file_id = (
+                (base64.urlsafe_b64decode(data + "=" * (-len(data) % 4)))
+                .decode("ascii")
+                .split("_", 1)
+            )
+            msg = await client.send_cached_media(
+                chat_id=message.from_user.id,
+                file_id=file_id,
+                protect_content=True if pre == "filep" else False,
+            )
             filetype = msg.media.value
             file = getattr(msg, filetype)
             title = file.file_name
             size = get_size(file.file_size)
             f_caption = f"<code>{title}</code>"
             if CUSTOM_FILE_CAPTION:
-                try: f_caption = CUSTOM_FILE_CAPTION.format(file_name="" if title is None else title, file_size="" if size is None else size, file_caption="")
-                except Exception: pass
-            if getattr(info, "CAPTION_PLUS", None): f_caption += f"\n\n{info.CAPTION_PLUS}"
+                try:
+                    f_caption = CUSTOM_FILE_CAPTION.format(
+                        file_name="" if title is None else title,
+                        file_size="" if size is None else size,
+                        file_caption="",
+                    )
+                except Exception:
+                    pass
+            if getattr(info, "CAPTION_PLUS", None):
+                f_caption += f"\n\n{info.CAPTION_PLUS}"
             return await msg.edit_caption(f_caption)
-        except Exception: return await message.reply("No such file exist.")
+        except Exception:
+            return await message.reply("No such file exist.")
 
     files = files_[0]
     title = files.file_name
@@ -229,17 +359,34 @@ async def start(client: Client, message: Message):
     f_caption = files.caption
 
     if CUSTOM_FILE_CAPTION:
-        try: f_caption = CUSTOM_FILE_CAPTION.format(file_name="" if title is None else title, file_size="" if size is None else size, file_caption="" if f_caption is None else f_caption)
-        except Exception as e: logger.exception(e)
+        try:
+            f_caption = CUSTOM_FILE_CAPTION.format(
+                file_name="" if title is None else title,
+                file_size="" if size is None else size,
+                file_caption="" if f_caption is None else f_caption,
+            )
+        except Exception as e:
+            logger.exception(e)
 
-    if not f_caption: f_caption = f"{files.file_name}"
-    if getattr(info, "CAPTION_PLUS", None): f_caption += f"\n\n{info.CAPTION_PLUS}"
+    if not f_caption:
+        f_caption = f"{files.file_name}"
+    if getattr(info, "CAPTION_PLUS", None):
+        f_caption += f"\n\n{info.CAPTION_PLUS}"
 
     msg = await client.send_cached_media(
         chat_id=message.from_user.id,
         file_id=file_id,
         caption=f_caption,
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🎥 ಕನ್ನಡ ಹೊಸ ಮೂವೀಗಳು 🎥", url="https://t.me/Sandalwood_kannada_moviesz")]]),
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "🎥 ಕನ್ನಡ ಹೊಸ ಮೂವೀಗಳು 🎥",
+                        url="https://t.me/Sandalwood_kannada_moviesz",
+                    )
+                ]
+            ]
+        ),
         protect_content=True if pre == "filep" else False,
     )
 
@@ -249,35 +396,49 @@ async def start(client: Client, message: Message):
     )
 
     delete_timer = getattr(info, "FILE_AUTO_DELETE", 1800)
-    if delete_timer > 0: asyncio.create_task(delete_after_delay(msg, k, delete_timer))
+    if delete_timer > 0:
+        asyncio.create_task(delete_after_delay(msg, k, delete_timer))
 
 
 async def delete_after_delay(msg, warning_msg, delay):
     await asyncio.sleep(delay)
     try:
         await msg.delete()
-        await warning_msg.edit_text("<b>ʏᴏᴜʀ ᴠɪᴅᴇᴏ / ꜰɪʟᴇ ɪꜱ ꜱᴜᴄᴄᴇꜱꜱꜰᴜʟʟʏ ᴅᴇʟᴇᴛᴇᴅ !!. ᴛᴇᴀᴍ: @KR_Picture</b>")
-    except Exception: pass
+        await warning_msg.edit_text(
+            "<b>ʏᴏᴜʀ ᴠɪᴅᴇᴏ / ꜰɪʟᴇ ɪꜱ ꜱᴜᴄᴄᴇꜱꜱꜰᴜʟʟʏ ᴅᴇʟᴇᴛᴇᴅ !!. ᴛᴇᴀᴍ: @KR_Picture</b>"
+        )
+    except Exception:
+        pass
 
 
 @Client.on_message(filters.command("channel") & filters.user(ADMINS))
 async def channel_info(bot, message):
-    if isinstance(CHANNELS, (int, str)): channels = [CHANNELS]
-    elif isinstance(CHANNELS, list): channels = CHANNELS
-    else: raise ValueError("Unexpected type of CHANNELS")
+    if isinstance(CHANNELS, (int, str)):
+        channels = [CHANNELS]
+    elif isinstance(CHANNELS, list):
+        channels = CHANNELS
+    else:
+        raise ValueError("Unexpected type of CHANNELS")
 
     text = "📑 **Indexed channels/groups**\n"
     for channel in channels:
         try:
             chat = await bot.get_chat(channel)
-            text += "\n@" + chat.username if chat.username else "\n" + (chat.title or chat.first_name)
-        except Exception as e: text += f"\n{channel} - (Error fetching: {e})"
+            text += (
+                "\n@" + chat.username
+                if chat.username
+                else "\n" + (chat.title or chat.first_name)
+            )
+        except Exception as e:
+            text += f"\n{channel} - (Error fetching: {e})"
 
     text += f"\n\n**Total:** {len(CHANNELS)}"
-    if len(text) < 4096: await message.reply(text)
+    if len(text) < 4096:
+        await message.reply(text)
     else:
         file = "Indexed channels.txt"
-        with open(file, "w") as f: f.write(text)
+        with open(file, "w") as f:
+            f.write(text)
         await message.reply_document(file)
         os.remove(file)
 
@@ -285,7 +446,10 @@ async def channel_info(bot, message):
 @Client.on_message(filters.command("settings"))
 async def settings(client: Client, message: Message):
     userid = message.from_user.id if message.from_user else None
-    if not userid: return await message.reply("You are an anonymous admin! Please verify your identity.")
+    if not userid:
+        return await message.reply(
+            "You are an anonymous admin! Please verify your identity."
+        )
 
     chat_type = message.chat.type
     grp_id = None
@@ -297,13 +461,18 @@ async def settings(client: Client, message: Message):
             try:
                 chat = await client.get_chat(grp_id)
                 title = chat.title
-            except Exception: return await message.reply("Make sure I'm present in your group!")
-        else: return await message.reply("You are not connected to any active group!\n\nUse /connect <groupid> to connect first.")
+            except Exception:
+                return await message.reply("Make sure I'm present in your group!")
+        else:
+            return await message.reply(
+                "You are not connected to any active group!\n\nUse /connect <groupid> to connect first."
+            )
     elif chat_type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
         grp_id = message.chat.id
         title = message.chat.title
 
-    if not grp_id: return
+    if not grp_id:
+        return
     settings_dict = await get_settings(grp_id)
 
     btn_text = "✅" if settings_dict.get("button", False) else "❌"
@@ -314,12 +483,43 @@ async def settings(client: Client, message: Message):
     welcome_text = "✅" if settings_dict.get("welcome", False) else "❌"
 
     buttons = [
-        [InlineKeyboardButton(f"Buttons: {btn_text}", callback_data=f"setgs#button#{settings_dict.get('button', False)}#{grp_id}"), InlineKeyboardButton(f"Bot PM: {botpm_text}", callback_data=f"setgs#botpm#{settings_dict.get('botpm', False)}#{grp_id}")],
-        [InlineKeyboardButton(f"File Secure: {file_secure_text}", callback_data=f"setgs#file_secure#{settings_dict.get('file_secure', False)}#{grp_id}"), InlineKeyboardButton(f"IMDB: {imdb_text}", callback_data=f"setgs#imdb#{settings_dict.get('imdb', False)}#{grp_id}")],
-        [InlineKeyboardButton(f"Spell Check: {spell_check_text}", callback_data=f"setgs#spell_check#{settings_dict.get('spell_check', False)}#{grp_id}"), InlineKeyboardButton(f"Welcome: {welcome_text}", callback_data=f"setgs#welcome#{settings_dict.get('welcome', False)}#{grp_id}")],
+        [
+            InlineKeyboardButton(
+                f"Buttons: {btn_text}",
+                callback_data=f"setgs#button#{settings_dict.get('button', False)}#{grp_id}",
+            ),
+            InlineKeyboardButton(
+                f"Bot PM: {botpm_text}",
+                callback_data=f"setgs#botpm#{settings_dict.get('botpm', False)}#{grp_id}",
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                f"File Secure: {file_secure_text}",
+                callback_data=f"setgs#file_secure#{settings_dict.get('file_secure', False)}#{grp_id}",
+            ),
+            InlineKeyboardButton(
+                f"IMDB: {imdb_text}",
+                callback_data=f"setgs#imdb#{settings_dict.get('imdb', False)}#{grp_id}",
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                f"Spell Check: {spell_check_text}",
+                callback_data=f"setgs#spell_check#{settings_dict.get('spell_check', False)}#{grp_id}",
+            ),
+            InlineKeyboardButton(
+                f"Welcome: {welcome_text}",
+                callback_data=f"setgs#welcome#{settings_dict.get('welcome', False)}#{grp_id}",
+            ),
+        ],
         [InlineKeyboardButton("🗑 Close", callback_data="close_data")],
     ]
-    await message.reply_text(text=f"⚙️ **Settings for {title}**\n\nChoose the options below to configure your group's behavior.", reply_markup=InlineKeyboardMarkup(buttons), parse_mode=enums.ParseMode.MARKDOWN)
+    await message.reply_text(
+        text=f"⚙️ **Settings for {title}**\n\nChoose the options below to configure your group's behavior.",
+        reply_markup=InlineKeyboardMarkup(buttons),
+        parse_mode=enums.ParseMode.MARKDOWN,
+    )
 
 
 @Client.on_callback_query(filters.regex(r"^setgs#"))
@@ -342,29 +542,68 @@ async def settings_callback(client: Client, query: CallbackQuery):
         welcome_text = "✅" if settings_dict.get("welcome", False) else "❌"
 
         buttons = [
-            [InlineKeyboardButton(f"Buttons: {btn_text}", callback_data=f"setgs#button#{settings_dict.get('button', False)}#{grp_id}"), InlineKeyboardButton(f"Bot PM: {botpm_text}", callback_data=f"setgs#botpm#{settings_dict.get('botpm', False)}#{grp_id}")],
-            [InlineKeyboardButton(f"File Secure: {file_secure_text}", callback_data=f"setgs#file_secure#{settings_dict.get('file_secure', False)}#{grp_id}"), InlineKeyboardButton(f"IMDB: {imdb_text}", callback_data=f"setgs#imdb#{settings_dict.get('imdb', False)}#{grp_id}")],
-            [InlineKeyboardButton(f"Spell Check: {spell_check_text}", callback_data=f"setgs#spell_check#{settings_dict.get('spell_check', False)}#{grp_id}"), InlineKeyboardButton(f"Welcome: {welcome_text}", callback_data=f"setgs#welcome#{settings_dict.get('welcome', False)}#{grp_id}")],
+            [
+                InlineKeyboardButton(
+                    f"Buttons: {btn_text}",
+                    callback_data=f"setgs#button#{settings_dict.get('button', False)}#{grp_id}",
+                ),
+                InlineKeyboardButton(
+                    f"Bot PM: {botpm_text}",
+                    callback_data=f"setgs#botpm#{settings_dict.get('botpm', False)}#{grp_id}",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    f"File Secure: {file_secure_text}",
+                    callback_data=f"setgs#file_secure#{settings_dict.get('file_secure', False)}#{grp_id}",
+                ),
+                InlineKeyboardButton(
+                    f"IMDB: {imdb_text}",
+                    callback_data=f"setgs#imdb#{settings_dict.get('imdb', False)}#{grp_id}",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    f"Spell Check: {spell_check_text}",
+                    callback_data=f"setgs#spell_check#{settings_dict.get('spell_check', False)}#{grp_id}",
+                ),
+                InlineKeyboardButton(
+                    f"Welcome: {welcome_text}",
+                    callback_data=f"setgs#welcome#{settings_dict.get('welcome', False)}#{grp_id}",
+                ),
+            ],
             [InlineKeyboardButton("🗑 Close", callback_data="close_data")],
         ]
-        await query.message.edit_text(text=f"⚙️ **Settings for {title}**\n\nChoose the options below to configure your group's behavior.", reply_markup=InlineKeyboardMarkup(buttons), parse_mode=enums.ParseMode.MARKDOWN)
+        await query.message.edit_text(
+            text=f"⚙️ **Settings for {title}**\n\nChoose the options below to configure your group's behavior.",
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode=enums.ParseMode.MARKDOWN,
+        )
         await query.answer("Settings Updated! ✅")
     except Exception as e:
         logger.exception("Error in settings_callback")
         await query.answer("An error occurred!", show_alert=True)
 
 
-@Client.on_message(filters.private & filters.command("movie_update") & filters.user(ADMINS))
+@Client.on_message(
+    filters.private & filters.command("movie_update") & filters.user(ADMINS)
+)
 async def set_movie_update_notification(client, message):
     bot_id = client.me.id
     try:
         option = message.text.split(" ", 1)[1].strip().lower()
         enable_status = option in ["on", "true"]
     except (IndexError, ValueError):
-        return await message.reply_text("<b>💔 Invalid option. Please send 'on' or 'off' after the command.</b>")
+        return await message.reply_text(
+            "<b>💔 Invalid option. Please send 'on' or 'off' after the command.</b>"
+        )
     try:
         await db.update_movie_update_status(bot_id, enable_status)
-        response_text = "<b>ᴍᴏᴠɪᴇ ᴜᴘᴅᴀᴛᴇ ɴᴏᴛɪꜰɪᴄᴀᴛɪᴏɴ ᴇɴᴀʙʟᴇᴅ ✅</b>" if enable_status else "<b>ᴍᴏᴠɪᴇ ᴜᴘᴅᴀᴛᴇ ɴᴏᴛɪꜰɪᴄᴀᴛɪᴏɴ ᴅɪꜱᴀʙʟᴇᴅ ❌</b>"
+        response_text = (
+            "<b>ᴍᴏᴠɪᴇ ᴜᴘᴅᴀᴛᴇ ɴᴏᴛɪꜰɪᴄᴀᴛɪᴏɴ ᴇɴᴀʙʟᴇᴅ ✅</b>"
+            if enable_status
+            else "<b>ᴍᴏᴠɪᴇ ᴜᴘᴅᴀᴛᴇ ɴᴏᴛɪꜰɪᴄᴀᴛɪᴏɴ ᴅɪꜱᴀʙʟᴇᴅ ❌</b>"
+        )
         await message.reply_text(response_text)
     except Exception as e:
         logger.error(f"Error in set_movie_update_notification: {e}")
