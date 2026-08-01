@@ -17,6 +17,7 @@ try:
 except ImportError:
     DUMP_GROUP = None
 
+
 def ytdlp_downloader(link: str) -> list:
     """Downloads Instagram media directly to disk using yt-dlp."""
     if not yt_dlp:
@@ -81,7 +82,9 @@ async def fetch_api_urls(link: str) -> list:
                 ) as resp:
                     if resp.status == 200:
                         res = await resp.json()
-                        meta = re.findall(r'href="(https?://[^"]+)"', res.get("data", ""))
+                        meta = re.findall(
+                            r'href="(https?://[^"]+)"', res.get("data", "")
+                        )
                         for m in meta:
                             if "instagram" in m or "dl.php" in m or "cdn" in m:
                                 urls.append(m)
@@ -94,12 +97,16 @@ async def fetch_api_urls(link: str) -> list:
 @Client.on_message(filters.command("insta") & filters.private)
 async def insta_command_handler(client, message):
     if len(message.command) < 2:
-        return await message.reply_text("⚠️ **Please provide an Instagram link!**\n\n**Usage:** `/insta <link>`")
+        return await message.reply_text(
+            "⚠️ **Please provide an Instagram link!**\n\n**Usage:** `/insta <link>`"
+        )
 
     link = message.command[1]
 
     if "instagram.com" not in link:
-        return await message.reply_text("⚠️ **That doesn't look like a valid Instagram link!**\nPlease check the URL and try again.")
+        return await message.reply_text(
+            "⚠️ **That doesn't look like a valid Instagram link!**\nPlease check the URL and try again."
+        )
 
     clean_link = link.split("?")[0] if "?igsh=" in link else link
 
@@ -117,7 +124,9 @@ async def insta_command_handler(client, message):
             urls = await fetch_api_urls(clean_link)
 
             if not urls:
-                raise Exception("Both yt-dlp and fallback APIs failed to extract media.")
+                raise Exception(
+                    "Both yt-dlp and fallback APIs failed to extract media."
+                )
 
             for url in urls:
                 ext = ".mp4"
@@ -150,10 +159,12 @@ async def insta_command_handler(client, message):
             except Exception as e:
                 print(f"Telegram Upload Error: {e}")
 
-            await asyncio.sleep(1.5)  
+            await asyncio.sleep(1.5)
 
         if not successful_messages:
-            raise Exception("Downloaded successfully, but Telegram rejected the upload.")
+            raise Exception(
+                "Downloaded successfully, but Telegram rejected the upload."
+            )
 
     except Exception as e:
         if DUMP_GROUP:
@@ -165,7 +176,9 @@ async def insta_command_handler(client, message):
             except Exception:
                 pass
 
-        await message.reply_text("400: Sorry, Unable To Download. The post might be private, or Instagram is temporarily blocking downloads. Try again later!")
+        await message.reply_text(
+            "400: Sorry, Unable To Download. The post might be private, or Instagram is temporarily blocking downloads. Try again later!"
+        )
 
     finally:
         try:
@@ -189,4 +202,7 @@ async def insta_command_handler(client, message):
                     pass
 
         if successful_messages:
-            await message.reply_text("<a href='https://t.me/sandalwood_kannada_moviesz'>Sandalwood Kannada Movies</a>", disable_web_page_preview=True)
+            await message.reply_text(
+                "<a href='https://t.me/sandalwood_kannada_moviesz'>Sandalwood Kannada Movies</a>",
+                disable_web_page_preview=True,
+            )
