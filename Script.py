@@ -97,7 +97,7 @@ You can just forward the message from database channel for starting indexing, no
 ‣ /resetadd - Reset all Force Add statistics.
 ‣ /myadds - Check your personal add count and ranking.</b>"""
 
-    BACKUP_TXT = """<b><blockquote>Database Backup Management\nManage database backups, including scheduled backups and manual backups.</blockquote>\n \nThese commands are only available for the owner of the bot.\n
+    BACKUP_TXT = """<b><blockquote>Database Backup Management\nManage database backups, including scheduled backups and manual backups.</blockquote>\n \nThese commands are only available for the ADMINS of the bot.\n
 ‣ /dbbackup - Backup the database
 ‣ /dbrestore - Restore the database
 ‣ /dbstats - Get database stats
@@ -117,7 +117,7 @@ You can just forward the message from database channel for starting indexing, no
 • /filter - add a filter in chat
 • /filters - list all the filters of a chat
 • /del - delete a specific filter in chat
-• /delall - delete the whole filters in a chat (chat owner only)"""
+• /delall - delete the whole filters in a chat (chat ADMINS only)"""
 
     BUTTON_TXT = """𝗕𝘂𝘁𝘁𝗼𝗻𝘀
 
