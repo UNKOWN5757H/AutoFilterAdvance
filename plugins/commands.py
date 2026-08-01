@@ -19,11 +19,10 @@ from pyrogram.types import (
 import info
 from database.connections_mdb import active_connection
 from database.ia_filterdb import Media, get_file_details
-from database.users_chats_db import db
 
 # ⚡ FIXED: Using the centralized database for ban checks
 from database.plugin_dbs import plugin_db
-
+from database.users_chats_db import db
 from info import (
     ADMINS,
     AUTH_CHANNEL,
