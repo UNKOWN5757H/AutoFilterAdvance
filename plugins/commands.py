@@ -5,6 +5,7 @@ import logging
 import os
 import random
 import re
+import sys
 
 from pyrogram import Client, enums, filters
 from pyrogram.errors import ChatAdminRequired, FloodWait
@@ -18,8 +19,11 @@ from pyrogram.types import (
 import info
 from database.connections_mdb import active_connection
 from database.ia_filterdb import Media, get_file_details
-from database.plugin_dbs import plugin_db
 from database.users_chats_db import db
+
+# ⚡ FIXED: Using the centralized database for ban checks
+from database.plugin_dbs import plugin_db
+
 from info import (
     ADMINS,
     AUTH_CHANNEL,
@@ -37,11 +41,14 @@ from utils import get_settings, get_size, save_group_settings, temp
 logger = logging.getLogger(__name__)
 
 BATCH_FILES = {}
+LOG_FILE = "TelegramBot.log"
+
 MESSAGE_EMOJI_PLANE = '<tg-emoji emoji-id="5875465628285931233">✈️</tg-emoji> Telegram'
 MESSAGE_EMOJI_LINK = '<tg-emoji emoji-id="5877465816030515018">🔗</tg-emoji> Link'
 
 
 def get_start_buttons(user_id):
+    """Helper to generate start buttons dynamically based on admin status."""
     buttons = [
         [
             InlineKeyboardButton(
@@ -71,6 +78,9 @@ def get_start_buttons(user_id):
     return InlineKeyboardMarkup(buttons)
 
 
+# ============================================================
+# 🚀 MAIN START COMMAND (Handles file delivery links)
+# ============================================================
 @Client.on_message(filters.command("start") & filters.incoming)
 async def start(client: Client, message: Message):
     if getattr(info, "REPAIR_MODE", False):
@@ -79,6 +89,7 @@ async def start(client: Client, message: Message):
                 "🛠️ **Bot is currently under maintenance!**\n\nWe are performing some upgrades/fixes. Please try again later."
             )
 
+    # ⚡ FIXED: Uses the new plugin_db for ban checks
     if message.from_user and await plugin_db.is_banned(message.from_user.id):
         return await message.reply_text(
             "🚫 **You have been banned from using this bot.**\nIf you believe this is a mistake, please contact the administrators."
