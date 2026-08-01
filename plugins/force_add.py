@@ -20,6 +20,7 @@ from database.plugin_dbs import plugin_db
 
 logger = logging.getLogger(__name__)
 
+
 async def is_admin(bot: Client, chat_id: int, user_id: int) -> bool:
     admin_list = [int(a) for a in ADMINS if str(a).isdigit()]
     if user_id in admin_list:
@@ -30,6 +31,7 @@ async def is_admin(bot: Client, chat_id: int, user_id: int) -> bool:
         return any(role in status for role in ["administrator", "creator", "owner"])
     except Exception:
         return False
+
 
 # ============================================================
 # ⚙️ MAIN ADMIN COMMANDS (Set & Target)
@@ -191,7 +193,9 @@ async def my_adds(bot: Client, message: Message):
     if settings["limit"] == 0:
         return await message.reply_text("ℹ️ Force Add is not active in this group.")
 
-    current_adds = await plugin_db.get_fa_user_adds(message.chat.id, message.from_user.id)
+    current_adds = await plugin_db.get_fa_user_adds(
+        message.chat.id, message.from_user.id
+    )
     if current_adds >= settings["limit"]:
         await message.reply_text(
             f"✅ You have added **{current_adds}** members. You are cleared to chat freely!"
