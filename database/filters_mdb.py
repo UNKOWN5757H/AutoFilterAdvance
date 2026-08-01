@@ -1,104 +1,33 @@
 import logging
-
 from motor.motor_asyncio import AsyncIOMotorClient
 from pyrogram import enums
-
 from info import DATABASE_NAME, DATABASE_URI
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.ERROR)
-
-myclient = AsyncIOMotorClient(DATABASE_URI)
-mydb = myclient[DATABASE_NAME]
-
+mydb = AsyncIOMotorClient(DATABASE_URI)[DATABASE_NAME]
 
 async def add_filter(grp_id, text, reply_text, btn, file, alert):
-    mycol = mydb[str(grp_id)]
-    data = {
-        "text": str(text),
-        "reply": str(reply_text),
-        "btn": str(btn),
-        "file": str(file),
-        "alert": str(alert),
-    }
-    try:
-        await mycol.update_one({"text": str(text)}, {"$set": data}, upsert=True)
-    except Exception:
-        logger.exception("Some error occurred!", exc_info=True)
-
+    await mydb[str(grp_id)].update_one({"text": str(text)}, {"$set": {"text": str(text), "reply": str(reply_text), "btn": str(btn), "file": str(file), "alert": str(alert)}}, upsert=True)
 
 async def find_filter(group_id, name):
-    mycol = mydb[str(group_id)]
-    cursor = mycol.find({"text": name})
-    try:
-        async for file in cursor:
-            reply_text = file.get("reply")
-            btn = file.get("btn")
-            fileid = file.get("file")
-            alert = file.get("alert")
-            return reply_text, btn, alert, fileid
-    except Exception:
-        pass
+    async for file in mydb[str(group_id)].find({"text": name}):
+        return file.get("reply"), file.get("btn"), file.get("alert"), file.get("file")
     return None, None, None, None
 
-
 async def get_filters(group_id):
-    mycol = mydb[str(group_id)]
-    texts = []
-    cursor = mycol.find()
-    try:
-        async for file in cursor:
-            texts.append(file.get("text"))
-    except Exception:
-        pass
-    return texts
-
+    return [file.get("text") async for file in mydb[str(group_id)].find()]
 
 async def delete_filter(message, text, group_id):
-    mycol = mydb[str(group_id)]
-    myquery = {"text": text}
-    count = await mycol.count_documents(myquery)
-
-    if count >= 1:
-        await mycol.delete_one(myquery)
-        await message.reply_text(
-            f"'`{text}`' deleted. I'll not respond to that filter anymore.",
-            quote=True,
-            parse_mode=enums.ParseMode.MARKDOWN,
-        )
+    if (await mydb[str(group_id)].delete_one({"text": text})).deleted_count >= 1:
+        await message.reply_text(f"'`{text}`' deleted.", quote=True, parse_mode=enums.ParseMode.MARKDOWN)
     else:
         await message.reply_text("Couldn't find that filter!", quote=True)
 
-
 async def del_all(message, group_id, title):
-    collections = await mydb.list_collection_names()
-    if str(group_id) not in collections:
-        await message.edit_text(f"Nothing to remove in {title}!")
-        return
-
-    mycol = mydb[str(group_id)]
+    if str(group_id) not in await mydb.list_collection_names():
+        return await message.edit_text(f"Nothing to remove in {title}!")
     try:
-        await mycol.drop()
+        await mydb[str(group_id)].drop()
         await message.edit_text(f"All filters from {title} have been removed")
     except Exception:
         await message.edit_text("Couldn't remove all filters from group!")
-
-
-async def count_filters(group_id):
-    mycol = mydb[str(group_id)]
-    count = await mycol.count_documents({})
-    return False if count == 0 else count
-
-
-async def filter_stats():
-    collections = await mydb.list_collection_names()
-    if "CONNECTION" in collections:
-        collections.remove("CONNECTION")
-
-    totalcount = 0
-    for collection in collections:
-        mycol = mydb[collection]
-        count = await mycol.count_documents({})
-        totalcount += count
-
-    return len(collections), totalcount
