@@ -72,7 +72,7 @@ JOIN_REQS_DB = environ.get("JOIN_REQS_DB", DATABASE_URI)
 # Dynamic Runtime FSub Variables
 IS_FSUB_ENABLED = is_enabled(environ.get("IS_FSUB_ENABLED", "True"), True)
 FSUB_MAX_COUNT = int(environ.get("FSUB_MAX_COUNT", 0))
-FSUB_CHANNELS = {} # Populated dynamically at runtime
+FSUB_CHANNELS = {}  # Populated dynamically at runtime
 
 # Others
 LOG_CHANNEL = int(environ.get("LOG_CHANNEL", "-1001693006436"))
@@ -93,9 +93,12 @@ CAPTION_PLUS = environ.get("CAPTION_PLUS", None)
 
 NOT_FOUND_MSG = environ.get(
     "NOT_FOUND_MSG",
-    "<b>🚫 File not found. Please note👇\n \n✅ Use correct spelling as given in Google.\n \n✅ DO NOT ask for files which are not released in OTT.\n \n✅ Request movies in this format - (Moviename) (Year of release) \nEg. Jai Ganesh 2024 </b>"
+    "<b>🚫 File not found. Please note👇\n \n✅ Use correct spelling as given in Google.\n \n✅ DO NOT ask for files which are not released in OTT.\n \n✅ Request movies in this format - (Moviename) (Year of release) \nEg. Jai Ganesh 2024 </b>",
 )
-NOT_FOUND_IMG = environ.get("NOT_FOUND_IMG", "https://telegra.ph/file/c4f0458d30f61993aad45-086b84e8363b3c582e.jpg")
+NOT_FOUND_IMG = environ.get(
+    "NOT_FOUND_IMG",
+    "https://telegra.ph/file/c4f0458d30f61993aad45-086b84e8363b3c582e.jpg",
+)
 
 INFO_MSG = environ.get("INFO_MSG", None)
 INFO_IMG = environ.get("INFO_IMG", None)
