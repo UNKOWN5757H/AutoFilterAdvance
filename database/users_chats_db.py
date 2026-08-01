@@ -1,10 +1,22 @@
 import motor.motor_asyncio
-from info import DATABASE_NAME, DATABASE_URI, IMDB, IMDB_TEMPLATE, MELCOW_NEW_USERS, P_TTI_SHOW_OFF, PROTECT_CONTENT, SINGLE_BUTTON, SPELL_CHECK_REPLY
 
-try: 
+from info import (
+    DATABASE_NAME,
+    DATABASE_URI,
+    IMDB,
+    IMDB_TEMPLATE,
+    MELCOW_NEW_USERS,
+    P_TTI_SHOW_OFF,
+    PROTECT_CONTENT,
+    SINGLE_BUTTON,
+    SPELL_CHECK_REPLY,
+)
+
+try:
     from info import MOVIE_UPDATE_NOTIFICATION
-except ImportError: 
+except ImportError:
     MOVIE_UPDATE_NOTIFICATION = True
+
 
 class Database:
     def __init__(self, uri, database_name):
@@ -43,10 +55,16 @@ class Database:
         return chat_doc.get("chat_status") if chat_doc else False
 
     async def re_enable_chat(self, id):
-        await self.grp.update_one({"id": int(id)}, {"$set": {"chat_status": dict(is_disabled=False, reason="")}})
+        await self.grp.update_one(
+            {"id": int(id)},
+            {"$set": {"chat_status": dict(is_disabled=False, reason="")}},
+        )
 
     async def disable_chat(self, chat, reason="No Reason"):
-        await self.grp.update_one({"id": int(chat)}, {"$set": {"chat_status": dict(is_disabled=True, reason=reason)}})
+        await self.grp.update_one(
+            {"id": int(chat)},
+            {"$set": {"chat_status": dict(is_disabled=True, reason=reason)}},
+        )
 
     async def total_chat_count(self):
         return await self.grp.count_documents({})
@@ -58,7 +76,15 @@ class Database:
         await self.grp.update_one({"id": int(id)}, {"$set": {"settings": settings}})
 
     async def get_settings(self, id):
-        default = {"button": SINGLE_BUTTON, "botpm": P_TTI_SHOW_OFF, "file_secure": PROTECT_CONTENT, "imdb": IMDB, "spell_check": SPELL_CHECK_REPLY, "welcome": MELCOW_NEW_USERS, "template": IMDB_TEMPLATE}
+        default = {
+            "button": SINGLE_BUTTON,
+            "botpm": P_TTI_SHOW_OFF,
+            "file_secure": PROTECT_CONTENT,
+            "imdb": IMDB,
+            "spell_check": SPELL_CHECK_REPLY,
+            "welcome": MELCOW_NEW_USERS,
+            "template": IMDB_TEMPLATE,
+        }
         chat = await self.grp.find_one({"id": int(id)})
         return chat.get("settings", default) if chat else default
 
@@ -70,9 +96,12 @@ class Database:
         return bot_doc.get(setting_name, default) if bot_doc else default
 
     async def update_bot_setting(self, bot_id, setting_name, value):
-        await self.bot_settings.update_one({"id": int(bot_id)}, {"$set": {setting_name: value}}, upsert=True)
+        await self.bot_settings.update_one(
+            {"id": int(bot_id)}, {"$set": {setting_name: value}}, upsert=True
+        )
 
     async def update_movie_update_status(self, bot_id, enable):
         await self.update_bot_setting(bot_id, "MOVIE_UPDATE_NOTIFICATION", enable)
+
 
 db = Database(DATABASE_URI, DATABASE_NAME)
