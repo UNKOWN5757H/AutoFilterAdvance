@@ -1,21 +1,36 @@
 import asyncio
+import logging
 import os
 import shutil
-import logging
+
 from pyrogram import Client, enums, filters
-from pyrogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
-from pyrogram.errors import FloodWait, InputUserDeactivated, PeerIdInvalid, UserIsBlocked
+from pyrogram.errors import (
+    FloodWait,
+    InputUserDeactivated,
+    PeerIdInvalid,
+    UserIsBlocked,
+)
+from pyrogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
+
 import info
 from database.ia_filterdb import Media
-from database.users_chats_db import db
 from database.plugin_dbs import plugin_db
+from database.users_chats_db import db
 
 logger = logging.getLogger(__name__)
 
+
 def get_size_str(bytes_size):
     for unit in ["B", "KB", "MB", "GB", "TB"]:
-        if bytes_size < 1024.0: return f"{bytes_size:.2f} {unit}"
+        if bytes_size < 1024.0:
+            return f"{bytes_size:.2f} {unit}"
         bytes_size /= 1024.0
+
 
 @Client.on_message(filters.command("server") & filters.user(info.ADMINS))
 async def server_stats_cmd(bot: Client, message: Message):
@@ -24,6 +39,7 @@ async def server_stats_cmd(bot: Client, message: Message):
     text = f"💽 **Disk Total:** `{get_size_str(total)}`\n📀 **Disk Used:** `{get_size_str(used)}` (`{(used/total)*100:.1f}%`)\n💿 **Disk Free:** `{get_size_str(free)}`\n"
     await msg.edit_text(text)
 
+
 @Client.on_message(filters.command("stats") & filters.user(info.ADMINS))
 async def bot_stats_cmd(bot: Client, message: Message):
     status_msg = await message.reply_text("⏳ **Fetching Database Stats...**")
@@ -31,7 +47,7 @@ async def bot_stats_cmd(bot: Client, message: Message):
     total_chats = await db.total_chat_count()
     total_files = await Media.count_documents()
     db_size = await db.get_db_size()
-    
+
     stats_text = (
         "📊 **Bot Database Statistics**\n━━━━━━━━━━━━━━\n"
         f"👥 **Total Users:** `{total_users}`\n🏘 **Total Groups:** `{total_chats}`\n"
@@ -39,14 +55,18 @@ async def bot_stats_cmd(bot: Client, message: Message):
     )
     await status_msg.edit_text(stats_text)
 
+
 @Client.on_message(filters.command("cleanusers") & filters.user(info.ADMINS))
 async def clean_users_cmd(bot: Client, message: Message):
-    status_msg = await message.reply_text("⏳ **Starting Deep Clean...** (Processing in background)")
+    status_msg = await message.reply_text(
+        "⏳ **Starting Deep Clean...** (Processing in background)"
+    )
     users = await db.get_all_users()
     active, blocked = 0, 0
 
     for i in range(0, len(users), 50):
-        chunk = users[i:i + 50]
+        chunk = users[i : i + 50]
+
         async def check_user(u):
             try:
                 await bot.send_chat_action(u["id"], enums.ChatAction.TYPING)
@@ -57,20 +77,30 @@ async def clean_users_cmd(bot: Client, message: Message):
             except FloodWait as e:
                 await asyncio.sleep(e.value)
                 return "active"
-            except Exception: return "active"
-            
+            except Exception:
+                return "active"
+
         results = await asyncio.gather(*[check_user(u) for u in chunk])
         active += results.count("active")
         blocked += results.count("blocked")
-        
+
         if (i + len(chunk)) % 500 == 0:
-            try: await status_msg.edit_text(f"⏳ **Cleaning:** `{i + len(chunk)}/{len(users)}`")
-            except Exception: pass
+            try:
+                await status_msg.edit_text(
+                    f"⏳ **Cleaning:** `{i + len(chunk)}/{len(users)}`"
+                )
+            except Exception:
+                pass
         await asyncio.sleep(1.5)
 
-    await status_msg.edit_text(f"✅ **Deep Clean Completed!**\n🟢 **Active:** `{active}`\n🔴 **Removed:** `{blocked}`")
+    await status_msg.edit_text(
+        f"✅ **Deep Clean Completed!**\n🟢 **Active:** `{active}`\n🔴 **Removed:** `{blocked}`"
+    )
+
 
 @Client.on_message(filters.command("clearfsubusers") & filters.user(info.ADMINS))
 async def clear_fsub_cmd(bot: Client, message: Message):
     await plugin_db.clear_fsub_users()
-    await message.reply_text("✅ **Force Subscribe Database has been completely cleared.**")
+    await message.reply_text(
+        "✅ **Force Subscribe Database has been completely cleared.**"
+    )
