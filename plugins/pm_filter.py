@@ -29,21 +29,13 @@ from database.connections_mdb import (
 )
 from database.filters_mdb import del_all, find_filter, get_filters
 from database.ia_filterdb import Media, get_file_details, get_search_results
-from database.users_chats_db import db
 
 # ⚡ FIXED: Using the centralized database for ban checks
 from database.plugin_dbs import plugin_db
-
+from database.users_chats_db import db
 from info import ADMINS, AUTH_CHANNEL, CUSTOM_FILE_CAPTION, REQ_CHANNEL
 from Script import script
-from utils import (
-    get_poster,
-    get_settings,
-    get_size,
-    is_subscribed,
-    search_gagala,
-    temp,
-)
+from utils import get_poster, get_settings, get_size, is_subscribed, search_gagala, temp
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.ERROR)
