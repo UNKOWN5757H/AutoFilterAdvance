@@ -1,58 +1,95 @@
+import logging
 import os
 from datetime import datetime
 
 from pyrogram import Client, enums, filters
-from pyrogram.errors import UserNotParticipant
+from pyrogram.errors import (
+    MediaEmpty,
+    PhotoInvalidDimensions,
+    UserNotParticipant,
+    WebpageMediaEmpty,
+)
 from pyrogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 
 from info import IMDB_TEMPLATE
 from utils import extract_user, get_file_id, get_poster
 
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.ERROR)
 
+
+# ============================================================
+# 🔹 /id — Show User, Chat & File IDs
+# ============================================================
 @Client.on_message(filters.command("id"))
 async def show_id(client, message):
     chat_type = message.chat.type
+
     if chat_type == enums.ChatType.PRIVATE:
         user = message.from_user
         await message.reply_text(
-            f"<b>👤 Name:</b> {user.first_name} {user.last_name or ''}\n<b>💬 Username:</b> @{user.username or 'None'}\n<b>🆔 Telegram ID:</b> <code>{user.id}</code>\n<b>🌐 DC:</b> <code>{user.dc_id or 'N/A'}</code>",
+            f"<b>👤 First Name:</b> {user.first_name}\n"
+            f"<b>🧾 Last Name:</b> {user.last_name or 'None'}\n"
+            f"<b>💬 Username:</b> @{user.username or 'None'}\n"
+            f"<b>🆔 Telegram ID:</b> <code>{user.id}</code>\n"
+            f"<b>🌐 Data Centre:</b> <code>{user.dc_id or 'N/A'}</code>",
             quote=True,
         )
-    else:
-        text = f"<b>🆔 Chat ID:</b> <code>{message.chat.id}</code>\n"
+
+    elif chat_type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
         reply = message.reply_to_message
+        text = f"<b>🆔 Chat ID:</b> <code>{message.chat.id}</code>\n"
+
         if reply:
-            text += f"<b>👤 User ID:</b> <code>{message.from_user.id if message.from_user else 'Anonymous'}</code>\n<b>↪️ Replied User ID:</b> <code>{reply.from_user.id if reply.from_user else 'Anonymous'}</code>\n"
+            text += f"<b>👤 User ID:</b> <code>{message.from_user.id if message.from_user else 'Anonymous'}</code>\n"
+            text += f"<b>↪️ Replied User ID:</b> <code>{reply.from_user.id if reply.from_user else 'Anonymous'}</code>\n"
             file_id, _, media_type = get_file_id(reply)
         else:
             text += f"<b>👤 User ID:</b> <code>{message.from_user.id if message.from_user else 'Anonymous'}</code>\n"
             file_id, _, media_type = get_file_id(message)
+
         if file_id:
             text += f"<b>{media_type.capitalize()} ID:</b> <code>{file_id}</code>\n"
+
         await message.reply_text(text, quote=True)
 
 
+# ============================================================
+# 👀 /info — Get User Details
+# ============================================================
 @Client.on_message(filters.command("info"))
 async def who_is(client, message):
     status = await message.reply_text("🔍 Fetching user info...")
-    user = await extract_user(
-        message, message.text.split(None, 1)[1] if len(message.command) > 1 else None
-    )
+    text_arg = message.text.split(None, 1)[1] if len(message.command) > 1 else None
+    user = await extract_user(message, text_arg)
+
     if not user:
         return await status.edit("⚠️ No valid user found.")
 
-    text = f"<b>👤 Name:</b> {user.first_name} {user.last_name or ''}\n<b>🆔 Telegram ID:</b> <code>{user.id}</code>\n<b>🌐 DC:</b> <code>{user.dc_id or 'N/A'}</code>\n<b>💬 Username:</b> @{user.username or 'None'}\n<b>🔗 Link:</b> <a href='tg://user?id={user.id}'>Click Here</a>\n"
+    text = (
+        f"<b>👤 First Name:</b> {user.first_name}\n"
+        f"<b>🧾 Last Name:</b> {user.last_name or 'None'}\n"
+        f"<b>🆔 Telegram ID:</b> <code>{user.id}</code>\n"
+        f"<b>🌐 Data Centre:</b> <code>{user.dc_id or 'N/A'}</code>\n"
+        f"<b>💬 Username:</b> @{user.username or 'None'}\n"
+        f"<b>🔗 User Link:</b> <a href='tg://user?id={user.id}'>Click Here</a>\n"
+    )
 
+    # Joined Date (if in same group)
     if message.chat.type in (enums.ChatType.SUPERGROUP, enums.ChatType.CHANNEL):
         try:
             member = await message.chat.get_member(user.id)
-            text += f"<b>📅 Joined Chat On:</b> <code>{(member.joined_date or datetime.now()).strftime('%Y-%m-%d %H:%M:%S')}</code>\n"
+            joined_date = (member.joined_date or datetime.now()).strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
+            text += f"<b>📅 Joined Chat On:</b> <code>{joined_date}</code>\n"
         except UserNotParticipant:
             pass
 
-    markup = InlineKeyboardMarkup(
-        [[InlineKeyboardButton("🔐 Close", callback_data="close_data")]]
-    )
+    buttons = [[InlineKeyboardButton("🔐 Close", callback_data="close_data")]]
+    markup = InlineKeyboardMarkup(buttons)
+
+    # If user has a profile photo
     if user.photo:
         try:
             photo_path = await client.download_media(user.photo.big_file_id)
@@ -63,7 +100,8 @@ async def who_is(client, message):
                 parse_mode=enums.ParseMode.HTML,
             )
             os.remove(photo_path)
-        except Exception:
+        except Exception as e:
+            logger.exception(e)
             await message.reply_text(
                 text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
             )
@@ -71,38 +109,53 @@ async def who_is(client, message):
         await message.reply_text(
             text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
         )
+
     await status.delete()
 
 
+# ============================================================
+# 🎬 /imdb or /search — Movie Search
+# ============================================================
 @Client.on_message(filters.command(["imdb", "search"]))
 async def imdb_search(client, message):
     if len(message.command) < 2:
-        return await message.reply("🎬 **Usage:** `/imdb Movie Name`")
-    wait_msg = await message.reply("🔎 **Searching IMDb...**")
+        return await message.reply("🎬 Usage: `/imdb Movie or Series Name`")
+
+    query = message.text.split(None, 1)[1]
+    wait_msg = await message.reply("🔎 Searching IMDb...")
+
     try:
-        movies = await get_poster(message.text.split(None, 1)[1], bulk=True)
+        movies = await get_poster(query, bulk=True)
         if not movies:
-            return await wait_msg.edit("❌ **No results found.**")
+            return await wait_msg.edit("❌ No results found on IMDb.")
     except Exception as e:
-        return await wait_msg.edit(f"⚠️ **Error:** `{e}`")
+        logger.exception(e)
+        return await wait_msg.edit(f"⚠️ IMDb search error: `{e}`")
 
     buttons = [
         [
             InlineKeyboardButton(
-                f"{m.get('title')} ({m.get('year')})", callback_data=f"imdb#{m.movieID}"
+                f"{movie.get('title')} ({movie.get('year')})",
+                callback_data=f"imdb#{movie.movieID}",
             )
         ]
-        for m in movies
+        for movie in movies
     ]
-    await wait_msg.edit("🎥 **Results:**", reply_markup=InlineKeyboardMarkup(buttons))
+    await wait_msg.edit(
+        "🎥 Here’s what I found:", reply_markup=InlineKeyboardMarkup(buttons)
+    )
 
 
+# ============================================================
+# 📩 IMDb Callback — Show Movie Details
+# ============================================================
 @Client.on_callback_query(filters.regex("^imdb"))
-async def imdb_callback(client, query):
+async def imdb_callback(client, query: CallbackQuery):
     _, movie_id = query.data.split("#")
     imdb = await get_poster(query=movie_id, id=True)
+
     if not imdb:
-        return await query.message.edit("❌ **No results found.**")
+        return await query.message.edit("❌ No IMDb results found.")
 
     buttons = [[InlineKeyboardButton(f"{imdb['title']}", url=imdb["url"])]]
     caption = IMDB_TEMPLATE.format(
@@ -135,6 +188,7 @@ async def imdb_callback(client, query):
         rating=imdb.get("rating", "N/A"),
         url=imdb["url"],
     )
+
     try:
         if imdb.get("poster"):
             try:
@@ -143,9 +197,11 @@ async def imdb_callback(client, query):
                     caption=caption,
                     reply_markup=InlineKeyboardMarkup(buttons),
                 )
-            except Exception:
+            except (MediaEmpty, PhotoInvalidDimensions, WebpageMediaEmpty):
+                # fallback to resized poster URL
+                poster = imdb["poster"].replace(".jpg", "._V1_UX360.jpg")
                 await query.message.reply_photo(
-                    photo=imdb["poster"].replace(".jpg", "._V1_UX360.jpg"),
+                    photo=poster,
                     caption=caption,
                     reply_markup=InlineKeyboardMarkup(buttons),
                 )
@@ -156,6 +212,8 @@ async def imdb_callback(client, query):
                 reply_markup=InlineKeyboardMarkup(buttons),
                 disable_web_page_preview=False,
             )
-    except Exception:
+    except Exception as e:
+        logger.exception(e)
         await query.message.edit(caption, disable_web_page_preview=False)
+
     await query.answer()
