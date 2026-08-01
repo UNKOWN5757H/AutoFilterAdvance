@@ -10,8 +10,8 @@ from pyrogram import Client, __version__, filters, types
 from pyrogram.raw.all import layer
 from pyrogram.types import Message
 
-# Import the load_known_titles function we built earlier!
-from database.ia_filterdb import Media, load_known_titles
+# Fixed: Removed the heavy load_known_titles import to speed up Koyeb boot times
+from database.ia_filterdb import Media
 from database.users_chats_db import db
 from info import API_HASH, API_ID, BOT_TOKEN, LOG_STR, SESSION
 from utils import temp
@@ -72,9 +72,6 @@ class Bot(Client):
         # Now safely build the new compound index
         await Media.ensure_indexes()
         # ============================================================
-
-        # 3. Start building the in-memory spellchecker dictionary in the background
-        asyncio.create_task(load_known_titles())
 
         me = await self.get_me()
         temp.ME = me.id
