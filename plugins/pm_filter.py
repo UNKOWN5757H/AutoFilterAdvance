@@ -11,7 +11,7 @@ from pyrogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMa
 import info
 from database.filters_mdb import find_filter, get_filters
 from database.ia_filterdb import get_search_results
-from plugins.bans import ban_db
+from database.plugin_dbs import plugin_db
 from utils import get_settings, get_size, search_gagala, temp
 
 logger = logging.getLogger(__name__)
