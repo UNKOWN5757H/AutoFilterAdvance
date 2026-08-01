@@ -1,13 +1,16 @@
 import asyncio
-import aiohttp
 import logging
+
+import aiohttp
 from pyrogram import Client, filters
 from pyrogram.types import Message
-from info import ADMINS, BOT_TOKEN
+
 from database.plugin_dbs import plugin_db
+from info import ADMINS, BOT_TOKEN
 
 logger = logging.getLogger(__name__)
 HTTP_SESSION = None
+
 
 async def get_http_session():
     global HTTP_SESSION
@@ -15,11 +18,16 @@ async def get_http_session():
         HTTP_SESSION = aiohttp.ClientSession()
     return HTTP_SESSION
 
+
 async def send_reaction_background(chat_id: int, message_id: int):
     if not BOT_TOKEN:
         return
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/setMessageReaction"
-    payload = {"chat_id": chat_id, "message_id": message_id, "reaction": [{"type": "emoji", "emoji": "❤️"}]}
+    payload = {
+        "chat_id": chat_id,
+        "message_id": message_id,
+        "reaction": [{"type": "emoji", "emoji": "❤️"}],
+    }
     try:
         session = await get_http_session()
         async with session.post(url, json=payload, timeout=2) as response:
@@ -27,9 +35,11 @@ async def send_reaction_background(chat_id: int, message_id: int):
     except Exception:
         pass
 
+
 def is_bot_admin(user_id: int) -> bool:
     admin_list = [int(a) for a in ADMINS if str(a).isdigit()]
     return user_id in admin_list
+
 
 @Client.on_message(filters.command("enablereaction"))
 async def enable_react(bot: Client, message: Message):
@@ -38,12 +48,14 @@ async def enable_react(bot: Client, message: Message):
     await plugin_db.set_reaction_status(True)
     await message.reply_text("✅ **Auto-Reaction has been ENABLED globally!**")
 
+
 @Client.on_message(filters.command("disablereaction"))
 async def disable_react(bot: Client, message: Message):
     if not message.from_user or not is_bot_admin(message.from_user.id):
         return await message.reply_text("❌ **Only Bot ADMINS can use this command.**")
     await plugin_db.set_reaction_status(False)
     await message.reply_text("🚫 **Auto-Reaction has been DISABLED globally.**")
+
 
 @Client.on_message((filters.group | filters.channel) & ~filters.bot, group=-5)
 async def auto_react_heart(bot: Client, message: Message):
