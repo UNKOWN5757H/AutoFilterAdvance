@@ -25,6 +25,13 @@ CACHE_TIME = int(environ.get("CACHE_TIME", 300))
 USE_CAPTION_FILTER = bool(environ.get("USE_CAPTION_FILTER", False))
 PICS = (environ.get("PICS", "https://iili.io/COHUHil.jpg")).split()
 
+# Auto-Delete Timers (in seconds)
+FILE_AUTO_DELETE = int(environ.get("FILE_AUTO_DELETE", 1800))
+BUTTON_AUTO_DELETE = int(environ.get("BUTTON_AUTO_DELETE", 1800))
+
+# Maintenance / Repair Mode
+REPAIR_MODE = is_enabled(environ.get("REPAIR_MODE", "False"), False)
+
 # Admins, Channels & Users
 ADMINS = [
     int(admin) if id_pattern.search(admin) else admin
@@ -50,7 +57,7 @@ DATABASE_URI = environ.get(
 DATABASE_NAME = environ.get("DATABASE_NAME", "ClusterQ")
 COLLECTION_NAME = environ.get("COLLECTION_NAME", "VersionQ")
 
-# FSUB
+# FSUB (Dynamic Multi-Channel Support Variables Added)
 auth_channel = environ.get("AUTH_CHANNEL", "sandalwood_kannada_moviesz")
 AUTH_CHANNEL = (
     int(auth_channel) if auth_channel and id_pattern.search(auth_channel) else None
@@ -62,17 +69,44 @@ REQ_CHANNEL = (
 )
 JOIN_REQS_DB = environ.get("JOIN_REQS_DB", DATABASE_URI)
 
+# Dynamic Runtime FSub Variables
+IS_FSUB_ENABLED = is_enabled(environ.get("IS_FSUB_ENABLED", "True"), True)
+FSUB_MAX_COUNT = int(environ.get("FSUB_MAX_COUNT", 0))
+FSUB_CHANNELS = {} # Populated dynamically at runtime
+
 # Others
 LOG_CHANNEL = int(environ.get("LOG_CHANNEL", "-1001693006436"))
 SUPPORT_CHAT = environ.get("SUPPORT_CHAT", "Kannada_Filmy_Group")
 P_TTI_SHOW_OFF = is_enabled((environ.get("P_TTI_SHOW_OFF", "True")), False)
 IMDB = is_enabled((environ.get("IMDB", "False")), True)
 SINGLE_BUTTON = is_enabled((environ.get("SINGLE_BUTTON", "True")), False)
+
+# ============================
+# Custom Captions & Messages
+# ============================
 CUSTOM_FILE_CAPTION = environ.get(
     "CUSTOM_FILE_CAPTION",
     """<b>{file_name} \n \n𝗝𝗼𝗶𝗻 𝗢𝘂𝗿 𝗖𝗵𝗮𝗻𝗻𝗲𝗹𝘀 ⚡️\n𝐌𝐚𝐢𝐧 𝐂𝐡𝐚𝐧𝐧𝐞𝐥 👇\nhttps://t.me/sandalwood_kannada_moviesz \n𝐑𝐞𝐪𝐮𝐞𝐬𝐭 𝐌𝐨𝐯𝐢𝐞𝐬 👇\nhttps://t.me/Sandalwood_Kannada_Group</b>""",
 )
 BATCH_FILE_CAPTION = environ.get("BATCH_FILE_CAPTION", CUSTOM_FILE_CAPTION)
+CAPTION_PLUS = environ.get("CAPTION_PLUS", None)
+
+NOT_FOUND_MSG = environ.get(
+    "NOT_FOUND_MSG",
+    "<b>🚫 File not found. Please note👇\n \n✅ Use correct spelling as given in Google.\n \n✅ DO NOT ask for files which are not released in OTT.\n \n✅ Request movies in this format - (Moviename) (Year of release) \nEg. Jai Ganesh 2024 </b>"
+)
+NOT_FOUND_IMG = environ.get("NOT_FOUND_IMG", "https://telegra.ph/file/c4f0458d30f61993aad45-086b84e8363b3c582e.jpg")
+
+INFO_MSG = environ.get("INFO_MSG", None)
+INFO_IMG = environ.get("INFO_IMG", None)
+DEL_MSG = environ.get("DEL_MSG", None)
+DEL_IMG = environ.get("DEL_IMG", None)
+FSUB_MSG = environ.get("FSUB_MSG", None)
+FSUB_IMG = environ.get("FSUB_IMG", None)
+
+# ============================
+# Additional Configurations
+# ============================
 IMDB_TEMPLATE = environ.get(
     "IMDB_TEMPLATE",
     "<b>Query: {query}</b> \n‌‌‌‌IMDb Data:\n\n🏷 Title: <a href={url}>{title}</a>\n🎭 Genres: {genres}\n📆 Year: <a href={url}/releaseinfo>{year}</a>\n🌟 Rating: <a href={url}/ratings>{rating}</a> / 10",
