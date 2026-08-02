@@ -74,7 +74,10 @@ async def delete_message_after_delay(message, delay: int):
 @Client.on_message((filters.group) & filters.text & filters.incoming)
 async def give_filter(client, message):
     if getattr(info, "REPAIR_MODE", False):
-        if not message.from_user or (message.from_user.id not in info.ADMINS and str(message.from_user.id) not in info.ADMINS):
+        if not message.from_user or (
+            message.from_user.id not in info.ADMINS
+            and str(message.from_user.id) not in info.ADMINS
+        ):
             return await message.reply_text(
                 "🛠️ **Bot is currently under maintenance!**\n\n"
                 "We are performing some upgrades/fixes. Please try again later."
@@ -94,7 +97,10 @@ async def give_filter(client, message):
 @Client.on_callback_query(filters.regex(r"^next"))
 async def next_page(bot, query):
     if getattr(info, "REPAIR_MODE", False):
-        if query.from_user.id not in info.ADMINS and str(query.from_user.id) not in info.ADMINS:
+        if (
+            query.from_user.id not in info.ADMINS
+            and str(query.from_user.id) not in info.ADMINS
+        ):
             return await query.answer(
                 "🛠️ Bot is currently under maintenance! We are performing some upgrades. Please try again later.",
                 show_alert=True,
@@ -264,7 +270,10 @@ async def next_page(bot, query):
 @Client.on_callback_query(filters.regex(r"^spolling"))
 async def advantage_spoll_choker(bot, query):
     if getattr(info, "REPAIR_MODE", False):
-        if query.from_user.id not in info.ADMINS and str(query.from_user.id) not in info.ADMINS:
+        if (
+            query.from_user.id not in info.ADMINS
+            and str(query.from_user.id) not in info.ADMINS
+        ):
             return await query.answer(
                 "🛠️ Bot is currently under maintenance! Please try again later.",
                 show_alert=True,
@@ -338,7 +347,11 @@ async def advantage_spoll_choker(bot, query):
 )
 async def cb_handler(client: Client, query: CallbackQuery):
     if getattr(info, "REPAIR_MODE", False):
-        if query.from_user.id not in info.ADMINS and str(query.from_user.id) not in info.ADMINS and query.data != "close_data":
+        if (
+            query.from_user.id not in info.ADMINS
+            and str(query.from_user.id) not in info.ADMINS
+            and query.data != "close_data"
+        ):
             return await query.answer(
                 "🛠️ Bot is currently under maintenance! Please try again later.",
                 show_alert=True,
@@ -383,7 +396,9 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 return await query.answer("Join: @KR_PICTURE")
 
             st = await client.get_chat_member(grpid, userid)
-            if (st.status == enums.ChatMemberStatus.OWNER) or (str(userid) in info.ADMINS or userid in info.ADMINS):
+            if (st.status == enums.ChatMemberStatus.OWNER) or (
+                str(userid) in info.ADMINS or userid in info.ADMINS
+            ):
                 await del_all(query.message, grpid, title)
             else:
                 await query.answer(
@@ -525,7 +540,8 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     buttons.append(
                         [
                             InlineKeyboardButton(
-                                text=f"{title}{act}", callback_data=f"groupcb:{groupid}:{act}"
+                                text=f"{title}{act}",
+                                callback_data=f"groupcb:{groupid}:{act}",
                             )
                         ]
                     )
@@ -714,27 +730,41 @@ async def cb_handler(client: Client, query: CallbackQuery):
             buttons = [
                 [
                     InlineKeyboardButton("🚫 Bans", callback_data="helps_bans"),
-                    InlineKeyboardButton("💬 Custom Messages", callback_data="helps_custommessages"),
+                    InlineKeyboardButton(
+                        "💬 Custom Messages", callback_data="helps_custommessages"
+                    ),
                 ],
                 [
-                    InlineKeyboardButton("📝 Custom Captions", callback_data="helps_customcaption"),
+                    InlineKeyboardButton(
+                        "📝 Custom Captions", callback_data="helps_customcaption"
+                    ),
                     InlineKeyboardButton("🗑️ Delete", callback_data="helps_delete"),
                 ],
                 [
-                    InlineKeyboardButton("📱 Force Sub", callback_data="helps_forcesub"),
+                    InlineKeyboardButton(
+                        "📱 Force Sub", callback_data="helps_forcesub"
+                    ),
                     InlineKeyboardButton("📝 Filters", callback_data="helps_filters"),
                 ],
                 [
                     InlineKeyboardButton("📚 Index", callback_data="helps_index"),
-                    InlineKeyboardButton("📢 Promotions", callback_data="helps_promotions"),
+                    InlineKeyboardButton(
+                        "📢 Promotions", callback_data="helps_promotions"
+                    ),
                 ],
                 [
                     InlineKeyboardButton("⚙️ Settings", callback_data="helps_settings"),
-                    InlineKeyboardButton("📊 Utilities", callback_data="helps_utilities"),
+                    InlineKeyboardButton(
+                        "📊 Utilities", callback_data="helps_utilities"
+                    ),
                 ],
                 [
-                    InlineKeyboardButton("🌐 Connections", callback_data="helps_connections"),
-                    InlineKeyboardButton("👥 Force Add", callback_data="helps_forceadd"),
+                    InlineKeyboardButton(
+                        "🌐 Connections", callback_data="helps_connections"
+                    ),
+                    InlineKeyboardButton(
+                        "👥 Force Add", callback_data="helps_forceadd"
+                    ),
                 ],
                 [InlineKeyboardButton("💾 Backup", callback_data="helps_backup")],
                 [
@@ -774,116 +804,316 @@ async def cb_handler(client: Client, query: CallbackQuery):
             buttons = [[InlineKeyboardButton("🔙 Back", callback_data="help")]]
             try:
                 await query.message.edit_text(
-                    text=getattr(script, "BANS_TXT", "🚫 **Bans Help**\n\nManage bans via /ban and /unban."),
+                    text=getattr(
+                        script,
+                        "BANS_TXT",
+                        "🚫 **Bans Help**\n\nManage bans via /ban and /unban.",
+                    ),
                     reply_markup=InlineKeyboardMarkup(buttons),
                     parse_mode=enums.ParseMode.HTML,
                 )
             except Exception:
-                await query.message.edit_text(text=getattr(script, "BANS_TXT", "🚫 **Bans Help**\n\nManage bans via /ban and /unban."), reply_markup=InlineKeyboardMarkup(buttons), parse_mode=enums.ParseMode.MARKDOWN)
+                await query.message.edit_text(
+                    text=getattr(
+                        script,
+                        "BANS_TXT",
+                        "🚫 **Bans Help**\n\nManage bans via /ban and /unban.",
+                    ),
+                    reply_markup=InlineKeyboardMarkup(buttons),
+                    parse_mode=enums.ParseMode.MARKDOWN,
+                )
 
         # ⚡ FIXED: Added try/except with Markdown fallback to prevent crashes if Script.py formatting is broken
         elif query.data == "helps_custommessages":
             await query.answer()
             buttons = [[InlineKeyboardButton("🔙 Back", callback_data="help")]]
-            text = getattr(script, "CUSTOMMESSAGES_TXT", getattr(script, "CUSTOM_MESSAGE_TXT", "💬 **Custom Messages Help**\n\nUse /infomsg, /delmsg, etc. to set custom text."))
+            text = getattr(
+                script,
+                "CUSTOMMESSAGES_TXT",
+                getattr(
+                    script,
+                    "CUSTOM_MESSAGE_TXT",
+                    "💬 **Custom Messages Help**\n\nUse /infomsg, /delmsg, etc. to set custom text.",
+                ),
+            )
             try:
-                await query.message.edit_text(text=text, reply_markup=InlineKeyboardMarkup(buttons), parse_mode=enums.ParseMode.HTML)
+                await query.message.edit_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(buttons),
+                    parse_mode=enums.ParseMode.HTML,
+                )
             except Exception:
-                await query.message.edit_text(text=text, reply_markup=InlineKeyboardMarkup(buttons), parse_mode=enums.ParseMode.MARKDOWN)
+                await query.message.edit_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(buttons),
+                    parse_mode=enums.ParseMode.MARKDOWN,
+                )
 
         elif query.data == "helps_customcaption":
             await query.answer()
             buttons = [[InlineKeyboardButton("🔙 Back", callback_data="help")]]
-            text = getattr(script, "CUSTOMCAPTION_TXT", getattr(script, "CUSTOM_CAPTION_TXT", "📝 **Custom Caption Help**\n\nUse /customcaption to set a custom caption for files."))
+            text = getattr(
+                script,
+                "CUSTOMCAPTION_TXT",
+                getattr(
+                    script,
+                    "CUSTOM_CAPTION_TXT",
+                    "📝 **Custom Caption Help**\n\nUse /customcaption to set a custom caption for files.",
+                ),
+            )
             try:
-                await query.message.edit_text(text=text, reply_markup=InlineKeyboardMarkup(buttons), parse_mode=enums.ParseMode.HTML)
+                await query.message.edit_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(buttons),
+                    parse_mode=enums.ParseMode.HTML,
+                )
             except Exception:
-                await query.message.edit_text(text=text, reply_markup=InlineKeyboardMarkup(buttons), parse_mode=enums.ParseMode.MARKDOWN)
+                await query.message.edit_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(buttons),
+                    parse_mode=enums.ParseMode.MARKDOWN,
+                )
 
         elif query.data == "helps_delete":
             await query.answer()
             buttons = [[InlineKeyboardButton("🔙 Back", callback_data="help")]]
             try:
-                await query.message.edit_text(text=getattr(script, "DELETE_TXT", "🗑️ **Delete Help**\n\nUse /delete to remove a file."), reply_markup=InlineKeyboardMarkup(buttons), parse_mode=enums.ParseMode.HTML)
+                await query.message.edit_text(
+                    text=getattr(
+                        script,
+                        "DELETE_TXT",
+                        "🗑️ **Delete Help**\n\nUse /delete to remove a file.",
+                    ),
+                    reply_markup=InlineKeyboardMarkup(buttons),
+                    parse_mode=enums.ParseMode.HTML,
+                )
             except Exception:
-                await query.message.edit_text(text=getattr(script, "DELETE_TXT", "🗑️ **Delete Help**\n\nUse /delete to remove a file."), reply_markup=InlineKeyboardMarkup(buttons), parse_mode=enums.ParseMode.MARKDOWN)
+                await query.message.edit_text(
+                    text=getattr(
+                        script,
+                        "DELETE_TXT",
+                        "🗑️ **Delete Help**\n\nUse /delete to remove a file.",
+                    ),
+                    reply_markup=InlineKeyboardMarkup(buttons),
+                    parse_mode=enums.ParseMode.MARKDOWN,
+                )
 
         # ⚡ FIXED: Added try/except with Markdown fallback
         elif query.data == "helps_forcesub":
             await query.answer()
             buttons = [[InlineKeyboardButton("🔙 Back", callback_data="help")]]
-            text = getattr(script, "FORCESUB_TXT", getattr(script, "F_SUB_TXT", "📱 **Force Sub Help**\n\nManage Force Sub settings using /setfsub, /rmfsub, etc."))
+            text = getattr(
+                script,
+                "FORCESUB_TXT",
+                getattr(
+                    script,
+                    "F_SUB_TXT",
+                    "📱 **Force Sub Help**\n\nManage Force Sub settings using /setfsub, /rmfsub, etc.",
+                ),
+            )
             try:
-                await query.message.edit_text(text=text, reply_markup=InlineKeyboardMarkup(buttons), parse_mode=enums.ParseMode.HTML)
+                await query.message.edit_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(buttons),
+                    parse_mode=enums.ParseMode.HTML,
+                )
             except Exception:
-                await query.message.edit_text(text=text, reply_markup=InlineKeyboardMarkup(buttons), parse_mode=enums.ParseMode.MARKDOWN)
+                await query.message.edit_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(buttons),
+                    parse_mode=enums.ParseMode.MARKDOWN,
+                )
 
         elif query.data == "helps_filters":
             await query.answer()
             buttons = [[InlineKeyboardButton("🔙 Back", callback_data="help")]]
             try:
-                await query.message.edit_text(text=getattr(script, "FILTERS_TXT", "📝 **Filters Help**\n\nUse /filter and /delfilter."), reply_markup=InlineKeyboardMarkup(buttons), parse_mode=enums.ParseMode.HTML)
+                await query.message.edit_text(
+                    text=getattr(
+                        script,
+                        "FILTERS_TXT",
+                        "📝 **Filters Help**\n\nUse /filter and /delfilter.",
+                    ),
+                    reply_markup=InlineKeyboardMarkup(buttons),
+                    parse_mode=enums.ParseMode.HTML,
+                )
             except Exception:
-                await query.message.edit_text(text=getattr(script, "FILTERS_TXT", "📝 **Filters Help**\n\nUse /filter and /delfilter."), reply_markup=InlineKeyboardMarkup(buttons), parse_mode=enums.ParseMode.MARKDOWN)
+                await query.message.edit_text(
+                    text=getattr(
+                        script,
+                        "FILTERS_TXT",
+                        "📝 **Filters Help**\n\nUse /filter and /delfilter.",
+                    ),
+                    reply_markup=InlineKeyboardMarkup(buttons),
+                    parse_mode=enums.ParseMode.MARKDOWN,
+                )
 
         # ⚡ FIXED: Changed callback data to bot_index to prevent collision with index.py
         elif query.data == "helps_index":
             await query.answer()
             buttons = [[InlineKeyboardButton("🔙 Back", callback_data="help")]]
-            text = getattr(script, "INDEX_TXT", "📚 **Index Help**\n\nUse /index to index channel files.")
+            text = getattr(
+                script,
+                "INDEX_TXT",
+                "📚 **Index Help**\n\nUse /index to index channel files.",
+            )
             try:
-                await query.message.edit_text(text=text, reply_markup=InlineKeyboardMarkup(buttons), parse_mode=enums.ParseMode.HTML)
+                await query.message.edit_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(buttons),
+                    parse_mode=enums.ParseMode.HTML,
+                )
             except Exception:
-                await query.message.edit_text(text=text, reply_markup=InlineKeyboardMarkup(buttons), parse_mode=enums.ParseMode.MARKDOWN)
+                await query.message.edit_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(buttons),
+                    parse_mode=enums.ParseMode.MARKDOWN,
+                )
 
         elif query.data == "helps_promotions":
             await query.answer()
             buttons = [[InlineKeyboardButton("🔙 Back", callback_data="help")]]
             try:
-                await query.message.edit_text(text=getattr(script, "PROMOTIONS_TXT", "📢 **Promotions Help**\n\nManage promos using /addpromo."), reply_markup=InlineKeyboardMarkup(buttons), parse_mode=enums.ParseMode.HTML)
+                await query.message.edit_text(
+                    text=getattr(
+                        script,
+                        "PROMOTIONS_TXT",
+                        "📢 **Promotions Help**\n\nManage promos using /addpromo.",
+                    ),
+                    reply_markup=InlineKeyboardMarkup(buttons),
+                    parse_mode=enums.ParseMode.HTML,
+                )
             except Exception:
-                await query.message.edit_text(text=getattr(script, "PROMOTIONS_TXT", "📢 **Promotions Help**\n\nManage promos using /addpromo."), reply_markup=InlineKeyboardMarkup(buttons), parse_mode=enums.ParseMode.MARKDOWN)
+                await query.message.edit_text(
+                    text=getattr(
+                        script,
+                        "PROMOTIONS_TXT",
+                        "📢 **Promotions Help**\n\nManage promos using /addpromo.",
+                    ),
+                    reply_markup=InlineKeyboardMarkup(buttons),
+                    parse_mode=enums.ParseMode.MARKDOWN,
+                )
 
         elif query.data == "helps_settings":
             await query.answer()
             buttons = [[InlineKeyboardButton("🔙 Back", callback_data="help")]]
             try:
-                await query.message.edit_text(text=getattr(script, "SETTINGS_TXT", "⚙️ **Settings Help**\n\nUse /settings to configure the bot."), reply_markup=InlineKeyboardMarkup(buttons), parse_mode=enums.ParseMode.HTML)
+                await query.message.edit_text(
+                    text=getattr(
+                        script,
+                        "SETTINGS_TXT",
+                        "⚙️ **Settings Help**\n\nUse /settings to configure the bot.",
+                    ),
+                    reply_markup=InlineKeyboardMarkup(buttons),
+                    parse_mode=enums.ParseMode.HTML,
+                )
             except Exception:
-                await query.message.edit_text(text=getattr(script, "SETTINGS_TXT", "⚙️ **Settings Help**\n\nUse /settings to configure the bot."), reply_markup=InlineKeyboardMarkup(buttons), parse_mode=enums.ParseMode.MARKDOWN)
+                await query.message.edit_text(
+                    text=getattr(
+                        script,
+                        "SETTINGS_TXT",
+                        "⚙️ **Settings Help**\n\nUse /settings to configure the bot.",
+                    ),
+                    reply_markup=InlineKeyboardMarkup(buttons),
+                    parse_mode=enums.ParseMode.MARKDOWN,
+                )
 
         elif query.data == "helps_utilities":
             await query.answer()
             buttons = [[InlineKeyboardButton("🔙 Back", callback_data="help")]]
             try:
-                await query.message.edit_text(text=getattr(script, "UTILITIES_TXT", "📊 **Utilities Help**\n\nUse /stats, /id, and other tools."), reply_markup=InlineKeyboardMarkup(buttons), parse_mode=enums.ParseMode.HTML)
+                await query.message.edit_text(
+                    text=getattr(
+                        script,
+                        "UTILITIES_TXT",
+                        "📊 **Utilities Help**\n\nUse /stats, /id, and other tools.",
+                    ),
+                    reply_markup=InlineKeyboardMarkup(buttons),
+                    parse_mode=enums.ParseMode.HTML,
+                )
             except Exception:
-                await query.message.edit_text(text=getattr(script, "UTILITIES_TXT", "📊 **Utilities Help**\n\nUse /stats, /id, and other tools."), reply_markup=InlineKeyboardMarkup(buttons), parse_mode=enums.ParseMode.MARKDOWN)
+                await query.message.edit_text(
+                    text=getattr(
+                        script,
+                        "UTILITIES_TXT",
+                        "📊 **Utilities Help**\n\nUse /stats, /id, and other tools.",
+                    ),
+                    reply_markup=InlineKeyboardMarkup(buttons),
+                    parse_mode=enums.ParseMode.MARKDOWN,
+                )
 
         elif query.data == "helps_connections":
             await query.answer()
             buttons = [[InlineKeyboardButton("🔙 Back", callback_data="help")]]
-            text = getattr(script, "CONNECTION_TXT", getattr(script, "CONNECTIONS_TXT", "🌐 **Connections Help**\n\nManage your connections using /connect and /connections."))
+            text = getattr(
+                script,
+                "CONNECTION_TXT",
+                getattr(
+                    script,
+                    "CONNECTIONS_TXT",
+                    "🌐 **Connections Help**\n\nManage your connections using /connect and /connections.",
+                ),
+            )
             try:
-                await query.message.edit_text(text=text, reply_markup=InlineKeyboardMarkup(buttons), parse_mode=enums.ParseMode.HTML)
+                await query.message.edit_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(buttons),
+                    parse_mode=enums.ParseMode.HTML,
+                )
             except Exception:
-                await query.message.edit_text(text=text, reply_markup=InlineKeyboardMarkup(buttons), parse_mode=enums.ParseMode.MARKDOWN)
+                await query.message.edit_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(buttons),
+                    parse_mode=enums.ParseMode.MARKDOWN,
+                )
 
         elif query.data == "helps_forceadd":
             await query.answer()
             buttons = [[InlineKeyboardButton("🔙 Back", callback_data="help")]]
             try:
-                await query.message.edit_text(text=getattr(script, "FORCEADD_TXT", "👥 **Force Add Help**\n\nUse /setforceadd to enforce group invites."), reply_markup=InlineKeyboardMarkup(buttons), parse_mode=enums.ParseMode.HTML)
+                await query.message.edit_text(
+                    text=getattr(
+                        script,
+                        "FORCEADD_TXT",
+                        "👥 **Force Add Help**\n\nUse /setforceadd to enforce group invites.",
+                    ),
+                    reply_markup=InlineKeyboardMarkup(buttons),
+                    parse_mode=enums.ParseMode.HTML,
+                )
             except Exception:
-                await query.message.edit_text(text=getattr(script, "FORCEADD_TXT", "👥 **Force Add Help**\n\nUse /setforceadd to enforce group invites."), reply_markup=InlineKeyboardMarkup(buttons), parse_mode=enums.ParseMode.MARKDOWN)
+                await query.message.edit_text(
+                    text=getattr(
+                        script,
+                        "FORCEADD_TXT",
+                        "👥 **Force Add Help**\n\nUse /setforceadd to enforce group invites.",
+                    ),
+                    reply_markup=InlineKeyboardMarkup(buttons),
+                    parse_mode=enums.ParseMode.MARKDOWN,
+                )
 
         elif query.data == "helps_backup":
             await query.answer()
             buttons = [[InlineKeyboardButton("🔙 Back", callback_data="help")]]
             try:
-                await query.message.edit_text(text=getattr(script, "BACKUP_TXT", "💾 **Backup Help**\n\nUse /dbbackup to save the database."), reply_markup=InlineKeyboardMarkup(buttons), parse_mode=enums.ParseMode.HTML)
+                await query.message.edit_text(
+                    text=getattr(
+                        script,
+                        "BACKUP_TXT",
+                        "💾 **Backup Help**\n\nUse /dbbackup to save the database.",
+                    ),
+                    reply_markup=InlineKeyboardMarkup(buttons),
+                    parse_mode=enums.ParseMode.HTML,
+                )
             except Exception:
-                await query.message.edit_text(text=getattr(script, "BACKUP_TXT", "💾 **Backup Help**\n\nUse /dbbackup to save the database."), reply_markup=InlineKeyboardMarkup(buttons), parse_mode=enums.ParseMode.MARKDOWN)
+                await query.message.edit_text(
+                    text=getattr(
+                        script,
+                        "BACKUP_TXT",
+                        "💾 **Backup Help**\n\nUse /dbbackup to save the database.",
+                    ),
+                    reply_markup=InlineKeyboardMarkup(buttons),
+                    parse_mode=enums.ParseMode.MARKDOWN,
+                )
 
         elif query.data in ["stats", "rfrsh"]:
             if query.data == "rfrsh":
