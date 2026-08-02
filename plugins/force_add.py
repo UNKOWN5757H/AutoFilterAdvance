@@ -21,7 +21,7 @@ async def is_admin(bot: Client, chat_id: int, user_id: int) -> bool:
     # 1. Check if user is a global bot admin
     if user_id in info.ADMINS or str(user_id) in info.ADMINS:
         return True
-    
+
     # 2. Check if user is an admin in the specific group
     try:
         member = await bot.get_chat_member(chat_id, user_id)
@@ -39,8 +39,10 @@ async def is_admin(bot: Client, chat_id: int, user_id: int) -> bool:
 @Client.on_message(filters.command("setforceadd") & filters.group)
 async def set_force_add(bot: Client, message: Message):
     if not message.from_user:
-        return await message.reply_text("❌ **Anonymous Admins cannot use this command. Please reveal your account to configure this.**")
-        
+        return await message.reply_text(
+            "❌ **Anonymous Admins cannot use this command. Please reveal your account to configure this.**"
+        )
+
     if not await is_admin(bot, message.chat.id, message.from_user.id):
         return await message.reply_text("❌ **Only admins can use this command.**")
 
@@ -198,7 +200,9 @@ async def my_adds(bot: Client, message: Message):
     if settings["limit"] == 0:
         return await message.reply_text("ℹ️ Force Add is not active in this group.")
 
-    current_adds = await plugin_db.get_fa_user_adds(message.chat.id, message.from_user.id)
+    current_adds = await plugin_db.get_fa_user_adds(
+        message.chat.id, message.from_user.id
+    )
     if current_adds >= settings["limit"]:
         await message.reply_text(
             f"✅ You have added **{current_adds}** members. You are cleared to chat freely!"
