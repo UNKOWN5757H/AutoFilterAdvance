@@ -12,8 +12,6 @@ from database.filters_mdb import add_filter, delete_filter, find_filter, get_fil
 
 logger = logging.getLogger(__name__)
 
-DELETE_TIME = 1800  # 30 Minutes
-
 
 async def delete_message_after_delay(message, delay: int):
     """Helper function to auto-delete messages."""
@@ -26,13 +24,20 @@ async def delete_message_after_delay(message, delay: int):
         pass
 
 
-async def is_admin(message: Message) -> bool:
+async def is_admin(client: Client, message: Message) -> bool:
     """Helper to verify if a user is a chat admin or a bot admin."""
-    if message.from_user and message.from_user.id in info.ADMINS:
+    if not message.from_user:
+        return False
+        
+    # Safely checks against both integers and strings for global admins
+    if message.from_user.id in info.ADMINS or str(message.from_user.id) in info.ADMINS:
         return True
+        
     if message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
         try:
-            member = await message.chat.get_member(message.from_user.id)
+            # FIXED: Bound methods (message.chat.get_member) were removed in Pyrogram V2.
+            # Must use client.get_chat_member() instead.
+            member = await client.get_chat_member(message.chat.id, message.from_user.id)
             return member.status in [
                 enums.ChatMemberStatus.OWNER,
                 enums.ChatMemberStatus.ADMINISTRATOR,
@@ -90,7 +95,7 @@ def parse_markdown_buttons(text: str):
 # ============================================================
 @Client.on_message(filters.command("filter") & filters.group)
 async def add_filter_cmd(client: Client, message: Message):
-    if not await is_admin(message):
+    if not await is_admin(client, message):
         return
     if not message.reply_to_message:
         return await message.reply_text(
@@ -134,7 +139,7 @@ async def add_filter_cmd(client: Client, message: Message):
 # ============================================================
 @Client.on_message(filters.command("addfilter") & filters.group)
 async def add_premade_filter_cmd(client: Client, message: Message):
-    if not await is_admin(message):
+    if not await is_admin(client, message):
         return
     if not message.reply_to_message:
         return await message.reply_text(
@@ -190,7 +195,7 @@ async def add_premade_filter_cmd(client: Client, message: Message):
 # ============================================================
 @Client.on_message(filters.command("delfilter") & filters.group)
 async def del_filter_cmd(client: Client, message: Message):
-    if not await is_admin(message):
+    if not await is_admin(client, message):
         return
     if len(message.command) < 2:
         return await message.reply_text("⚙️ **Usage:** `/delfilter <keyword>`")
@@ -198,7 +203,6 @@ async def del_filter_cmd(client: Client, message: Message):
     keyword = message.text.split(None, 1)[1].lower()
 
     # Typically, standard DBs return False if not found, True if deleted.
-    # Adjust logic below if your delete_filter handles messages automatically.
     await delete_filter(message, keyword, message.chat.id)
     await message.reply_text(
         f"🗑️ **Filter `{keyword}` has been deleted (if it existed).**"
@@ -210,7 +214,7 @@ async def del_filter_cmd(client: Client, message: Message):
 # ============================================================
 @Client.on_message(filters.command("listfilters") & filters.group)
 async def list_filters_cmd(client: Client, message: Message):
-    if not await is_admin(message):
+    if not await is_admin(client, message):
         return
 
     keywords = await get_filters(message.chat.id)
@@ -230,7 +234,7 @@ async def list_filters_cmd(client: Client, message: Message):
 async def manual_filters(client: Client, message: Message, text=False):
     # Optional Repair Mode integration
     if getattr(info, "REPAIR_MODE", False):
-        if not message.from_user or message.from_user.id not in info.ADMINS:
+        if not message.from_user or (message.from_user.id not in info.ADMINS and str(message.from_user.id) not in info.ADMINS):
             return False
 
     group_id = message.chat.id
@@ -289,9 +293,11 @@ async def manual_filters(client: Client, message: Message, text=False):
                         )
 
                 if sent_msg:
-                    asyncio.create_task(
-                        delete_message_after_delay(sent_msg, DELETE_TIME)
-                    )
+                    delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
+                    if delete_timer > 0:
+                        asyncio.create_task(
+                            delete_message_after_delay(sent_msg, delete_timer)
+                        )
 
             except Forbidden as e:
                 # Chat Permission Fallback (Sends as text if sending media is blocked)
@@ -311,9 +317,11 @@ async def manual_filters(client: Client, message: Message, text=False):
                             reply_markup=reply_markup,
                         )
                         if sent_msg:
-                            asyncio.create_task(
-                                delete_message_after_delay(sent_msg, DELETE_TIME)
-                            )
+                            delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
+                            if delete_timer > 0:
+                                asyncio.create_task(
+                                    delete_message_after_delay(sent_msg, delete_timer)
+                                )
                     except Exception:
                         pass
             except Exception as e:
