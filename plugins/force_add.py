@@ -2,7 +2,7 @@ import asyncio
 import logging
 import time
 
-from pyrogram import Client, StopPropagation, filters
+from pyrogram import Client, StopPropagation, enums, filters
 from pyrogram.types import (
     ChatPermissions,
     InlineKeyboardButton,
@@ -10,25 +10,25 @@ from pyrogram.types import (
     Message,
 )
 
-try:
-    from info import ADMINS
-except ImportError:
-    ADMINS = []
-
-# ⚡ FIXED: Now uses the centralized MongoDB handler
+import info
 from database.plugin_dbs import plugin_db
 
 logger = logging.getLogger(__name__)
 
 
 async def is_admin(bot: Client, chat_id: int, user_id: int) -> bool:
-    admin_list = [int(a) for a in ADMINS if str(a).isdigit()]
-    if user_id in admin_list:
+    """Safely checks if a user is a bot admin or a chat admin using Pyrogram V2 Enums."""
+    # 1. Check if user is a global bot admin
+    if user_id in info.ADMINS or str(user_id) in info.ADMINS:
         return True
+    
+    # 2. Check if user is an admin in the specific group
     try:
         member = await bot.get_chat_member(chat_id, user_id)
-        status = str(getattr(member, "status", "")).lower()
-        return any(role in status for role in ["administrator", "creator", "owner"])
+        return member.status in [
+            enums.ChatMemberStatus.ADMINISTRATOR,
+            enums.ChatMemberStatus.OWNER,
+        ]
     except Exception:
         return False
 
@@ -39,7 +39,8 @@ async def is_admin(bot: Client, chat_id: int, user_id: int) -> bool:
 @Client.on_message(filters.command("setforceadd") & filters.group)
 async def set_force_add(bot: Client, message: Message):
     if not message.from_user:
-        return
+        return await message.reply_text("❌ **Anonymous Admins cannot use this command. Please reveal your account to configure this.**")
+        
     if not await is_admin(bot, message.chat.id, message.from_user.id):
         return await message.reply_text("❌ **Only admins can use this command.**")
 
@@ -164,6 +165,8 @@ async def top_add_7(bot: Client, message: Message):
 
 @Client.on_message(filters.command("resetadddaily") & filters.group)
 async def reset_add_daily(bot: Client, message: Message):
+    if not message.from_user:
+        return
     if not await is_admin(bot, message.chat.id, message.from_user.id):
         return
     await plugin_db.reset_fa_daily_adds(message.chat.id)
@@ -174,6 +177,8 @@ async def reset_add_daily(bot: Client, message: Message):
 
 @Client.on_message(filters.command("resetadd") & filters.group)
 async def reset_all_adds(bot: Client, message: Message):
+    if not message.from_user:
+        return
     if not await is_admin(bot, message.chat.id, message.from_user.id):
         return
     await plugin_db.reset_fa_all_adds(message.chat.id)
@@ -193,9 +198,7 @@ async def my_adds(bot: Client, message: Message):
     if settings["limit"] == 0:
         return await message.reply_text("ℹ️ Force Add is not active in this group.")
 
-    current_adds = await plugin_db.get_fa_user_adds(
-        message.chat.id, message.from_user.id
-    )
+    current_adds = await plugin_db.get_fa_user_adds(message.chat.id, message.from_user.id)
     if current_adds >= settings["limit"]:
         await message.reply_text(
             f"✅ You have added **{current_adds}** members. You are cleared to chat freely!"
