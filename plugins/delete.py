@@ -21,9 +21,21 @@ if not hasattr(info, "BUTTON_AUTO_DELETE"):
 
 
 # ============================================================
+# 🔐 Custom Admin Filter (Fixes the "No Response" Bug)
+# ============================================================
+async def admin_check(_, __, message: Message):
+    if not message.from_user:
+        return False
+    # Safely checks against both integers and strings
+    return message.from_user.id in info.ADMINS or str(message.from_user.id) in info.ADMINS
+
+admin_filter = filters.create(admin_check)
+
+
+# ============================================================
 # 🗑 1. Single File Deletion (/delete)
 # ============================================================
-@Client.on_message(filters.command("delete") & filters.user(info.ADMINS))
+@Client.on_message(filters.command("delete") & admin_filter)
 async def delete_single_file(bot: Client, message: Message):
     """
     Deletes a single file from the database.
@@ -93,7 +105,7 @@ async def delete_single_file(bot: Client, message: Message):
 # ============================================================
 # 🗑 2. Multiple File Deletion by Name (/delmulti)
 # ============================================================
-@Client.on_message(filters.command("delmulti") & filters.user(info.ADMINS))
+@Client.on_message(filters.command("delmulti") & admin_filter)
 async def delete_multiple_files(bot: Client, message: Message):
     """
     Deletes all files containing a specific keyword in their file_name.
@@ -127,7 +139,7 @@ async def delete_multiple_files(bot: Client, message: Message):
 # ============================================================
 # ⏱ 3. Set File Auto-Delete Timer (/autodelete)
 # ============================================================
-@Client.on_message(filters.command("autodelete") & filters.user(info.ADMINS))
+@Client.on_message(filters.command("autodelete") & admin_filter)
 async def set_autodelete_timer(bot: Client, message: Message):
     """
     Sets the auto-delete time (in seconds) for files sent in PM.
@@ -164,7 +176,7 @@ async def set_autodelete_timer(bot: Client, message: Message):
 # ============================================================
 # ⏱ 4. Set Button Auto-Delete Timer (/buttondel)
 # ============================================================
-@Client.on_message(filters.command("buttondel") & filters.user(info.ADMINS))
+@Client.on_message(filters.command("buttondel") & admin_filter)
 async def set_buttondel_timer(bot: Client, message: Message):
     """
     Sets the auto-delete time (in seconds) for button messages sent in groups.
