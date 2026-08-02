@@ -27,6 +27,7 @@ last_backup_time = None
 next_backup_time = None
 scheduler_running = False
 
+
 # ============================================================
 # 🔐 Custom Admin Filter (Fixes the "No Response" Bug)
 # ============================================================
@@ -34,7 +35,10 @@ async def admin_check(_, __, message: Message):
     if not message.from_user:
         return False
     # Safely checks against both integers and strings
-    return message.from_user.id in info.ADMINS or str(message.from_user.id) in info.ADMINS
+    return (
+        message.from_user.id in info.ADMINS or str(message.from_user.id) in info.ADMINS
+    )
+
 
 admin_filter = filters.create(admin_check)
 
