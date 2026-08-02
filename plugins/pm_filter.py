@@ -75,7 +75,10 @@ async def delete_message_after_delay(message, delay: int):
 async def give_filter(client, message):
     if getattr(info, "REPAIR_MODE", False):
         # ⚡ FIXED: Safely check both str and int for ADMINS
-        if not message.from_user or (message.from_user.id not in info.ADMINS and str(message.from_user.id) not in info.ADMINS):
+        if not message.from_user or (
+            message.from_user.id not in info.ADMINS
+            and str(message.from_user.id) not in info.ADMINS
+        ):
             return await message.reply_text(
                 "🛠️ **Bot is currently under maintenance!**\n\n"
                 "We are performing some upgrades/fixes. Please try again later."
@@ -96,7 +99,10 @@ async def give_filter(client, message):
 @Client.on_callback_query(filters.regex(r"^next"))
 async def next_page(bot, query):
     if getattr(info, "REPAIR_MODE", False):
-        if query.from_user.id not in info.ADMINS and str(query.from_user.id) not in info.ADMINS:
+        if (
+            query.from_user.id not in info.ADMINS
+            and str(query.from_user.id) not in info.ADMINS
+        ):
             return await query.answer(
                 "🛠️ Bot is currently under maintenance! We are performing some upgrades. Please try again later.",
                 show_alert=True,
@@ -266,7 +272,10 @@ async def next_page(bot, query):
 @Client.on_callback_query(filters.regex(r"^spolling"))
 async def advantage_spoll_choker(bot, query):
     if getattr(info, "REPAIR_MODE", False):
-        if query.from_user.id not in info.ADMINS and str(query.from_user.id) not in info.ADMINS:
+        if (
+            query.from_user.id not in info.ADMINS
+            and str(query.from_user.id) not in info.ADMINS
+        ):
             return await query.answer(
                 "🛠️ Bot is currently under maintenance! Please try again later.",
                 show_alert=True,
@@ -340,7 +349,11 @@ async def advantage_spoll_choker(bot, query):
 )
 async def cb_handler(client: Client, query: CallbackQuery):
     if getattr(info, "REPAIR_MODE", False):
-        if query.from_user.id not in info.ADMINS and str(query.from_user.id) not in info.ADMINS and query.data != "close_data":
+        if (
+            query.from_user.id not in info.ADMINS
+            and str(query.from_user.id) not in info.ADMINS
+            and query.data != "close_data"
+        ):
             return await query.answer(
                 "🛠️ Bot is currently under maintenance! Please try again later.",
                 show_alert=True,
@@ -385,7 +398,9 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 return await query.answer("Join: @KR_PICTURE")
 
             st = await client.get_chat_member(grpid, userid)
-            if (st.status == enums.ChatMemberStatus.OWNER) or (str(userid) in info.ADMINS or userid in info.ADMINS):
+            if (st.status == enums.ChatMemberStatus.OWNER) or (
+                str(userid) in info.ADMINS or userid in info.ADMINS
+            ):
                 await del_all(query.message, grpid, title)
             else:
                 await query.answer(
@@ -527,7 +542,8 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     buttons.append(
                         [
                             InlineKeyboardButton(
-                                text=f"{title}{act}", callback_data=f"groupcb:{groupid}:{act}"
+                                text=f"{title}{act}",
+                                callback_data=f"groupcb:{groupid}:{act}",
                             )
                         ]
                     )
@@ -793,7 +809,15 @@ async def cb_handler(client: Client, query: CallbackQuery):
         elif query.data == "help_custommessages":
             await query.answer()
             buttons = [[InlineKeyboardButton("🔙 Back", callback_data="help")]]
-            text = getattr(script, "CUSTOMMESSAGES_TXT", getattr(script, "CUSTOM_MESSAGE_TXT", "💬 **Custom Messages Help**\n\nSet custom messages using /infomsg, /delmsg, etc."))
+            text = getattr(
+                script,
+                "CUSTOMMESSAGES_TXT",
+                getattr(
+                    script,
+                    "CUSTOM_MESSAGE_TXT",
+                    "💬 **Custom Messages Help**\n\nSet custom messages using /infomsg, /delmsg, etc.",
+                ),
+            )
             try:
                 await query.message.edit_text(
                     text=text,
@@ -806,7 +830,15 @@ async def cb_handler(client: Client, query: CallbackQuery):
         elif query.data == "customcaption":
             await query.answer()
             buttons = [[InlineKeyboardButton("🔙 Back", callback_data="help")]]
-            text = getattr(script, "CUSTOMCAPTION_TXT", getattr(script, "CUSTOM_CAPTION_TXT", "📝 **Custom Caption Help**\n\nUse /customcaption to set a custom caption for files."))
+            text = getattr(
+                script,
+                "CUSTOMCAPTION_TXT",
+                getattr(
+                    script,
+                    "CUSTOM_CAPTION_TXT",
+                    "📝 **Custom Caption Help**\n\nUse /customcaption to set a custom caption for files.",
+                ),
+            )
             try:
                 await query.message.edit_text(
                     text=text,
@@ -832,7 +864,15 @@ async def cb_handler(client: Client, query: CallbackQuery):
         elif query.data == "help_forcesub":
             await query.answer()
             buttons = [[InlineKeyboardButton("🔙 Back", callback_data="help")]]
-            text = getattr(script, "FORCESUB_TXT", getattr(script, "F_SUB_TXT", "📱 **Force Sub Help**\n\nManage Force Sub settings using /setfsub, /rmfsub, etc."))
+            text = getattr(
+                script,
+                "FORCESUB_TXT",
+                getattr(
+                    script,
+                    "F_SUB_TXT",
+                    "📱 **Force Sub Help**\n\nManage Force Sub settings using /setfsub, /rmfsub, etc.",
+                ),
+            )
             try:
                 await query.message.edit_text(
                     text=text,
@@ -858,7 +898,11 @@ async def cb_handler(client: Client, query: CallbackQuery):
         elif query.data == "help_index":
             await query.answer()
             buttons = [[InlineKeyboardButton("🔙 Back", callback_data="help")]]
-            text = getattr(script, "INDEX_TXT", "📚 **Index Help**\n\nUse /index to index channel files.")
+            text = getattr(
+                script,
+                "INDEX_TXT",
+                "📚 **Index Help**\n\nUse /index to index channel files.",
+            )
             try:
                 await query.message.edit_text(
                     text=text,
@@ -907,7 +951,15 @@ async def cb_handler(client: Client, query: CallbackQuery):
         elif query.data == "connections":
             await query.answer()
             buttons = [[InlineKeyboardButton("🔙 Back", callback_data="help")]]
-            text = getattr(script, "CONNECTION_TXT", getattr(script, "CONNECTIONS_TXT", "🌐 **Connections Help**\n\nManage your connections using /connect and /connections."))
+            text = getattr(
+                script,
+                "CONNECTION_TXT",
+                getattr(
+                    script,
+                    "CONNECTIONS_TXT",
+                    "🌐 **Connections Help**\n\nManage your connections using /connect and /connections.",
+                ),
+            )
             try:
                 await query.message.edit_text(
                     text=text,
