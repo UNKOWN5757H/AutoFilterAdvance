@@ -28,11 +28,11 @@ async def is_admin(client: Client, message: Message) -> bool:
     """Helper to verify if a user is a chat admin or a bot admin."""
     if not message.from_user:
         return False
-        
+
     # Safely checks against both integers and strings for global admins
     if message.from_user.id in info.ADMINS or str(message.from_user.id) in info.ADMINS:
         return True
-        
+
     if message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
         try:
             # FIXED: Bound methods (message.chat.get_member) were removed in Pyrogram V2.
@@ -234,7 +234,10 @@ async def list_filters_cmd(client: Client, message: Message):
 async def manual_filters(client: Client, message: Message, text=False):
     # Optional Repair Mode integration
     if getattr(info, "REPAIR_MODE", False):
-        if not message.from_user or (message.from_user.id not in info.ADMINS and str(message.from_user.id) not in info.ADMINS):
+        if not message.from_user or (
+            message.from_user.id not in info.ADMINS
+            and str(message.from_user.id) not in info.ADMINS
+        ):
             return False
 
     group_id = message.chat.id
