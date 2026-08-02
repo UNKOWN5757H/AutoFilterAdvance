@@ -4,6 +4,8 @@ import os
 import time
 from datetime import datetime
 
+from bson.json_util import dumps, loads
+from motor.motor_asyncio import AsyncIOMotorClient
 from pyrogram import Client, filters
 from pyrogram.types import Message
 
@@ -11,26 +13,11 @@ import info
 
 logger = logging.getLogger(__name__)
 
-# Try importing MongoDB dependencies
-try:
-    from bson.json_util import dumps, loads
-    from motor.motor_asyncio import AsyncIOMotorClient
-
-    HAS_MONGO = True
-except ImportError:
-    HAS_MONGO = False
-    logger.warning("motor or bson not installed! DB backup features will be disabled.")
-
 # ============================================================
 # 🗄️ Database Connection
 # ============================================================
-db_client = None
-bot_db = None
-
-if HAS_MONGO and getattr(info, "DATABASE_URI", None):
-    db_client = AsyncIOMotorClient(info.DATABASE_URI)
-    bot_db = db_client[info.DATABASE_NAME]
-
+DB_CLIENT = AsyncIOMotorClient(info.DATABASE_URI)
+BOT_DB = DB_CLIENT[info.DATABASE_NAME]
 
 # ============================================================
 # ⏱️ Scheduler State
@@ -39,6 +26,17 @@ BACKUP_INTERVAL = 86400  # 24 hours in seconds
 last_backup_time = None
 next_backup_time = None
 scheduler_running = False
+
+# ============================================================
+# 🔐 Custom Admin Filter (Fixes the "No Response" Bug)
+# ============================================================
+async def admin_check(_, __, message: Message):
+    if not message.from_user:
+        return False
+    # Safely checks against both integers and strings
+    return message.from_user.id in info.ADMINS or str(message.from_user.id) in info.ADMINS
+
+admin_filter = filters.create(admin_check)
 
 
 async def auto_backup_task(bot: Client):
@@ -55,7 +53,7 @@ async def auto_backup_task(bot: Client):
 
         await asyncio.sleep(BACKUP_INTERVAL)
 
-        if not bot_db or not target_admin_id:
+        if not BOT_DB or not target_admin_id:
             continue
 
         try:
@@ -74,11 +72,11 @@ async def auto_backup_task(bot: Client):
 # ============================================================
 async def generate_backup_file() -> str:
     """Fetches all collections and dumps them to a local JSON file."""
-    collections = await bot_db.list_collection_names()
+    collections = await BOT_DB.list_collection_names()
     backup_data = {}
 
     for coll_name in collections:
-        docs = await bot_db[coll_name].find({}).to_list(length=None)
+        docs = await BOT_DB[coll_name].find({}).to_list(length=None)
         backup_data[coll_name] = docs
 
     file_name = f"DB_Backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
@@ -91,13 +89,8 @@ async def generate_backup_file() -> str:
 # ============================================================
 # 📤 Create Database Backup
 # ============================================================
-@Client.on_message(filters.command("dbbackup") & filters.user(info.ADMINS))
+@Client.on_message(filters.command("dbbackup") & admin_filter)
 async def db_backup_cmd(bot: Client, message: Message):
-    if not bot_db:
-        return await message.reply_text(
-            "❌ **MongoDB is not configured or dependencies are missing.**"
-        )
-
     status_msg = await message.reply_text(
         "⏳ **Generating database backup...**\nThis might take a few moments."
     )
@@ -117,11 +110,8 @@ async def db_backup_cmd(bot: Client, message: Message):
 # ============================================================
 # 📥 Restore Database
 # ============================================================
-@Client.on_message(filters.command("dbrestore") & filters.user(info.ADMINS))
+@Client.on_message(filters.command("dbrestore") & admin_filter)
 async def db_restore_cmd(bot: Client, message: Message):
-    if not bot_db:
-        return await message.reply_text("❌ **MongoDB is not configured.**")
-
     if not message.reply_to_message or not message.reply_to_message.document:
         return await message.reply_text(
             "⚙️ **Usage:**\nReply to a previously generated backup `.json` file with `/dbrestore`.\n\n"
@@ -150,8 +140,8 @@ async def db_restore_cmd(bot: Client, message: Message):
         for coll_name, docs in backup_data.items():
             if docs:
                 # Clear existing collection and insert the backup data
-                await bot_db[coll_name].delete_many({})
-                await bot_db[coll_name].insert_many(docs)
+                await BOT_DB[coll_name].delete_many({})
+                await BOT_DB[coll_name].insert_many(docs)
                 restored_colls += 1
                 restored_docs += len(docs)
 
@@ -171,26 +161,23 @@ async def db_restore_cmd(bot: Client, message: Message):
 # ============================================================
 # 📊 Database Statistics
 # ============================================================
-@Client.on_message(filters.command("dbstats") & filters.user(info.ADMINS))
+@Client.on_message(filters.command("dbstats") & admin_filter)
 async def db_stats_cmd(bot: Client, message: Message):
-    if not bot_db:
-        return await message.reply_text("❌ **MongoDB is not configured.**")
-
     try:
-        stats = await bot_db.command("dbstats")
-        colls = await bot_db.list_collection_names()
+        stats = await BOT_DB.command("dbstats")
+        colls = await BOT_DB.list_collection_names()
 
         total_size_mb = stats.get("dataSize", 0) / (1024 * 1024)
 
         text = "📊 **Database Statistics**\n\n"
-        text += f"🗄️ **Database:** `BotDatabase`\n"
+        text += f"🗄️ **Database:** `{info.DATABASE_NAME}`\n"
         text += f"📦 **Collections Count:** `{stats.get('collections', 0)}`\n"
         text += f"📄 **Total Documents:** `{stats.get('objects', 0)}`\n"
         text += f"💾 **Data Size:** `{total_size_mb:.2f} MB`\n\n"
 
         text += "📁 **Collection Breakdown:**\n"
         for coll in colls:
-            count = await bot_db[coll].count_documents({})
+            count = await BOT_DB[coll].count_documents({})
             text += f"  - `{coll}`: {count} docs\n"
 
         await message.reply_text(text)
@@ -202,11 +189,8 @@ async def db_stats_cmd(bot: Client, message: Message):
 # ============================================================
 # ⏰ Schedule Status
 # ============================================================
-@Client.on_message(filters.command("dbschedule") & filters.user(info.ADMINS))
+@Client.on_message(filters.command("dbschedule") & admin_filter)
 async def db_schedule_cmd(bot: Client, message: Message):
-    if not bot_db:
-        return await message.reply_text("❌ **MongoDB is not configured.**")
-
     if not scheduler_running:
         # Start the background task if it hasn't been started yet
         asyncio.create_task(auto_backup_task(bot))
