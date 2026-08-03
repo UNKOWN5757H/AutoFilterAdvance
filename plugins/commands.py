@@ -18,7 +18,9 @@ from pyrogram.types import (
 
 import info
 from database.connections_mdb import active_connection
-from database.ia_filterdb import Media, get_file_details
+from database.ia_filterdb import Media, SafeMediaWrapper, get_file_details
+
+# ⚡ FIXED: Using the centralized database for ban checks
 from database.plugin_dbs import plugin_db
 from database.users_chats_db import db
 from info import (
@@ -45,6 +47,7 @@ MESSAGE_EMOJI_LINK = '<tg-emoji emoji-id="5877465816030515018">🔗</tg-emoji> L
 
 
 def get_start_buttons(user_id):
+    """Helper to generate start buttons dynamically based on admin status."""
     buttons = [
         [
             InlineKeyboardButton(
@@ -54,6 +57,8 @@ def get_start_buttons(user_id):
             InlineKeyboardButton("✈️ Group 3", url="https://t.me/+GLsPkRgLGGszMzY1"),
         ]
     ]
+
+    # ⚡ FIXED: Safe parsing of ADMINS list for both string/int
     if str(user_id) in [str(a) for a in ADMINS]:
         buttons.append(
             [
@@ -61,6 +66,7 @@ def get_start_buttons(user_id):
                 InlineKeyboardButton("😊 𝙰𝚋𝚘𝚞𝚝", callback_data="about"),
             ]
         )
+
     buttons.append(
         [
             InlineKeyboardButton(
@@ -72,16 +78,18 @@ def get_start_buttons(user_id):
     return InlineKeyboardMarkup(buttons)
 
 
+# ============================================================
+# 🚀 MAIN START COMMAND (Handles file delivery links)
+# ============================================================
 @Client.on_message(filters.command("start") & filters.incoming)
 async def start(client: Client, message: Message):
     if getattr(info, "REPAIR_MODE", False):
-        if not message.from_user or str(message.from_user.id) not in [
-            str(a) for a in info.ADMINS
-        ]:
+        if not message.from_user or str(message.from_user.id) not in [str(a) for a in info.ADMINS]:
             return await message.reply_text(
                 "🛠️ **Bot is currently under maintenance!**\n\nWe are performing some upgrades/fixes. Please try again later."
             )
 
+    # ⚡ FIXED: Uses the new plugin_db for ban checks
     if message.from_user and await plugin_db.is_banned(message.from_user.id):
         return await message.reply_text(
             "🚫 **You have been banned from using this bot.**\nIf you believe this is a mistake, please contact the administrators."
@@ -110,6 +118,7 @@ async def start(client: Client, message: Message):
             parse_mode=enums.ParseMode.HTML,
         )
         await asyncio.sleep(2)
+
         if not await db.get_chat(message.chat.id):
             total = await client.get_chat_members_count(message.chat.id)
             try:
@@ -119,8 +128,8 @@ async def start(client: Client, message: Message):
                         message.chat.title, message.chat.id, total, "Unknown"
                     ),
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error(f"Failed to log new group: {e}")
             await db.add_chat(message.chat.id, message.chat.title)
         return
 
@@ -133,22 +142,21 @@ async def start(client: Client, message: Message):
                     message.from_user.id, message.from_user.mention
                 ),
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error(f"Failed to log new user: {e}")
 
     if len(message.command) != 2:
         reply_markup = get_start_buttons(message.from_user.id)
+        
         try:
             photo_to_send = random.choice(PICS) if PICS else None
         except Exception:
             photo_to_send = None
+
         caption = script.START_TXT.format(
-            mention=message.from_user.mention,
-            uname=bot_uname,
-            bname=b_name,
-            plane_emoji=MESSAGE_EMOJI_PLANE,
-            link_emoji=MESSAGE_EMOJI_LINK,
+            mention=message.from_user.mention, uname=bot_uname, bname=b_name, plane_emoji=MESSAGE_EMOJI_PLANE, link_emoji=MESSAGE_EMOJI_LINK
         )
+        
         if photo_to_send:
             await message.reply_photo(
                 photo=photo_to_send,
@@ -158,25 +166,27 @@ async def start(client: Client, message: Message):
             )
         else:
             await message.reply_text(
-                text=caption, reply_markup=reply_markup, parse_mode=enums.ParseMode.HTML
+                text=caption,
+                reply_markup=reply_markup,
+                parse_mode=enums.ParseMode.HTML,
             )
         return
 
     if message.command[1] in ["subscribe", "error", "okay", "help", "start", "hehe"]:
         if message.command[1] == "subscribe":
             return await ForceSub(client, message)
+
         reply_markup = get_start_buttons(message.from_user.id)
+        
         try:
             photo_to_send = random.choice(PICS) if PICS else None
         except Exception:
             photo_to_send = None
+
         caption = script.START_TXT.format(
-            mention=message.from_user.mention,
-            uname=bot_uname,
-            bname=b_name,
-            plane_emoji=MESSAGE_EMOJI_PLANE,
-            link_emoji=MESSAGE_EMOJI_LINK,
+            mention=message.from_user.mention, uname=bot_uname, bname=b_name, plane_emoji=MESSAGE_EMOJI_PLANE, link_emoji=MESSAGE_EMOJI_LINK
         )
+        
         if photo_to_send:
             await message.reply_photo(
                 photo=photo_to_send,
@@ -186,7 +196,9 @@ async def start(client: Client, message: Message):
             )
         else:
             await message.reply_text(
-                text=caption, reply_markup=reply_markup, parse_mode=enums.ParseMode.HTML
+                text=caption,
+                reply_markup=reply_markup,
+                parse_mode=enums.ParseMode.HTML,
             )
         return
 
@@ -214,6 +226,10 @@ async def start(client: Client, message: Message):
                     msgs = json.loads(file_data.read())
             except Exception:
                 await sts.edit("FAILED")
+                try:
+                    await client.send_message(LOG_CHANNEL, "UNABLE TO OPEN BATCH FILE.")
+                except Exception:
+                    pass
                 return
             finally:
                 if os.path.exists(file):
@@ -232,8 +248,8 @@ async def start(client: Client, message: Message):
                         file_size="" if size is None else size,
                         file_caption="" if f_caption is None else f_caption,
                     )
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.exception(e)
 
             if not f_caption:
                 f_caption = f"{title}"
@@ -253,11 +269,23 @@ async def start(client: Client, message: Message):
                     chat_id=message.from_user.id,
                     file_id=msg.get("file_id"),
                     caption=f_caption,
+                    reply_markup=InlineKeyboardMarkup(
+                        [
+                            [
+                                InlineKeyboardButton(
+                                    "🎥 ಕನ್ನಡ ಹೊಸ ಮೂವೀಗಳು 🎥",
+                                    url="https://t.me/Sandalwood_kannada_moviesz",
+                                )
+                            ]
+                        ]
+                    ),
                     protect_content=msg.get("protect", False),
                 )
-            except Exception:
+            except Exception as e:
+                logger.warning(e, exc_info=True)
                 continue
             await asyncio.sleep(1)
+
         return await sts.delete()
 
     elif data.split("-", 1)[0] == "DSTORE":
@@ -272,6 +300,7 @@ async def start(client: Client, message: Message):
             f_msg_id, l_msg_id, f_chat_id = decoded.split("_", 2)
             protect = "/pbatch" if PROTECT_CONTENT else "batch"
 
+        # ⚡ FIXED: Pyrogram V2 Compatibility fix for DSTORE history fetching using chunked get_messages
         message_ids = list(range(int(f_msg_id), int(l_msg_id) + 1))
         for i in range(0, len(message_ids), 200):
             chunk = message_ids[i : i + 200]
@@ -289,7 +318,8 @@ async def start(client: Client, message: Message):
                                     file_size=getattr(media, "file_size", ""),
                                     file_caption=getattr(msg, "caption", ""),
                                 )
-                            except Exception:
+                            except Exception as e:
+                                logger.exception(e)
                                 f_caption = getattr(msg, "caption", "")
                         else:
                             f_caption = getattr(
@@ -312,7 +342,8 @@ async def start(client: Client, message: Message):
                                 caption=f_caption,
                                 protect_content=True if protect == "/pbatch" else False,
                             )
-                        except Exception:
+                        except Exception as e:
+                            logger.exception(e)
                             continue
                     else:
                         try:
@@ -326,26 +357,41 @@ async def start(client: Client, message: Message):
                                 message.chat.id,
                                 protect_content=True if protect == "/pbatch" else False,
                             )
-                        except Exception:
+                        except Exception as e:
+                            logger.exception(e)
                             continue
                     await asyncio.sleep(1)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error(f"DSTORE Fetch Failed: {e}")
+
         return await sts.delete()
 
-    # ⚡ FIXED: Call updated get_file_details which handles truncation intrinsically
+
+    # ============================================================
+    # ⚡ 64-CHAR TRUNCATION FIX (Prefix Search)
+    # ============================================================
     files_ = await get_file_details(file_id)
+    
+    if not files_:
+        # Telegram cuts the URL at 64 chars, meaning file_id is missing letters!
+        # Search the DB using regex for whatever letters survived the cut.
+        file_data = await Media.collection.find_one({"_id": {"$regex": f"^{re.escape(file_id)}"}})
+        if file_data:
+            files_ = [SafeMediaWrapper(file_data)]
 
     if not files_:
+        # Fallback for base64 style links generated by /link (genlink.py)
         try:
-            decoded = base64.urlsafe_b64decode(data + "=" * (-len(data) % 4)).decode(
-                "ascii"
-            )
+            decoded = base64.urlsafe_b64decode(data + "=" * (-len(data) % 4)).decode("ascii")
             pre_str, decode_file_id = decoded.split("_", 1)
-
-            # Double check with full recovered ID
-            files_ = await get_file_details(decode_file_id)
-            if not files_:
+            
+            # Check DB again for full details
+            file_data = await Media.collection.find_one({"_id": decode_file_id})
+            if file_data:
+                files_ = [SafeMediaWrapper(file_data)]
+                kk = pre_str
+            else:
+                # Absolute last resort: Send pure media without DB formatting
                 msg = await client.send_cached_media(
                     chat_id=message.from_user.id,
                     file_id=decode_file_id,
@@ -358,24 +404,26 @@ async def start(client: Client, message: Message):
                 f_caption = f"<code>{title}</code>"
                 if CUSTOM_FILE_CAPTION:
                     try:
-                        f_caption = CUSTOM_FILE_CAPTION.format(
-                            file_name=title, file_size=size, file_caption=""
-                        )
+                        f_caption = CUSTOM_FILE_CAPTION.format(file_name=title, file_size=size, file_caption="")
                     except Exception:
                         pass
                 if getattr(info, "CAPTION_PLUS", None):
                     f_caption += f"\n\n{info.CAPTION_PLUS}"
-                return await msg.edit_caption(f_caption)
-            kk = pre_str
+                    
+                await msg.edit_caption(f_caption)
+                return
         except Exception:
             return await message.reply("⚠️ No such file exist.")
 
-    # ⚡ FIXED: Uses the reconstructed Pyrogram V2 FileID via full_file_id
+    # ⚡ FIXED: Safe Extraction for missing attributes
     files = files_[0]
     title = str(getattr(files, "file_name", "Unknown") or "Unknown")
-    size = get_size(int(getattr(files, "file_size", 0) or 0))
+    size_raw = int(getattr(files, "file_size", 0) or 0)
+    size = get_size(size_raw)
     f_caption = str(getattr(files, "caption", "") or "")
-    db_file_id = getattr(files, "full_file_id", getattr(files, "file_id", file_id))
+    
+    # We MUST pull the completely unmodified _id directly from the Wrapper to bypass Telegram's truncation
+    db_file_id = getattr(files, "file_id", file_id)
 
     if CUSTOM_FILE_CAPTION:
         try:
@@ -384,8 +432,8 @@ async def start(client: Client, message: Message):
                 file_size="" if size is "0B" else size,
                 file_caption="" if not f_caption else f_caption,
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.exception(e)
 
     if not f_caption:
         f_caption = f"{title}"
@@ -433,7 +481,13 @@ async def delete_after_delay(msg, warning_msg, delay):
 
 @Client.on_message(filters.command("channel") & filters.user(ADMINS))
 async def channel_info(bot, message):
-    channels = [CHANNELS] if isinstance(CHANNELS, (int, str)) else CHANNELS
+    if isinstance(CHANNELS, (int, str)):
+        channels = [CHANNELS]
+    elif isinstance(CHANNELS, list):
+        channels = CHANNELS
+    else:
+        raise ValueError("Unexpected type of CHANNELS")
+
     text = "📑 **Indexed channels/groups**\n"
     for channel in channels:
         try:
@@ -445,7 +499,8 @@ async def channel_info(bot, message):
             )
         except Exception as e:
             text += f"\n{channel} - (Error fetching: {e})"
-    text += f"\n\n**Total:** {len(channels)}"
+
+    text += f"\n\n**Total:** {len(CHANNELS)}"
     if len(text) < 4096:
         await message.reply(text)
     else:
@@ -465,14 +520,16 @@ async def settings(client: Client, message: Message):
         )
 
     chat_type = message.chat.type
-    grp_id, title = None, None
+    grp_id = None
+    title = None
 
     if chat_type == enums.ChatType.PRIVATE:
         grpid = await active_connection(str(userid))
         if grpid is not None:
             try:
                 chat = await client.get_chat(grpid)
-                title, grp_id = chat.title, chat.id
+                title = chat.title
+                grp_id = chat.id
             except Exception:
                 return await message.reply("Make sure I'm present in your group!")
         else:
@@ -480,7 +537,8 @@ async def settings(client: Client, message: Message):
                 "You are not connected to any active group!\n\nUse /connect <groupid> to connect first."
             )
     elif chat_type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
-        grp_id, title = message.chat.id, message.chat.title
+        grp_id = message.chat.id
+        title = message.chat.title
 
     if not grp_id:
         return
@@ -591,7 +649,8 @@ async def settings_callback(client: Client, query: CallbackQuery):
             parse_mode=enums.ParseMode.MARKDOWN,
         )
         await query.answer("Settings Updated! ✅")
-    except Exception:
+    except Exception as e:
+        logger.exception("Error in settings_callback")
         await query.answer("An error occurred!", show_alert=True)
 
 
@@ -616,4 +675,5 @@ async def set_movie_update_notification(client, message):
         )
         await message.reply_text(response_text)
     except Exception as e:
+        logger.error(f"Error in set_movie_update_notification: {e}")
         await message.reply_text(f"<b>❗ An error occurred: {e}</b>")
