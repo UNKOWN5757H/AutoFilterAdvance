@@ -58,6 +58,7 @@ def get_start_buttons(user_id):
         ]
     ]
 
+    # ⚡ FIXED: Safe parsing of ADMINS list for both string/int
     if user_id in ADMINS or str(user_id) in ADMINS:
         buttons.append(
             [
@@ -83,7 +84,7 @@ def get_start_buttons(user_id):
 @Client.on_message(filters.command("start") & filters.incoming)
 async def start(client: Client, message: Message):
     if getattr(info, "REPAIR_MODE", False):
-        if not message.from_user or message.from_user.id not in info.ADMINS:
+        if not message.from_user or (message.from_user.id not in info.ADMINS and str(message.from_user.id) not in info.ADMINS):
             return await message.reply_text(
                 "🛠️ **Bot is currently under maintenance!**\n\nWe are performing some upgrades/fixes. Please try again later."
             )
@@ -93,6 +94,9 @@ async def start(client: Client, message: Message):
         return await message.reply_text(
             "🚫 **You have been banned from using this bot.**\nIf you believe this is a mistake, please contact the administrators."
         )
+
+    bot_uname = temp.U_NAME or "my_bot"
+    b_name = temp.B_NAME or "MovieBot"
 
     if message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
         reply_markup = get_start_buttons(
@@ -105,8 +109,8 @@ async def start(client: Client, message: Message):
                     if message.from_user
                     else message.chat.title
                 ),
-                uname=temp.U_NAME,
-                bname=temp.B_NAME,
+                uname=bot_uname,
+                bname=b_name,
                 plane_emoji=MESSAGE_EMOJI_PLANE,
                 link_emoji=MESSAGE_EMOJI_LINK,
             ),
@@ -143,14 +147,29 @@ async def start(client: Client, message: Message):
 
     if len(message.command) != 2:
         reply_markup = get_start_buttons(message.from_user.id)
-        await message.reply_photo(
-            photo=random.choice(PICS),
-            caption=script.START_TXT.format(
-                mention=message.from_user.mention, uname=temp.U_NAME, bname=temp.B_NAME
-            ),
-            reply_markup=reply_markup,
-            parse_mode=enums.ParseMode.HTML,
+        
+        try:
+            photo_to_send = random.choice(PICS) if PICS else None
+        except Exception:
+            photo_to_send = None
+
+        caption = script.START_TXT.format(
+            mention=message.from_user.mention, uname=bot_uname, bname=b_name, plane_emoji=MESSAGE_EMOJI_PLANE, link_emoji=MESSAGE_EMOJI_LINK
         )
+        
+        if photo_to_send:
+            await message.reply_photo(
+                photo=photo_to_send,
+                caption=caption,
+                reply_markup=reply_markup,
+                parse_mode=enums.ParseMode.HTML,
+            )
+        else:
+            await message.reply_text(
+                text=caption,
+                reply_markup=reply_markup,
+                parse_mode=enums.ParseMode.HTML,
+            )
         return
 
     if message.command[1] in ["subscribe", "error", "okay", "help", "start", "hehe"]:
@@ -158,14 +177,29 @@ async def start(client: Client, message: Message):
             return await ForceSub(client, message)
 
         reply_markup = get_start_buttons(message.from_user.id)
-        await message.reply_photo(
-            photo=random.choice(PICS),
-            caption=script.START_TXT.format(
-                mention=message.from_user.mention, uname=temp.U_NAME, bname=temp.B_NAME
-            ),
-            reply_markup=reply_markup,
-            parse_mode=enums.ParseMode.HTML,
+        
+        try:
+            photo_to_send = random.choice(PICS) if PICS else None
+        except Exception:
+            photo_to_send = None
+
+        caption = script.START_TXT.format(
+            mention=message.from_user.mention, uname=bot_uname, bname=b_name, plane_emoji=MESSAGE_EMOJI_PLANE, link_emoji=MESSAGE_EMOJI_LINK
         )
+        
+        if photo_to_send:
+            await message.reply_photo(
+                photo=photo_to_send,
+                caption=caption,
+                reply_markup=reply_markup,
+                parse_mode=enums.ParseMode.HTML,
+            )
+        else:
+            await message.reply_text(
+                text=caption,
+                reply_markup=reply_markup,
+                parse_mode=enums.ParseMode.HTML,
+            )
         return
 
     cmd_data = message.command[1]
@@ -266,75 +300,82 @@ async def start(client: Client, message: Message):
             f_msg_id, l_msg_id, f_chat_id = decoded.split("_", 2)
             protect = "/pbatch" if PROTECT_CONTENT else "batch"
 
-        async for msg in client.iter_messages(
-            int(f_chat_id), int(l_msg_id), int(f_msg_id)
-        ):
-            if msg.media:
-                media = getattr(msg, msg.media.value)
-                if BATCH_FILE_CAPTION:
-                    try:
-                        f_caption = BATCH_FILE_CAPTION.format(
-                            file_name=getattr(media, "file_name", ""),
-                            file_size=getattr(media, "file_size", ""),
-                            file_caption=getattr(msg, "caption", ""),
-                        )
-                    except Exception as e:
-                        logger.exception(e)
-                        f_caption = getattr(msg, "caption", "")
-                else:
-                    f_caption = getattr(msg, "caption", getattr(media, "file_name", ""))
+        # ⚡ FIXED: Pyrogram V2 Compatibility fix for DSTORE history fetching using chunked get_messages
+        message_ids = list(range(int(f_msg_id), int(l_msg_id) + 1))
+        for i in range(0, len(message_ids), 200):
+            chunk = message_ids[i:i + 200]
+            try:
+                messages = await client.get_messages(int(f_chat_id), chunk)
+                for msg in messages:
+                    if msg.empty:
+                        continue
+                    if msg.media:
+                        media = getattr(msg, msg.media.value)
+                        if BATCH_FILE_CAPTION:
+                            try:
+                                f_caption = BATCH_FILE_CAPTION.format(
+                                    file_name=getattr(media, "file_name", ""),
+                                    file_size=getattr(media, "file_size", ""),
+                                    file_caption=getattr(msg, "caption", ""),
+                                )
+                            except Exception as e:
+                                logger.exception(e)
+                                f_caption = getattr(msg, "caption", "")
+                        else:
+                            f_caption = getattr(msg, "caption", getattr(media, "file_name", ""))
 
-                if getattr(info, "CAPTION_PLUS", None):
-                    f_caption += f"\n\n{info.CAPTION_PLUS}"
+                        if getattr(info, "CAPTION_PLUS", None):
+                            f_caption += f"\n\n{info.CAPTION_PLUS}"
 
-                try:
-                    await msg.copy(
-                        message.chat.id,
-                        caption=f_caption,
-                        protect_content=True if protect == "/pbatch" else False,
-                    )
-                except FloodWait as e:
-                    await asyncio.sleep(e.value)
-                    await msg.copy(
-                        message.chat.id,
-                        caption=f_caption,
-                        protect_content=True if protect == "/pbatch" else False,
-                    )
-                except Exception as e:
-                    logger.exception(e)
-                    continue
-            elif msg.empty:
-                continue
-            else:
-                try:
-                    await msg.copy(
-                        message.chat.id,
-                        protect_content=True if protect == "/pbatch" else False,
-                    )
-                except FloodWait as e:
-                    await asyncio.sleep(e.value)
-                    await msg.copy(
-                        message.chat.id,
-                        protect_content=True if protect == "/pbatch" else False,
-                    )
-                except Exception as e:
-                    logger.exception(e)
-                    continue
-            await asyncio.sleep(1)
+                        try:
+                            await msg.copy(
+                                message.chat.id,
+                                caption=f_caption,
+                                protect_content=True if protect == "/pbatch" else False,
+                            )
+                        except FloodWait as e:
+                            await asyncio.sleep(e.value)
+                            await msg.copy(
+                                message.chat.id,
+                                caption=f_caption,
+                                protect_content=True if protect == "/pbatch" else False,
+                            )
+                        except Exception as e:
+                            logger.exception(e)
+                            continue
+                    else:
+                        try:
+                            await msg.copy(
+                                message.chat.id,
+                                protect_content=True if protect == "/pbatch" else False,
+                            )
+                        except FloodWait as e:
+                            await asyncio.sleep(e.value)
+                            await msg.copy(
+                                message.chat.id,
+                                protect_content=True if protect == "/pbatch" else False,
+                            )
+                        except Exception as e:
+                            logger.exception(e)
+                            continue
+                    await asyncio.sleep(1)
+            except Exception as e:
+                logger.error(f"DSTORE Fetch Failed: {e}")
+                
         return await sts.delete()
 
     files_ = await get_file_details(file_id)
     if not files_:
         try:
-            pre, file_id = (
+            pre_str, decode_file_id = (
                 (base64.urlsafe_b64decode(data + "=" * (-len(data) % 4)))
                 .decode("ascii")
                 .split("_", 1)
             )
             msg = await client.send_cached_media(
                 chat_id=message.from_user.id,
-                file_id=file_id,
-                protect_content=True if pre == "filep" else False,
+                file_id=decode_file_id,
+                protect_content=True if pre_str == "filep" else False,
             )
             filetype = msg.media.value
             file = getattr(msg, filetype)
@@ -356,10 +397,16 @@ async def start(client: Client, message: Message):
         except Exception:
             return await message.reply("No such file exist.")
 
+    # ⚡ FIXED: Safe Extraction regardless of Dictionary vs Object DB structure!
     files = files_[0]
-    title = files.file_name
-    size = get_size(files.file_size)
-    f_caption = files.caption
+    title = files.get("file_name", "Unknown") if isinstance(files, dict) else getattr(files, "file_name", "Unknown")
+    size_raw = files.get("file_size", 0) if isinstance(files, dict) else getattr(files, "file_size", 0)
+    size = get_size(size_raw)
+    f_caption = files.get("caption", "") if isinstance(files, dict) else getattr(files, "caption", "")
+    
+    # ⚡ CRITICAL FIX: The file_id passed from the URL is often truncated by Telegram's 64-char limit!
+    # We MUST use the original, full file_id stored in the database to actually send the file.
+    db_file_id = files.get("file_id", file_id) if isinstance(files, dict) else getattr(files, "file_id", file_id)
 
     if CUSTOM_FILE_CAPTION:
         try:
@@ -372,13 +419,14 @@ async def start(client: Client, message: Message):
             logger.exception(e)
 
     if not f_caption:
-        f_caption = f"{files.file_name}"
+        f_caption = f"{title}"
+        
     if getattr(info, "CAPTION_PLUS", None):
         f_caption += f"\n\n{info.CAPTION_PLUS}"
 
     msg = await client.send_cached_media(
         chat_id=message.from_user.id,
-        file_id=file_id,
+        file_id=db_file_id,
         caption=f_caption,
         reply_markup=InlineKeyboardMarkup(
             [
@@ -459,11 +507,12 @@ async def settings(client: Client, message: Message):
     title = None
 
     if chat_type == enums.ChatType.PRIVATE:
-        grp_id = await active_connection(str(userid))
-        if grp_id is not None:
+        grpid = await active_connection(str(userid))
+        if grpid is not None:
             try:
-                chat = await client.get_chat(grp_id)
+                chat = await client.get_chat(grpid)
                 title = chat.title
+                grp_id = chat.id
             except Exception:
                 return await message.reply("Make sure I'm present in your group!")
         else:
