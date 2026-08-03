@@ -84,10 +84,7 @@ def get_start_buttons(user_id):
 @Client.on_message(filters.command("start") & filters.incoming)
 async def start(client: Client, message: Message):
     if getattr(info, "REPAIR_MODE", False):
-        if not message.from_user or (
-            message.from_user.id not in info.ADMINS
-            and str(message.from_user.id) not in info.ADMINS
-        ):
+        if not message.from_user or (message.from_user.id not in info.ADMINS and str(message.from_user.id) not in info.ADMINS):
             return await message.reply_text(
                 "🛠️ **Bot is currently under maintenance!**\n\nWe are performing some upgrades/fixes. Please try again later."
             )
@@ -150,20 +147,16 @@ async def start(client: Client, message: Message):
 
     if len(message.command) != 2:
         reply_markup = get_start_buttons(message.from_user.id)
-
+        
         try:
             photo_to_send = random.choice(PICS) if PICS else None
         except Exception:
             photo_to_send = None
 
         caption = script.START_TXT.format(
-            mention=message.from_user.mention,
-            uname=bot_uname,
-            bname=b_name,
-            plane_emoji=MESSAGE_EMOJI_PLANE,
-            link_emoji=MESSAGE_EMOJI_LINK,
+            mention=message.from_user.mention, uname=bot_uname, bname=b_name, plane_emoji=MESSAGE_EMOJI_PLANE, link_emoji=MESSAGE_EMOJI_LINK
         )
-
+        
         if photo_to_send:
             await message.reply_photo(
                 photo=photo_to_send,
@@ -184,20 +177,16 @@ async def start(client: Client, message: Message):
             return await ForceSub(client, message)
 
         reply_markup = get_start_buttons(message.from_user.id)
-
+        
         try:
             photo_to_send = random.choice(PICS) if PICS else None
         except Exception:
             photo_to_send = None
 
         caption = script.START_TXT.format(
-            mention=message.from_user.mention,
-            uname=bot_uname,
-            bname=b_name,
-            plane_emoji=MESSAGE_EMOJI_PLANE,
-            link_emoji=MESSAGE_EMOJI_LINK,
+            mention=message.from_user.mention, uname=bot_uname, bname=b_name, plane_emoji=MESSAGE_EMOJI_PLANE, link_emoji=MESSAGE_EMOJI_LINK
         )
-
+        
         if photo_to_send:
             await message.reply_photo(
                 photo=photo_to_send,
@@ -314,7 +303,7 @@ async def start(client: Client, message: Message):
         # ⚡ FIXED: Pyrogram V2 Compatibility fix for DSTORE history fetching using chunked get_messages
         message_ids = list(range(int(f_msg_id), int(l_msg_id) + 1))
         for i in range(0, len(message_ids), 200):
-            chunk = message_ids[i : i + 200]
+            chunk = message_ids[i:i + 200]
             try:
                 messages = await client.get_messages(int(f_chat_id), chunk)
                 for msg in messages:
@@ -333,9 +322,7 @@ async def start(client: Client, message: Message):
                                 logger.exception(e)
                                 f_caption = getattr(msg, "caption", "")
                         else:
-                            f_caption = getattr(
-                                msg, "caption", getattr(media, "file_name", "")
-                            )
+                            f_caption = getattr(msg, "caption", getattr(media, "file_name", ""))
 
                         if getattr(info, "CAPTION_PLUS", None):
                             f_caption += f"\n\n{info.CAPTION_PLUS}"
@@ -374,7 +361,7 @@ async def start(client: Client, message: Message):
                     await asyncio.sleep(1)
             except Exception as e:
                 logger.error(f"DSTORE Fetch Failed: {e}")
-
+                
         return await sts.delete()
 
     files_ = await get_file_details(file_id)
@@ -412,30 +399,14 @@ async def start(client: Client, message: Message):
 
     # ⚡ FIXED: Safe Extraction regardless of Dictionary vs Object DB structure!
     files = files_[0]
-    title = (
-        files.get("file_name", "Unknown")
-        if isinstance(files, dict)
-        else getattr(files, "file_name", "Unknown")
-    )
-    size_raw = (
-        files.get("file_size", 0)
-        if isinstance(files, dict)
-        else getattr(files, "file_size", 0)
-    )
+    title = files.get("file_name", "Unknown") if isinstance(files, dict) else getattr(files, "file_name", "Unknown")
+    size_raw = files.get("file_size", 0) if isinstance(files, dict) else getattr(files, "file_size", 0)
     size = get_size(size_raw)
-    f_caption = (
-        files.get("caption", "")
-        if isinstance(files, dict)
-        else getattr(files, "caption", "")
-    )
-
+    f_caption = files.get("caption", "") if isinstance(files, dict) else getattr(files, "caption", "")
+    
     # ⚡ CRITICAL FIX: The file_id passed from the URL is often truncated by Telegram's 64-char limit!
     # We MUST use the original, full file_id stored in the database to actually send the file.
-    db_file_id = (
-        files.get("file_id", file_id)
-        if isinstance(files, dict)
-        else getattr(files, "file_id", file_id)
-    )
+    db_file_id = files.get("file_id", file_id) if isinstance(files, dict) else getattr(files, "file_id", file_id)
 
     if CUSTOM_FILE_CAPTION:
         try:
@@ -449,7 +420,7 @@ async def start(client: Client, message: Message):
 
     if not f_caption:
         f_caption = f"{title}"
-
+        
     if getattr(info, "CAPTION_PLUS", None):
         f_caption += f"\n\n{info.CAPTION_PLUS}"
 
