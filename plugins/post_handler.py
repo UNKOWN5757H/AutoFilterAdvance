@@ -38,27 +38,116 @@ TEMPLATES = {
 }
 
 LANGUAGES = [
-    "Kannada", "English", "Gujarati", "Hindi", "Bengali", "Malayalam", "Marathi",
-    "Punjabi", "Tamil", "Telugu", "Urdu", "Arabic", "French", "German", "Italian",
-    "Japanese", "Korean", "Mandarin", "Portuguese", "Russian", "Spanish", "#NotAvailable",
+    "Kannada",
+    "English",
+    "Gujarati",
+    "Hindi",
+    "Bengali",
+    "Malayalam",
+    "Marathi",
+    "Punjabi",
+    "Tamil",
+    "Telugu",
+    "Urdu",
+    "Arabic",
+    "French",
+    "German",
+    "Italian",
+    "Japanese",
+    "Korean",
+    "Mandarin",
+    "Portuguese",
+    "Russian",
+    "Spanish",
+    "#NotAvailable",
 ]
 RESOLUTIONS = [
-    "144p", "240p", "480p", "720p", "1080p", "1440p", "2160p", "4320p", "BluRay",
-    "BDRip", "WEB-DL", "HDRip", "WEBRip", "HDTVRip", "DVDRip", "DVDScr", "TSRip",
-    "CAMRip", "HDTC", "HEVC", "#NotAvailable",
+    "144p",
+    "240p",
+    "480p",
+    "720p",
+    "1080p",
+    "1440p",
+    "2160p",
+    "4320p",
+    "BluRay",
+    "BDRip",
+    "WEB-DL",
+    "HDRip",
+    "WEBRip",
+    "HDTVRip",
+    "DVDRip",
+    "DVDScr",
+    "TSRip",
+    "CAMRip",
+    "HDTC",
+    "HEVC",
+    "#NotAvailable",
 ]
 GENRES = [
-    "Action", "Adventure", "Animation", "Biography", "Comedy", "Crime", "Documentary",
-    "Drama", "Family", "Fantasy", "History", "Horror", "Music", "Musical", "Mystery",
-    "Romance", "Sci-Fi", "Sport", "Thriller", "War", "Western", "Superhero",
-    "Psychological", "Suspense", "Noir", "Disaster", "Survival", "Teen", "Slice of Life",
-    "Coming of Age", "Martial Arts", "Political", "Legal", "Medical", "Spy", "Erotic",
-    "Mythology", "Short", "Experimental", "#NotAvailable",
+    "Action",
+    "Adventure",
+    "Animation",
+    "Biography",
+    "Comedy",
+    "Crime",
+    "Documentary",
+    "Drama",
+    "Family",
+    "Fantasy",
+    "History",
+    "Horror",
+    "Music",
+    "Musical",
+    "Mystery",
+    "Romance",
+    "Sci-Fi",
+    "Sport",
+    "Thriller",
+    "War",
+    "Western",
+    "Superhero",
+    "Psychological",
+    "Suspense",
+    "Noir",
+    "Disaster",
+    "Survival",
+    "Teen",
+    "Slice of Life",
+    "Coming of Age",
+    "Martial Arts",
+    "Political",
+    "Legal",
+    "Medical",
+    "Spy",
+    "Erotic",
+    "Mythology",
+    "Short",
+    "Experimental",
+    "#NotAvailable",
 ]
 OTT_PLATFORMS = [
-    "Aha", "ALTBalaji", "JioHotstar", "ErosNow", "Hoichoi", "JioCinema", "MXPlayer",
-    "SonyLIV", "SunNXT", "Voot", "Zee5", "Amazon Prime Video", "Apple TV+", "Crunchyroll",
-    "Discovery+", "HBO Max", "Hulu", "Netflix", "Paramount+", "Peacock", "YouTube Premium",
+    "Aha",
+    "ALTBalaji",
+    "JioHotstar",
+    "ErosNow",
+    "Hoichoi",
+    "JioCinema",
+    "MXPlayer",
+    "SonyLIV",
+    "SunNXT",
+    "Voot",
+    "Zee5",
+    "Amazon Prime Video",
+    "Apple TV+",
+    "Crunchyroll",
+    "Discovery+",
+    "HBO Max",
+    "Hulu",
+    "Netflix",
+    "Paramount+",
+    "Peacock",
+    "YouTube Premium",
     "NotAvailable",
 ]
 
@@ -641,7 +730,13 @@ async def handle_edit_buttons(client: Client, query: CallbackQuery, session: dic
                     if not clean_url.startswith(("http://", "https://", "tg://")):
                         clean_url = "https://" + clean_url
                     # ⚡ FIXED: Force remove all brackets/parentheses from manual button names
-                    clean_text = text.replace("[", "").replace("]", "").replace("(", "").replace(")", "").strip()
+                    clean_text = (
+                        text.replace("[", "")
+                        .replace("]", "")
+                        .replace("(", "")
+                        .replace(")", "")
+                        .strip()
+                    )
                     row_btns.append(InlineKeyboardButton(clean_text, url=clean_url))
             if row_btns:
                 new_layout.append(row_btns)
@@ -927,7 +1022,9 @@ async def finalize_and_post(
         return await status_msg.edit("Could not fetch movie details to post. Aborting.")
 
     if not MOVIE_UPDATE_CHANNEL:
-        return await status_msg.edit("❌ **MOVIE_UPDATE_CHANNEL is not set in config!**")
+        return await status_msg.edit(
+            "❌ **MOVIE_UPDATE_CHANNEL is not set in config!**"
+        )
 
     mode = "Photo" if session["photo_mode"] and poster_to_use else "Text"
     try:
