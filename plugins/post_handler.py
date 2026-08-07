@@ -1,10 +1,9 @@
 import asyncio
 import logging
 import re
-import string
 
 from pyrogram import Client, filters
-from pyrogram.enums import ButtonStyle, ParseMode
+from pyrogram.enums import ParseMode
 from pyrogram.errors import ButtonUrlInvalid, MessageNotModified, MessageTooLong
 from pyrogram.types import (
     CallbackQuery,
@@ -13,7 +12,7 @@ from pyrogram.types import (
     Message,
 )
 
-from info import ABOVE_PREVIEW, ADMINS, MOVIE_UPDATE_CHANNEL
+from info import ADMINS, MOVIE_UPDATE_CHANNEL
 from plugins.Imdbposter import get_movie_detailsx
 from utils import temp
 
@@ -31,123 +30,34 @@ RESOLUTIONS_FORMAT = "\n<b>🖥️ : {resolutions}</b>"
 GENRES_FORMAT = "\n<b>🎥 : {genres}</b>"
 OTT_FORMAT = "\n<b>📺 : #{otts}</b>"
 
-# ⚡ FIXED: Removed all parentheses from {title} and {year}
+# ⚡ FIXED: Removed all parentheses and brackets from {title} and {year}
 TEMPLATES = {
     "clean_grid": """✅ <b>{title} {year}</b>\n\n<blockquote><b>🔊 : {LANGUAGES}</b>\n<b>🖥️ : {RESOLUTIONS}</b>\n<b>🎥 : {genres}</b>\n<b>📺 : #{OTT_PLATFORMS}</b>\n<b>📟 : Available In Files.</b>\n\n<b>=========================</b></blockquote>""",
     "divider_list": """🎬 <b>{title} {year}</b>\n━━━━━━━━━━━━━━━━━━\n<blockquote><b>🔊 : {LANGUAGES}</b>\n<b>🖥️ : {RESOLUTIONS}</b>\n<b>📺 : {OTT_PLATFORMS}</b></blockquote>""",
 }
 
 LANGUAGES = [
-    "Kannada",
-    "English",
-    "Gujarati",
-    "Hindi",
-    "Bengali",
-    "Malayalam",
-    "Marathi",
-    "Punjabi",
-    "Tamil",
-    "Telugu",
-    "Urdu",
-    "Arabic",
-    "French",
-    "German",
-    "Italian",
-    "Japanese",
-    "Korean",
-    "Mandarin",
-    "Portuguese",
-    "Russian",
-    "Spanish",
-    "#NotAvailable",
+    "Kannada", "English", "Gujarati", "Hindi", "Bengali", "Malayalam", "Marathi",
+    "Punjabi", "Tamil", "Telugu", "Urdu", "Arabic", "French", "German", "Italian",
+    "Japanese", "Korean", "Mandarin", "Portuguese", "Russian", "Spanish", "#NotAvailable",
 ]
 RESOLUTIONS = [
-    "144p",
-    "240p",
-    "480p",
-    "720p",
-    "1080p",
-    "1440p",
-    "2160p",
-    "4320p",
-    "BluRay",
-    "BDRip",
-    "WEB-DL",
-    "HDRip",
-    "WEBRip",
-    "HDTVRip",
-    "DVDRip",
-    "DVDScr",
-    "TSRip",
-    "CAMRip",
-    "HDTC",
-    "HEVC",
-    "#NotAvailable",
+    "144p", "240p", "480p", "720p", "1080p", "1440p", "2160p", "4320p", "BluRay",
+    "BDRip", "WEB-DL", "HDRip", "WEBRip", "HDTVRip", "DVDRip", "DVDScr", "TSRip",
+    "CAMRip", "HDTC", "HEVC", "#NotAvailable",
 ]
 GENRES = [
-    "Action",
-    "Adventure",
-    "Animation",
-    "Biography",
-    "Comedy",
-    "Crime",
-    "Documentary",
-    "Drama",
-    "Family",
-    "Fantasy",
-    "History",
-    "Horror",
-    "Music",
-    "Musical",
-    "Mystery",
-    "Romance",
-    "Sci-Fi",
-    "Sport",
-    "Thriller",
-    "War",
-    "Western",
-    "Superhero",
-    "Psychological",
-    "Suspense",
-    "Noir",
-    "Disaster",
-    "Survival",
-    "Teen",
-    "Slice of Life",
-    "Coming of Age",
-    "Martial Arts",
-    "Political",
-    "Legal",
-    "Medical",
-    "Spy",
-    "Erotic",
-    "Mythology",
-    "Short",
-    "Experimental",
-    "#NotAvailable",
+    "Action", "Adventure", "Animation", "Biography", "Comedy", "Crime", "Documentary",
+    "Drama", "Family", "Fantasy", "History", "Horror", "Music", "Musical", "Mystery",
+    "Romance", "Sci-Fi", "Sport", "Thriller", "War", "Western", "Superhero",
+    "Psychological", "Suspense", "Noir", "Disaster", "Survival", "Teen", "Slice of Life",
+    "Coming of Age", "Martial Arts", "Political", "Legal", "Medical", "Spy", "Erotic",
+    "Mythology", "Short", "Experimental", "#NotAvailable",
 ]
 OTT_PLATFORMS = [
-    "Aha",
-    "ALTBalaji",
-    "JioHotstar",
-    "ErosNow",
-    "Hoichoi",
-    "JioCinema",
-    "MXPlayer",
-    "SonyLIV",
-    "SunNXT",
-    "Voot",
-    "Zee5",
-    "Amazon Prime Video",
-    "Apple TV+",
-    "Crunchyroll",
-    "Discovery+",
-    "HBO Max",
-    "Hulu",
-    "Netflix",
-    "Paramount+",
-    "Peacock",
-    "YouTube Premium",
+    "Aha", "ALTBalaji", "JioHotstar", "ErosNow", "Hoichoi", "JioCinema", "MXPlayer",
+    "SonyLIV", "SunNXT", "Voot", "Zee5", "Amazon Prime Video", "Apple TV+", "Crunchyroll",
+    "Discovery+", "HBO Max", "Hulu", "Netflix", "Paramount+", "Peacock", "YouTube Premium",
     "NotAvailable",
 ]
 
@@ -211,14 +121,13 @@ async def start_post_session(
     }
 
     if USE_GETFILE_BUTTON_BY_DEFAULT:
-        await handle_add_get_files(post_sessions[user_id])
+        await handle_add_get_files(client, post_sessions[user_id])
 
     await update_post_preview(client, user_id, message.chat.id, force_resend=True)
 
 
 class SafeDict(dict):
     """Safely handles missing keys in templates so it NEVER crashes the bot."""
-
     def __missing__(self, key):
         return "{" + key + "}"
 
@@ -239,11 +148,15 @@ async def _build_final_post_content(session: dict, session_id: int):
 
     rating_str = str(movie_details.get("rating", "N/A"))
     plot_str = str(movie_details.get("plot", "N/A"))
+    
+    # ⚡ FIXED: Absolute guarantee that no brackets/parentheses exist in the Title or Year
+    clean_title = str(movie_details.get("title", "N/A")).replace("(", "").replace(")", "").replace("[", "").replace("]", "").strip()
+    clean_year = str(movie_details.get("year", "N/A")).replace("(", "").replace(")", "").replace("[", "").replace("]", "").strip()
 
     if not session.get("is_manual_caption"):
         format_args = SafeDict(
-            title=str(movie_details.get("title", "N/A")),
-            year=str(movie_details.get("year", "N/A")),
+            title=clean_title,
+            year=clean_year,
             rating=rating_str,
             plot=plot_str,
             LANGUAGES=langs_str,
@@ -329,7 +242,7 @@ async def update_post_preview(
                 pass
         status_msg = await client.send_message(
             chat_id,
-            "<i>Fetching details...</i>",
+            "<i>Generating preview...</i>",
             reply_to_message_id=session["original_message_id"],
         )
         session["last_preview_message_id"] = status_msg.id
@@ -567,7 +480,7 @@ async def post_callbacks(client: Client, query: CallbackQuery):
         if action == "edit_buttons":
             await handle_edit_buttons(client, query, session)
         elif action == "add_get_files":
-            added = await handle_add_get_files(session)
+            added = await handle_add_get_files(client, session)
             await query.answer(
                 (
                     "✅ 'Get Files' button added!"
@@ -743,44 +656,44 @@ async def handle_edit_buttons(client: Client, query: CallbackQuery, session: dic
         session["buttons"] = new_layout
 
 
-async def handle_add_get_files(session) -> bool:
+async def handle_add_get_files(client: Client, session: dict) -> bool:
     movie_details = session["movie_details"]
     if movie_details:
-        title = movie_details.get("title", "movie")
-        year = movie_details.get("year", "")
+        # ⚡ FIXED: Sanitize the query specifically to prevent Telegram ButtonUrlInvalid errors
+        title = str(movie_details.get("title", "movie")).replace("(", "").replace(")", "").replace("[", "").replace("]", "")
+        year = str(movie_details.get("year", "")).replace("(", "").replace(")", "").replace("[", "").replace("]", "")
         movie_year = f"{title} {year}".strip()
-        url = f"https://telegram.me/{temp.U_NAME}?start=search_{movie_year.replace(' ', '_')}"
+        
+        # Telegram start payloads strictly forbid spaces and special characters. We must encode it securely.
+        safe_query = re.sub(r'[^a-zA-Z0-9_-]', '_', movie_year)
+        safe_query = re.sub(r'_+', '_', safe_query).strip('_')
+
+        # ⚡ FIXED: Ensures the bot username is safely loaded to avoid https://t.me/None
+        if not temp.U_NAME:
+            try:
+                bot_me = await client.get_me()
+                temp.U_NAME = bot_me.username
+            except Exception:
+                pass
+        bot_username = temp.U_NAME or "my_bot"
+        
+        url = f"https://t.me/{bot_username}?start=search_{safe_query}"
 
         for row in session["buttons"]:
             for btn in row:
                 if btn.url == url:
                     return False
 
-        # ⚡ FIXED: No brackets or parentheses in default button texts
+        # ⚡ FIXED: Stripped ButtonStyle and icon_custom_emoji_id which broke in Pyrogram V2
         session["buttons"].append(
             [
-                InlineKeyboardButton(
-                    text="Group 1 🎬",
-                    url="https://t.me/Sandalwood_Kannada_Group",
-                    icon_custom_emoji_id=5258096772776991776,
-                    style=ButtonStyle.PRIMARY,
-                ),
-                InlineKeyboardButton(
-                    text="Group 2 🎬",
-                    url="https://t.me/+GLsPkRgLGGszMzY1",
-                    icon_custom_emoji_id=5258096772776991776,
-                    style=ButtonStyle.PRIMARY,
-                ),
+                InlineKeyboardButton(text="Group 1 🎬", url="https://t.me/Sandalwood_Kannada_Group"),
+                InlineKeyboardButton(text="Group 2 🎬", url="https://t.me/+GLsPkRgLGGszMzY1"),
             ]
         )
         session["buttons"].append(
             [
-                InlineKeyboardButton(
-                    text="Direct Search 🔎",
-                    url=url,
-                    icon_custom_emoji_id=5258503720928288433,
-                    style=ButtonStyle.SUCCESS,
-                )
+                InlineKeyboardButton(text="Direct Search 🔎", url=url)
             ]
         )
         return True
