@@ -37,27 +37,116 @@ TEMPLATES = {
 }
 
 LANGUAGES = [
-    "Kannada", "English", "Gujarati", "Hindi", "Bengali", "Malayalam", "Marathi",
-    "Punjabi", "Tamil", "Telugu", "Urdu", "Arabic", "French", "German", "Italian",
-    "Japanese", "Korean", "Mandarin", "Portuguese", "Russian", "Spanish", "#NotAvailable",
+    "Kannada",
+    "English",
+    "Gujarati",
+    "Hindi",
+    "Bengali",
+    "Malayalam",
+    "Marathi",
+    "Punjabi",
+    "Tamil",
+    "Telugu",
+    "Urdu",
+    "Arabic",
+    "French",
+    "German",
+    "Italian",
+    "Japanese",
+    "Korean",
+    "Mandarin",
+    "Portuguese",
+    "Russian",
+    "Spanish",
+    "#NotAvailable",
 ]
 RESOLUTIONS = [
-    "144p", "240p", "480p", "720p", "1080p", "1440p", "2160p", "4320p", "BluRay",
-    "BDRip", "WEB-DL", "HDRip", "WEBRip", "HDTVRip", "DVDRip", "DVDScr", "TSRip",
-    "CAMRip", "HDTC", "HEVC", "#NotAvailable",
+    "144p",
+    "240p",
+    "480p",
+    "720p",
+    "1080p",
+    "1440p",
+    "2160p",
+    "4320p",
+    "BluRay",
+    "BDRip",
+    "WEB-DL",
+    "HDRip",
+    "WEBRip",
+    "HDTVRip",
+    "DVDRip",
+    "DVDScr",
+    "TSRip",
+    "CAMRip",
+    "HDTC",
+    "HEVC",
+    "#NotAvailable",
 ]
 GENRES = [
-    "Action", "Adventure", "Animation", "Biography", "Comedy", "Crime", "Documentary",
-    "Drama", "Family", "Fantasy", "History", "Horror", "Music", "Musical", "Mystery",
-    "Romance", "Sci-Fi", "Sport", "Thriller", "War", "Western", "Superhero",
-    "Psychological", "Suspense", "Noir", "Disaster", "Survival", "Teen", "Slice of Life",
-    "Coming of Age", "Martial Arts", "Political", "Legal", "Medical", "Spy", "Erotic",
-    "Mythology", "Short", "Experimental", "#NotAvailable",
+    "Action",
+    "Adventure",
+    "Animation",
+    "Biography",
+    "Comedy",
+    "Crime",
+    "Documentary",
+    "Drama",
+    "Family",
+    "Fantasy",
+    "History",
+    "Horror",
+    "Music",
+    "Musical",
+    "Mystery",
+    "Romance",
+    "Sci-Fi",
+    "Sport",
+    "Thriller",
+    "War",
+    "Western",
+    "Superhero",
+    "Psychological",
+    "Suspense",
+    "Noir",
+    "Disaster",
+    "Survival",
+    "Teen",
+    "Slice of Life",
+    "Coming of Age",
+    "Martial Arts",
+    "Political",
+    "Legal",
+    "Medical",
+    "Spy",
+    "Erotic",
+    "Mythology",
+    "Short",
+    "Experimental",
+    "#NotAvailable",
 ]
 OTT_PLATFORMS = [
-    "Aha", "ALTBalaji", "JioHotstar", "ErosNow", "Hoichoi", "JioCinema", "MXPlayer",
-    "SonyLIV", "SunNXT", "Voot", "Zee5", "Amazon Prime Video", "Apple TV+", "Crunchyroll",
-    "Discovery+", "HBO Max", "Hulu", "Netflix", "Paramount+", "Peacock", "YouTube Premium",
+    "Aha",
+    "ALTBalaji",
+    "JioHotstar",
+    "ErosNow",
+    "Hoichoi",
+    "JioCinema",
+    "MXPlayer",
+    "SonyLIV",
+    "SunNXT",
+    "Voot",
+    "Zee5",
+    "Amazon Prime Video",
+    "Apple TV+",
+    "Crunchyroll",
+    "Discovery+",
+    "HBO Max",
+    "Hulu",
+    "Netflix",
+    "Paramount+",
+    "Peacock",
+    "YouTube Premium",
     "NotAvailable",
 ]
 
@@ -128,6 +217,7 @@ async def start_post_session(
 
 class SafeDict(dict):
     """Safely handles missing keys in templates so it NEVER crashes the bot."""
+
     def __missing__(self, key):
         return "{" + key + "}"
 
@@ -148,10 +238,24 @@ async def _build_final_post_content(session: dict, session_id: int):
 
     rating_str = str(movie_details.get("rating", "N/A"))
     plot_str = str(movie_details.get("plot", "N/A"))
-    
+
     # ⚡ FIXED: Absolute guarantee that no brackets/parentheses exist in the Title or Year
-    clean_title = str(movie_details.get("title", "N/A")).replace("(", "").replace(")", "").replace("[", "").replace("]", "").strip()
-    clean_year = str(movie_details.get("year", "N/A")).replace("(", "").replace(")", "").replace("[", "").replace("]", "").strip()
+    clean_title = (
+        str(movie_details.get("title", "N/A"))
+        .replace("(", "")
+        .replace(")", "")
+        .replace("[", "")
+        .replace("]", "")
+        .strip()
+    )
+    clean_year = (
+        str(movie_details.get("year", "N/A"))
+        .replace("(", "")
+        .replace(")", "")
+        .replace("[", "")
+        .replace("]", "")
+        .strip()
+    )
 
     if not session.get("is_manual_caption"):
         format_args = SafeDict(
@@ -660,13 +764,25 @@ async def handle_add_get_files(client: Client, session: dict) -> bool:
     movie_details = session["movie_details"]
     if movie_details:
         # ⚡ FIXED: Sanitize the query specifically to prevent Telegram ButtonUrlInvalid errors
-        title = str(movie_details.get("title", "movie")).replace("(", "").replace(")", "").replace("[", "").replace("]", "")
-        year = str(movie_details.get("year", "")).replace("(", "").replace(")", "").replace("[", "").replace("]", "")
+        title = (
+            str(movie_details.get("title", "movie"))
+            .replace("(", "")
+            .replace(")", "")
+            .replace("[", "")
+            .replace("]", "")
+        )
+        year = (
+            str(movie_details.get("year", ""))
+            .replace("(", "")
+            .replace(")", "")
+            .replace("[", "")
+            .replace("]", "")
+        )
         movie_year = f"{title} {year}".strip()
-        
+
         # Telegram start payloads strictly forbid spaces and special characters. We must encode it securely.
-        safe_query = re.sub(r'[^a-zA-Z0-9_-]', '_', movie_year)
-        safe_query = re.sub(r'_+', '_', safe_query).strip('_')
+        safe_query = re.sub(r"[^a-zA-Z0-9_-]", "_", movie_year)
+        safe_query = re.sub(r"_+", "_", safe_query).strip("_")
 
         # ⚡ FIXED: Ensures the bot username is safely loaded to avoid https://t.me/None
         if not temp.U_NAME:
@@ -676,7 +792,7 @@ async def handle_add_get_files(client: Client, session: dict) -> bool:
             except Exception:
                 pass
         bot_username = temp.U_NAME or "my_bot"
-        
+
         url = f"https://t.me/{bot_username}?start=search_{safe_query}"
 
         for row in session["buttons"]:
@@ -687,14 +803,16 @@ async def handle_add_get_files(client: Client, session: dict) -> bool:
         # ⚡ FIXED: Stripped ButtonStyle and icon_custom_emoji_id which broke in Pyrogram V2
         session["buttons"].append(
             [
-                InlineKeyboardButton(text="Group 1 🎬", url="https://t.me/Sandalwood_Kannada_Group"),
-                InlineKeyboardButton(text="Group 2 🎬", url="https://t.me/+GLsPkRgLGGszMzY1"),
+                InlineKeyboardButton(
+                    text="Group 1 🎬", url="https://t.me/Sandalwood_Kannada_Group"
+                ),
+                InlineKeyboardButton(
+                    text="Group 2 🎬", url="https://t.me/+GLsPkRgLGGszMzY1"
+                ),
             ]
         )
         session["buttons"].append(
-            [
-                InlineKeyboardButton(text="Direct Search 🔎", url=url)
-            ]
+            [InlineKeyboardButton(text="Direct Search 🔎", url=url)]
         )
         return True
     return False
