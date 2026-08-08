@@ -2,7 +2,7 @@ import asyncio
 import logging
 
 from pyrogram import Client, enums, filters
-from pyrogram.errors import ChatAdminRequired, UserNotParticipant, UserIsBlocked
+from pyrogram.errors import ChatAdminRequired, UserIsBlocked, UserNotParticipant
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 import info
@@ -104,7 +104,11 @@ async def ForceSub(
     user = message.from_user
 
     # Handle cases where from_user might be empty (e.g., anonymous channels) or is an admin
-    if not user or str(user.id) in [str(a) for a in info.ADMINS] or not getattr(info, "IS_FSUB_ENABLED", True):
+    if (
+        not user
+        or str(user.id) in [str(a) for a in info.ADMINS]
+        or not getattr(info, "IS_FSUB_ENABLED", True)
+    ):
         return True
 
     active_fsubs = {
@@ -144,7 +148,7 @@ async def ForceSub(
                 )
             ]
         )
-        
+
         # ⚡ FIXED: Added explicit UserIsBlocked exception catching
         try:
             await message.reply_text(
@@ -155,7 +159,7 @@ async def ForceSub(
             )
         except UserIsBlocked:
             return False
-            
+
         return False
 
     except Exception as e:
@@ -230,7 +234,9 @@ async def add_dynamic_fsub(bot: Client, message: Message):
 
         # ⚡ FIXED: Prevent 'NoneType object has no attribute lower' if user sends an image or empty payload
         if not resp or not resp.text:
-            return await message.reply_text("❌ **Invalid response.** Please send text (y/n).")
+            return await message.reply_text(
+                "❌ **Invalid response.** Please send text (y/n)."
+            )
 
         is_req = resp.text.lower() == "y"
         fsub_type = "req" if is_req else "regular"
