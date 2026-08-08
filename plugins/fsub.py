@@ -2,7 +2,7 @@ import asyncio
 import logging
 
 from pyrogram import Client, enums, filters
-from pyrogram.errors import ChatAdminRequired, UserNotParticipant
+from pyrogram.errors import ChatAdminRequired, UserNotParticipant, UserIsBlocked
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 import info
@@ -103,7 +103,8 @@ async def ForceSub(
 ) -> bool:
     user = message.from_user
 
-    if not user or user.id in info.ADMINS or not getattr(info, "IS_FSUB_ENABLED", True):
+    # Handle cases where from_user might be empty (e.g., anonymous channels) or is an admin
+    if not user or str(user.id) in [str(a) for a in info.ADMINS] or not getattr(info, "IS_FSUB_ENABLED", True):
         return True
 
     active_fsubs = {
@@ -143,12 +144,18 @@ async def ForceSub(
                 )
             ]
         )
-        await message.reply_text(
-            "🔒 **You must join our update channel(s) to use this bot.**\n\n"
-            "Once you’ve joined, click **‘I’ve Joined’** to access your files.",
-            reply_markup=InlineKeyboardMarkup(not_joined_buttons),
-            disable_web_page_preview=True,
-        )
+        
+        # ⚡ FIXED: Added explicit UserIsBlocked exception catching
+        try:
+            await message.reply_text(
+                "🔒 **You must join our update channel(s) to use this bot.**\n\n"
+                "Once you’ve joined, click **‘I’ve Joined’** to access your files.",
+                reply_markup=InlineKeyboardMarkup(not_joined_buttons),
+                disable_web_page_preview=True,
+            )
+        except UserIsBlocked:
+            return False
+            
         return False
 
     except Exception as e:
@@ -220,6 +227,10 @@ async def add_dynamic_fsub(bot: Client, message: Message):
             f"🎯 **Target:** `{chat.title}`\n\nDo you want this to be a **Join Request** channel?\n\nReply with `y` for Yes, or `n` for No (Normal invite)."
         )
         resp = await bot.listen(message.chat.id, timeout=30)
+
+        # ⚡ FIXED: Prevent 'NoneType object has no attribute lower' if user sends an image or empty payload
+        if not resp or not resp.text:
+            return await message.reply_text("❌ **Invalid response.** Please send text (y/n).")
 
         is_req = resp.text.lower() == "y"
         fsub_type = "req" if is_req else "regular"
@@ -407,7 +418,8 @@ async def clear_fsub_users(bot: Client, message: Message):
         )
         resp = await bot.listen(message.chat.id, timeout=30)
 
-        if resp.text.lower() == "y":
+        # ⚡ FIXED: Safe none-type parsing
+        if resp and resp.text and resp.text.lower() == "y":
             await plugin_db.clear_fsub_users()
             await message.reply_text(
                 "✅ All force subscribed users have been cleared from the database."
