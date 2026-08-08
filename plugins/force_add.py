@@ -62,7 +62,9 @@ async def set_force_add(bot: Client, message: Message):
             if limit < 0:
                 raise ValueError
         except ValueError:
-            return await message.reply_text("❌ Please provide a valid positive number.")
+            return await message.reply_text(
+                "❌ Please provide a valid positive number."
+            )
 
         admin_id = message.from_user.id
         kb = InlineKeyboardMarkup(
@@ -87,8 +89,12 @@ async def set_force_add(bot: Client, message: Message):
         )
     except Exception as e:
         logger.error(f"Error in set_force_add: {e}")
-        try: await message.reply_text("❌ **An error occurred while setting Force Add.**")
-        except Exception: pass
+        try:
+            await message.reply_text(
+                "❌ **An error occurred while setting Force Add.**"
+            )
+        except Exception:
+            pass
 
 
 @Client.on_callback_query(filters.regex(r"^fa_set_(\d+)_([a-z]+)_(\d+)$"))
@@ -100,12 +106,15 @@ async def set_forceadd_callback(bot: Client, query):
 
         if query.from_user.id != admin_id:
             return await query.answer(
-                "❌ Only the admin who ran the command can choose this.", show_alert=True
+                "❌ Only the admin who ran the command can choose this.",
+                show_alert=True,
             )
 
         await plugin_db.set_fa_settings(query.message.chat.id, limit, mode)
         mode_text = (
-            "ALL MEMBERS" if mode == "all" else "ONLY NEW MEMBERS (who join from now on)"
+            "ALL MEMBERS"
+            if mode == "all"
+            else "ONLY NEW MEMBERS (who join from now on)"
         )
 
         try:
@@ -126,10 +135,14 @@ async def set_forceadd_callback(bot: Client, query):
 @Client.on_message(filters.command("remforceadd") & filters.group)
 async def remove_force_add(bot: Client, message: Message):
     try:
-        if not message.from_user or not await is_admin(bot, message.chat.id, message.from_user.id):
+        if not message.from_user or not await is_admin(
+            bot, message.chat.id, message.from_user.id
+        ):
             return
         await plugin_db.set_fa_settings(message.chat.id, 0, "all")
-        await message.reply_text("🗑️ **Force Add requirement has been completely removed.**")
+        await message.reply_text(
+            "🗑️ **Force Add requirement has been completely removed.**"
+        )
     except Exception as e:
         logger.error(f"Error in remforceadd: {e}")
 
@@ -188,7 +201,9 @@ async def top_add_7(bot: Client, message: Message):
 @Client.on_message(filters.command("resetadddaily") & filters.group)
 async def reset_add_daily(bot: Client, message: Message):
     try:
-        if not message.from_user or not await is_admin(bot, message.chat.id, message.from_user.id):
+        if not message.from_user or not await is_admin(
+            bot, message.chat.id, message.from_user.id
+        ):
             return
         await plugin_db.reset_fa_daily_adds(message.chat.id)
         await message.reply_text(
@@ -201,7 +216,9 @@ async def reset_add_daily(bot: Client, message: Message):
 @Client.on_message(filters.command("resetadd") & filters.group)
 async def reset_all_adds(bot: Client, message: Message):
     try:
-        if not message.from_user or not await is_admin(bot, message.chat.id, message.from_user.id):
+        if not message.from_user or not await is_admin(
+            bot, message.chat.id, message.from_user.id
+        ):
             return
         await plugin_db.reset_fa_all_adds(message.chat.id)
         await message.reply_text(
@@ -325,12 +342,12 @@ async def enforce_force_add(bot: Client, message: Message):
             return
 
         current_adds = await plugin_db.get_fa_user_adds(chat_id, user_id)
-        
+
         if current_adds < limit:
             try:
                 await message.delete()
             except Exception:
-                pass # Silently skip if bot doesn't have delete perm
+                pass  # Silently skip if bot doesn't have delete perm
 
             try:
                 # Restrict for 2 minutes
@@ -344,7 +361,7 @@ async def enforce_force_add(bot: Client, message: Message):
                     until_date=until_time,
                 )
             except Exception:
-                pass # Silently skip if bot can't restrict
+                pass  # Silently skip if bot can't restrict
 
             try:
                 warn_msg = await message.reply_text(
@@ -352,7 +369,14 @@ async def enforce_force_add(bot: Client, message: Message):
                     f"You must add **{limit - current_adds} more member(s)** to this group before you can send messages.\n\n"
                     f"🔇 **You have been restricted from messaging.**",
                     reply_markup=InlineKeyboardMarkup(
-                        [[InlineKeyboardButton("📊 How many users have I added?", callback_data="forceadd_check")]]
+                        [
+                            [
+                                InlineKeyboardButton(
+                                    "📊 How many users have I added?",
+                                    callback_data="forceadd_check",
+                                )
+                            ]
+                        ]
                     ),
                 )
             except Exception:
@@ -366,12 +390,14 @@ async def enforce_force_add(bot: Client, message: Message):
     finally:
         # Safe deletion task
         if warn_msg:
+
             async def delete_warning(msg_to_delete):
                 await asyncio.sleep(120)
                 try:
                     await msg_to_delete.delete()
                 except Exception:
                     pass
+
             asyncio.create_task(delete_warning(warn_msg))
 
 
@@ -403,5 +429,9 @@ async def check_adds_button(bot: Client, query):
             )
     except Exception as e:
         logger.error(f"Error in check_adds_button: {e}")
-        try: await query.answer("An error occurred checking your status.", show_alert=True)
-        except Exception: pass
+        try:
+            await query.answer(
+                "An error occurred checking your status.", show_alert=True
+            )
+        except Exception:
+            pass
