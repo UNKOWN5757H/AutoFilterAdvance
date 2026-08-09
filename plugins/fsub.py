@@ -129,9 +129,9 @@ async def ForceSub(
                 link = await get_invite_link(bot, chat_id_str)
                 if link:
                     btn_text = (
-                        f"📨 Join {data.get('title', 'Channel')}"
+                        f"⚓ Request to Join"
                         if data.get("type") == "req"
-                        else f"🔐 Join {data.get('title', 'Channel')}"
+                        else f"⚓ Request to Join"
                     )
                     not_joined_buttons.append(
                         [InlineKeyboardButton(btn_text, url=link)]
@@ -152,8 +152,7 @@ async def ForceSub(
         # ⚡ FIXED: Added explicit UserIsBlocked exception catching
         try:
             await message.reply_text(
-                "🔒 **You must join our update channel(s) to use this bot.**\n\n"
-                "Once you’ve joined, click **‘I’ve Joined’** to access your files.",
+                "<b>Please join below channel to get file!</b>",
                 reply_markup=InlineKeyboardMarkup(not_joined_buttons),
                 disable_web_page_preview=True,
             )
