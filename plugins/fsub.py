@@ -2,6 +2,7 @@ import asyncio
 import logging
 
 from pyrogram import Client, enums, filters
+from pyrogram.enums import ButtonStyle
 from pyrogram.errors import ChatAdminRequired, UserIsBlocked, UserNotParticipant
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
@@ -144,7 +145,10 @@ async def ForceSub(
         not_joined_buttons.append(
             [
                 InlineKeyboardButton(
-                    "✅ I've Joined", callback_data=f"refresh_fsub_{file_id or 0}"
+                    text="✅ I've Joined",
+                    callback_data=f"refresh_fsub_{file_id or 0}",
+                    icon_custom_emoji_id=5258503720928288433,
+                    style=ButtonStyle.SUCCESS,
                 )
             ]
         )
