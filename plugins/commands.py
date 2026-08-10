@@ -49,15 +49,27 @@ MESSAGE_EMOJI_LINK = '<tg-emoji emoji-id="5877465816030515018">🔗</tg-emoji> L
 
 def get_start_buttons(user_id):
     """Helper to generate start buttons dynamically based on admin status."""
-    buttons = [
-        [
-            InlineKeyboardButton(
-                "✈️ Group 1", url="https://t.me/Sandalwood_Kannada_Group"
-            ),
-            InlineKeyboardButton("✈️ Group 2", url="http://t.me/Kannada_Filmy_Group"),
-            InlineKeyboardButton("✈️ Group 3", url="https://t.me/+GLsPkRgLGGszMzY1"),
-        ]
-    ]
+    buttons =  [
+                InlineKeyboardButton(
+                    text="✈️ Group 1",
+                    url="https://t.me/Sandalwood_Kannada_Group",
+                    icon_custom_emoji_id=5258096772776991776,
+                    style=ButtonStyle.PRIMARY,
+                ),
+                InlineKeyboardButton(
+                    text="✈️ Group 2",
+                    url="http://t.me/Kannada_Filmy_Group",
+                    icon_custom_emoji_id=5258096772776991776,
+                    style=ButtonStyle.PRIMARY,
+                ),
+                InlineKeyboardButton(
+                    text="✈️ Group 3",
+                    url="https://t.me/+GLsPkRgLGGszMzY1",
+                    icon_custom_emoji_id=5258096772776991776,
+                    style=ButtonStyle.PRIMARY,
+                ),
+            ]
+    )
 
     # ⚡ FIXED: Safe parsing of ADMINS list for both string/int
     if str(user_id) in [str(a) for a in ADMINS]:
@@ -69,12 +81,14 @@ def get_start_buttons(user_id):
         )
 
     buttons.append(
-        [
-            InlineKeyboardButton(
-                "🔗 New Releases & OTT Updates",
-                url="https://t.me/sandalwood_kannada_moviesz",
-            )
-        ]
+    [
+                InlineKeyboardButton(
+                    text="🔗 New Releases & OTT Updates",
+                    url="https://t.me/sandalwood_kannada_moviesz",
+                    icon_custom_emoji_id=5258503720928288433,
+                    style=ButtonStyle.SUCCESS,
+                )
+            ]
     )
     return InlineKeyboardMarkup(buttons)
 
