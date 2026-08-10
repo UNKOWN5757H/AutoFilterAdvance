@@ -240,7 +240,10 @@ async def next_page(bot, query):
             0,
             [
                 InlineKeyboardButton(
-                    "•  Bᴀᴄᴋ Uᴘ Cʜᴀɴɴᴇʟ  •", url="https://t.me/KR_PICTURE"
+                    text="•  Bᴀᴄᴋ Uᴘ Cʜᴀɴɴᴇʟ  •", 
+                    url="https://t.me/KR_PICTURE",
+                    icon_custom_emoji_id=5258096772776991776,
+                    style=ButtonStyle.PRIMARY,
                 )
             ],
         )
@@ -651,7 +654,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
         elif query.data.startswith("checksub"):
             if (AUTH_CHANNEL or REQ_CHANNEL) and not await is_subscribed(client, query):
                 return await query.answer(
-                    "I Like Your Smartness, But Don't Be Oversmart 😒", show_alert=True
+                    "Search Your Self In The Group. Team: @KR_PICTURE", show_alert=True
                 )
 
             ident, file_id = query.data.split("#")
