@@ -3,12 +3,10 @@ import logging
 
 from pyrogram import Client, enums, filters
 from pyrogram.enums import ButtonStyle
-from pyrogram.errors import ChatAdminRequired, UserIsBlocked, UserNotParticipant
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
+from pyrogram.errors import ChatAdminRequired, UserIsBlocked, UserNotParticipant, MessageNotModified
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, CallbackQuery
 
 import info
-
-# ⚡ FIXED: Centralized Database
 from database.plugin_dbs import plugin_db
 
 logger = logging.getLogger(__name__)
@@ -99,15 +97,12 @@ async def check_user_in_channel(bot: Client, channel_id: int, user_id: int) -> b
         return False
 
 
-async def ForceSub(
-    bot: Client, message: Message, file_id: str = None, mode: str = None
-) -> bool:
+async def ForceSub(bot: Client, message: Message, file_id: str = None, mode: str = None) -> bool:
     user = message.from_user
 
-    # Handle cases where from_user might be empty (e.g., anonymous channels) or is an admin
     if (
         not user
-        or str(user.id) in [str(a) for a in info.ADMINS]
+        or str(user.id) in [str(a) for a in getattr(info, "ADMINS", [])]
         or not getattr(info, "IS_FSUB_ENABLED", True)
     ):
         return True
@@ -129,11 +124,7 @@ async def ForceSub(
             if not is_participant:
                 link = await get_invite_link(bot, chat_id_str)
                 if link:
-                    btn_text = (
-                        f"⚓ Request to Join"
-                        if data.get("type") == "req"
-                        else f"⚓ Request to Join"
-                    )
+                    btn_text = "⚓ Request to Join" if data.get("type") == "req" else "⚓ Request to Join"
                     not_joined_buttons.append(
                         [
                             InlineKeyboardButton(
@@ -141,7 +132,7 @@ async def ForceSub(
                                 url=link,
                                 icon_custom_emoji_id=5258096772776991776,
                                 style=ButtonStyle.PRIMARY,
-                            ),
+                            )
                         ]
                     )
 
@@ -149,21 +140,21 @@ async def ForceSub(
             await plugin_db.add_fsub_user(user.id)
             return True
 
+        cb_data = f"refresh_fsub_{file_id}" if file_id else "refresh_fsub_0"
         not_joined_buttons.append(
             [
                 InlineKeyboardButton(
                     text="✅ I've Joined",
-                    callback_data=f"refresh_fsub_{file_id or 0}",
+                    callback_data=cb_data,
                     icon_custom_emoji_id=5258503720928288433,
                     style=ButtonStyle.SUCCESS,
                 )
             ]
         )
 
-        # ⚡ FIXED: Added explicit UserIsBlocked exception catching
         try:
             await message.reply_text(
-                "<b>Please join below channel to get file!</b>",
+                "Please join below channel to get file!",
                 reply_markup=InlineKeyboardMarkup(not_joined_buttons),
                 disable_web_page_preview=True,
             )
@@ -175,6 +166,46 @@ async def ForceSub(
     except Exception as e:
         logger.exception(f"[ForceSub Error] {e}")
         return True
+
+
+# ============================================================
+# 🔄 Callback Query Handler for "I've Joined" Button
+# ============================================================
+@Client.on_callback_query(filters.regex(r"^refresh_fsub_(.*)"))
+async def refresh_fsub_callback(bot: Client, query: CallbackQuery):
+    user_id = query.from_user.id
+    file_id = query.matches[0].group(1)
+
+    active_fsubs = {
+        k: v for k, v in info.FSUB_CHANNELS.items() if v.get("status") == "active"
+    }
+
+    if not active_fsubs:
+        return await query.answer("Force subscribe is no longer required.", show_alert=True)
+
+    not_joined_channels = False
+
+    for chat_id_str in active_fsubs.keys():
+        is_participant = await check_user_in_channel(bot, int(chat_id_str), user_id)
+        if not is_participant:
+            not_joined_channels = True
+            break
+
+    if not_joined_channels:
+        await query.answer("❌ You haven't joined all required channels yet!", show_alert=True)
+    else:
+        await plugin_db.add_fsub_user(user_id)
+        
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+            
+        success_text = "✅ Thank you for joining! You can now use the bot normally."
+        if file_id and file_id != "0":
+            success_text += "\nPlease request your file or click the start link again."
+            
+        await query.answer(success_text, show_alert=True)
 
 
 # ============================================================
@@ -242,7 +273,6 @@ async def add_dynamic_fsub(bot: Client, message: Message):
         )
         resp = await bot.listen(message.chat.id, timeout=30)
 
-        # ⚡ FIXED: Prevent 'NoneType object has no attribute lower' if user sends an image or empty payload
         if not resp or not resp.text:
             return await message.reply_text(
                 "❌ **Invalid response.** Please send text (y/n)."
@@ -434,7 +464,6 @@ async def clear_fsub_users(bot: Client, message: Message):
         )
         resp = await bot.listen(message.chat.id, timeout=30)
 
-        # ⚡ FIXED: Safe none-type parsing
         if resp and resp.text and resp.text.lower() == "y":
             await plugin_db.clear_fsub_users()
             await message.reply_text(
