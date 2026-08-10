@@ -135,8 +135,15 @@ async def ForceSub(
                         else f"⚓ Request to Join"
                     )
                     not_joined_buttons.append(
-                        [InlineKeyboardButton(btn_text, url=link)]
-                    )
+                    [
+                InlineKeyboardButton(
+                    btn_text,
+                    url=link,
+                    icon_custom_emoji_id=5258096772776991776,
+                    style=ButtonStyle.PRIMARY,
+                ),
+            ]
+        )
 
         if not not_joined_buttons:
             await plugin_db.add_fsub_user(user.id)
