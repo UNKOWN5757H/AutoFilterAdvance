@@ -19,7 +19,6 @@ from pyrogram.errors import (
 from pyrogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 
 import info
-from pyrogram.enums import ButtonStyle
 from database.connections_mdb import (
     active_connection,
     all_connections,
@@ -30,8 +29,6 @@ from database.connections_mdb import (
 )
 from database.filters_mdb import del_all, find_filter, get_filters
 from database.ia_filterdb import Media, get_file_details, get_search_results
-
-# ⚡ FIXED: Using the centralized database for ban checks
 from database.plugin_dbs import plugin_db
 from database.users_chats_db import db
 from info import ADMINS, AUTH_CHANNEL, CUSTOM_FILE_CAPTION, REQ_CHANNEL
@@ -92,7 +89,6 @@ async def give_filter(client, message):
     if message.from_user and await plugin_db.is_banned(message.from_user.id):
         return
 
-    # Safe execution wrapper so manual filters failing won't kill auto filters
     try:
         k = await manual_filters(client, message)
     except Exception as e:
@@ -191,8 +187,6 @@ async def next_page(bot, query):
             else getattr(file, "file_size", 0)
         )
 
-        # ⚡ FIXED: Smart Button Generation Reverted to Original URL Method
-        # This absolutely guarantees Telegram will not block the delivery with UserIsBlocked
         if settings.get("button", False):
             btn.append(
                 [
@@ -240,10 +234,8 @@ async def next_page(bot, query):
             0,
             [
                 InlineKeyboardButton(
-                    text="•  Bᴀᴄᴋ Uᴘ Cʜᴀɴɴᴇʟ  •", 
+                    text="•  Bᴀᴄᴋ Uᴘ Cʜᴀɴɴᴇʟ  •",
                     url="https://t.me/KR_PICTURE",
-                    icon_custom_emoji_id=5258096772776991776,
-                    style=ButtonStyle.PRIMARY,
                 )
             ],
         )
@@ -427,10 +419,15 @@ async def cb_handler(client: Client, query: CallbackQuery):
             else:
                 return await query.answer("Join: @KR_PICTURE")
 
-            st = await client.get_chat_member(grpid, userid)
-            if (st.status == enums.ChatMemberStatus.OWNER) or (
-                str(userid) in [str(a) for a in info.ADMINS]
-            ):
+            try:
+                st = await client.get_chat_member(grpid, userid)
+                is_owner_or_admin = (st.status == enums.ChatMemberStatus.OWNER) or (
+                    str(userid) in [str(a) for a in info.ADMINS]
+                )
+            except Exception:
+                is_owner_or_admin = str(userid) in [str(a) for a in info.ADMINS]
+
+            if is_owner_or_admin:
                 await del_all(query.message, grpid, title)
             else:
                 await query.answer(
@@ -450,10 +447,15 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     pass
             elif chat_type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
                 grp_id = query.message.chat.id
-                st = await client.get_chat_member(grp_id, userid)
-                if (st.status == enums.ChatMemberStatus.OWNER) or (
-                    str(userid) in [str(a) for a in info.ADMINS]
-                ):
+                try:
+                    st = await client.get_chat_member(grp_id, userid)
+                    is_owner_or_admin = (st.status == enums.ChatMemberStatus.OWNER) or (
+                        str(userid) in [str(a) for a in info.ADMINS]
+                    )
+                except Exception:
+                    is_owner_or_admin = str(userid) in [str(a) for a in info.ADMINS]
+
+                if is_owner_or_admin:
                     try:
                         await query.message.delete()
                         await query.message.reply_to_message.delete()
@@ -577,7 +579,11 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 await query.answer(alert, show_alert=True)
 
         elif query.data.startswith("file"):
-            ident, file_id = query.data.split("#")
+            try:
+                ident, file_id = query.data.split("#")
+            except ValueError:
+                return await query.answer("Invalid file request!", show_alert=True)
+
             files_ = await get_file_details(file_id)
             if not files_:
                 return await query.answer("No such file exist.")
@@ -657,7 +663,11 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     "Search Your Self In The Group. Team: @KR_PICTURE", show_alert=True
                 )
 
-            ident, file_id = query.data.split("#")
+            try:
+                ident, file_id = query.data.split("#")
+            except ValueError:
+                return await query.answer("Invalid button data!", show_alert=True)
+
             files_ = await get_file_details(file_id)
             if not files_:
                 return await query.answer("No such file exist.")
@@ -702,7 +712,11 @@ async def cb_handler(client: Client, query: CallbackQuery):
             )
             k = await client.send_message(
                 chat_id=query.from_user.id,
-                text=f"<blockquote><b><u>❗️❗️❗️IMPORTANT❗️️❗️❗️</u></b>\n\n⚠️ File will be deleted in 30 Minutes\n\n📌 Save or forward it.</blockquote>",
+                text=(
+                    "<blockquote><b><u>❗️❗️❗️IMPORTANT❗️️❗️❗️</u></b>\n\n"
+                    "⚠️ File will be deleted in 30 Minutes\n\n"
+                    "📌 Save or forward it.</blockquote>"
+                ),
             )
 
             async def delete_and_notify():
@@ -711,7 +725,9 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 try:
                     await m.delete()
                     await k.edit_text(
-                        f"<b>Hey <i>{query.from_user.first_name}</i>\n\nYour Request Has Been Deleted 👍 \n(Due To Avoid Copyrights Issue😌)\n\nIF YOU WANT THAT FILE, REQUEST AGAIN ❤️ In Our Group</b>"
+                        f"<b>Hey <i>{query.from_user.first_name}</i>\n\n"
+                        f"Your Request Has Been Deleted 👍 \n(Due To Avoid Copyrights Issue😌)\n\n"
+                        f"IF YOU WANT THAT FILE, REQUEST AGAIN ❤️ In Our Group</b>"
                     )
                 except Exception:
                     pass
@@ -725,48 +741,41 @@ async def cb_handler(client: Client, query: CallbackQuery):
 
         elif query.data == "start":
             await query.answer()
+            user_id = query.from_user.id
             buttons = [
-        [
-            InlineKeyboardButton(
-                text="✈️ Group 1",
-                url="https://t.me/Sandalwood_Kannada_Group",
-                icon_custom_emoji_id=5258096772776991776,
-                style=ButtonStyle.PRIMARY,
-            ),
-            InlineKeyboardButton(
-                text="✈️ Group 2",
-                url="http://t.me/Kannada_Filmy_Group",
-                icon_custom_emoji_id=5258096772776991776,
-                style=ButtonStyle.PRIMARY,
-            ),
-            InlineKeyboardButton(
-                text="✈️ Group 3",
-                url="https://t.me/+GLsPkRgLGGszMzY1",
-                icon_custom_emoji_id=5258096772776991776,
-                style=ButtonStyle.PRIMARY,
-            ),
-        ]
-    ]
-
-    # Safe parsing of ADMINS list for both string/int
-    if str(user_id) in [str(a) for a in ADMINS]:
-        buttons.append(
-            [
-                InlineKeyboardButton("ℹ️ 𝙷𝚎𝚕𝚙", callback_data="help"),
-                InlineKeyboardButton("😊 𝙰𝚋𝚘𝚞𝚝", callback_data="about"),
+                [
+                    InlineKeyboardButton(
+                        text="✈️ Group 1",
+                        url="https://t.me/Sandalwood_Kannada_Group",
+                    ),
+                    InlineKeyboardButton(
+                        text="✈️ Group 2",
+                        url="http://t.me/Kannada_Filmy_Group",
+                    ),
+                    InlineKeyboardButton(
+                        text="✈️ Group 3",
+                        url="https://t.me/+GLsPkRgLGGszMzY1",
+                    ),
+                ]
             ]
-        )
 
-    buttons.append(
-        [
-            InlineKeyboardButton(
-                text="🔗 New Releases & OTT Updates",
-                url="https://t.me/sandalwood_kannada_moviesz",
-                icon_custom_emoji_id=5258503720928288433,
-                style=ButtonStyle.SUCCESS,
+            if str(user_id) in [str(a) for a in ADMINS]:
+                buttons.append(
+                    [
+                        InlineKeyboardButton("ℹ️ 𝙷𝚎𝚕𝚙", callback_data="help"),
+                        InlineKeyboardButton("😊 𝙰𝚋𝚘𝚞𝚝", callback_data="about"),
+                    ]
+                )
+
+            buttons.append(
+                [
+                    InlineKeyboardButton(
+                        text="🔗 New Releases & OTT Updates",
+                        url="https://t.me/sandalwood_kannada_moviesz",
+                    )
+                ]
             )
-        ]
-    )
+
             try:
                 bot_uname = temp.U_NAME or "my_bot"
                 b_name = temp.B_NAME or "MovieBot"
@@ -781,8 +790,8 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     reply_markup=InlineKeyboardMarkup(buttons),
                     parse_mode=enums.ParseMode.HTML,
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error(f"Error editing start message: {e}")
 
         elif query.data == "help":
             await query.answer()
@@ -1048,7 +1057,6 @@ async def auto_filter(client, msg, spoll=False):
             else getattr(file, "file_size", 0)
         )
 
-        # ⚡ FIXED: Absolute Guarantee that the URL is used so Telegram pushes user to PM
         if settings.get("button", False):
             btn.append(
                 [
@@ -1101,7 +1109,7 @@ async def auto_filter(client, msg, spoll=False):
     try:
         m = await message.reply_text(cap, reply_markup=InlineKeyboardMarkup(btn))
     except ButtonUrlInvalid:
-        return logger.error(f"ButtonUrlInvalid during auto_filter send.")
+        return logger.error("ButtonUrlInvalid during auto_filter send.")
     except Forbidden:
         return
     except Exception as e:
@@ -1119,6 +1127,9 @@ async def auto_filter(client, msg, spoll=False):
 
 
 async def advantage_spell_chok(msg):
+    if not msg or not getattr(msg, "text", None):
+        return
+
     query = (
         re.sub(
             r"\b(pl(i|e)*?(s|z+|ease|se|ese|(e+)s(e)?)|((send|snd|giv(e)?|gib)(\sme)?)|movie(s)?|new|latest|br((o|u)h?)*|^h(e|a)?(l)*(o)*|mal(ayalam)?|t(h)?amil|file|that|find|und(o)*|kit(t(i|y)?)?o(w)?|thar(u)?(o)*w?|kittum(o)*|aya(k)*(um(o)*)?|full\smovie|any(one)|with\ssubtitle(s)?)",
