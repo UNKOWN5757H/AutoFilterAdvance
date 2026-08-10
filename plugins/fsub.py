@@ -3,18 +3,8 @@ import logging
 
 from pyrogram import Client, enums, filters
 from pyrogram.enums import ButtonStyle
-from pyrogram.errors import (
-    ChatAdminRequired,
-    MessageNotModified,
-    UserIsBlocked,
-    UserNotParticipant,
-)
-from pyrogram.types import (
-    CallbackQuery,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    Message,
-)
+from pyrogram.errors import ChatAdminRequired, UserIsBlocked, UserNotParticipant, MessageNotModified
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, CallbackQuery
 
 import info
 from database.plugin_dbs import plugin_db
@@ -107,9 +97,7 @@ async def check_user_in_channel(bot: Client, channel_id: int, user_id: int) -> b
         return False
 
 
-async def ForceSub(
-    bot: Client, message: Message, file_id: str = None, mode: str = None
-) -> bool:
+async def ForceSub(bot: Client, message: Message, file_id: str = None, mode: str = None) -> bool:
     user = message.from_user
 
     if (
@@ -136,11 +124,7 @@ async def ForceSub(
             if not is_participant:
                 link = await get_invite_link(bot, chat_id_str)
                 if link:
-                    btn_text = (
-                        "⚓ Request to Join"
-                        if data.get("type") == "req"
-                        else "⚓ Request to Join"
-                    )
+                    btn_text = "⚓ Request to Join" if data.get("type") == "req" else "📢 Join Channel"
                     not_joined_buttons.append(
                         [
                             InlineKeyboardButton(
@@ -185,7 +169,7 @@ async def ForceSub(
 
 
 # ============================================================
-# 🔄 Callback Query Handler for "I've Joined" Button
+# 🔄 Callback Query Handler: Verify & Send File Automatically
 # ============================================================
 @Client.on_callback_query(filters.regex(r"^refresh_fsub_(.*)"))
 async def refresh_fsub_callback(bot: Client, query: CallbackQuery):
@@ -197,9 +181,7 @@ async def refresh_fsub_callback(bot: Client, query: CallbackQuery):
     }
 
     if not active_fsubs:
-        return await query.answer(
-            "Force subscribe is no longer required.", show_alert=True
-        )
+        return await query.answer("Force subscribe is no longer required.", show_alert=True)
 
     not_joined_channels = False
 
@@ -210,22 +192,31 @@ async def refresh_fsub_callback(bot: Client, query: CallbackQuery):
             break
 
     if not_joined_channels:
-        await query.answer(
-            "❌ You haven't joined all required channels yet!", show_alert=True
-        )
+        await query.answer("❌ You haven't joined all required channels yet!", show_alert=True)
     else:
         await plugin_db.add_fsub_user(user_id)
-
+        
         try:
             await query.message.delete()
         except Exception:
             pass
 
-        success_text = "✅ Thank you for joining! You can now use the bot normally."
-        if file_id and file_id != "0":
-            success_text += "\nPlease request your file or click the start link again."
+        await query.answer("✅ Subscriptions verified!", show_alert=False)
 
-        await query.answer(success_text, show_alert=True)
+        # Automatically send media directly if file_id is present
+        if file_id and file_id != "0":
+            try:
+                await bot.send_cached_media(
+                    chat_id=user_id,
+                    file_id=file_id,
+                    caption="🎉 **Thank you for joining! Here is your file:**"
+                )
+            except Exception as e:
+                logger.error(f"Failed to send cached file {file_id} to {user_id}: {e}")
+                await bot.send_message(
+                    chat_id=user_id,
+                    text="✅ **Verification complete!** Please send your file request link again."
+                )
 
 
 # ============================================================
@@ -391,7 +382,7 @@ async def update_fsub_target(bot: Client, message: Message):
     if target.lower() == "none":
         info.FSUB_CHANNELS[channel_id]["target"] = None
         await message.reply_text(
-            f"✅ Custom target removed. Bot will use standard invite link."
+            "✅ Custom target removed. Bot will use standard invite link."
         )
     else:
         info.FSUB_CHANNELS[channel_id]["target"] = target
