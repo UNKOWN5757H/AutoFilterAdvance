@@ -72,6 +72,13 @@ async def delete_message_after_delay(message, delay: int):
         pass
 
 
+async def expire_cache_entry(cache: dict, key, delay: int):
+    """Remove `key` from an in-memory cache (BUTTONS / SPELL_CHECK) after `delay`
+    seconds. Without this, both dicts grow forever for as long as the bot runs."""
+    await asyncio.sleep(delay)
+    cache.pop(key, None)
+
+
 # ============================================================
 # 🔍 MAIN AUTO-FILTER HANDLER
 # ============================================================
@@ -301,6 +308,7 @@ async def advantage_spoll_choker(bot, query):
     except ValueError:
         return await query.answer("Invalid button data!", show_alert=True)
 
+    movie = None
     try:
         if int(user) != 0 and query.from_user.id != int(user):
             return await query.answer("That's not for you!", show_alert=True)
@@ -324,6 +332,12 @@ async def advantage_spoll_choker(bot, query):
         pass
     except Exception as e:
         logger.error(f"Spolling error: {e}")
+        return
+
+    if movie is None:
+        # QueryIdInvalid (or any other early exit above) fired before a movie
+        # was picked -- nothing to search for, so stop here instead of
+        # crashing with UnboundLocalError.
         return
 
     k = await manual_filters(bot, query.message, text=movie)
@@ -569,14 +583,21 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     pass
 
         elif "alertmessage" in query.data:
-            grp_id = query.message.chat.id
-            i = query.data.split(":")[1]
-            keyword = query.data.split(":")[2]
-            reply_text, btn, alerts, fileid = await find_filter(grp_id, keyword)
-            if alerts is not None:
-                alerts = ast.literal_eval(alerts)
-                alert = alerts[int(i)].replace("\\n", "\n").replace("\\t", "\t")
-                await query.answer(alert, show_alert=True)
+            try:
+                grp_id = query.message.chat.id
+                _, i, keyword = query.data.split(":", 2)
+                reply_text, btn, alerts, fileid = await find_filter(grp_id, keyword)
+                if alerts is not None:
+                    alerts = ast.literal_eval(alerts)
+                    alert = alerts[int(i)].replace("\\n", "\n").replace("\\t", "\t")
+                    await query.answer(alert, show_alert=True)
+                else:
+                    await query.answer(
+                        "No alert text set for this filter.", show_alert=True
+                    )
+            except (IndexError, ValueError, SyntaxError) as e:
+                logger.error(f"alertmessage error: {e}")
+                await query.answer("Couldn't load that alert.", show_alert=True)
 
         elif query.data.startswith("file"):
             try:
@@ -652,10 +673,35 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     )
             except UserIsBlocked:
                 await query.answer("Unblock the bot mahn !", show_alert=True)
-            except (PeerIdInvalid, Exception):
+            except PeerIdInvalid:
                 await query.answer(
                     url=f"https://t.me/{bot_username}?start={ident}_{file_id}"
                 )
+            except FloodWait as e:
+                logger.warning(f"FloodWait {e.value}s sending file to PM.")
+                await asyncio.sleep(e.value)
+                try:
+                    await client.send_cached_media(
+                        chat_id=query.from_user.id,
+                        file_id=file_id,
+                        caption=f_caption,
+                        protect_content=True if ident == "filep" else False,
+                    )
+                    await query.answer(
+                        "Check PM, I have sent files in pm", show_alert=True
+                    )
+                except Exception as e2:
+                    logger.exception(f"Retry after FloodWait failed: {e2}")
+            except QueryIdInvalid:
+                pass
+            except Exception as e:
+                logger.exception(f"Unexpected error sending file to PM: {e}")
+                try:
+                    await query.answer(
+                        url=f"https://t.me/{bot_username}?start={ident}_{file_id}"
+                    )
+                except Exception:
+                    pass
 
         elif query.data.startswith("checksub"):
             if (AUTH_CHANNEL or REQ_CHANNEL) and not await is_subscribed(client, query):
@@ -1089,6 +1135,9 @@ async def auto_filter(client, msg, spoll=False):
         key = f"{message.chat.id}-{message.id}"
         BUTTONS[key] = search
         req = message.from_user.id if message.from_user else 0
+        cache_ttl = getattr(info, "BUTTON_AUTO_DELETE", 1800)
+        if cache_ttl > 0:
+            asyncio.create_task(expire_cache_entry(BUTTONS, key, cache_ttl))
         btn.append(
             [
                 InlineKeyboardButton(
@@ -1215,6 +1264,9 @@ async def advantage_spell_chok(msg):
         return
 
     SPELL_CHECK[msg.id] = movielist
+    spell_check_ttl = getattr(info, "BUTTON_AUTO_DELETE", 1800)
+    if spell_check_ttl > 0:
+        asyncio.create_task(expire_cache_entry(SPELL_CHECK, msg.id, spell_check_ttl))
     btn = [
         [
             InlineKeyboardButton(
