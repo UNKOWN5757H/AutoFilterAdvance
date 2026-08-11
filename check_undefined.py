@@ -4,10 +4,21 @@ import sys
 from pathlib import Path
 
 BUILTINS = set(dir(builtins)) | {
-    "__name__", "__file__", "__doc__", "__package__", "__spec__",
-    "__loader__", "__builtins__", "__annotations__", "__dict__",
-    "__class__", "__module__", "__qualname__", "_",
+    "__name__",
+    "__file__",
+    "__doc__",
+    "__package__",
+    "__spec__",
+    "__loader__",
+    "__builtins__",
+    "__annotations__",
+    "__dict__",
+    "__class__",
+    "__module__",
+    "__qualname__",
+    "_",
 }
+
 
 def targets_names(node):
     """Yield all simple Name ids bound by an assignment-style target."""
@@ -18,6 +29,7 @@ def targets_names(node):
             yield from targets_names(elt)
     elif isinstance(node, ast.Starred):
         yield from targets_names(node.value)
+
 
 def collect_bound_names(tree):
     """Collects all names that are assigned/bound anywhere in the file."""
@@ -50,8 +62,9 @@ def collect_bound_names(tree):
         elif hasattr(ast, "TypeAlias") and isinstance(node, ast.TypeAlias):
             if isinstance(node.name, ast.Name):
                 bound.add(node.name.id)
-                
+
     return bound
+
 
 def find_undefined(tree, bound):
     issues = []
@@ -61,9 +74,11 @@ def find_undefined(tree, bound):
                 issues.append((node.lineno, node.id))
     return sorted(set(issues))
 
+
 def find_duplicate_defs(tree):
     """Top-level (module or class body) functions/classes defined twice."""
     dups = []
+
     def scan_body(body, scope_label):
         seen = {}
         for node in body:
@@ -73,12 +88,18 @@ def find_duplicate_defs(tree):
                 seen[node.name] = node.lineno
             if isinstance(node, ast.ClassDef):
                 scan_body(node.body, f"class '{node.name}'")
-                
+
     scan_body(tree.body, "module")
     return dups
 
+
 def find_bare_except(tree):
-    return [n.lineno for n in ast.walk(tree) if isinstance(n, ast.ExceptHandler) and n.type is None]
+    return [
+        n.lineno
+        for n in ast.walk(tree)
+        if isinstance(n, ast.ExceptHandler) and n.type is None
+    ]
+
 
 def find_mutable_defaults(tree):
     bad = []
@@ -91,22 +112,27 @@ def find_mutable_defaults(tree):
                 if isinstance(d, (ast.List, ast.Dict, ast.Set)):
                     bad.append((node.lineno, node.name))
                 # Catch `set()` calls as defaults
-                elif isinstance(d, ast.Call) and isinstance(d.func, ast.Name) and d.func.id == "set":
+                elif (
+                    isinstance(d, ast.Call)
+                    and isinstance(d.func, ast.Name)
+                    and d.func.id == "set"
+                ):
                     bad.append((node.lineno, node.name))
     return bad
+
 
 def main():
     if len(sys.argv) < 2:
         print("Usage: python check_undefined.py <directory_to_scan>")
         sys.exit(1)
-        
+
     root = Path(sys.argv[1])
     if not root.exists():
         print(f"Error: Path '{root}' does not exist.")
         sys.exit(1)
-        
+
     files = sorted(root.rglob("*.py"))
-    
+
     for f in files:
         src = f.read_text(encoding="utf-8", errors="replace")
         try:
@@ -116,9 +142,9 @@ def main():
             continue
 
         bound = collect_bound_names(tree)
-        
+
         # Omit 'f' from arguments as it was unused in the original function
-        undefined = find_undefined(tree, bound) 
+        undefined = find_undefined(tree, bound)
         dups = find_duplicate_defs(tree)
         bare = find_bare_except(tree)
         mut = find_mutable_defaults(tree)
@@ -126,14 +152,22 @@ def main():
         if undefined or dups or bare or mut:
             print(f"\n### {f.relative_to(root)}")
             for lineno, name in undefined:
-                print(f"  [undefined-name?] line {lineno}: '{name}' not defined/imported anywhere in this file")
+                print(
+                    f"  [undefined-name?] line {lineno}: '{name}' not defined/imported anywhere in this file"
+                )
             for lineno, name, first_line, scope in dups:
-                print(f"  [duplicate-def] '{name}' redefined at line {lineno} (first defined line {first_line}, in {scope})")
+                print(
+                    f"  [duplicate-def] '{name}' redefined at line {lineno} (first defined line {first_line}, in {scope})"
+                )
             for lineno in bare:
-                print(f"  [bare-except] line {lineno}: bare 'except:' catches everything incl. SystemExit/KeyboardInterrupt")
+                print(
+                    f"  [bare-except] line {lineno}: bare 'except:' catches everything incl. SystemExit/KeyboardInterrupt"
+                )
             for lineno, name in mut:
-                print(f"  [mutable-default-arg] def {name}(...) at line {lineno} uses a mutable default")
+                print(
+                    f"  [mutable-default-arg] def {name}(...) at line {lineno} uses a mutable default"
+                )
+
 
 if __name__ == "__main__":
     main()
-
