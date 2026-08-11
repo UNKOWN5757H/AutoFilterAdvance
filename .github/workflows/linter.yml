@@ -1,0 +1,19 @@
+name: Run Python AST Linter
+
+on: [push, pull_request]
+
+jobs:
+  check-code:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run check_undefined.py
+        # Assuming you put the script in the root folder, and your code is in 'src'
+        run: python check_undefined.py ./src
