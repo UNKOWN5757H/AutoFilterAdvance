@@ -2,20 +2,30 @@ import logging
 import re
 
 from pyrogram import Client, filters
-from pyrogram.types import Message
+from pyrogram.types import Message, InlineKeyboardButton
 
 import info
-
-# ⚡ FIXED: Now uses the centralized MongoDB handler
 from database.plugin_dbs import plugin_db
 
 logger = logging.getLogger(__name__)
+
+# ============================================================
+# 🛡️ CUSTOM ADMIN FILTER (Fixes silent command failures)
+# ============================================================
+async def admin_check(_, __, message: Message):
+    if not message.from_user:
+        return False
+    return (
+        message.from_user.id in info.ADMINS or str(message.from_user.id) in info.ADMINS
+    )
+
+admin_filter = filters.create(admin_check)
 
 
 # ============================================================
 # ➕ Add Promotional Link
 # ============================================================
-@Client.on_message(filters.command("addpromo") & filters.user(info.ADMINS))
+@Client.on_message(filters.command("addpromo") & admin_filter & (filters.private | filters.group))
 async def add_promo_handler(bot: Client, message: Message):
     # Extract text after the command
     text = message.text.split(None, 1)[1] if len(message.command) > 1 else ""
@@ -45,7 +55,7 @@ async def add_promo_handler(bot: Client, message: Message):
 # ============================================================
 # ➖ Delete Promotional Link
 # ============================================================
-@Client.on_message(filters.command("delpromo") & filters.user(info.ADMINS))
+@Client.on_message(filters.command("delpromo") & admin_filter & (filters.private | filters.group))
 async def del_promo_handler(bot: Client, message: Message):
     if len(message.command) < 2:
         return await message.reply_text(
@@ -71,7 +81,7 @@ async def del_promo_handler(bot: Client, message: Message):
 # ============================================================
 # 📄 List All Promotional Links
 # ============================================================
-@Client.on_message(filters.command("listpromos") & filters.user(info.ADMINS))
+@Client.on_message(filters.command("listpromos") & admin_filter & (filters.private | filters.group))
 async def list_promo_handler(bot: Client, message: Message):
     promos = await plugin_db.get_all_promos()
 
@@ -95,8 +105,6 @@ async def get_promo_buttons() -> list:
     Helper function to fetch all promos as Pyrogram InlineKeyboardButtons.
     You can import and use this in your search results module to inject promos!
     """
-    from pyrogram.types import InlineKeyboardButton
-
     promos = await plugin_db.get_all_promos()
     buttons = []
 
