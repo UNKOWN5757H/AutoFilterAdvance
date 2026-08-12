@@ -905,7 +905,9 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 logger.error(f"Help Button Error: {e}")
                 # Fallback to prevent silent failing if string formatting has issues
                 try:
-                    safe_text = str(script.HELP_TXT).replace("{mention}", query.from_user.first_name)
+                    safe_text = str(script.HELP_TXT).replace(
+                        "{mention}", query.from_user.first_name
+                    )
                     await query.message.edit_text(
                         text=safe_text,
                         reply_markup=InlineKeyboardMarkup(buttons),

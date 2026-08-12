@@ -29,9 +29,10 @@ try:
 except ImportError:
     psutil = None
 
-# FIX: Ensure all Admin IDs are converted to integers. 
+# FIX: Ensure all Admin IDs are converted to integers.
 # Pyrogram treats strings as usernames, which causes commands to fail silently.
 ADMIN_IDS = [int(admin) for admin in info.ADMINS]
+
 
 def get_size_str(bytes_size):
     for unit in ["B", "KB", "MB", "GB", "TB"]:
@@ -115,7 +116,7 @@ async def clean_users_cmd(bot: Client, message: Message):
         "⏳ **Starting Deep Clean...** (Processing in background)"
     )
     users = await db.get_all_users()
-    
+
     # Safe check in case the database returns a Motor Cursor instead of a list
     if not isinstance(users, list):
         try:
@@ -219,7 +220,7 @@ async def clear_fsub_cmd(bot: Client, message: Message):
 async def nuke_callbacks(bot: Client, query: CallbackQuery):
     # Answer the callback query so the button stops loading for the user
     await query.answer("Processing request...", show_alert=False)
-    
+
     action = query.data.split("_")[1]
     await query.message.edit_text("⏳ **Executing request... This may take a moment.**")
 
