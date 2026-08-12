@@ -28,7 +28,6 @@ Levenshtein
 # --- External Utilities ---
 yt-dlp
 psutil
-ffmpeg
 
 # --- Optional Performance Optimizer ---
 uvloop==0.20.0; platform_system != "Windows"
