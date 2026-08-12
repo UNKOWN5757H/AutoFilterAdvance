@@ -1,5 +1,4 @@
 import asyncio
-import concurrent.futures
 import json
 import logging
 import os
@@ -34,9 +33,8 @@ download_semaphore = asyncio.Semaphore(3)  # Max 3 parallel downloads
 async def admin_check(_, __, message: Message):
     if not message.from_user:
         return False
-    return (
-        message.from_user.id in info.ADMINS or str(message.from_user.id) in info.ADMINS
-    )
+    admins = [str(a) for a in getattr(info, "ADMINS", [])]
+    return str(message.from_user.id) in admins
 
 
 admin_filter = filters.create(admin_check)
@@ -45,32 +43,49 @@ admin_filter = filters.create(admin_check)
 async def cb_admin_check(_, __, query: CallbackQuery):
     if not query.from_user:
         return False
-    return query.from_user.id in info.ADMINS or str(query.from_user.id) in info.ADMINS
+    admins = [str(a) for a in getattr(info, "ADMINS", [])]
+    return str(query.from_user.id) in admins
 
 
 cb_admin_filter = filters.create(cb_admin_check)
 
 
 # ============================================================
-# 🗄️ INSTAGRAM DATABASE MANAGER
+# 🗄️ LAZY-INITIALIZED INSTAGRAM DATABASE MANAGER
 # ============================================================
 class InstaDatabase:
+
     def __init__(self):
-        try:
-            db_uri = getattr(info, "DATABASE_URI", getattr(info, "DATABASE_URL", None))
-            self.client = AsyncIOMotorClient(db_uri)
-            self.db = self.client["InstaBotPlugin"]
-        except Exception as e:
-            logger.error(f"InstaDB Connection Error: {e}")
-            self.db = None
+        self.client = None
+        self.db = None
+
+    def _ensure_connected(self):
+        """Lazily connects Motor on the active running event loop to prevent hangs."""
+        if not self.client:
+            try:
+                db_uri = getattr(
+                    info, "DATABASE_URI", getattr(info, "DATABASE_URL", None)
+                )
+                if db_uri:
+                    self.client = AsyncIOMotorClient(db_uri)
+                    self.db = self.client["InstaBotPlugin"]
+            except Exception as e:
+                logger.error(f"InstaDB Connection Error: {e}")
+                self.db = None
 
     async def get_settings(self):
+        self._ensure_connected()
         if not self.db:
             return "both"
-        doc = await self.db.settings.find_one({"_id": "insta_config"})
-        return doc["mode"] if doc else "both"
+        try:
+            doc = await self.db.settings.find_one({"_id": "insta_config"})
+            return doc["mode"] if doc else "both"
+        except Exception as e:
+            logger.error(f"Error reading insta settings: {e}")
+            return "both"
 
     async def set_settings(self, mode):
+        self._ensure_connected()
         if not self.db:
             return
         await self.db.settings.update_one(
@@ -78,50 +93,72 @@ class InstaDatabase:
         )
 
     async def inc_success(self, user_id, name, username, url):
+        self._ensure_connected()
         if not self.db:
             return
-        # Global stats
-        await self.db.stats.update_one(
-            {"_id": "global_stats"}, {"$inc": {"success": 1}}, upsert=True
-        )
-        # User stats
-        await self.db.users.update_one(
-            {"user_id": user_id},
-            {"$inc": {"count": 1}, "$set": {"name": name, "username": username}},
-            upsert=True,
-        )
-        # Store Link
-        await self.db.links.insert_one(
-            {"url": url, "user_id": user_id, "time": time.time()}
-        )
+        try:
+            # Global stats
+            await self.db.stats.update_one(
+                {"_id": "global_stats"}, {"$inc": {"success": 1}}, upsert=True
+            )
+            # User stats
+            await self.db.users.update_one(
+                {"user_id": user_id},
+                {"$inc": {"count": 1}, "$set": {"name": name, "username": username}},
+                upsert=True,
+            )
+            # Store Link
+            await self.db.links.insert_one(
+                {"url": url, "user_id": user_id, "time": time.time()}
+            )
+        except Exception as e:
+            logger.error(f"Error updating success stats: {e}")
 
     async def inc_failed(self):
+        self._ensure_connected()
         if not self.db:
             return
-        await self.db.stats.update_one(
-            {"_id": "global_stats"}, {"$inc": {"failed": 1}}, upsert=True
-        )
+        try:
+            await self.db.stats.update_one(
+                {"_id": "global_stats"}, {"$inc": {"failed": 1}}, upsert=True
+            )
+        except Exception as e:
+            logger.error(f"Error updating failed stats: {e}")
 
     async def get_stats(self):
+        self._ensure_connected()
         if not self.db:
             return 0, 0
-        doc = await self.db.stats.find_one({"_id": "global_stats"})
-        if doc:
-            return doc.get("success", 0), doc.get("failed", 0)
+        try:
+            doc = await self.db.stats.find_one({"_id": "global_stats"})
+            if doc:
+                return doc.get("success", 0), doc.get("failed", 0)
+        except Exception as e:
+            logger.error(f"Error reading stats: {e}")
         return 0, 0
 
     async def get_top_users(self):
+        self._ensure_connected()
         if not self.db:
             return []
-        cursor = self.db.users.find({}).sort("count", -1).limit(10)
-        return await cursor.to_list(length=10)
+        try:
+            cursor = self.db.users.find({}).sort("count", -1).limit(10)
+            return await cursor.to_list(length=10)
+        except Exception as e:
+            logger.error(f"Error reading top users: {e}")
+            return []
 
     async def get_all_links(self):
+        self._ensure_connected()
         if not self.db:
             return []
-        cursor = self.db.links.find({})
-        links = await cursor.to_list(length=None)
-        return [doc["url"] for doc in links]
+        try:
+            cursor = self.db.links.find({})
+            links = await cursor.to_list(length=None)
+            return [doc["url"] for doc in links if "url" in doc]
+        except Exception as e:
+            logger.error(f"Error reading all links: {e}")
+            return []
 
 
 instadb = InstaDatabase()
@@ -226,10 +263,8 @@ async def insta_links_cmd(client: Client, message: Message):
 
     caption = f"📁 **Exported {len(links)} Instagram Links.**"
 
-    # Send to User
     await message.reply_document(document=file_path, caption=caption)
 
-    # Send to LOG_CHANNEL
     log_channel = getattr(info, "LOG_CHANNEL", None)
     if log_channel:
         try:
@@ -240,22 +275,24 @@ async def insta_links_cmd(client: Client, message: Message):
             logger.error(f"Failed to send instalinks to log channel: {e}")
 
     await msg.delete()
-    os.remove(file_path)
+    if os.path.exists(file_path):
+        os.remove(file_path)
 
 
 # ============================================================
 # 📥 INSTAGRAM DOWNLOADER ENGINE
 # ============================================================
 class InstaDownloader:
+
     @staticmethod
     def extract_url(text):
         if not text:
             return None
         m = re.search(
-            r"(https?://)?(www\.)?instagram\.com/(p|reel|tv|stories)/([a-zA-Z0-9_\-]+)",
+            r"(https?://(?:www\.)?instagram\.com/(?:p|reel|tv|stories)/[a-zA-Z0-9_\-\.]+)",
             text,
         )
-        return f"https://www.instagram.com/{m.group(3)}/{m.group(4)}/" if m else None
+        return m.group(1) if m else None
 
     @staticmethod
     def get_shortcode(url):
@@ -267,7 +304,9 @@ class InstaDownloader:
         shortcode = InstaDownloader.get_shortcode(url)
         if not shortcode:
             return {"success": False, "error": "Invalid Link"}
-        is_reel_or_story = "/reel/" in url or "/tv/" in url or "/stories/" in url
+        is_reel_or_story = (
+            "/reel/" in url or "/tv/" in url or "/stories/" in url
+        )
 
         if is_reel_or_story:
             return InstaDownloader._download_video(shortcode, url, task_dir)
@@ -282,24 +321,28 @@ class InstaDownloader:
             "outtmpl": os.path.join(task_dir, f"{shortcode}.%(ext)s"),
             "format": "bv*+ba/b",
             "merge_output_format": "mp4",
-            "socket_timeout": 60,
+            "socket_timeout": 30,
             "ignoreerrors": True,
-            "http_headers": {"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0)"},
+            "http_headers": {
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/120.0.0.0 Safari/537.36"
+                )
+            },
         }
 
-        # Enable Cookies for Private/Blocked Content
         if os.path.exists("cookies.txt"):
             ydl_opts["cookiefile"] = "cookies.txt"
 
-        # Enable FFmpeg to merge Audio + Video properly
         if shutil.which("ffmpeg"):
             ydl_opts["ffmpeg_location"] = shutil.which("ffmpeg")
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error(f"yt-dlp primary error: {e}")
 
         time.sleep(1)
         for f in os.listdir(task_dir):
@@ -308,13 +351,13 @@ class InstaDownloader:
                 if os.path.getsize(fp) > 50000:
                     return {"success": True, "file_path": fp, "is_video": True}
 
-        # Fallback format if above fails
+        # Fallback format
         ydl_opts["format"] = "best[ext=mp4]/best"
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error(f"yt-dlp fallback error: {e}")
 
         time.sleep(1)
         for f in os.listdir(task_dir):
@@ -325,7 +368,7 @@ class InstaDownloader:
 
         return {
             "success": False,
-            "error": "Server busy or Login Required (Ensure cookies.txt is valid).",
+            "error": "Unable to fetch video. Ensure cookies.txt is valid.",
         }
 
     @staticmethod
@@ -350,7 +393,12 @@ class InstaDownloader:
         try:
             session = requests.Session()
             session.headers.update(
-                {"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0)"}
+                {
+                    "User-Agent": (
+                        "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) "
+                        "AppleWebKit/605.1.15"
+                    )
+                }
             )
             resp = session.get(url, timeout=15)
             if resp.status_code != 200:
@@ -406,7 +454,7 @@ class InstaDownloader:
                         img_url,
                         headers={"User-Agent": "Mozilla/5.0"},
                         stream=True,
-                        timeout=30,
+                        timeout=15,
                     )
                     if r.status_code == 200:
                         with open(fp, "wb") as f:
@@ -439,7 +487,6 @@ class InstaDownloader:
                 "format": "best",
             }
 
-            # Apply cookies for photos too
             if os.path.exists("cookies.txt"):
                 ydl_opts["cookiefile"] = "cookies.txt"
 
@@ -474,7 +521,7 @@ class InstaDownloader:
                     if ".mp4" in img_url:
                         continue
                     fp = os.path.join(task_dir, f"{shortcode}.jpg")
-                    r = session.get(img_url, stream=True, timeout=20)
+                    r = session.get(img_url, stream=True, timeout=15)
                     if r.status_code == 200:
                         with open(fp, "wb") as f:
                             for chunk in r.iter_content(8192):
@@ -500,7 +547,7 @@ class InstaDownloader:
                         cdn_url,
                         headers={"User-Agent": "Mozilla/5.0"},
                         stream=True,
-                        timeout=20,
+                        timeout=15,
                     )
                     if r.status_code == 200 and "image" in r.headers.get(
                         "content-type", ""
@@ -525,7 +572,7 @@ class InstaDownloader:
     (
         filters.command("insta")
         | filters.regex(
-            r"(https?://)?(www\.)?instagram\.com/(p|reel|tv|stories)/([a-zA-Z0-9_\-]+)"
+            r"(https?://)?(www\.)?instagram\.com/(p|reel|tv|stories)/([a-zA-Z0-9_\-\.]+)"
         )
     )
     & filters.incoming
@@ -547,15 +594,17 @@ async def handle_instagram_link(client: Client, message: Message):
             "⚠️ **Instagram downloading is currently restricted to PMs only.**"
         )
 
-    # Extract URL (Support both `/insta link` and pure regex link)
-    url = InstaDownloader.extract_url(message.text)
-    if not url and len(message.command) > 1:
+    # Extract URL
+    raw_text = message.text or ""
+    url = InstaDownloader.extract_url(raw_text)
+    if not url and getattr(message, "command", None) and len(message.command) > 1:
         url = InstaDownloader.extract_url(message.command[1])
 
     if not url:
-        if message.text.startswith("/insta"):
+        if raw_text.startswith("/insta"):
             return await message.reply_text(
-                "⚠️ **Please provide a valid Instagram link.**\nExample: `/insta https://instagram.com/reel/...`"
+                "⚠️ **Please provide a valid Instagram link.**\n"
+                "Example: `/insta https://instagram.com/reel/...`"
             )
         return
 
@@ -572,10 +621,10 @@ async def handle_instagram_link(client: Client, message: Message):
         try:
             await status_msg.edit_text("📥 Downloading Media...")
 
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                result = await asyncio.get_event_loop().run_in_executor(
-                    pool, InstaDownloader.download_media, url, task_dir
-                )
+            loop = asyncio.get_running_loop()
+            result = await loop.run_in_executor(
+                None, InstaDownloader.download_media, url, task_dir
+            )
 
             if not result or not result.get("success"):
                 await instadb.inc_failed()
@@ -593,7 +642,7 @@ async def handle_instagram_link(client: Client, message: Message):
                         await message.reply_photo(photo=path, quote=True)
                         await asyncio.sleep(0.5)
 
-            # Single Video (With Audio)
+            # Single Video
             elif result.get("is_video"):
                 await status_msg.edit_text("📤 Uploading Video...")
                 await message.reply_video(
@@ -608,6 +657,7 @@ async def handle_instagram_link(client: Client, message: Message):
             await status_msg.delete()
 
         except Exception as e:
+            logger.error(f"Error handling Instagram download: {e}")
             await instadb.inc_failed()
             await status_msg.edit_text(f"❌ Error occurred: {str(e)[:50]}")
         finally:
