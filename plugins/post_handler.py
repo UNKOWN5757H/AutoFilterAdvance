@@ -5,7 +5,7 @@ import re
 import traceback
 
 from pyrogram import Client, filters
-from pyrogram.enums import ButtonStyle  # ⚡ RESTORED: ButtonStyle import
+from pyrogram.enums import ButtonStyle  
 from pyrogram.errors import ButtonUrlInvalid, MessageNotModified, MessageTooLong
 from pyrogram.types import (
     CallbackQuery,
@@ -612,9 +612,9 @@ async def post_callbacks(client: Client, query: CallbackQuery):
                 added = await handle_add_get_files(client, session)
                 await query.answer(
                     (
-                        "✅ 'Get Files' button added!"
+                        "✅ Buttons added!"
                         if added
-                        else "⚠️ Button already exists!"
+                        else "⚠️ Buttons already exist!"
                     ),
                     show_alert=not added,
                 )
@@ -762,7 +762,7 @@ async def handle_buttons_menu(query, session_id):
         ],
         [
             InlineKeyboardButton(
-                "📥 Add 'Get Files' Button",
+                "📥 Add Default Buttons",
                 callback_data=f"post:add_get_files:{session_id}",
             )
         ],
@@ -837,25 +837,52 @@ async def handle_add_get_files(client: Client, session: dict) -> bool:
         bot_username = temp.U_NAME or "MovieBot"
         url = f"https://t.me/{bot_username}?start=search_{safe_query}"
 
+        # Prevent duplicate Direct Search buttons
         for row in session["buttons"]:
             for btn in row:
                 if btn.url == url:
                     return False
 
-        # ⚡ RESTORED: Colored Buttons and Emojis are back!
+        # ⚡ Determine IMDB or TMDB Link based on available movie details
+        imdb_id = movie_details.get("imdb_id")
+        tmdb_id = movie_details.get("id")
+
+        if imdb_id:
+            info_url = f"https://www.imdb.com/title/{imdb_id}/"
+            info_text = "🌟 IMDb Link"
+        elif tmdb_id:
+            info_url = f"https://www.themoviedb.org/movie/{tmdb_id}"
+            info_text = "🌟 TMDb Link"
+        else:
+            search_q = "+".join(movie_year.split())
+            info_url = f"https://www.imdb.com/find?q={search_q}"
+            info_text = "🌟 IMDb Search"
+
+        # ⚡ ALL BUTTONS ARE NOW RENDERED IN GREEN (ButtonStyle.SUCCESS)
+        session["buttons"].append(
+            [
+                InlineKeyboardButton(
+                    text=info_text,
+                    url=info_url,
+                    icon_custom_emoji_id=5258503720928288433,
+                    style=ButtonStyle.SUCCESS,
+                )
+            ]
+        )
+
         session["buttons"].append(
             [
                 InlineKeyboardButton(
                     text="Group 1 🎬",
                     url="https://t.me/Sandalwood_Kannada_Group",
                     icon_custom_emoji_id=5258096772776991776,
-                    style=ButtonStyle.PRIMARY,
+                    style=ButtonStyle.SUCCESS,
                 ),
                 InlineKeyboardButton(
                     text="Group 2 🎬",
                     url="https://t.me/+GLsPkRgLGGszMzY1",
                     icon_custom_emoji_id=5258096772776991776,
-                    style=ButtonStyle.PRIMARY,
+                    style=ButtonStyle.SUCCESS,
                 ),
             ]
         )
