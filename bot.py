@@ -199,10 +199,10 @@ async def start_services():
     web_app.router.add_get("/", health_check)
     runner = web.AppRunner(web_app)
     await runner.setup()
-    
+
     # Safe fallback if PORT isn't strictly an integer
     bind_port = int(PORT) if PORT else 8080
-    
+
     site = web.TCPSite(runner, "0.0.0.0", bind_port)
     await site.start()
     logger.info(f"🌐 Web server listening on port {bind_port} for health checks.")
@@ -220,8 +220,11 @@ async def start_services():
 # 🚀 LAUNCH SEQUENCE
 # ============================================================
 def force_shutdown(signum, frame):
-    logger.info("🛑 Received shutdown signal from Koyeb. Killing old instance immediately!")
+    logger.info(
+        "🛑 Received shutdown signal from Koyeb. Killing old instance immediately!"
+    )
     sys.exit(0)
+
 
 if __name__ == "__main__":
     # Catch Koyeb's termination signals so the old bot dies instantly
