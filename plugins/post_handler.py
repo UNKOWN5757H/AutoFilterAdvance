@@ -25,7 +25,7 @@ post_sessions = {}
 USE_GETFILE_BUTTON_BY_DEFAULT = True
 
 DEFAULT_WATERMARK = (
-    "<a href='https://t.me/sandalwood_kannada_moviesz'>Join Sandalwood New Movies</a>"
+    "<b>Jᴏɪɴ: @Sandalwood_Kannada_Moviesz</b>"
 )
 LANGUAGES_FORMAT = "<b>🔊 : {langs}</b>"
 RESOLUTIONS_FORMAT = "\n<b>🖥️ : {resolutions}</b>"
