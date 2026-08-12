@@ -1184,12 +1184,22 @@ async def auto_filter(client, msg, spoll=False):
 
     try:
         m = await message.reply_text(cap, reply_markup=InlineKeyboardMarkup(btn))
+    except FloodWait as e:
+        logger.warning(f"Telegram FloodWait triggered! Sleeping for {e.value} seconds...")
+        await asyncio.sleep(e.value)
+        try:
+            m = await message.reply_text(cap, reply_markup=InlineKeyboardMarkup(btn))
+        except Exception as e2:
+            logger.exception(f"auto_filter retry error: {e2}")
+            return
     except ButtonUrlInvalid:
-        return logger.error("ButtonUrlInvalid during auto_filter send.")
+        logger.error("ButtonUrlInvalid during auto_filter send.")
+        return
     except Forbidden:
         return
     except Exception as e:
-        return logger.exception(f"auto_filter error: {e}")
+        logger.exception(f"auto_filter error: {e}")
+        return
 
     if spoll:
         try:
@@ -1391,6 +1401,32 @@ async def manual_filters(client, message, text=False):
                             delete_message_after_delay(sent_msg, delete_timer)
                         )
 
+            except FloodWait as e:
+                logger.warning(f"Telegram FloodWait in manual_filters! Sleeping for {e.value} seconds...")
+                await asyncio.sleep(e.value)
+                try:
+                    if not fileid or fileid_str in ["None", "[]", "", "False"]:
+                        sent_msg = await client.send_message(
+                            group_id,
+                            reply_text,
+                            disable_web_page_preview=True,
+                            reply_markup=reply_markup,
+                            reply_to_message_id=reply_id,
+                        )
+                    else:
+                        sent_msg = await client.send_cached_media(
+                            group_id,
+                            fileid,
+                            caption=reply_text or "",
+                            reply_markup=reply_markup,
+                            reply_to_message_id=reply_id,
+                        )
+                    if sent_msg:
+                        delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
+                        if delete_timer > 0:
+                            asyncio.create_task(delete_message_after_delay(sent_msg, delete_timer))
+                except Exception as e2:
+                    logger.exception(f"manual_filter retry error: {e2}")
             except Forbidden as e:
                 if "CHAT_SEND_PHOTOS_FORBIDDEN" in str(
                     e
