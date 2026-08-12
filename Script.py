@@ -14,7 +14,8 @@ class script(object):
 
     BANS_TXT = """<blockquote><b>User Management\nBan or unban users to control access to the bot.</b></blockquote>\n
 <b>‣ /ban - Ban a user from bot - /ban user_id
-‣ /unban - Unban a user from bot - /unban user_id</b>"""
+‣ /unban - Unban a user from bot - /unban user_id
+‣ /bannedusers - Check Banned Users List</b>"""
 
     CUSTOMMESSAGES_TXT = """<blockquote><b>Custom Messages & Images\nConfigure custom messages and images for various actions, such as file info, file deletion, file not found, or force subscription prompts.</b></blockquote>\n
 <b>‣ /infomsg - Set info message before sending file
