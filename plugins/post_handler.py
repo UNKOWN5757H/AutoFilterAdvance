@@ -138,8 +138,8 @@ OTT_PLATFORMS = [
     "SunNXT",
     "Voot",
     "Zee5",
-    "Amazon Prime Video",
-    "Apple TV+",
+    "AmazonPrime",
+    "AppleTV+",
     "Crunchyroll",
     "Discovery+",
     "HBO Max",
@@ -147,7 +147,7 @@ OTT_PLATFORMS = [
     "Netflix",
     "Paramount+",
     "Peacock",
-    "YouTube Premium",
+    "ManoramaMAX",
     "NotAvailable",
 ]
 
