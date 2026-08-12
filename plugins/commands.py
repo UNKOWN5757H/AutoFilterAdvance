@@ -706,3 +706,39 @@ async def set_movie_update_notification(client, message):
     except Exception as e:
         logger.error(f"Error in set_movie_update_notification: {e}")
         await message.reply_text(f"<b>❗ An error occurred: {e}</b>")
+
+# ============================================================
+# 📩 PM AUTO-REPLY CATCH-ALL
+# ============================================================
+@Client.on_message(filters.private & filters.incoming, group=1)
+async def pm_auto_reply(client: Client, message: Message):
+    # Ignore commands (like /start or /help) so it doesn't double-reply
+    if message.text and message.text.startswith("/"):
+        return
+        
+    # --- YOUR CUSTOM MESSAGE HERE ---
+    reply_text = (
+        "<b>Request Movies Here 👇</b>"
+    )
+    
+    # --- GREEN BUTTON (Matched exactly to your /start command style) ---
+    buttons = [
+        [
+            InlineKeyboardButton(
+                text="🔗 Join Our Main Channel",
+                url="https://t.me/Sandalwood_Kannada_Group",
+                icon_custom_emoji_id=5258503720928288433,
+                style=ButtonStyle.SUCCESS,
+            )
+        ]
+    ]
+    
+    try:
+        await message.reply_text(
+            text=reply_text,
+            reply_markup=InlineKeyboardMarkup(buttons),
+            quote=True
+        )
+    except Exception as e:
+        logger.error(f"Error in PM auto-reply: {e}")
+        
