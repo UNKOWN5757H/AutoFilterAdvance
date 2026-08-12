@@ -1185,7 +1185,9 @@ async def auto_filter(client, msg, spoll=False):
     try:
         m = await message.reply_text(cap, reply_markup=InlineKeyboardMarkup(btn))
     except FloodWait as e:
-        logger.warning(f"Telegram FloodWait triggered! Sleeping for {e.value} seconds...")
+        logger.warning(
+            f"Telegram FloodWait triggered! Sleeping for {e.value} seconds..."
+        )
         await asyncio.sleep(e.value)
         try:
             m = await message.reply_text(cap, reply_markup=InlineKeyboardMarkup(btn))
@@ -1402,7 +1404,9 @@ async def manual_filters(client, message, text=False):
                         )
 
             except FloodWait as e:
-                logger.warning(f"Telegram FloodWait in manual_filters! Sleeping for {e.value} seconds...")
+                logger.warning(
+                    f"Telegram FloodWait in manual_filters! Sleeping for {e.value} seconds..."
+                )
                 await asyncio.sleep(e.value)
                 try:
                     if not fileid or fileid_str in ["None", "[]", "", "False"]:
@@ -1424,7 +1428,9 @@ async def manual_filters(client, message, text=False):
                     if sent_msg:
                         delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
                         if delete_timer > 0:
-                            asyncio.create_task(delete_message_after_delay(sent_msg, delete_timer))
+                            asyncio.create_task(
+                                delete_message_after_delay(sent_msg, delete_timer)
+                            )
                 except Exception as e2:
                     logger.exception(f"manual_filter retry error: {e2}")
             except Forbidden as e:
