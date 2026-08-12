@@ -5,7 +5,7 @@ import re
 import traceback
 
 from pyrogram import Client, filters
-from pyrogram.enums import ButtonStyle  
+from pyrogram.enums import ButtonStyle
 from pyrogram.errors import ButtonUrlInvalid, MessageNotModified, MessageTooLong
 from pyrogram.types import (
     CallbackQuery,
@@ -611,11 +611,7 @@ async def post_callbacks(client: Client, query: CallbackQuery):
             elif action == "add_get_files":
                 added = await handle_add_get_files(client, session)
                 await query.answer(
-                    (
-                        "✅ Buttons added!"
-                        if added
-                        else "⚠️ Buttons already exist!"
-                    ),
+                    ("✅ Buttons added!" if added else "⚠️ Buttons already exist!"),
                     show_alert=not added,
                 )
             elif action == "edit_caption":
