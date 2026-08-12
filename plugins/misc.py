@@ -17,8 +17,10 @@ from utils import extract_user, get_file_id, get_poster
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.ERROR)
 
+
 class SafeDict(dict):
     """Safely formats strings. If a key is missing, it leaves the placeholder intact."""
+
     def __missing__(self, key):
         return "{" + key + "}"
 
@@ -78,7 +80,7 @@ async def who_is(client: Client, message):
                 user = await client.get_users(target)
             except Exception:
                 pass
-        
+
         # 3. Fallback to the command sender
         if not user:
             user = message.from_user
@@ -96,7 +98,11 @@ async def who_is(client: Client, message):
         )
 
         # Joined Date (if in same group)
-        if message.chat.type in (enums.ChatType.SUPERGROUP, enums.ChatType.CHANNEL, enums.ChatType.GROUP):
+        if message.chat.type in (
+            enums.ChatType.SUPERGROUP,
+            enums.ChatType.CHANNEL,
+            enums.ChatType.GROUP,
+        ):
             try:
                 member = await client.get_chat_member(message.chat.id, user.id)
                 if member.joined_date:
@@ -119,9 +125,13 @@ async def who_is(client: Client, message):
                 )
             except Exception as e:
                 logger.error(f"Instant photo failed: {e}")
-                await message.reply_text(text, reply_markup=markup, parse_mode=enums.ParseMode.HTML)
+                await message.reply_text(
+                    text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
+                )
         else:
-            await message.reply_text(text, reply_markup=markup, parse_mode=enums.ParseMode.HTML)
+            await message.reply_text(
+                text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
+            )
 
         await status.delete()
 
@@ -136,7 +146,9 @@ async def who_is(client: Client, message):
 @Client.on_message(filters.command(["imdb", "search"]))
 async def imdb_search(client: Client, message):
     if len(message.command) < 2:
-        return await message.reply("🎬 **Usage:** `/imdb Movie or Series Name`", quote=True)
+        return await message.reply(
+            "🎬 **Usage:** `/imdb Movie or Series Name`", quote=True
+        )
 
     query = message.text.split(None, 1)[1]
     wait_msg = await message.reply("🔎 Searching IMDb...", quote=True)
@@ -150,13 +162,23 @@ async def imdb_search(client: Client, message):
         # Cap at 10 results to prevent Telegram's BUTTON_DATA_INVALID / MESSAGE_TOO_LONG crash
         for movie in movies[:10]:
             # Safely extract ID, Title, and Year whether it's an Object or a Dictionary
-            m_id = getattr(movie, "movieID", None) or (movie.get("movieID") if isinstance(movie, dict) else None) or movie.get("id", "")
-            title = getattr(movie, "title", None) or (movie.get("title") if isinstance(movie, dict) else "Unknown")
-            year = getattr(movie, "year", None) or (movie.get("year") if isinstance(movie, dict) else "")
+            m_id = (
+                getattr(movie, "movieID", None)
+                or (movie.get("movieID") if isinstance(movie, dict) else None)
+                or movie.get("id", "")
+            )
+            title = getattr(movie, "title", None) or (
+                movie.get("title") if isinstance(movie, dict) else "Unknown"
+            )
+            year = getattr(movie, "year", None) or (
+                movie.get("year") if isinstance(movie, dict) else ""
+            )
 
             if m_id:
                 btn_text = f"{title} ({year})" if year else title
-                buttons.append([InlineKeyboardButton(btn_text, callback_data=f"imdb#{m_id}")])
+                buttons.append(
+                    [InlineKeyboardButton(btn_text, callback_data=f"imdb#{m_id}")]
+                )
 
         if not buttons:
             return await wait_msg.edit("❌ Could not parse IMDb results.")
@@ -178,7 +200,7 @@ async def imdb_callback(client: Client, query: CallbackQuery):
     try:
         _, movie_id = query.data.split("#")
         await query.answer("Fetching Details...", show_alert=False)
-        
+
         imdb = await get_poster(query=movie_id, id=True)
 
         if not imdb:
