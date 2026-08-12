@@ -29,7 +29,9 @@ else:
         datefmt="%d-%b-%y %H:%M:%S",
     )
 
+# Silence noisy background logs
 logging.getLogger("pyrogram").setLevel(logging.ERROR)
+logging.getLogger("pyrogram.session.session").setLevel(logging.ERROR)
 logging.getLogger("imdbpy").setLevel(logging.ERROR)
 logger = logging.getLogger(__name__)
 
@@ -195,9 +197,13 @@ async def start_services():
     web_app.router.add_get("/", health_check)
     runner = web.AppRunner(web_app)
     await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", PORT)
+    
+    # Safe fallback if PORT isn't strictly an integer
+    bind_port = int(PORT) if PORT else 8080
+    
+    site = web.TCPSite(runner, "0.0.0.0", bind_port)
     await site.start()
-    logger.info(f"🌐 Web server listening on port {PORT} for health checks.")
+    logger.info(f"🌐 Web server listening on port {bind_port} for health checks.")
 
     # 3. Start Bot and Idle
     await app.start()
@@ -213,7 +219,7 @@ async def start_services():
 # ============================================================
 if __name__ == "__main__":
     try:
-        # Run everything gracefully in one event loop
-        asyncio.get_event_loop().run_until_complete(start_services())
+        # asyncio.run is the modern standard for executing the main loop
+        asyncio.run(start_services())
     except KeyboardInterrupt:
         logger.info("Process interrupted. Shutting down...")
