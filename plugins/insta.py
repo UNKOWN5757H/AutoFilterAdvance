@@ -304,9 +304,7 @@ class InstaDownloader:
         shortcode = InstaDownloader.get_shortcode(url)
         if not shortcode:
             return {"success": False, "error": "Invalid Link"}
-        is_reel_or_story = (
-            "/reel/" in url or "/tv/" in url or "/stories/" in url
-        )
+        is_reel_or_story = "/reel/" in url or "/tv/" in url or "/stories/" in url
 
         if is_reel_or_story:
             return InstaDownloader._download_video(shortcode, url, task_dir)
