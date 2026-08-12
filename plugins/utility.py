@@ -37,7 +37,7 @@ def get_admin_list():
     """Safely parses the ADMINS variable whether it's a string, list, or int."""
     raw_admins = getattr(info, "ADMINS", [])
     admins = []
-    
+
     if isinstance(raw_admins, str):
         # Handles space or comma-separated strings from environment variables
         admins = [x.strip() for x in raw_admins.replace(",", " ").split() if x.strip()]
@@ -45,7 +45,7 @@ def get_admin_list():
         admins = [str(raw_admins)]
     elif isinstance(raw_admins, list):
         admins = [str(a) for a in raw_admins]
-        
+
     return admins
 
 
@@ -81,8 +81,7 @@ def get_size_str(bytes_size):
 # ⚙️ ADMIN COMMANDS
 # ============================================================
 @Client.on_message(
-    filters.command("logs") & admin_filter & (filters.private | filters.group),
-    group=1
+    filters.command("logs") & admin_filter & (filters.private | filters.group), group=1
 )
 async def get_logs_cmd(bot: Client, message: Message):
     log_file = "TelegramBot.log"
@@ -98,7 +97,7 @@ async def get_logs_cmd(bot: Client, message: Message):
 
 @Client.on_message(
     filters.command("server") & admin_filter & (filters.private | filters.group),
-    group=1
+    group=1,
 )
 async def server_stats_cmd(bot: Client, message: Message):
     msg = await message.reply_text("⏳ **Fetching server statistics...**")
@@ -122,7 +121,7 @@ async def server_stats_cmd(bot: Client, message: Message):
 
 @Client.on_message(
     filters.command("restart") & admin_filter & (filters.private | filters.group),
-    group=1
+    group=1,
 )
 async def restart_bot_cmd(bot: Client, message: Message):
     await message.reply_text(
@@ -144,8 +143,7 @@ async def confirm_restart_cb(bot: Client, query: CallbackQuery):
 
 
 @Client.on_message(
-    filters.command("stats") & admin_filter & (filters.private | filters.group),
-    group=1
+    filters.command("stats") & admin_filter & (filters.private | filters.group), group=1
 )
 async def bot_stats_cmd(bot: Client, message: Message):
     status_msg = await message.reply_text("⏳ **Fetching Database Stats...**")
@@ -164,7 +162,7 @@ async def bot_stats_cmd(bot: Client, message: Message):
 
 @Client.on_message(
     filters.command("cleanusers") & admin_filter & (filters.private | filters.group),
-    group=1
+    group=1,
 )
 async def clean_users_cmd(bot: Client, message: Message):
     status_msg = await message.reply_text(
@@ -215,8 +213,7 @@ async def clean_users_cmd(bot: Client, message: Message):
 
 
 @Client.on_message(
-    filters.command("total") & admin_filter & (filters.private | filters.group),
-    group=1
+    filters.command("total") & admin_filter & (filters.private | filters.group), group=1
 )
 async def total_files_cmd(bot: Client, message: Message):
     msg = await message.reply_text("⏳ **Calculating total files in database...**")
@@ -226,7 +223,7 @@ async def total_files_cmd(bot: Client, message: Message):
 
 @Client.on_message(
     filters.command("clearfiles") & admin_filter & (filters.private | filters.group),
-    group=1
+    group=1,
 )
 async def clear_files_cmd(bot: Client, message: Message):
     await message.reply_text(
@@ -246,7 +243,7 @@ async def clear_files_cmd(bot: Client, message: Message):
 
 @Client.on_message(
     filters.command("clearusers") & admin_filter & (filters.private | filters.group),
-    group=1
+    group=1,
 )
 async def clear_users_cmd(bot: Client, message: Message):
     await message.reply_text(
@@ -265,8 +262,10 @@ async def clear_users_cmd(bot: Client, message: Message):
 
 
 @Client.on_message(
-    filters.command("clearfsubusers") & admin_filter & (filters.private | filters.group),
-    group=1
+    filters.command("clearfsubusers")
+    & admin_filter
+    & (filters.private | filters.group),
+    group=1,
 )
 async def clear_fsub_cmd(bot: Client, message: Message):
     await message.reply_text(
