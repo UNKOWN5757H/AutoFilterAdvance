@@ -5,7 +5,7 @@ import re
 import traceback
 
 from pyrogram import Client, filters
-from pyrogram.enums import ButtonStyle  # âš¡ RESTORED: ButtonStyle import
+from pyrogram.enums import ButtonStyle  # ⚡ RESTORED: ButtonStyle import
 from pyrogram.errors import ButtonUrlInvalid, MessageNotModified, MessageTooLong
 from pyrogram.types import (
     CallbackQuery,
@@ -27,14 +27,14 @@ USE_GETFILE_BUTTON_BY_DEFAULT = True
 DEFAULT_WATERMARK = (
     "<a href='https://t.me/sandalwood_kannada_moviesz'>Join Sandalwood New Movies</a>"
 )
-LANGUAGES_FORMAT = "<b>ðŸ”Š : {langs}</b>"
-RESOLUTIONS_FORMAT = "\n<b>ðŸ–¥ï¸ : {resolutions}</b>"
-GENRES_FORMAT = "\n<b>ðŸŽ¥ : {genres}</b>"
-OTT_FORMAT = "\n<b>ðŸ“º : #{otts}</b>"
+LANGUAGES_FORMAT = "<b>🔊 : {langs}</b>"
+RESOLUTIONS_FORMAT = "\n<b>🖥️ : {resolutions}</b>"
+GENRES_FORMAT = "\n<b>🎥 : {genres}</b>"
+OTT_FORMAT = "\n<b>📺 : #{otts}</b>"
 
 TEMPLATES = {
-    "clean_grid": """âœ… <b>{title} {year}</b>\n\n<blockquote><b>ðŸ”Š : {LANGUAGES}</b>\n<b>ðŸ–¥ï¸ : {RESOLUTIONS}</b>\n<b>ðŸŽ¥ : {genres}</b>\n<b>ðŸ“º : #{OTT_PLATFORMS}</b>\n<b>ðŸ“Ÿ : Available In Files.</b>\n\n<b>=========================</b></blockquote>""",
-    "divider_list": """ðŸŽ¬ <b>{title} {year}</b>\nâ”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”\n<blockquote><b>ðŸ”Š : {LANGUAGES}</b>\n<b>ðŸ–¥ï¸ : {RESOLUTIONS}</b>\n<b>ðŸ“º : {OTT_PLATFORMS}</b></blockquote>""",
+    "clean_grid": """✅ <b>{title} {year}</b>\n\n<blockquote><b>🔊 : {LANGUAGES}</b>\n<b>🖥️ : {RESOLUTIONS}</b>\n<b>🎥 : {genres}</b>\n<b>📺 : #{OTT_PLATFORMS}</b>\n<b>📟 : Available In Files.</b>\n\n<b>=========================</b></blockquote>""",
+    "divider_list": """🎬 <b>{title} {year}</b>\n━━━━━━━━━━━━━━━━━━\n<blockquote><b>🔊 : {LANGUAGES}</b>\n<b>🖥️ : {RESOLUTIONS}</b>\n<b>📺 : {OTT_PLATFORMS}</b></blockquote>""",
 }
 
 LANGUAGES = [
@@ -183,19 +183,19 @@ async def post_command(client: Client, message: Message):
 
         await start_post_session(client, message, user_id, movie_name)
     except Exception as e:
-        await message.reply_text(f"âŒ **COMMAND ERROR:**\n`{e}`")
+        await message.reply_text(f"❌ **COMMAND ERROR:**\n`{e}`")
 
 
 async def start_post_session(
     client: Client, message: Message, user_id: int, movie_name: str
 ):
     try:
-        status_msg = await message.reply_text("â³ Fetching movie details...")
+        status_msg = await message.reply_text("⏳ Fetching movie details...")
 
         movie_details = await get_movie_detailsx(movie_name)
         if not movie_details:
             return await status_msg.edit_text(
-                "âŒ Could not fetch details for the movie from TMDB."
+                "❌ Could not fetch details for the movie from TMDB."
             )
 
         if user_id in post_sessions and post_sessions[user_id].get(
@@ -236,7 +236,7 @@ async def start_post_session(
 
         await update_post_preview(client, user_id, message.chat.id, force_resend=True)
     except Exception as e:
-        await message.reply_text(f"âŒ **SESSION ERROR:**\n`{e}`")
+        await message.reply_text(f"❌ **SESSION ERROR:**\n`{e}`")
 
 
 class SafeDict(dict):
@@ -388,7 +388,7 @@ async def update_post_preview(
         )
     except Exception as e:
         try:
-            await client.send_message(chat_id, f"âŒ **BUILD CONTENT ERROR:**\n`{e}`")
+            await client.send_message(chat_id, f"❌ **BUILD CONTENT ERROR:**\n`{e}`")
         except Exception:
             pass
         return
@@ -457,7 +457,7 @@ async def update_post_preview(
                 )
     except Exception as e:
         try:
-            await client.send_message(chat_id, f"âŒ **PREVIEW SEND ERROR:**\n`{e}`")
+            await client.send_message(chat_id, f"❌ **PREVIEW SEND ERROR:**\n`{e}`")
         except Exception:
             pass
 
@@ -470,32 +470,32 @@ def build_keyboard(session: dict, session_id: int):
         [
             [
                 InlineKeyboardButton(
-                    "âœï¸ Buttons", callback_data=f"post:buttons_menu:{session_id}"
+                    "✏️ Buttons", callback_data=f"post:buttons_menu:{session_id}"
                 ),
                 InlineKeyboardButton(
-                    "âœï¸ Caption", callback_data=f"post:edit_caption:{session_id}"
+                    "✏️ Caption", callback_data=f"post:edit_caption:{session_id}"
                 ),
             ],
             [
                 InlineKeyboardButton(
-                    "ðŸ–¼ï¸ Poster", callback_data=f"post:set_poster:{session_id}"
+                    "🖼️ Poster", callback_data=f"post:set_poster:{session_id}"
                 ),
                 InlineKeyboardButton(
-                    "âœ¨ Templates", callback_data=f"post:templates:{session_id}"
+                    "✨ Templates", callback_data=f"post:templates:{session_id}"
                 ),
                 InlineKeyboardButton(
-                    "ðŸ’§ Watermark", callback_data=f"post:set_watermark:{session_id}"
+                    "💧 Watermark", callback_data=f"post:set_watermark:{session_id}"
                 ),
             ],
             [
                 InlineKeyboardButton(
-                    "ðŸ”Š", callback_data=f"post:languages:{session_id}"
+                    "🔊", callback_data=f"post:languages:{session_id}"
                 ),
                 InlineKeyboardButton(
-                    "ðŸ–¥ï¸", callback_data=f"post:resolutions:{session_id}"
+                    "🖥️", callback_data=f"post:resolutions:{session_id}"
                 ),
-                InlineKeyboardButton("ðŸŽ¥", callback_data=f"post:genres:{session_id}"),
-                InlineKeyboardButton("ðŸ“º", callback_data=f"post:otts:{session_id}"),
+                InlineKeyboardButton("🎥", callback_data=f"post:genres:{session_id}"),
+                InlineKeyboardButton("📺", callback_data=f"post:otts:{session_id}"),
             ],
             [
                 InlineKeyboardButton(
@@ -509,10 +509,10 @@ def build_keyboard(session: dict, session_id: int):
             ],
             [
                 InlineKeyboardButton(
-                    "âœ… Post", callback_data=f"post:finalize:{session_id}"
+                    "✅ Post", callback_data=f"post:finalize:{session_id}"
                 ),
                 InlineKeyboardButton(
-                    "âŒ Cancel", callback_data=f"post:cancel:{session_id}"
+                    "❌ Cancel", callback_data=f"post:cancel:{session_id}"
                 ),
             ],
         ]
@@ -612,9 +612,9 @@ async def post_callbacks(client: Client, query: CallbackQuery):
                 added = await handle_add_get_files(client, session)
                 await query.answer(
                     (
-                        "âœ… 'Get Files' button added!"
+                        "✅ 'Get Files' button added!"
                         if added
-                        else "âš ï¸ Button already exists!"
+                        else "⚠️ Button already exists!"
                     ),
                     show_alert=not added,
                 )
@@ -659,7 +659,7 @@ async def post_callbacks(client: Client, query: CallbackQuery):
             client, session_id, query.message.chat.id, force_resend
         )
     except Exception as e:
-        await query.message.reply_text(f"âŒ **CALLBACK ERROR:**\n`{e}`")
+        await query.message.reply_text(f"❌ **CALLBACK ERROR:**\n`{e}`")
 
 
 async def show_selection_menu(query: CallbackQuery, session_id: int, menu_type: str):
@@ -698,7 +698,7 @@ async def show_selection_menu(query: CallbackQuery, session_id: int, menu_type: 
 
     buttons = [
         InlineKeyboardButton(
-            f"âœ… {i}" if i in selected else i,
+            f"✅ {i}" if i in selected else i,
             callback_data=f"post:{action_prefix}:{session_id}:{i}",
         )
         for i in items
@@ -707,13 +707,12 @@ async def show_selection_menu(query: CallbackQuery, session_id: int, menu_type: 
     keyboard.append(
         [
             InlineKeyboardButton(
-                "âš™ï¸ Change Format",
-                callback_data=f"post:{format_action}:{session_id}",
+                "⚙️ Change Format", callback_data=f"post:{format_action}:{session_id}"
             )
         ]
     )
     keyboard.append(
-        [InlineKeyboardButton("âœ… Done", callback_data=f"post:back:{session_id}")]
+        [InlineKeyboardButton("✅ Done", callback_data=f"post:back:{session_id}")]
     )
 
     try:
@@ -758,18 +757,18 @@ async def handle_buttons_menu(query, session_id):
     buttons = [
         [
             InlineKeyboardButton(
-                "âž• Add/Edit Layout", callback_data=f"post:edit_buttons:{session_id}"
+                "➕ Add/Edit Layout", callback_data=f"post:edit_buttons:{session_id}"
             )
         ],
         [
             InlineKeyboardButton(
-                "ðŸ“¥ Add 'Get Files' Button",
+                "📥 Add 'Get Files' Button",
                 callback_data=f"post:add_get_files:{session_id}",
             )
         ],
         [
             InlineKeyboardButton(
-                "ðŸ—‘ï¸ Remove a Button",
+                "🗑️ Remove a Button",
                 callback_data=f"post:remove_buttons_menu:{session_id}",
             )
         ],
@@ -843,17 +842,17 @@ async def handle_add_get_files(client: Client, session: dict) -> bool:
                 if btn.url == url:
                     return False
 
-        # âš¡ RESTORED: Colored Buttons and Emojis are back!
+        # ⚡ RESTORED: Colored Buttons and Emojis are back!
         session["buttons"].append(
             [
                 InlineKeyboardButton(
-                    text="Group 1 ðŸŽ¬",
+                    text="Group 1 🎬",
                     url="https://t.me/Sandalwood_Kannada_Group",
                     icon_custom_emoji_id=5258096772776991776,
                     style=ButtonStyle.PRIMARY,
                 ),
                 InlineKeyboardButton(
-                    text="Group 2 ðŸŽ¬",
+                    text="Group 2 🎬",
                     url="https://t.me/+GLsPkRgLGGszMzY1",
                     icon_custom_emoji_id=5258096772776991776,
                     style=ButtonStyle.PRIMARY,
@@ -863,7 +862,7 @@ async def handle_add_get_files(client: Client, session: dict) -> bool:
         session["buttons"].append(
             [
                 InlineKeyboardButton(
-                    text="Direct Search ðŸ”Ž",
+                    text="Direct Search 🔎",
                     url=url,
                     icon_custom_emoji_id=5258503720928288433,
                     style=ButtonStyle.SUCCESS,
@@ -916,7 +915,7 @@ async def handle_set_poster(client: Client, query: CallbackQuery, session_id: in
 
 async def handle_set_watermark(client, query, session_id: int):
     session = post_sessions[session_id]
-    prompt_text = "Send the watermark text. HTML is supported.\n\nâ€¢ Send `/reset` to remove the watermark.\nâ€¢ Send `/default` to use the default watermark."
+    prompt_text = "Send the watermark text. HTML is supported.\n\n• Send `/reset` to remove the watermark.\n• Send `/default` to use the default watermark."
     response = await get_user_input(client, query, session, prompt_text)
     if response and response.text:
         if response.text == "/reset":
@@ -944,7 +943,7 @@ async def handle_format_lang(client, query, session_id: int):
         elif "{langs}" not in response.text:
             try:
                 await query.message.reply_text(
-                    "âš ï¸ Invalid format! The format must contain `{langs}` placeholder.",
+                    "⚠️ Invalid format! The format must contain `{langs}` placeholder.",
                     quote=True,
                 )
             except Exception:
@@ -970,7 +969,7 @@ async def handle_format_res(client, query, session_id: int):
         elif "{resolutions}" not in response.text:
             try:
                 await query.message.reply_text(
-                    "âš ï¸ Invalid format! The format must contain `{resolutions}` placeholder.",
+                    "⚠️ Invalid format! The format must contain `{resolutions}` placeholder.",
                     quote=True,
                 )
             except Exception:
@@ -996,7 +995,7 @@ async def handle_format_gen(client, query, session_id: int):
         elif "{genres}" not in response.text:
             try:
                 await query.message.reply_text(
-                    "âš ï¸ Invalid format! The format must contain `{genres}` placeholder.",
+                    "⚠️ Invalid format! The format must contain `{genres}` placeholder.",
                     quote=True,
                 )
             except Exception:
@@ -1022,7 +1021,7 @@ async def handle_format_ott(client, query, session_id: int):
         elif "{otts}" not in response.text:
             try:
                 await query.message.reply_text(
-                    "âš ï¸ Invalid format! The format must contain `{otts}` placeholder.",
+                    "⚠️ Invalid format! The format must contain `{otts}` placeholder.",
                     quote=True,
                 )
             except Exception:
@@ -1038,7 +1037,7 @@ async def handle_templates_menu(query, session_id: int):
     session = post_sessions[session_id]
     buttons = []
     for name in TEMPLATES:
-        text = f"âœ… {name}" if session.get("active_template") == name else name
+        text = f"✅ {name}" if session.get("active_template") == name else name
         buttons.append(
             [
                 InlineKeyboardButton(
@@ -1070,7 +1069,7 @@ async def handle_remove_buttons_menu(query, session_id: int):
             buttons.append(
                 [
                     InlineKeyboardButton(
-                        f"âŒ {btn.text}",
+                        f"❌ {btn.text}",
                         callback_data=f"post:remove_button:{query.from_user.id}:{i}:{j}",
                     )
                 ]
@@ -1178,7 +1177,7 @@ async def finalize_and_post(
         if status_msg:
             try:
                 await status_msg.edit(
-                    "âŒ **MOVIE_UPDATE_CHANNEL is not set in config!**"
+                    "❌ **MOVIE_UPDATE_CHANNEL is not set in config!**"
                 )
             except Exception:
                 pass
@@ -1208,14 +1207,14 @@ async def finalize_and_post(
 
         if status_msg:
             try:
-                await status_msg.edit("âœ… Post has been sent to the update channel.")
+                await status_msg.edit("✅ Post has been sent to the update channel.")
             except Exception:
                 pass
     except ButtonUrlInvalid:
         if status_msg:
             try:
                 await status_msg.edit(
-                    "âŒ **Post Failed:** One of the button URLs is invalid. Ensure all URLs start with `http://` or `https://`."
+                    "❌ **Post Failed:** One of the button URLs is invalid. Ensure all URLs start with `http://` or `https://`."
                 )
             except Exception:
                 pass
