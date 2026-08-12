@@ -36,12 +36,12 @@ except ImportError:
 async def admin_check(_, __, message: Message):
     if not message.from_user:
         return False
-        
+
     raw_admins = getattr(info, "ADMINS", [])
     # If ADMINS was accidentally set as a single int or string, wrap it in a list
     if isinstance(raw_admins, (int, str)):
         raw_admins = [raw_admins]
-        
+
     admins = [str(a) for a in raw_admins]
     return str(message.from_user.id) in admins
 
@@ -52,11 +52,11 @@ admin_filter = filters.create(admin_check)
 async def cb_admin_check(_, __, query: CallbackQuery):
     if not query.from_user:
         return False
-        
+
     raw_admins = getattr(info, "ADMINS", [])
     if isinstance(raw_admins, (int, str)):
         raw_admins = [raw_admins]
-        
+
     admins = [str(a) for a in raw_admins]
     return str(query.from_user.id) in admins
 
