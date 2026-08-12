@@ -707,7 +707,8 @@ async def show_selection_menu(query: CallbackQuery, session_id: int, menu_type: 
     keyboard.append(
         [
             InlineKeyboardButton(
-                "âš™ï¸ Change Format", callback_data=f"post:{format_action}:{session_id}"
+                "âš™ï¸ Change Format",
+                callback_data=f"post:{format_action}:{session_id}",
             )
         ]
     )
