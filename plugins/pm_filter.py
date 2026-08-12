@@ -241,13 +241,13 @@ async def next_page(bot, query):
         btn.insert(
             0,
             [
-            InlineKeyboardButton(
-                text="• Bᴀᴄᴋ Uᴘ Cʜᴀɴɴᴇʟ •",
-                url="https://t.me/KR_Picture",
-                icon_custom_emoji_id=5258503720928288433,
-                style=ButtonStyle.SUCCESS,
-            )
-        ],
+                InlineKeyboardButton(
+                    text="• Bᴀᴄᴋ Uᴘ Cʜᴀɴɴᴇʟ •",
+                    url="https://t.me/KR_Picture",
+                    icon_custom_emoji_id=5258503720928288433,
+                    style=ButtonStyle.SUCCESS,
+                )
+            ],
         )
         btn.append(
             [
@@ -789,47 +789,47 @@ async def cb_handler(client: Client, query: CallbackQuery):
             await query.answer()
             user_id = query.from_user.id
             buttons = [
-        [
-            InlineKeyboardButton(
-                text="✈️ Group 1",
-                url="https://t.me/Sandalwood_Kannada_Group",
-                icon_custom_emoji_id=5258096772776991776,
-                style=ButtonStyle.PRIMARY,
-            ),
-            InlineKeyboardButton(
-                text="✈️ Group 2",
-                url="http://t.me/Kannada_Filmy_Group",
-                icon_custom_emoji_id=5258096772776991776,
-                style=ButtonStyle.PRIMARY,
-            ),
-            InlineKeyboardButton(
-                text="✈️ Group 3",
-                url="https://t.me/+GLsPkRgLGGszMzY1",
-                icon_custom_emoji_id=5258096772776991776,
-                style=ButtonStyle.PRIMARY,
-            ),
-        ]
-    ]
-
-    # Safe parsing of ADMINS list for both string/int
-    if str(user_id) in [str(a) for a in ADMINS]:
-        buttons.append(
-            [
-                InlineKeyboardButton("ℹ️ 𝙷𝚎𝚕𝚙", callback_data="help"),
-                InlineKeyboardButton("😊 𝙰𝚋𝚘𝚞𝚝", callback_data="about"),
+                [
+                    InlineKeyboardButton(
+                        text="✈️ Group 1",
+                        url="https://t.me/Sandalwood_Kannada_Group",
+                        icon_custom_emoji_id=5258096772776991776,
+                        style=ButtonStyle.PRIMARY,
+                    ),
+                    InlineKeyboardButton(
+                        text="✈️ Group 2",
+                        url="http://t.me/Kannada_Filmy_Group",
+                        icon_custom_emoji_id=5258096772776991776,
+                        style=ButtonStyle.PRIMARY,
+                    ),
+                    InlineKeyboardButton(
+                        text="✈️ Group 3",
+                        url="https://t.me/+GLsPkRgLGGszMzY1",
+                        icon_custom_emoji_id=5258096772776991776,
+                        style=ButtonStyle.PRIMARY,
+                    ),
+                ]
             ]
-        )
 
-    buttons.append(
-        [
-            InlineKeyboardButton(
-                text="🔗 New Releases & OTT Updates",
-                url="https://t.me/sandalwood_kannada_moviesz",
-                icon_custom_emoji_id=5258503720928288433,
-                style=ButtonStyle.SUCCESS,
+            # Safe parsing of ADMINS list for both string/int
+            if str(user_id) in [str(a) for a in ADMINS]:
+                buttons.append(
+                    [
+                        InlineKeyboardButton("ℹ️ 𝙷𝚎𝚕𝚙", callback_data="help"),
+                        InlineKeyboardButton("😊 𝙰𝚋𝚘𝚞𝚝", callback_data="about"),
+                    ]
+                )
+
+            buttons.append(
+                [
+                    InlineKeyboardButton(
+                        text="🔗 New Releases & OTT Updates",
+                        url="https://t.me/sandalwood_kannada_moviesz",
+                        icon_custom_emoji_id=5258503720928288433,
+                        style=ButtonStyle.SUCCESS,
+                    )
+                ]
             )
-        ]
-    )
 
             try:
                 bot_uname = temp.U_NAME or "my_bot"
