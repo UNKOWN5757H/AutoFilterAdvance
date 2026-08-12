@@ -227,14 +227,18 @@ async def top_add_all(bot: Client, message: Message):
 async def top_add_24(bot: Client, message: Message):
     grp_id, ok = await get_target_group(bot, message, require_admin=False)
     if ok:
-        await generate_leaderboard(bot, message, grp_id, "Top Adders (Past 24 Hours)", 86400)
+        await generate_leaderboard(
+            bot, message, grp_id, "Top Adders (Past 24 Hours)", 86400
+        )
 
 
 @Client.on_message(filters.command("topadd7") & (filters.group | filters.private))
 async def top_add_7(bot: Client, message: Message):
     grp_id, ok = await get_target_group(bot, message, require_admin=False)
     if ok:
-        await generate_leaderboard(bot, message, grp_id, "Top Adders (Past 7 Days)", 604800)
+        await generate_leaderboard(
+            bot, message, grp_id, "Top Adders (Past 7 Days)", 604800
+        )
 
 
 @Client.on_message(filters.command("resetadddaily") & (filters.group | filters.private))
@@ -281,9 +285,7 @@ async def my_adds(bot: Client, message: Message):
         if settings["limit"] == 0:
             return await message.reply_text("ℹ️ Force Add is not active in this group.")
 
-        current_adds = await plugin_db.get_fa_user_adds(
-            grp_id, message.from_user.id
-        )
+        current_adds = await plugin_db.get_fa_user_adds(grp_id, message.from_user.id)
         if current_adds >= settings["limit"]:
             await message.reply_text(
                 f"✅ You have added **{current_adds}** members. You are cleared to chat freely!"
