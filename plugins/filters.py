@@ -238,7 +238,9 @@ async def list_filters_cmd(client: Client, message: Message):
 
     keywords = await get_filters(grp_id)
     if not keywords:
-        return await message.reply_text("⚠️ **No active filters found for this group.**")
+        return await message.reply_text(
+            "⚠️ **No active filters found for this group.**"
+        )
 
     text = "📋 **Current Filters:**\n\n"
     for kw in keywords:
