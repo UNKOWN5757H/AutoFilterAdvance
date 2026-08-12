@@ -8,6 +8,19 @@ import info
 logger = logging.getLogger(__name__)
 
 # ============================================================
+# 🛡️ CUSTOM ADMIN FILTER (Fixes silent command failures)
+# ============================================================
+async def admin_check(_, __, message: Message):
+    if not message.from_user:
+        return False
+    return (
+        message.from_user.id in info.ADMINS or str(message.from_user.id) in info.ADMINS
+    )
+
+admin_filter = filters.create(admin_check)
+
+
+# ============================================================
 # ⚙️ Initialize Runtime State
 # ============================================================
 # Defaults to False so the bot works normally upon startup
@@ -18,7 +31,7 @@ if not hasattr(info, "REPAIR_MODE"):
 # ============================================================
 # 🛠️ Toggle Repair Mode
 # ============================================================
-@Client.on_message(filters.command("repairmode") & filters.user(info.ADMINS))
+@Client.on_message(filters.command("repairmode") & admin_filter & (filters.private | filters.group))
 async def toggle_repair_mode(bot: Client, message: Message):
     """
     Toggles the repair mode on or off.
@@ -51,7 +64,7 @@ async def toggle_repair_mode(bot: Client, message: Message):
 # ============================================================
 # 📊 View Admin Settings
 # ============================================================
-@Client.on_message(filters.command("adminsettings") & filters.user(info.ADMINS))
+@Client.on_message(filters.command("adminsettings") & admin_filter & (filters.private | filters.group))
 async def show_admin_settings(bot: Client, message: Message):
     """
     Displays the current state of all major bot configurations.
