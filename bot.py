@@ -3,6 +3,8 @@ import glob
 import logging
 import logging.config
 import os
+import signal
+import sys
 from typing import AsyncGenerator, Union
 
 import pyromod  # ⚡ Injects .listen() into Pyrogram globally
@@ -197,10 +199,10 @@ async def start_services():
     web_app.router.add_get("/", health_check)
     runner = web.AppRunner(web_app)
     await runner.setup()
-
+    
     # Safe fallback if PORT isn't strictly an integer
     bind_port = int(PORT) if PORT else 8080
-
+    
     site = web.TCPSite(runner, "0.0.0.0", bind_port)
     await site.start()
     logger.info(f"🌐 Web server listening on port {bind_port} for health checks.")
@@ -217,9 +219,18 @@ async def start_services():
 # ============================================================
 # 🚀 LAUNCH SEQUENCE
 # ============================================================
+def force_shutdown(signum, frame):
+    logger.info("🛑 Received shutdown signal from Koyeb. Killing old instance immediately!")
+    sys.exit(0)
+
 if __name__ == "__main__":
+    # Catch Koyeb's termination signals so the old bot dies instantly
+    # and releases the Telegram connection for the new bot.
+    signal.signal(signal.SIGTERM, force_shutdown)
+    signal.signal(signal.SIGINT, force_shutdown)
+
     try:
-        # asyncio.run is the modern standard for executing the main loop
-        asyncio.run(start_services())
-    except KeyboardInterrupt:
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(start_services())
+    except (KeyboardInterrupt, SystemExit):
         logger.info("Process interrupted. Shutting down...")
