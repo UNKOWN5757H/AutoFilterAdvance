@@ -1349,7 +1349,10 @@ async def manual_filters(client, message, text=False):
 
             try:
                 sent_msg = None
-                if fileid == "None":
+                fileid_str = str(fileid).strip()
+
+                # 🛡️ ROBUST FILE ID CHECK
+                if not fileid or fileid_str in ["None", "[]", "", "False"]:
                     if not reply_markup:
                         sent_msg = await client.send_message(
                             group_id,
