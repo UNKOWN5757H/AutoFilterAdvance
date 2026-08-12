@@ -31,19 +31,28 @@ except ImportError:
 
 
 # ============================================================
-# 🛡️ BULLETPROOF ADMIN FILTERS (Fixes silent crashes)
+# 🛡️ BULLETPROOF ADMIN FILTERS (Fixes silent ignores)
 # ============================================================
+def get_admin_list():
+    """Safely parses the ADMINS variable whether it's a string, list, or int."""
+    raw_admins = getattr(info, "ADMINS", [])
+    admins = []
+    
+    if isinstance(raw_admins, str):
+        # Handles space or comma-separated strings from environment variables
+        admins = [x.strip() for x in raw_admins.replace(",", " ").split() if x.strip()]
+    elif isinstance(raw_admins, int):
+        admins = [str(raw_admins)]
+    elif isinstance(raw_admins, list):
+        admins = [str(a) for a in raw_admins]
+        
+    return admins
+
+
 async def admin_check(_, __, message: Message):
     if not message.from_user:
         return False
-
-    raw_admins = getattr(info, "ADMINS", [])
-    # If ADMINS was accidentally set as a single int or string, wrap it in a list
-    if isinstance(raw_admins, (int, str)):
-        raw_admins = [raw_admins]
-
-    admins = [str(a) for a in raw_admins]
-    return str(message.from_user.id) in admins
+    return str(message.from_user.id) in get_admin_list()
 
 
 admin_filter = filters.create(admin_check)
@@ -52,13 +61,7 @@ admin_filter = filters.create(admin_check)
 async def cb_admin_check(_, __, query: CallbackQuery):
     if not query.from_user:
         return False
-
-    raw_admins = getattr(info, "ADMINS", [])
-    if isinstance(raw_admins, (int, str)):
-        raw_admins = [raw_admins]
-
-    admins = [str(a) for a in raw_admins]
-    return str(query.from_user.id) in admins
+    return str(query.from_user.id) in get_admin_list()
 
 
 cb_admin_filter = filters.create(cb_admin_check)
@@ -78,7 +81,8 @@ def get_size_str(bytes_size):
 # ⚙️ ADMIN COMMANDS
 # ============================================================
 @Client.on_message(
-    filters.command("logs") & admin_filter & (filters.private | filters.group)
+    filters.command("logs") & admin_filter & (filters.private | filters.group),
+    group=1
 )
 async def get_logs_cmd(bot: Client, message: Message):
     log_file = "TelegramBot.log"
@@ -93,14 +97,16 @@ async def get_logs_cmd(bot: Client, message: Message):
 
 
 @Client.on_message(
-    filters.command("server") & admin_filter & (filters.private | filters.group)
+    filters.command("server") & admin_filter & (filters.private | filters.group),
+    group=1
 )
 async def server_stats_cmd(bot: Client, message: Message):
     msg = await message.reply_text("⏳ **Fetching server statistics...**")
     text = "🖥 **Server Statistics**\n\n"
 
     if psutil:
-        cpu_pct = psutil.cpu_percent(interval=0.5)
+        # Non-blocking CPU check (interval=None prevents event loop freezing)
+        cpu_pct = psutil.cpu_percent(interval=None)
         ram = psutil.virtual_memory()
         text += f"🧠 **CPU Usage:** `{cpu_pct}%`\n"
         text += f"📉 **RAM Usage:** `{ram.percent}%`\n"
@@ -115,7 +121,8 @@ async def server_stats_cmd(bot: Client, message: Message):
 
 
 @Client.on_message(
-    filters.command("restart") & admin_filter & (filters.private | filters.group)
+    filters.command("restart") & admin_filter & (filters.private | filters.group),
+    group=1
 )
 async def restart_bot_cmd(bot: Client, message: Message):
     await message.reply_text(
@@ -137,7 +144,8 @@ async def confirm_restart_cb(bot: Client, query: CallbackQuery):
 
 
 @Client.on_message(
-    filters.command("stats") & admin_filter & (filters.private | filters.group)
+    filters.command("stats") & admin_filter & (filters.private | filters.group),
+    group=1
 )
 async def bot_stats_cmd(bot: Client, message: Message):
     status_msg = await message.reply_text("⏳ **Fetching Database Stats...**")
@@ -155,7 +163,8 @@ async def bot_stats_cmd(bot: Client, message: Message):
 
 
 @Client.on_message(
-    filters.command("cleanusers") & admin_filter & (filters.private | filters.group)
+    filters.command("cleanusers") & admin_filter & (filters.private | filters.group),
+    group=1
 )
 async def clean_users_cmd(bot: Client, message: Message):
     status_msg = await message.reply_text(
@@ -163,7 +172,6 @@ async def clean_users_cmd(bot: Client, message: Message):
     )
     users = await db.get_all_users()
 
-    # Safe check in case the database returns a Motor Cursor instead of a list
     if not isinstance(users, list):
         try:
             users = await users.to_list(length=None)
@@ -207,7 +215,8 @@ async def clean_users_cmd(bot: Client, message: Message):
 
 
 @Client.on_message(
-    filters.command("total") & admin_filter & (filters.private | filters.group)
+    filters.command("total") & admin_filter & (filters.private | filters.group),
+    group=1
 )
 async def total_files_cmd(bot: Client, message: Message):
     msg = await message.reply_text("⏳ **Calculating total files in database...**")
@@ -216,7 +225,8 @@ async def total_files_cmd(bot: Client, message: Message):
 
 
 @Client.on_message(
-    filters.command("clearfiles") & admin_filter & (filters.private | filters.group)
+    filters.command("clearfiles") & admin_filter & (filters.private | filters.group),
+    group=1
 )
 async def clear_files_cmd(bot: Client, message: Message):
     await message.reply_text(
@@ -235,7 +245,8 @@ async def clear_files_cmd(bot: Client, message: Message):
 
 
 @Client.on_message(
-    filters.command("clearusers") & admin_filter & (filters.private | filters.group)
+    filters.command("clearusers") & admin_filter & (filters.private | filters.group),
+    group=1
 )
 async def clear_users_cmd(bot: Client, message: Message):
     await message.reply_text(
@@ -254,7 +265,8 @@ async def clear_users_cmd(bot: Client, message: Message):
 
 
 @Client.on_message(
-    filters.command("clearfsubusers") & admin_filter & (filters.private | filters.group)
+    filters.command("clearfsubusers") & admin_filter & (filters.private | filters.group),
+    group=1
 )
 async def clear_fsub_cmd(bot: Client, message: Message):
     await message.reply_text(
@@ -270,7 +282,6 @@ async def clear_fsub_cmd(bot: Client, message: Message):
 
 @Client.on_callback_query(filters.regex(r"^nuke_(files|users|fsub)$") & cb_admin_filter)
 async def nuke_callbacks(bot: Client, query: CallbackQuery):
-    # Answer the callback query so the button stops loading for the user
     await query.answer("Processing request...", show_alert=False)
 
     action = query.data.split("_")[1]
