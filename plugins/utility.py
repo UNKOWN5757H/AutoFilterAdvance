@@ -29,6 +29,7 @@ try:
 except ImportError:
     psutil = None
 
+
 # ============================================================
 # 🛡️ CUSTOM ADMIN FILTERS (Fixes silent command failures)
 # ============================================================
@@ -39,14 +40,15 @@ async def admin_check(_, __, message: Message):
         message.from_user.id in info.ADMINS or str(message.from_user.id) in info.ADMINS
     )
 
+
 admin_filter = filters.create(admin_check)
+
 
 async def cb_admin_check(_, __, query: CallbackQuery):
     if not query.from_user:
         return False
-    return (
-        query.from_user.id in info.ADMINS or str(query.from_user.id) in info.ADMINS
-    )
+    return query.from_user.id in info.ADMINS or str(query.from_user.id) in info.ADMINS
+
 
 cb_admin_filter = filters.create(cb_admin_check)
 
@@ -64,7 +66,9 @@ def get_size_str(bytes_size):
 # ============================================================
 # ⚙️ ADMIN COMMANDS
 # ============================================================
-@Client.on_message(filters.command("logs") & admin_filter & (filters.private | filters.group))
+@Client.on_message(
+    filters.command("logs") & admin_filter & (filters.private | filters.group)
+)
 async def get_logs_cmd(bot: Client, message: Message):
     log_file = "TelegramBot.log"
     if not os.path.exists(log_file):
@@ -77,7 +81,9 @@ async def get_logs_cmd(bot: Client, message: Message):
         await message.reply_text(f"❌ **Failed to send logs:**\n`{e}`")
 
 
-@Client.on_message(filters.command("server") & admin_filter & (filters.private | filters.group))
+@Client.on_message(
+    filters.command("server") & admin_filter & (filters.private | filters.group)
+)
 async def server_stats_cmd(bot: Client, message: Message):
     msg = await message.reply_text("⏳ **Fetching server statistics...**")
     text = "🖥 **Server Statistics**\n\n"
@@ -97,7 +103,9 @@ async def server_stats_cmd(bot: Client, message: Message):
     await msg.edit_text(text)
 
 
-@Client.on_message(filters.command("restart") & admin_filter & (filters.private | filters.group))
+@Client.on_message(
+    filters.command("restart") & admin_filter & (filters.private | filters.group)
+)
 async def restart_bot_cmd(bot: Client, message: Message):
     await message.reply_text(
         "⚠️ **Are you sure you want to restart the bot?**",
@@ -117,7 +125,9 @@ async def confirm_restart_cb(bot: Client, query: CallbackQuery):
     os._exit(1)
 
 
-@Client.on_message(filters.command("stats") & admin_filter & (filters.private | filters.group))
+@Client.on_message(
+    filters.command("stats") & admin_filter & (filters.private | filters.group)
+)
 async def bot_stats_cmd(bot: Client, message: Message):
     status_msg = await message.reply_text("⏳ **Fetching Database Stats...**")
     total_users = await db.total_users_count()
@@ -133,7 +143,9 @@ async def bot_stats_cmd(bot: Client, message: Message):
     await status_msg.edit_text(stats_text)
 
 
-@Client.on_message(filters.command("cleanusers") & admin_filter & (filters.private | filters.group))
+@Client.on_message(
+    filters.command("cleanusers") & admin_filter & (filters.private | filters.group)
+)
 async def clean_users_cmd(bot: Client, message: Message):
     status_msg = await message.reply_text(
         "⏳ **Starting Deep Clean...** (Processing in background)"
@@ -183,14 +195,18 @@ async def clean_users_cmd(bot: Client, message: Message):
     )
 
 
-@Client.on_message(filters.command("total") & admin_filter & (filters.private | filters.group))
+@Client.on_message(
+    filters.command("total") & admin_filter & (filters.private | filters.group)
+)
 async def total_files_cmd(bot: Client, message: Message):
     msg = await message.reply_text("⏳ **Calculating total files in database...**")
     total = await Media.count_documents()
     await msg.edit_text(f"📁 **Total Files in Database:** `{total}`")
 
 
-@Client.on_message(filters.command("clearfiles") & admin_filter & (filters.private | filters.group))
+@Client.on_message(
+    filters.command("clearfiles") & admin_filter & (filters.private | filters.group)
+)
 async def clear_files_cmd(bot: Client, message: Message):
     await message.reply_text(
         "⚠️ **WARNING!** ⚠️\nDelete **ALL** files indexed in your database?",
@@ -207,7 +223,9 @@ async def clear_files_cmd(bot: Client, message: Message):
     )
 
 
-@Client.on_message(filters.command("clearusers") & admin_filter & (filters.private | filters.group))
+@Client.on_message(
+    filters.command("clearusers") & admin_filter & (filters.private | filters.group)
+)
 async def clear_users_cmd(bot: Client, message: Message):
     await message.reply_text(
         "⚠️ **WARNING!** ⚠️\nDelete **ALL** users from your database?",
@@ -224,7 +242,9 @@ async def clear_users_cmd(bot: Client, message: Message):
     )
 
 
-@Client.on_message(filters.command("clearfsubusers") & admin_filter & (filters.private | filters.group))
+@Client.on_message(
+    filters.command("clearfsubusers") & admin_filter & (filters.private | filters.group)
+)
 async def clear_fsub_cmd(bot: Client, message: Message):
     await message.reply_text(
         "⚠️ **WARNING!** ⚠️\nClear the Force Sub DB?",
