@@ -50,22 +50,17 @@ FILE_NOT_FOUND_PIC = getattr(
 NOT_FOUND_TEXT = getattr(
     info,
     "NOT_FOUND_MSG",
-    "<b>🚫 File not found. Please note👇\n\n✅ Use correct spelling as given in Google.\n✅ DO NOT ask for files which are not released in OTT.\n✅ Request movies in this format - (Moviename) (Year of release)\nEg. Jai Ganesh 2024 </b>",
+    (
+        "<b>🚫 File not found. Please note👇\n\n"
+        "✅ Use correct spelling as given in Google.\n"
+        "✅ DO NOT ask for files which are not released in OTT.\n"
+        "✅ Request movies in this format - (Moviename) (Year of release)\n"
+        "Eg. Jai Ganesh 2024 </b>"
+    ),
 )
 
 MESSAGE_EMOJI_PLANE = '<tg-emoji emoji-id="5875465628285931233">✈️</tg-emoji> Telegram'
 MESSAGE_EMOJI_LINK = '<tg-emoji emoji-id="5877465816030515018">🔗</tg-emoji> Link'
-
-
-def get_admin_list():
-    raw_admins = getattr(info, "ADMINS", [])
-    if isinstance(raw_admins, str):
-        return [x.strip() for x in raw_admins.replace(",", " ").split() if x.strip()]
-    elif isinstance(raw_admins, int):
-        return [str(raw_admins)]
-    elif isinstance(raw_admins, list):
-        return [str(a) for a in raw_admins]
-    return []
 
 
 async def delete_message_after_delay(message, delay: int):
@@ -79,21 +74,24 @@ async def delete_message_after_delay(message, delay: int):
 
 
 async def expire_cache_entry(cache: dict, key, delay: int):
+    """Remove `key` from an in-memory cache (BUTTONS / SPELL_CHECK) after `delay`
+    seconds. Without this, both dicts grow forever for as long as the bot runs."""
     await asyncio.sleep(delay)
     cache.pop(key, None)
 
 
 # ============================================================
-# 🔍 MAIN AUTO-FILTER HANDLER (Running on Group 2)
+# 🔍 MAIN AUTO-FILTER HANDLER
 # ============================================================
-@Client.on_message(
-    (filters.group | filters.private) & filters.text & filters.incoming, group=2
-)
+@Client.on_message((filters.group | filters.private) & filters.text & filters.incoming)
 async def give_filter(client, message):
     if getattr(info, "REPAIR_MODE", False):
-        if not message.from_user or str(message.from_user.id) not in get_admin_list():
+        if not message.from_user or (
+            str(message.from_user.id) not in [str(a) for a in info.ADMINS]
+        ):
             return await message.reply_text(
-                "🛠️ **Bot is currently under maintenance!**\n\nWe are performing some upgrades/fixes. Please try again later."
+                "🛠️ **Bot is currently under maintenance!**\n\n"
+                "We are performing some upgrades/fixes. Please try again later."
             )
 
     if message.from_user and await plugin_db.is_banned(message.from_user.id):
@@ -115,16 +113,14 @@ async def give_filter(client, message):
 # ============================================================
 # 📄 PAGINATION HANDLER
 # ============================================================
-@Client.on_callback_query(filters.regex(r"^next"), group=2)
+@Client.on_callback_query(filters.regex(r"^next"))
 async def next_page(bot, query):
-    if (
-        getattr(info, "REPAIR_MODE", False)
-        and str(query.from_user.id) not in get_admin_list()
-    ):
-        return await query.answer(
-            "🛠️ Bot is currently under maintenance! Please try again later.",
-            show_alert=True,
-        )
+    if getattr(info, "REPAIR_MODE", False):
+        if str(query.from_user.id) not in [str(a) for a in info.ADMINS]:
+            return await query.answer(
+                "🛠️ Bot is currently under maintenance! Please try again later.",
+                show_alert=True,
+            )
 
     try:
         ident, req, key, offset = query.data.split("_")
@@ -301,16 +297,14 @@ async def next_page(bot, query):
 # ============================================================
 # ✍️ SPELL CHECK HANDLER
 # ============================================================
-@Client.on_callback_query(filters.regex(r"^spolling"), group=2)
+@Client.on_callback_query(filters.regex(r"^spolling"))
 async def advantage_spoll_choker(bot, query):
-    if (
-        getattr(info, "REPAIR_MODE", False)
-        and str(query.from_user.id) not in get_admin_list()
-    ):
-        return await query.answer(
-            "🛠️ Bot is currently under maintenance! Please try again later.",
-            show_alert=True,
-        )
+    if getattr(info, "REPAIR_MODE", False):
+        if str(query.from_user.id) not in [str(a) for a in info.ADMINS]:
+            return await query.answer(
+                "🛠️ Bot is currently under maintenance! Please try again later.",
+                show_alert=True,
+            )
 
     try:
         _, user, movie_ = query.data.split("#")
@@ -321,8 +315,10 @@ async def advantage_spoll_choker(bot, query):
     try:
         if int(user) != 0 and query.from_user.id != int(user):
             return await query.answer("That's not for you!", show_alert=True)
+
         if movie_ == "close_spellcheck":
             return await query.message.delete()
+
         reply_msg = query.message.reply_to_message
         if not reply_msg:
             return await query.answer(
@@ -386,13 +382,12 @@ async def advantage_spoll_choker(bot, query):
 @Client.on_callback_query(
     filters.regex(
         r"^(close_data|delallconfirm|delallcancel|groupcb.*|connectcb.*|disconnect.*|deletecb.*|backcb|alertmessage.*|file.*|checksub.*|pages|start|help|about|helps_bans|helps_custommessages|helps_customcaption|helps_delete|helps_forcesub|helps_filters|helps_index|helps_promotions|helps_settings|helps_utilities|helps_connections|helps_forceadd|helps_backup|stats|rfrsh)$"
-    ),
-    group=2,
+    )
 )
 async def cb_handler(client: Client, query: CallbackQuery):
     if getattr(info, "REPAIR_MODE", False):
         if (
-            str(query.from_user.id) not in get_admin_list()
+            str(query.from_user.id) not in [str(a) for a in info.ADMINS]
             and query.data != "close_data"
         ):
             return await query.answer(
@@ -431,6 +426,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     except (MessageIdInvalid, MessageNotModified):
                         pass
                     return await query.answer("Join: @KR_PICTURE")
+
             elif chat_type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
                 grpid = query.message.chat.id
                 title = query.message.chat.title
@@ -440,10 +436,10 @@ async def cb_handler(client: Client, query: CallbackQuery):
             try:
                 st = await client.get_chat_member(grpid, userid)
                 is_owner_or_admin = (st.status == enums.ChatMemberStatus.OWNER) or (
-                    str(userid) in get_admin_list()
+                    str(userid) in [str(a) for a in info.ADMINS]
                 )
             except Exception:
-                is_owner_or_admin = str(userid) in get_admin_list()
+                is_owner_or_admin = str(userid) in [str(a) for a in info.ADMINS]
 
             if is_owner_or_admin:
                 await del_all(query.message, grpid, title)
@@ -468,10 +464,10 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 try:
                     st = await client.get_chat_member(grp_id, userid)
                     is_owner_or_admin = (st.status == enums.ChatMemberStatus.OWNER) or (
-                        str(userid) in get_admin_list()
+                        str(userid) in [str(a) for a in info.ADMINS]
                     )
                 except Exception:
-                    is_owner_or_admin = str(userid) in get_admin_list()
+                    is_owner_or_admin = str(userid) in [str(a) for a in info.ADMINS]
 
                 if is_owner_or_admin:
                     try:
@@ -487,8 +483,10 @@ async def cb_handler(client: Client, query: CallbackQuery):
             group_id = query.data.split(":")[1]
             act = query.data.split(":")[2]
             hr = await client.get_chat(int(group_id))
+
             stat = "CONNECT" if act == "" else "DISCONNECT"
             cb = "connectcb" if act == "" else "disconnect"
+
             keyboard = InlineKeyboardMarkup(
                 [
                     [
@@ -558,6 +556,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 except (MessageIdInvalid, MessageNotModified):
                     pass
                 return
+
             buttons = []
             for groupid in groupids:
                 try:
@@ -760,7 +759,9 @@ async def cb_handler(client: Client, query: CallbackQuery):
             k = await client.send_message(
                 chat_id=query.from_user.id,
                 text=(
-                    "<blockquote><b><u>❗️❗️❗️IMPORTANT❗️️❗️❗️</u></b>\n\n⚠️ File will be deleted in 30 Minutes\n\n📌 Save or forward it.</blockquote>"
+                    "<blockquote><b><u>❗️❗️❗️IMPORTANT❗️️❗️❗️</u></b>\n\n"
+                    "⚠️ File will be deleted in 30 Minutes\n\n"
+                    "📌 Save or forward it.</blockquote>"
                 ),
             )
 
@@ -770,7 +771,9 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 try:
                     await m.delete()
                     await k.edit_text(
-                        f"<b>Hey <i>{query.from_user.first_name}</i>\n\nYour Request Has Been Deleted 👍 \n(Due To Avoid Copyrights Issue😌)\n\nIF YOU WANT THAT FILE, REQUEST AGAIN ❤️ In Our Group</b>"
+                        f"<b>Hey <i>{query.from_user.first_name}</i>\n\n"
+                        f"Your Request Has Been Deleted 👍 \n(Due To Avoid Copyrights Issue😌)\n\n"
+                        f"IF YOU WANT THAT FILE, REQUEST AGAIN ❤️ In Our Group</b>"
                     )
                 except Exception:
                     pass
@@ -808,7 +811,8 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 ]
             ]
 
-            if str(user_id) in get_admin_list():
+            # Safe parsing of ADMINS list for both string/int
+            if str(user_id) in [str(a) for a in ADMINS]:
                 buttons.append(
                     [
                         InlineKeyboardButton("ℹ️ 𝙷𝚎𝚕𝚙", callback_data="help"),
@@ -899,12 +903,14 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 )
             except Exception as e:
                 logger.error(f"Help Button Error: {e}")
+                # Fallback to prevent silent failing if string formatting has issues
                 try:
                     safe_text = str(script.HELP_TXT).replace(
                         "{mention}", query.from_user.first_name
                     )
                     await query.message.edit_text(
-                        text=safe_text, reply_markup=InlineKeyboardMarkup(buttons)
+                        text=safe_text,
+                        reply_markup=InlineKeyboardMarkup(buttons),
                     )
                 except Exception as e2:
                     logger.error(f"Help Button Fallback Failed: {e2}")
@@ -931,6 +937,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
         elif query.data.startswith("helps_"):
             await query.answer()
             buttons = [[InlineKeyboardButton("🔙 Back", callback_data="help")]]
+
             help_dict = {
                 "helps_bans": (
                     "BANS_TXT",
@@ -985,6 +992,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     "💾 Backup Help\nUse /dbbackup to save the database.",
                 ),
             }
+
             target_var, default_text = help_dict.get(
                 query.data, ("HELP_TXT", "Help information unavailable.")
             )
@@ -1028,6 +1036,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
             chats = await db.total_chat_count()
             monsize = await db.get_db_size()
             free = 536870912 - monsize
+
             try:
                 await query.message.edit_text(
                     text=script.STATUS_TXT.format(
@@ -1053,8 +1062,10 @@ async def auto_filter(client, msg, spoll=False):
 
         if not message.text:
             return
+
         if message.text.startswith(("/", "!", "#", ".", ",", "?", "@")):
             return
+
         if not (2 < len(message.text) < 100):
             return
 
@@ -1072,10 +1083,12 @@ async def auto_filter(client, msg, spoll=False):
         message = msg.message.reply_to_message
         if not message:
             message = msg.message
+
         search, files, offset, total_results = spoll
 
     if not files:
         return
+
     files.sort(
         key=lambda x: (
             x.get("file_size", 0) if isinstance(x, dict) else getattr(x, "file_size", 0)
@@ -1199,6 +1212,123 @@ async def auto_filter(client, msg, spoll=False):
     delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
     if delete_timer > 0:
         asyncio.create_task(delete_message_after_delay(m, delete_timer))
+
+
+async def advantage_spell_chok(msg):
+    if not msg or not getattr(msg, "text", None):
+        return
+
+    query = (
+        re.sub(
+            r"\b(pl(i|e)*?(s|z+|ease|se|ese|(e+)s(e)?)|((send|snd|giv(e)?|gib)(\sme)?)|movie(s)?|new|latest|br((o|u)h?)*|^h(e|a)?(l)*(o)*|mal(ayalam)?|t(h)?amil|file|that|find|und(o)*|kit(t(i|y)?)?o(w)?|thar(u)?(o)*w?|kittum(o)*|aya(k)*(um(o)*)?|full\smovie|any(one)|with\ssubtitle(s)?)",
+            "",
+            msg.text,
+            flags=re.IGNORECASE,
+        ).strip()
+        + " movie"
+    )
+
+    g_s = await search_gagala(query) or []
+    g_s += await search_gagala(msg.text) or []
+    gs_parsed = []
+
+    pic_to_use = getattr(info, "NOT_FOUND_IMG", None) or FILE_NOT_FOUND_PIC
+    text_to_use = getattr(info, "NOT_FOUND_MSG", None) or NOT_FOUND_TEXT
+
+    if not g_s:
+        try:
+            k_msg = await msg.reply_photo(photo=pic_to_use, caption=text_to_use)
+        except Exception:
+            try:
+                k_msg = await msg.reply_text(text=text_to_use)
+            except Exception:
+                k_msg = None
+
+        if k_msg:
+            delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
+            if delete_timer > 0:
+                asyncio.create_task(delete_message_after_delay(k_msg, delete_timer))
+        return
+
+    regex = re.compile(r".*(imdb|wikipedia).*", re.IGNORECASE)
+    gs = list(filter(regex.match, g_s))
+    gs_parsed = [
+        re.sub(
+            r"\b(\-([a-zA-Z-\s])\-\simdb|(\-\s)?imdb|(\-\s)?wikipedia|\(|\)|\-|reviews|full|all|episode(s)?|film|movie|series)",
+            "",
+            i,
+            flags=re.IGNORECASE,
+        )
+        for i in gs
+    ]
+
+    if not gs_parsed:
+        reg = re.compile(r"watch(\s[a-zA-Z0-9_\s\-\(\)]*)*\|.*", re.IGNORECASE)
+        for mv in g_s:
+            match = reg.match(mv)
+            if match:
+                gs_parsed.append(match.group(1))
+
+    user = msg.from_user.id if msg.from_user else 0
+    movielist = []
+    gs_parsed = list(dict.fromkeys(gs_parsed))[:3]
+
+    if gs_parsed:
+        for mov in gs_parsed:
+            try:
+                imdb_s = await get_poster(mov.strip(), bulk=True)
+                if imdb_s:
+                    movielist += [movie.get("title") for movie in imdb_s]
+            except Exception:
+                pass
+
+    movielist += [
+        (re.sub(r"(\-|\(|\)|_)", "", i, flags=re.IGNORECASE)).strip() for i in gs_parsed
+    ]
+    movielist = list(dict.fromkeys(movielist))
+
+    if not movielist:
+        try:
+            k_msg = await msg.reply_photo(photo=pic_to_use, caption=text_to_use)
+        except Exception:
+            try:
+                k_msg = await msg.reply_text(text=text_to_use)
+            except Exception:
+                k_msg = None
+
+        if k_msg:
+            delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
+            if delete_timer > 0:
+                asyncio.create_task(delete_message_after_delay(k_msg, delete_timer))
+        return
+
+    SPELL_CHECK[msg.id] = movielist
+    spell_check_ttl = getattr(info, "BUTTON_AUTO_DELETE", 1800)
+    if spell_check_ttl > 0:
+        asyncio.create_task(expire_cache_entry(SPELL_CHECK, msg.id, spell_check_ttl))
+    btn = [
+        [
+            InlineKeyboardButton(
+                text=movie.strip(), callback_data=f"spolling#{user}#{idx}"
+            )
+        ]
+        for idx, movie in enumerate(movielist)
+    ]
+    btn.append(
+        [
+            InlineKeyboardButton(
+                text="Close", callback_data=f"spolling#{user}#close_spellcheck"
+            )
+        ]
+    )
+
+    try:
+        await msg.reply(
+            "<b>I couldn't find anything related to that. Did you mean any one of these?</b>",
+            reply_markup=InlineKeyboardMarkup(btn),
+        )
+    except Forbidden:
+        pass
 
 
 async def manual_filters(client, message, text=False):
