@@ -13,6 +13,7 @@ from pyrogram.types import (
 )
 
 import info
+from database.connections_mdb import active_connection
 from database.plugin_dbs import plugin_db
 
 logger = logging.getLogger(__name__)
@@ -20,14 +21,12 @@ logger = logging.getLogger(__name__)
 
 async def is_admin(bot: Client, chat_id: int, user_id: int) -> bool:
     """Safely checks if a user is a bot admin or a chat admin using Pyrogram V2 Enums."""
-    # 1. Check if user is a global bot admin securely
     try:
         if str(user_id) in [str(a) for a in getattr(info, "ADMINS", [])]:
             return True
     except Exception:
         pass
 
-    # 2. Check if user is an admin in the specific group
     try:
         member = await bot.get_chat_member(chat_id, user_id)
         return member.status in [
@@ -38,19 +37,42 @@ async def is_admin(bot: Client, chat_id: int, user_id: int) -> bool:
         return False
 
 
+async def get_target_group(bot: Client, message: Message, require_admin: bool = True):
+    """Resolves target group ID and verifies admin permissions."""
+    if not message.from_user:
+        return None, False
+
+    if message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
+        grp_id = message.chat.id
+    else:
+        grp_id = await active_connection(str(message.from_user.id))
+        if not grp_id:
+            await message.reply_text(
+                "⚠️ **You are not connected to any active group!**\n\n"
+                "Use `/connect <group_id>` to connect to a group first."
+            )
+            return None, False
+
+    if require_admin:
+        admin_status = await is_admin(bot, grp_id, message.from_user.id)
+        if not admin_status:
+            await message.reply_text(
+                "❌ **Only admins of the connected group can use this command.**"
+            )
+            return None, False
+
+    return grp_id, True
+
+
 # ============================================================
 # ⚙️ MAIN ADMIN COMMANDS (Set & Target)
 # ============================================================
-@Client.on_message(filters.command("setforceadd") & filters.group)
+@Client.on_message(filters.command("setforceadd") & (filters.group | filters.private))
 async def set_force_add(bot: Client, message: Message):
     try:
-        if not message.from_user:
-            return await message.reply_text(
-                "❌ **Anonymous Admins cannot use this command. Please reveal your account to configure this.**"
-            )
-
-        if not await is_admin(bot, message.chat.id, message.from_user.id):
-            return await message.reply_text("❌ **Only admins can use this command.**")
+        grp_id, ok = await get_target_group(bot, message, require_admin=True)
+        if not ok:
+            return
 
         if len(message.command) < 2:
             return await message.reply_text(
@@ -72,13 +94,13 @@ async def set_force_add(bot: Client, message: Message):
                 [
                     InlineKeyboardButton(
                         "👥 Force Add for ALL Members",
-                        callback_data=f"fa_set_{limit}_all_{admin_id}",
+                        callback_data=f"fa_set_{limit}_all_{admin_id}_{grp_id}",
                     )
                 ],
                 [
                     InlineKeyboardButton(
                         "🆕 Force Add for ONLY NEW Members",
-                        callback_data=f"fa_set_{limit}_new_{admin_id}",
+                        callback_data=f"fa_set_{limit}_new_{admin_id}_{grp_id}",
                     )
                 ],
             ]
@@ -97,12 +119,13 @@ async def set_force_add(bot: Client, message: Message):
             pass
 
 
-@Client.on_callback_query(filters.regex(r"^fa_set_(\d+)_([a-z]+)_(\d+)$"))
+@Client.on_callback_query(filters.regex(r"^fa_set_(\d+)_([a-z]+)_(\d+)_(-?\d+)$"))
 async def set_forceadd_callback(bot: Client, query):
     try:
         limit = int(query.matches[0].group(1))
         mode = query.matches[0].group(2)
         admin_id = int(query.matches[0].group(3))
+        grp_id = int(query.matches[0].group(4))
 
         if query.from_user.id != admin_id:
             return await query.answer(
@@ -110,7 +133,7 @@ async def set_forceadd_callback(bot: Client, query):
                 show_alert=True,
             )
 
-        await plugin_db.set_fa_settings(query.message.chat.id, limit, mode)
+        await plugin_db.set_fa_settings(grp_id, limit, mode)
         mode_text = (
             "ALL MEMBERS"
             if mode == "all"
@@ -132,14 +155,14 @@ async def set_forceadd_callback(bot: Client, query):
         await query.answer("An error occurred.", show_alert=True)
 
 
-@Client.on_message(filters.command("remforceadd") & filters.group)
+@Client.on_message(filters.command("remforceadd") & (filters.group | filters.private))
 async def remove_force_add(bot: Client, message: Message):
     try:
-        if not message.from_user or not await is_admin(
-            bot, message.chat.id, message.from_user.id
-        ):
+        grp_id, ok = await get_target_group(bot, message, require_admin=True)
+        if not ok:
             return
-        await plugin_db.set_fa_settings(message.chat.id, 0, "all")
+
+        await plugin_db.set_fa_settings(grp_id, 0, "all")
         await message.reply_text(
             "🗑️ **Force Add requirement has been completely removed.**"
         )
@@ -147,10 +170,14 @@ async def remove_force_add(bot: Client, message: Message):
         logger.error(f"Error in remforceadd: {e}")
 
 
-@Client.on_message(filters.command("getforceadd") & filters.group)
+@Client.on_message(filters.command("getforceadd") & (filters.group | filters.private))
 async def get_force_add(bot: Client, message: Message):
     try:
-        settings = await plugin_db.get_fa_settings(message.chat.id)
+        grp_id, ok = await get_target_group(bot, message, require_admin=False)
+        if not ok:
+            return
+
+        settings = await plugin_db.get_fa_settings(grp_id)
         if settings["limit"] == 0:
             await message.reply_text("ℹ️ **Force Add is currently DISABLED.**")
         else:
@@ -165,9 +192,9 @@ async def get_force_add(bot: Client, message: Message):
 # ============================================================
 # 🏆 LEADERBOARDS & RESETS
 # ============================================================
-async def generate_leaderboard(message, title, time_limit_seconds):
+async def generate_leaderboard(bot, message, grp_id, title, time_limit_seconds):
     try:
-        top_10 = await plugin_db.get_fa_top_adds(message.chat.id, time_limit_seconds)
+        top_10 = await plugin_db.get_fa_top_adds(grp_id, time_limit_seconds)
 
         if not top_10:
             return await message.reply_text(
@@ -176,36 +203,48 @@ async def generate_leaderboard(message, title, time_limit_seconds):
 
         text = f"📊 **{title} (Top 10)**\n\n"
         for i, (uid, score) in enumerate(top_10, 1):
-            text += f"**{i}.** <a href='tg://user?id={uid}'>User {uid}</a> ➔ `{score}` added\n"
+            try:
+                user = await bot.get_users(uid)
+                user_name = user.mention if user else f"User {uid}"
+            except Exception:
+                user_name = f"User {uid}"
+
+            text += f"**{i}.** {user_name} ➔ `{score}` added\n"
 
         await message.reply_text(text, disable_web_page_preview=True)
     except Exception as e:
         logger.error(f"Error generating leaderboard: {e}")
 
 
-@Client.on_message(filters.command("topaddall") & filters.group)
+@Client.on_message(filters.command("topaddall") & (filters.group | filters.private))
 async def top_add_all(bot: Client, message: Message):
-    await generate_leaderboard(message, "All-Time Top Adders", None)
+    grp_id, ok = await get_target_group(bot, message, require_admin=False)
+    if ok:
+        await generate_leaderboard(bot, message, grp_id, "All-Time Top Adders", None)
 
 
-@Client.on_message(filters.command("topadd24") & filters.group)
+@Client.on_message(filters.command("topadd24") & (filters.group | filters.private))
 async def top_add_24(bot: Client, message: Message):
-    await generate_leaderboard(message, "Top Adders (Past 24 Hours)", 86400)
+    grp_id, ok = await get_target_group(bot, message, require_admin=False)
+    if ok:
+        await generate_leaderboard(bot, message, grp_id, "Top Adders (Past 24 Hours)", 86400)
 
 
-@Client.on_message(filters.command("topadd7") & filters.group)
+@Client.on_message(filters.command("topadd7") & (filters.group | filters.private))
 async def top_add_7(bot: Client, message: Message):
-    await generate_leaderboard(message, "Top Adders (Past 7 Days)", 604800)
+    grp_id, ok = await get_target_group(bot, message, require_admin=False)
+    if ok:
+        await generate_leaderboard(bot, message, grp_id, "Top Adders (Past 7 Days)", 604800)
 
 
-@Client.on_message(filters.command("resetadddaily") & filters.group)
+@Client.on_message(filters.command("resetadddaily") & (filters.group | filters.private))
 async def reset_add_daily(bot: Client, message: Message):
     try:
-        if not message.from_user or not await is_admin(
-            bot, message.chat.id, message.from_user.id
-        ):
+        grp_id, ok = await get_target_group(bot, message, require_admin=True)
+        if not ok:
             return
-        await plugin_db.reset_fa_daily_adds(message.chat.id)
+
+        await plugin_db.reset_fa_daily_adds(grp_id)
         await message.reply_text(
             "♻️ **Daily/Weekly limits reset!** Leaderboards for 24h and 7d have been wiped."
         )
@@ -213,14 +252,14 @@ async def reset_add_daily(bot: Client, message: Message):
         logger.error(f"Error in resetadddaily: {e}")
 
 
-@Client.on_message(filters.command("resetadd") & filters.group)
+@Client.on_message(filters.command("resetadd") & (filters.group | filters.private))
 async def reset_all_adds(bot: Client, message: Message):
     try:
-        if not message.from_user or not await is_admin(
-            bot, message.chat.id, message.from_user.id
-        ):
+        grp_id, ok = await get_target_group(bot, message, require_admin=True)
+        if not ok:
             return
-        await plugin_db.reset_fa_all_adds(message.chat.id)
+
+        await plugin_db.reset_fa_all_adds(grp_id)
         await message.reply_text(
             "💥 **TOTAL RESET!** All members' scores are now 0. Everyone must add members again."
         )
@@ -231,17 +270,19 @@ async def reset_all_adds(bot: Client, message: Message):
 # ============================================================
 # 🧑‍💻 USER COMMAND: Check their own progress
 # ============================================================
-@Client.on_message(filters.command("myadds") & filters.group)
+@Client.on_message(filters.command("myadds") & (filters.group | filters.private))
 async def my_adds(bot: Client, message: Message):
     try:
-        if not message.from_user:
+        grp_id, ok = await get_target_group(bot, message, require_admin=False)
+        if not ok:
             return
-        settings = await plugin_db.get_fa_settings(message.chat.id)
+
+        settings = await plugin_db.get_fa_settings(grp_id)
         if settings["limit"] == 0:
             return await message.reply_text("ℹ️ Force Add is not active in this group.")
 
         current_adds = await plugin_db.get_fa_user_adds(
-            message.chat.id, message.from_user.id
+            grp_id, message.from_user.id
         )
         if current_adds >= settings["limit"]:
             await message.reply_text(
@@ -264,11 +305,9 @@ async def track_added_members(bot: Client, message: Message):
         if not message.from_user:
             return
 
-        # 1. Register ALL new joining members
         for u in message.new_chat_members:
             await plugin_db.track_fa_new_user(message.chat.id, u.id)
 
-        # 2. Track who added who
         settings = await plugin_db.get_fa_settings(message.chat.id)
         if settings["limit"] == 0:
             return
@@ -283,10 +322,8 @@ async def track_added_members(bot: Client, message: Message):
         await plugin_db.increment_fa_adds(message.chat.id, adder_id, len(added_others))
         current_adds = await plugin_db.get_fa_user_adds(message.chat.id, adder_id)
 
-        # 3. Unrestrict user if they met the quota
         if current_adds >= settings["limit"]:
             try:
-                # Provide full user permissions
                 await bot.restrict_chat_member(
                     message.chat.id,
                     adder_id,
@@ -329,12 +366,10 @@ async def enforce_force_add(bot: Client, message: Message):
         if limit == 0:
             return
 
-        # Check Target Mode
         if settings["mode"] == "new":
             if not await plugin_db.is_fa_new_user(chat_id, user_id):
-                return  # Skip them, they are a legacy member
+                return
 
-        # Bypass bot commands and admins
         text = message.text or message.caption
         if text and text.startswith("/"):
             return
@@ -347,10 +382,9 @@ async def enforce_force_add(bot: Client, message: Message):
             try:
                 await message.delete()
             except Exception:
-                pass  # Silently skip if bot doesn't have delete perm
+                pass
 
             try:
-                # Restrict for 2 minutes
                 until_time = int(time.time()) + 120
                 await bot.restrict_chat_member(
                     chat_id=chat_id,
@@ -361,7 +395,7 @@ async def enforce_force_add(bot: Client, message: Message):
                     until_date=until_time,
                 )
             except Exception:
-                pass  # Silently skip if bot can't restrict
+                pass
 
             try:
                 warn_msg = await message.reply_text(
@@ -388,7 +422,6 @@ async def enforce_force_add(bot: Client, message: Message):
     except Exception as e:
         logger.error(f"Error in enforce_force_add: {e}\n{traceback.format_exc()}")
     finally:
-        # Safe deletion task
         if warn_msg:
 
             async def delete_warning(msg_to_delete):
