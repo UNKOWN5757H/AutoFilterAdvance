@@ -1,208 +1,336 @@
-import asyncio
 import os
-import random
 import re
-import traceback
+import shutil
+import time
+import json
+import urllib.parse
+import asyncio
+import requests
+import yt_dlp
+import subprocess
+import uuid
+import concurrent.futures
 
-import aiohttp
 from pyrogram import Client, filters
+from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
-try:
-    import yt_dlp
-except ImportError:
-    yt_dlp = None
+DOWNLOAD_DIR = "downloads"
+os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+download_semaphore = asyncio.Semaphore(3)  # Max 3 parallel downloads
 
-try:
-    from info import LOG_CHANNEL as DUMP_GROUP
-except ImportError:
-    DUMP_GROUP = None
-
-
-def ytdlp_downloader(link: str) -> list:
-    """Downloads Instagram media directly to disk using yt-dlp."""
-    if not yt_dlp:
-        return []
-
-    base_id = str(random.randint(1000000, 9999999))
-    ydl_opts = {
-        "outtmpl": f"{base_id}_%(autonumber)s.%(ext)s",
-        "quiet": True,
-        "no_warnings": True,
-        "http_headers": {
-            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1"
-        },
-    }
-
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.extract_info(link, download=True)
-    except Exception as e:
-        print(f"yt-dlp failed: {e}")
-
-    downloaded_files = [f for f in os.listdir(".") if f.startswith(base_id)]
-    return downloaded_files
-
-
-async def fetch_api_urls(link: str) -> list:
-    """Fallback APIs in case yt-dlp is temporarily blocked."""
-    urls = []
-
-    try:
-        headers = {
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-        }
-        async with aiohttp.ClientSession(headers=headers) as session:
-            async with session.post(
-                "https://api.cobalt.tools/api/json", json={"url": link}, timeout=10
-            ) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    if data.get("status") in ["redirect", "stream", "success"]:
-                        urls.append(data.get("url"))
-                    elif data.get("status") == "picker":
-                        for item in data.get("picker", []):
-                            urls.append(item.get("url"))
-    except Exception:
-        pass
-
-    if not urls:
-        try:
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-                "Origin": "https://saveig.app",
-                "Referer": "https://saveig.app/en",
-                "X-Requested-With": "XMLHttpRequest",
+# ============================================================
+# 📥 INSTAGRAM DOWNLOADER ENGINE
+# ============================================================
+class InstaDownloader:
+    
+    @staticmethod
+    def extract_url(text):
+        if not text: return None
+        m = re.search(r'(https?://)?(www\.)?instagram\.com/(p|reel|tv)/([a-zA-Z0-9_\-]+)', text)
+        if m:
+            return f"https://www.instagram.com/{m.group(3)}/{m.group(4)}/"
+        return None
+    
+    @staticmethod
+    def get_shortcode(url):
+        m = re.search(r'/(p|reel|tv)/([a-zA-Z0-9_\-]+)', url)
+        return m.group(2) if m else None
+    
+    @staticmethod
+    def download_media(url, task_dir):
+        shortcode = InstaDownloader.get_shortcode(url)
+        if not shortcode: return {"success": False, "error": "Invalid Link"}
+        is_reel = '/reel/' in url or '/tv/' in url
+        if is_reel: 
+            return InstaDownloader._download_video(shortcode, url, task_dir)
+        else: 
+            return InstaDownloader._download_photo(shortcode, url, task_dir)
+    
+    @staticmethod
+    def _download_video(shortcode, url, task_dir):
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'outtmpl': os.path.join(task_dir, f'{shortcode}.%(ext)s'),
+            'format': 'bv*+ba/b',
+            'merge_output_format': 'mp4',
+            'socket_timeout': 60,
+            'ignoreerrors': True,
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)',
             }
-            async with aiohttp.ClientSession(headers=headers) as session:
-                data = {"q": link, "t": "media", "lang": "en"}
-                async with session.post(
-                    "https://saveig.app/api/ajaxSearch", data=data, timeout=10
-                ) as resp:
-                    if resp.status == 200:
-                        res = await resp.json()
-                        meta = re.findall(
-                            r'href="(https?://[^"]+)"', res.get("data", "")
-                        )
-                        for m in meta:
-                            if "instagram" in m or "dl.php" in m or "cdn" in m:
-                                urls.append(m)
-        except Exception:
-            pass
-
-    return list(dict.fromkeys(urls))
-
-
-@Client.on_message(filters.command("insta") & filters.private)
-async def insta_command_handler(client, message):
-    if len(message.command) < 2:
-        return await message.reply_text(
-            "⚠️ **Please provide an Instagram link!**\n\n**Usage:** `/insta <link>`"
-        )
-
-    link = message.command[1]
-
-    if "instagram.com" not in link:
-        return await message.reply_text(
-            "⚠️ **That doesn't look like a valid Instagram link!**\nPlease check the URL and try again."
-        )
-
-    clean_link = link.split("?")[0] if "?igsh=" in link else link
-
-    m = await message.reply_text("⏳ **Downloading media... Please wait.**")
-    caption = "𝐷𝑜𝑤𝑛𝑙𝑜𝑎𝑑 𝐵𝑦 👉 @sandalwood_kannada_moviesz"
-
-    successful_messages = []
-    local_files = []
-
-    try:
-        if yt_dlp:
-            local_files = await asyncio.to_thread(ytdlp_downloader, clean_link)
-
-        if not local_files:
-            urls = await fetch_api_urls(clean_link)
-
-            if not urls:
-                raise Exception(
-                    "Both yt-dlp and fallback APIs failed to extract media."
-                )
-
-            for url in urls:
-                ext = ".mp4"
-                if any(x in url.lower() for x in [".jpg", ".jpeg", ".webp", ".png"]):
-                    ext = ".jpg"
-
-                filename = f"{random.randint(100000, 9999999)}{ext}"
-
-                try:
-                    async with aiohttp.ClientSession() as session:
-                        async with session.get(url, timeout=20) as resp:
-                            if resp.status == 200:
-                                with open(filename, "wb") as f:
-                                    f.write(await resp.read())
-                                local_files.append(filename)
-                except Exception as e:
-                    print(f"Failed to download from API: {e}")
-
-        if not local_files:
-            raise Exception("Failed to save media files to disk.")
-
-        for file in local_files:
-            try:
-                if file.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
-                    sent_msg = await message.reply_photo(photo=file, caption=caption)
-                else:
-                    sent_msg = await message.reply_video(video=file, caption=caption)
-
-                successful_messages.append(sent_msg)
-            except Exception as e:
-                print(f"Telegram Upload Error: {e}")
-
-            await asyncio.sleep(1.5)
-
-        if not successful_messages:
-            raise Exception(
-                "Downloaded successfully, but Telegram rejected the upload."
-            )
-
-    except Exception as e:
-        if DUMP_GROUP:
-            try:
-                await client.send_message(
-                    DUMP_GROUP,
-                    f"**Instagram Error:** `{e}`\n**Link:** {link}\n\n```{traceback.format_exc()}```",
-                )
-            except Exception:
-                pass
-
-        await message.reply_text(
-            "400: Sorry, Unable To Download. The post might be private, or Instagram is temporarily blocking downloads. Try again later!"
-        )
-
-    finally:
+        }
+    
+        if shutil.which('ffmpeg'):
+            ydl_opts['ffmpeg_location'] = shutil.which('ffmpeg')
+    
         try:
-            await m.delete()
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([url])
         except Exception:
             pass
-
-        for file in local_files:
-            if os.path.exists(file):
+    
+        time.sleep(1)
+        for f in os.listdir(task_dir):
+            if f.endswith(('.mp4', '.mkv', '.webm')):
+                fp = os.path.join(task_dir, f)
+                if os.path.getsize(fp) > 50000:
+                    return {"success": True, "file_path": fp, "is_video": True}
+        
+        # Fallback format
+        ydl_opts['format'] = 'best[ext=mp4]/best'
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([url])
+        except Exception:
+            pass
+            
+        time.sleep(1)
+        for f in os.listdir(task_dir):
+            if f.endswith(('.mp4', '.mkv', '.webm')):
+                fp = os.path.join(task_dir, f)
+                if os.path.getsize(fp) > 50000:
+                    return {"success": True, "file_path": fp, "is_video": True}
+    
+        return {"success": False, "error": "Server busy, unable to fetch video."}
+    
+    @staticmethod
+    def _download_photo(shortcode, url, task_dir):
+        # Fallback to multiple methods for scraping photos
+        result = InstaDownloader._method_scrape_multi(shortcode, url, task_dir)
+        if result.get("success"): return result
+        
+        for method in [InstaDownloader._method_ytdlp, InstaDownloader._method_scrape_single, InstaDownloader._method_cdn]:
+            result = method(shortcode, task_dir)
+            if result.get("success"): return result
+            
+        return {"success": False, "error": "Unable to fetch photo."}
+    
+    @staticmethod
+    def _method_scrape_multi(shortcode, url, task_dir):
+        try:
+            session = requests.Session()
+            session.headers.update({'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0)'})
+            resp = session.get(url, timeout=15)
+            if resp.status_code != 200: return {"success": False}
+            html = resp.text
+            image_urls = []
+            
+            # Basic parsing logic for JSON data inside page
+            nd = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', html, re.DOTALL)
+            if nd:
                 try:
-                    os.remove(file)
-                except Exception:
-                    pass
-
-        if DUMP_GROUP and successful_messages:
-            for msg in successful_messages:
+                    data_str = json.dumps(json.loads(nd.group(1)))
+                    carousel_matches = re.findall(r'"edge_sidecar_to_children"[^}]*"edges":\s*\[(.*?)\]', data_str, re.DOTALL)
+                    if carousel_matches:
+                        for carousel in carousel_matches:
+                            for du in re.findall(r'"display_url":"([^"]+)"', carousel):
+                                cleaned = du.replace('\\u0026', '&')
+                                if cleaned not in image_urls and '.mp4' not in cleaned:
+                                    image_urls.append(cleaned)
+                except Exception: pass
+            
+            if not image_urls:
+                image_urls = [u.replace('\\u0026', '&') for u in re.findall(r'"display_url":"([^"]+)"', html) if '.mp4' not in u]
+            if not image_urls:
+                image_urls = list(set(re.findall(r'<meta\s+property="og:image"\s+content="([^"]+)"', html)))
+            
+            image_urls = list(dict.fromkeys(image_urls)) # Unique
+            
+            if not image_urls: return {"success": False}
+            
+            downloaded = []
+            for i, img_url in enumerate(image_urls[:10]): # Cap at 10 images
                 try:
-                    await msg.copy(DUMP_GROUP)
-                    await asyncio.sleep(1)
-                except Exception:
-                    pass
+                    fp = os.path.join(task_dir, f"multi_{shortcode}_{i}.jpg")
+                    r = session.get(img_url, headers={'User-Agent': 'Mozilla/5.0'}, stream=True, timeout=30)
+                    if r.status_code == 200:
+                        with open(fp, 'wb') as f:
+                            for chunk in r.iter_content(8192): f.write(chunk)
+                        if os.path.getsize(fp) > 1000: downloaded.append(fp)
+                except Exception: continue
+            
+            if downloaded:
+                return {
+                    "success": True, 
+                    "file_path": downloaded[0], 
+                    "file_paths": downloaded, 
+                    "is_video": False, 
+                    "is_multiple": len(downloaded) > 1
+                }
+            return {"success": False}
+        except Exception: return {"success": False}
+    
+    @staticmethod
+    def _method_ytdlp(shortcode, task_dir):
+        try:
+            url = f"https://www.instagram.com/p/{shortcode}/"
+            ydl_opts = {'quiet': True, 'outtmpl': os.path.join(task_dir, f'{shortcode}.%(ext)s'), 'format': 'best'}
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.extract_info(url, download=True)
+                time.sleep(0.5)
+                for f in os.listdir(task_dir):
+                    if shortcode in f and not f.endswith(('.mp4','.mov','.webm')):
+                        fp = os.path.join(task_dir, f)
+                        if os.path.getsize(fp) > 1000: return {"success": True, "file_path": fp, "is_video": False}
+        except Exception: pass
+        return {"success": False}
+    
+    @staticmethod
+    def _method_scrape_single(shortcode, task_dir):
+        try:
+            session = requests.Session()
+            session.headers.update({'User-Agent': 'Mozilla/5.0'})
+            resp = session.get(f"https://www.instagram.com/p/{shortcode}/", timeout=10)
+            if resp.status_code != 200: return {"success": False}
+            image_urls = re.findall(r'"display_url":"([^"]+)"', resp.text) or re.findall(r'<meta\s+property="og:image"\s+content="([^"]+)"', resp.text)
+            
+            for img_url in list(set(image_urls))[:3]:
+                try:
+                    if '.mp4' in img_url: continue
+                    fp = os.path.join(task_dir, f"{shortcode}.jpg")
+                    r = session.get(img_url, stream=True, timeout=20)
+                    if r.status_code == 200:
+                        with open(fp, 'wb') as f:
+                            for chunk in r.iter_content(8192): f.write(chunk)
+                        if os.path.getsize(fp) > 1000: return {"success": True, "file_path": fp, "is_video": False}
+                except Exception: continue
+            return {"success": False}
+        except Exception: return {"success": False}
+    
+    @staticmethod
+    def _method_cdn(shortcode, task_dir):
+        try:
+            cdn_urls = [f"https://www.instagram.com/p/{shortcode}/media/?size=l", f"https://i.instagram.com/{shortcode}.jpg"]
+            for cdn_url in cdn_urls:
+                try:
+                    r = requests.get(cdn_url, headers={'User-Agent': 'Mozilla/5.0'}, stream=True, timeout=20)
+                    if r.status_code == 200 and 'image' in r.headers.get('content-type', ''):
+                        fp = os.path.join(task_dir, f"{shortcode}.jpg")
+                        with open(fp, 'wb') as f:
+                            for chunk in r.iter_content(8192): f.write(chunk)
+                        if os.path.getsize(fp) > 1000: return {"success": True, "file_path": fp, "is_video": False}
+                except Exception: continue
+        except Exception: pass
+        return {"success": False}
+    
+    @staticmethod
+    def extract_audio(video_path, audio_name="Extracted_Audio"):
+        try:
+            ap = os.path.join(os.path.dirname(video_path), f"{audio_name}.mp3")
+            if not shutil.which('ffmpeg'): return {"success": False, "error": "FFmpeg not installed"}
+            subprocess.run(['ffmpeg', '-i', video_path, '-vn', '-acodec', 'libmp3lame', '-ab', '192k', '-y', ap], capture_output=True, timeout=300)
+            if os.path.exists(ap) and os.path.getsize(ap) > 1000: return {"success": True, "file_path": ap}
+            return {"success": False, "error": "Audio extraction failed"}
+        except Exception as e: return {"success": False, "error": str(e)[:50]}
 
-        if successful_messages:
-            await message.reply_text(
-                "<a href='https://t.me/sandalwood_kannada_moviesz'>Sandalwood Kannada Movies</a>",
-                disable_web_page_preview=True,
-            )
+
+# ============================================================
+# 🤖 PYROGRAM MESSAGE HANDLERS
+# ============================================================
+@Client.on_message(filters.regex(r'(https?://)?(www\.)?instagram\.com/(p|reel|tv)/([a-zA-Z0-9_\-]+)') & filters.incoming)
+async def handle_instagram_link(client: Client, message: Message):
+    url = InstaDownloader.extract_url(message.text)
+    if not url: return
+
+    status_msg = await message.reply_text("⏳ Processing Link...", quote=True)
+    task_id = str(uuid.uuid4())[:8]
+    task_dir = os.path.join(DOWNLOAD_DIR, f"task_{task_id}")
+    os.makedirs(task_dir, exist_ok=True)
+    
+    async with download_semaphore:
+        try:
+            await status_msg.edit_text("📥 Downloading Media...")
+            
+            # Run blocking download in a separate thread so it doesn't freeze the bot
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                result = await asyncio.get_event_loop().run_in_executor(
+                    pool, InstaDownloader.download_media, url, task_dir
+                )
+                
+            if not result or not result.get("success"):
+                return await status_msg.edit_text(f"❌ Failed: {result.get('error', 'Unknown error')}")
+                
+            # Multiple Photos (Carousel)
+            if result.get("is_multiple"):
+                await status_msg.edit_text("📤 Uploading Photos...")
+                for path in result["file_paths"]:
+                    if os.path.exists(path):
+                        await message.reply_photo(photo=path, quote=True)
+                        await asyncio.sleep(0.5)
+                        
+            # Single Video
+            elif result.get("is_video"):
+                await status_msg.edit_text("📤 Uploading Video...")
+                shortcode = InstaDownloader.get_shortcode(url)
+                kb = InlineKeyboardMarkup([[InlineKeyboardButton("🎵 Extract Audio", callback_data=f"igaud_{shortcode}")]])
+                
+                await message.reply_video(
+                    video=result["file_path"],
+                    reply_markup=kb,
+                    supports_streaming=True,
+                    quote=True
+                )
+                
+            # Single Photo
+            else:
+                await status_msg.edit_text("📤 Uploading Photo...")
+                await message.reply_photo(photo=result["file_path"], quote=True)
+
+            await status_msg.delete()
+            
+        except Exception as e:
+            await status_msg.edit_text(f"❌ Error occurred: {str(e)[:50]}")
+        finally:
+            # Clean up task directory
+            if os.path.exists(task_dir):
+                shutil.rmtree(task_dir, ignore_errors=True)
+
+
+@Client.on_callback_query(filters.regex(r"^igaud_(.*)"))
+async def extract_audio_callback(client: Client, query: CallbackQuery):
+    shortcode = query.matches[0].group(1)
+    url = f"https://www.instagram.com/reel/{shortcode}/"
+    
+    await query.answer("Extracting Audio... Please wait.", show_alert=False)
+    status_msg = await query.message.reply_text("🎧 Downloading & Extracting Audio...", quote=True)
+    
+    task_id = str(uuid.uuid4())[:8]
+    task_dir = os.path.join(DOWNLOAD_DIR, f"audio_{task_id}")
+    os.makedirs(task_dir, exist_ok=True)
+    
+    async with download_semaphore:
+        try:
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                result = await asyncio.get_event_loop().run_in_executor(
+                    pool, InstaDownloader.download_media, url, task_dir
+                )
+                
+            if not result or not result.get("success"):
+                return await status_msg.edit_text("❌ Failed to fetch video for audio extraction.")
+                
+            vp = result["file_path"]
+            
+            # Extract Audio from downloaded video
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                ar = await asyncio.get_event_loop().run_in_executor(
+                    pool, InstaDownloader.extract_audio, vp, f"Audio_{shortcode}"
+                )
+                
+            if ar.get("success"):
+                await status_msg.edit_text("📤 Uploading Audio...")
+                await query.message.reply_audio(
+                    audio=ar["file_path"],
+                    title=f"Audio Extract - {shortcode}",
+                    performer="Insta Downloader",
+                    quote=True
+                )
+                await status_msg.delete()
+            else:
+                await status_msg.edit_text(f"❌ Audio Extraction Failed: {ar.get('error')}")
+                
+        except Exception as e:
+            await status_msg.edit_text(f"❌ Error occurred: {str(e)[:50]}")
+        finally:
+            if os.path.exists(task_dir):
+                shutil.rmtree(task_dir, ignore_errors=True)
