@@ -183,26 +183,24 @@ async def health_check(request):
 
 
 async def start_services():
-    # 1. Clean obsolete sessions
-    print("🔍 Checking for obsolete session files...")
-    active_session = f"{SESSION}.session"
-    for file in glob.glob("*.session"):
-        if file != active_session:
-            try:
-                os.remove(file)
-                print(f"🗑️ Deleted obsolete session: {file}")
-            except Exception as e:
-                print(f"⚠️ Could not delete {file}: {e}")
+    # 1. Clean ALL obsolete sessions to force a fresh connection
+    print("🔍 Deleting old session files to create a fresh one...")
+    for file in glob.glob("*.session*"):  # Deletes .session AND .session-journal
+        try:
+            os.remove(file)
+            print(f"🗑️ Deleted old session file: {file}")
+        except Exception as e:
+            print(f"⚠️ Could not delete {file}: {e}")
 
     # 2. Start Web Server (For Koyeb Port Binding)
     web_app = web.Application()
     web_app.router.add_get("/", health_check)
     runner = web.AppRunner(web_app)
     await runner.setup()
-
+    
     # Safe fallback if PORT isn't strictly an integer
     bind_port = int(PORT) if PORT else 8080
-
+    
     site = web.TCPSite(runner, "0.0.0.0", bind_port)
     await site.start()
     logger.info(f"🌐 Web server listening on port {bind_port} for health checks.")
@@ -220,11 +218,8 @@ async def start_services():
 # 🚀 LAUNCH SEQUENCE
 # ============================================================
 def force_shutdown(signum, frame):
-    logger.info(
-        "🛑 Received shutdown signal from Koyeb. Killing old instance immediately!"
-    )
+    logger.info("🛑 Received shutdown signal from Koyeb. Killing old instance immediately!")
     sys.exit(0)
-
 
 if __name__ == "__main__":
     # Catch Koyeb's termination signals so the old bot dies instantly
@@ -233,6 +228,7 @@ if __name__ == "__main__":
     signal.signal(signal.SIGINT, force_shutdown)
 
     try:
+        # Use get_event_loop() to fix Pyrogram crash
         loop = asyncio.get_event_loop()
         loop.run_until_complete(start_services())
     except (KeyboardInterrupt, SystemExit):
