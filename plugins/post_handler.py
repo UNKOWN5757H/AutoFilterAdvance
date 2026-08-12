@@ -193,29 +193,37 @@ async def post_command(client: Client, message: Message):
 async def edit_direct_url(client: Client, message: Message):
     user_id = message.from_user.id
     if user_id not in post_sessions:
-        return await message.reply_text("❌ You don't have an active post session right now.")
-    
+        return await message.reply_text(
+            "❌ You don't have an active post session right now."
+        )
+
     if len(message.command) < 2:
-        return await message.reply_text("❌ Please provide a URL.\n\n**Usage:** `/editdirect https://t.me/your_bot?start=custom_link`")
-        
+        return await message.reply_text(
+            "❌ Please provide a URL.\n\n**Usage:** `/editdirect https://t.me/your_bot?start=custom_link`"
+        )
+
     new_url = message.command[1]
     session = post_sessions[user_id]
-    
+
     button_updated = False
-    
+
     if session.get("buttons"):
         for row in session["buttons"]:
             for btn in row:
                 if btn.text == "Direct Search 🔎":
                     btn.url = new_url
                     button_updated = True
-    
+
     if button_updated:
-        await message.reply_text(f"✅ **'Direct Search' button URL updated successfully!**\n\n🔗 **New URL:** `{new_url}`")
+        await message.reply_text(
+            f"✅ **'Direct Search' button URL updated successfully!**\n\n🔗 **New URL:** `{new_url}`"
+        )
         # Refresh the preview to show the changes immediately
         await update_post_preview(client, user_id, message.chat.id, force_resend=False)
     else:
-        await message.reply_text("❌ **Button not found!** Ensure you have the 'Direct Search 🔎' button added to your layout first.")
+        await message.reply_text(
+            "❌ **Button not found!** Ensure you have the 'Direct Search 🔎' button added to your layout first."
+        )
 
 
 async def start_post_session(
