@@ -2,8 +2,6 @@ import asyncio
 import logging
 import os
 import shutil
-import sys
-import time
 
 from pyrogram import Client, enums, filters
 from pyrogram.errors import (
@@ -21,7 +19,7 @@ from pyrogram.types import (
 
 import info
 from database.ia_filterdb import Media
-from database.plugin_dbs import plugin_db  # ⚡ Fixed Import
+from database.plugin_dbs import plugin_db
 from database.users_chats_db import db
 
 logger = logging.getLogger(__name__)
@@ -31,6 +29,9 @@ try:
 except ImportError:
     psutil = None
 
+# FIX: Ensure all Admin IDs are converted to integers. 
+# Pyrogram treats strings as usernames, which causes commands to fail silently.
+ADMIN_IDS = [int(admin) for admin in info.ADMINS]
 
 def get_size_str(bytes_size):
     for unit in ["B", "KB", "MB", "GB", "TB"]:
@@ -39,7 +40,7 @@ def get_size_str(bytes_size):
         bytes_size /= 1024.0
 
 
-@Client.on_message(filters.command("logs") & filters.user(info.ADMINS))
+@Client.on_message(filters.command("logs") & filters.user(ADMIN_IDS))
 async def get_logs_cmd(bot: Client, message: Message):
     log_file = "TelegramBot.log"
     if not os.path.exists(log_file):
@@ -52,7 +53,7 @@ async def get_logs_cmd(bot: Client, message: Message):
         await message.reply_text(f"❌ **Failed to send logs:**\n`{e}`")
 
 
-@Client.on_message(filters.command("server") & filters.user(info.ADMINS))
+@Client.on_message(filters.command("server") & filters.user(ADMIN_IDS))
 async def server_stats_cmd(bot: Client, message: Message):
     msg = await message.reply_text("⏳ **Fetching server statistics...**")
     text = "🖥 **Server Statistics**\n\n"
@@ -72,7 +73,7 @@ async def server_stats_cmd(bot: Client, message: Message):
     await msg.edit_text(text)
 
 
-@Client.on_message(filters.command("restart") & filters.user(info.ADMINS))
+@Client.on_message(filters.command("restart") & filters.user(ADMIN_IDS))
 async def restart_bot_cmd(bot: Client, message: Message):
     await message.reply_text(
         "⚠️ **Are you sure you want to restart the bot?**",
@@ -82,7 +83,7 @@ async def restart_bot_cmd(bot: Client, message: Message):
     )
 
 
-@Client.on_callback_query(filters.regex("^util_restart$") & filters.user(info.ADMINS))
+@Client.on_callback_query(filters.regex("^util_restart$") & filters.user(ADMIN_IDS))
 async def confirm_restart_cb(bot: Client, query: CallbackQuery):
     await query.answer("♻️ Restarting...", show_alert=True)
     msg = await query.edit_message_text("♻️ **Bot is restarting... Please wait.**")
@@ -92,7 +93,7 @@ async def confirm_restart_cb(bot: Client, query: CallbackQuery):
     os._exit(1)
 
 
-@Client.on_message(filters.command("stats") & filters.user(info.ADMINS))
+@Client.on_message(filters.command("stats") & filters.user(ADMIN_IDS))
 async def bot_stats_cmd(bot: Client, message: Message):
     status_msg = await message.reply_text("⏳ **Fetching Database Stats...**")
     total_users = await db.total_users_count()
@@ -108,12 +109,20 @@ async def bot_stats_cmd(bot: Client, message: Message):
     await status_msg.edit_text(stats_text)
 
 
-@Client.on_message(filters.command("cleanusers") & filters.user(info.ADMINS))
+@Client.on_message(filters.command("cleanusers") & filters.user(ADMIN_IDS))
 async def clean_users_cmd(bot: Client, message: Message):
     status_msg = await message.reply_text(
         "⏳ **Starting Deep Clean...** (Processing in background)"
     )
     users = await db.get_all_users()
+    
+    # Safe check in case the database returns a Motor Cursor instead of a list
+    if not isinstance(users, list):
+        try:
+            users = await users.to_list(length=None)
+        except AttributeError:
+            users = list(users)
+
     active, blocked = 0, 0
 
     for i in range(0, len(users), 50):
@@ -150,14 +159,14 @@ async def clean_users_cmd(bot: Client, message: Message):
     )
 
 
-@Client.on_message(filters.command("total") & filters.user(info.ADMINS))
+@Client.on_message(filters.command("total") & filters.user(ADMIN_IDS))
 async def total_files_cmd(bot: Client, message: Message):
     msg = await message.reply_text("⏳ **Calculating total files in database...**")
     total = await Media.count_documents()
     await msg.edit_text(f"📁 **Total Files in Database:** `{total}`")
 
 
-@Client.on_message(filters.command("clearfiles") & filters.user(info.ADMINS))
+@Client.on_message(filters.command("clearfiles") & filters.user(ADMIN_IDS))
 async def clear_files_cmd(bot: Client, message: Message):
     await message.reply_text(
         "⚠️ **WARNING!** ⚠️\nDelete **ALL** files indexed in your database?",
@@ -174,7 +183,7 @@ async def clear_files_cmd(bot: Client, message: Message):
     )
 
 
-@Client.on_message(filters.command("clearusers") & filters.user(info.ADMINS))
+@Client.on_message(filters.command("clearusers") & filters.user(ADMIN_IDS))
 async def clear_users_cmd(bot: Client, message: Message):
     await message.reply_text(
         "⚠️ **WARNING!** ⚠️\nDelete **ALL** users from your database?",
@@ -191,7 +200,7 @@ async def clear_users_cmd(bot: Client, message: Message):
     )
 
 
-@Client.on_message(filters.command("clearfsubusers") & filters.user(info.ADMINS))
+@Client.on_message(filters.command("clearfsubusers") & filters.user(ADMIN_IDS))
 async def clear_fsub_cmd(bot: Client, message: Message):
     await message.reply_text(
         "⚠️ **WARNING!** ⚠️\nClear the Force Sub DB?",
@@ -205,9 +214,12 @@ async def clear_fsub_cmd(bot: Client, message: Message):
 
 
 @Client.on_callback_query(
-    filters.regex(r"^nuke_(files|users|fsub)$") & filters.user(info.ADMINS)
+    filters.regex(r"^nuke_(files|users|fsub)$") & filters.user(ADMIN_IDS)
 )
 async def nuke_callbacks(bot: Client, query: CallbackQuery):
+    # Answer the callback query so the button stops loading for the user
+    await query.answer("Processing request...", show_alert=False)
+    
     action = query.data.split("_")[1]
     await query.message.edit_text("⏳ **Executing request... This may take a moment.**")
 
