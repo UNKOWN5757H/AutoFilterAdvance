@@ -80,7 +80,9 @@ def _list_to_str_tmdb(data_list, limit=10, key=None):
         return None
     items = data_list[:limit]
     if key:
-        return ", ".join(str(item.get(key, "")) for item in items if item and item.get(key))
+        return ", ".join(
+            str(item.get(key, "")) for item in items if item and item.get(key)
+        )
     return ", ".join(str(item) for item in items if item)
 
 
@@ -171,7 +173,12 @@ async def _search_media_id(query: str, api_key=None):
     if not multi_results and year:
         # Fallback without year constraint if search returned empty
         try:
-            params = {"query": clean_title, "language": "en-US", "page": 1, "include_adult": "false"}
+            params = {
+                "query": clean_title,
+                "language": "en-US",
+                "page": 1,
+                "include_adult": "false",
+            }
             result = await _tmdb_get("search/multi", params=params, api_key=api_key)
             multi_results = result.get("results", [])
         except Exception:
@@ -265,7 +272,11 @@ async def _fetch_tmdb_data(query: str, api_key=None):
 
     certificates = None
     if media_type == "movie" and "release_dates" in details:
-        us = [r for r in details["release_dates"]["results"] if r.get("iso_3166_1") == "US"]
+        us = [
+            r
+            for r in details["release_dates"]["results"]
+            if r.get("iso_3166_1") == "US"
+        ]
         if us and us[0].get("release_dates"):
             certificates = us[0]["release_dates"][0].get("certification")
 
@@ -293,7 +304,9 @@ async def _fetch_tmdb_data(query: str, api_key=None):
             key="title",
         ),
         "kind": media_type,
-        "year": (details.get("release_date") or details.get("first_air_date") or "")[:4],
+        "year": (details.get("release_date") or details.get("first_air_date") or "")[
+            :4
+        ],
         "release_date": details.get("release_date") or details.get("first_air_date"),
         "imdb_id": details.get("external_ids", {}).get("imdb_id"),
         "tmdb_id": details.get("id"),
@@ -442,4 +455,3 @@ async def get_movie_detailsx(query, id=False, file=None):
     )
 
     return details
-    
