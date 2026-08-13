@@ -99,7 +99,7 @@ async def auto_delete_and_notify(client, bot_message, delay: int, user_message=N
                 default_text = "<b>Hey {mention} ⚓\n\n➡️ Your Request Has Been Deleted To Safeguard Your Privacy!\n\n➡️ Thank You For Using @KR_PICTURE</b>"
 
                 # Fetch custom text from Script.py if available, else fallback to default
-                text = getattr(script, "DELETE_TXT", default_text)
+                text = getattr(script, "PRVCY_TXT", default_text)
 
                 # Safely use the client object to send the message
                 notification = await client.send_message(
