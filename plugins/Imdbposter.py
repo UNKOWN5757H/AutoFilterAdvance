@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import re
+import urllib.parse
 import warnings
 from datetime import datetime
 from difflib import SequenceMatcher
@@ -17,13 +18,14 @@ LONG_IMDB_DESCRIPTION = False
 Image.MAX_IMAGE_PIXELS = None
 warnings.simplefilter("ignore", Image.DecompressionBombWarning)
 
-# TMDB API ADDED BY @Bharath_boy
-
 # --- TMDB Configuration ---
-TMDB_BEARER_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI2ZGU3YTIyZGU1YjE5YTFjNmUyZGU5ZWEyMzE2ZmQxMCIsIm5iZiI6MTc0NTMyMjQ2Mi41MzMsInN1YiI6IjY4MDc4MWRlYzVjODAzNWZiMDhhNjExNCIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.rMMJ2-PBIv8Y7ybxPIEpIlzTEXzuwrm9ruKxAUCAsbw"
+TMDB_BEARER_TOKEN = (
+    "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI2ZGU3YTIyZGU1YjE5YTFjNmUyZGU5ZWEyMzE2ZmQxMCIs"
+    "Im5iZiI6MTc0NTMyMjQ2Mi41MzMsInN1YiI6IjY4MDc4MWRlYzVjODAzNWZiMDhhNjExNCIsInNjb3"
+    "BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.rMMJ2-PBIv8Y7ybxPIEpIlzTEXzuwrm9ruKxAUCAsbw"
+)
 TMDB_BASE_URL = "https://api.themoviedb.org/3"
 TMDB_IMAGE_BASE_URL = "https://image.tmdb.org/t/p/original"
-MIN_RUNTIME = 40
 
 _session: aiohttp.ClientSession | None = None
 
@@ -36,8 +38,7 @@ async def get_session():
 
 
 async def fetch_image(url, size=(860, 1200)):
-    if not IMAGE_FETCH:
-        logger.info("Image fetching is disabled.")
+    if not IMAGE_FETCH or not url:
         return url
 
     try:
@@ -56,12 +57,8 @@ async def fetch_image(url, size=(860, 1200)):
             out.seek(0)
             return out
 
-    except aiohttp.ClientError as e:
-        logger.error(f"HTTP request error in fetch_image: {e}")
-    except IOError as e:
-        logger.error(f"I/O error in fetch_image: {e}")
     except Exception as e:
-        logger.error(f"Unexpected error in fetch_image: {e}")
+        logger.error(f"Error in fetch_image: {e}")
 
     return None
 
@@ -83,17 +80,31 @@ def _list_to_str_tmdb(data_list, limit=10, key=None):
         return None
     items = data_list[:limit]
     if key:
-        return ", ".join(str(item.get(key, "")) for item in items if item)
+        return ", ".join(str(item.get(key, "")) for item in items if item and item.get(key))
     return ", ".join(str(item) for item in items if item)
 
 
-def _extract_title_and_year(query: str):
-    match = re.search(r"^(.*?)(?:\s+(\d{4}))?$", query.strip())
-    if match:
-        title, year_str = match.groups()
-        year = int(year_str) if year_str and year_str.isdigit() else None
-        return title.strip(), year
-    return query.strip(), None
+def _sanitize_and_extract(query: str):
+    """Clean query string by removing release tags, brackets, and extracting year."""
+    q = str(query).strip()
+    year = None
+
+    # Extract 4-digit year
+    year_match = re.search(r"\b(19\d{2}|20\d{2})\b", q)
+    if year_match:
+        year = int(year_match.group(1))
+        q = q.replace(year_match.group(1), "")
+
+    # Clean brackets, quality tags, languages, and extra symbols
+    q = re.sub(
+        r"(?i)\b(hdrip|web-dl|webrip|bluray|brrip|dvdrip|dvdscr|tsrip|camrip|hdtc|hevc|x264|x265|1080p|720p|480p|2160p|4k|hindi|kannada|telugu|tamil|malayalam|english|movie|series|season\s*\d+|ep\s*\d+)\b",
+        "",
+        q,
+    )
+    q = re.sub(r"[\(\)\[\]\{\}\-_.:]", " ", q)
+    q = re.sub(r"\s+", " ", q).strip()
+
+    return q if q else str(query).strip(), year
 
 
 async def _tmdb_get(path, params=None, api_key=None):
@@ -101,8 +112,9 @@ async def _tmdb_get(path, params=None, api_key=None):
     _params = params.copy() if params else {}
     _headers = {}
 
-    if api_key:
-        _params["api_key"] = api_key
+    key_to_use = api_key or TMDB_API_KEY
+    if key_to_use:
+        _params["api_key"] = key_to_use
     elif TMDB_BEARER_TOKEN:
         _headers = {
             "Authorization": f"Bearer {TMDB_BEARER_TOKEN}",
@@ -123,19 +135,18 @@ async def _fetch_media_details(media_type: str, media_id: int, api_key=None):
 
 
 async def _search_media_id(query: str, api_key=None):
-    title, year = _extract_title_and_year(query)
-    multi_results = []
-    words = title.split()
+    clean_title, year = _sanitize_and_extract(query)
 
-    queries_to_try = [title]
+    queries_to_try = [clean_title]
+    words = clean_title.split()
     if len(words) > 2:
-        queries_to_try.append(" ".join(words[:-1]))
-        queries_to_try.append(words[0])
-    elif len(words) == 2:
+        queries_to_try.append(" ".join(words[:2]))
+    if len(words) > 1:
         queries_to_try.append(words[0])
 
-    queries_to_try = list(dict.fromkeys(queries_to_try))[:3]
+    queries_to_try = list(dict.fromkeys(queries_to_try))
 
+    multi_results = []
     for target_query in queries_to_try:
         if not target_query:
             continue
@@ -145,72 +156,76 @@ async def _search_media_id(query: str, api_key=None):
             "page": 1,
             "include_adult": "false",
         }
-        result = await _tmdb_get("search/multi", params=params, api_key=api_key)
-        multi_results = result.get("results", [])
-        if multi_results:
-            break
+        if year:
+            params["year"] = year
+
+        try:
+            result = await _tmdb_get("search/multi", params=params, api_key=api_key)
+            multi_results = result.get("results", [])
+            if multi_results:
+                break
+        except Exception as e:
+            logger.debug(f"TMDB search failed for '{target_query}': {e}")
+            continue
+
+    if not multi_results and year:
+        # Fallback without year constraint if search returned empty
+        try:
+            params = {"query": clean_title, "language": "en-US", "page": 1, "include_adult": "false"}
+            result = await _tmdb_get("search/multi", params=params, api_key=api_key)
+            multi_results = result.get("results", [])
+        except Exception:
+            pass
+
+    if not multi_results:
+        return None, None
 
     def get_ratio(s1, s2):
         if not s1 or not s2:
             return 0
-        return SequenceMatcher(None, s1.lower(), s2.lower()).ratio()
+        return SequenceMatcher(None, str(s1).lower(), str(s2).lower()).ratio()
 
-    scored_results = []
+    valid_candidates = []
     for r in multi_results:
-        ratio = get_ratio(r.get("title") or r.get("name"), title)
-        if ratio >= 0.5:
-            scored_results.append((r, ratio))
-
-    if not scored_results:
-        scored_results = [
-            (r, get_ratio(r.get("title") or r.get("name"), title))
-            for r in multi_results[:10]
-        ]
-
-    today = datetime.utcnow().date()
-    candidates_past, candidates_upcoming = [], []
-    for r, ratio in scored_results:
         mtype = r.get("media_type")
-        rd_str = r.get("release_date") or r.get("first_air_date")
-        if not (rd_str and mtype in ["movie", "tv"]):
+        if mtype not in ["movie", "tv"]:
             continue
-        try:
-            rd_date = datetime.strptime(rd_str, "%Y-%m-%d").date()
-        except ValueError:
-            continue
-        if year:
-            if abs(rd_date.year - year) > 1:
-                continue
-        if mtype == "movie":
+
+        title_name = r.get("title") or r.get("name") or ""
+        ratio = get_ratio(title_name, clean_title)
+
+        rd_str = r.get("release_date") or r.get("first_air_date") or ""
+        match_year = None
+        if rd_str and len(rd_str) >= 4:
             try:
-                details = await _fetch_media_details(mtype, r["id"], api_key=api_key)
-                runtime = details.get("runtime")
-                is_video = details.get("video", False)
+                match_year = int(rd_str[:4])
+            except ValueError:
+                pass
 
-                if is_video or (runtime and runtime < MIN_RUNTIME):
-                    continue
-            except Exception:
-                continue
-        candidate = {
-            "type": mtype,
-            "id": r["id"],
-            "date": rd_date,
-            "score": r.get("popularity", 0),
-            "ratio": ratio,
-        }
-        (candidates_upcoming if rd_date > today else candidates_past).append(candidate)
+        year_score = 1.0
+        if year and match_year:
+            diff = abs(match_year - year)
+            if diff == 0:
+                year_score = 1.2
+            elif diff == 1:
+                year_score = 0.9
+            else:
+                year_score = 0.5
 
-    candidates_past.sort(
-        key=lambda x: (x["ratio"], x["date"], x["score"]), reverse=True
-    )
-    candidates_upcoming.sort(
-        key=lambda x: (x["ratio"], x["date"], x["score"]), reverse=True
-    )
-    final = candidates_past or candidates_upcoming
-    if not final:
+        popularity = r.get("popularity", 0)
+        final_score = (ratio * 100) * year_score + (popularity / 10)
+
+        valid_candidates.append((mtype, r["id"], final_score))
+
+    if not valid_candidates:
+        first = multi_results[0]
+        if first.get("media_type") in ["movie", "tv"]:
+            return first["media_type"], first["id"]
         return None, None
-    top = final[0]
-    return top["type"], top["id"]
+
+    valid_candidates.sort(key=lambda x: x[2], reverse=True)
+    best = valid_candidates[0]
+    return best[0], best[1]
 
 
 def _process_images(images_data):
@@ -250,8 +265,8 @@ async def _fetch_tmdb_data(query: str, api_key=None):
 
     certificates = None
     if media_type == "movie" and "release_dates" in details:
-        us = [r for r in details["release_dates"]["results"] if r["iso_3166_1"] == "US"]
-        if us and us[0]["release_dates"]:
+        us = [r for r in details["release_dates"]["results"] if r.get("iso_3166_1") == "US"]
+        if us and us[0].get("release_dates"):
             certificates = us[0]["release_dates"][0].get("certification")
 
     runtime_display = None
@@ -273,10 +288,12 @@ async def _fetch_tmdb_data(query: str, api_key=None):
         "localized_title": details.get("original_title")
         or details.get("original_name"),
         "aka": _list_to_str_tmdb(
-            details.get("alternative_titles", {}).get("titles", []), key="title"
+            details.get("alternative_titles", {}).get("titles", [])
+            or details.get("alternative_titles", {}).get("results", []),
+            key="title",
         ),
         "kind": media_type,
-        "year": (details.get("release_date") or details.get("first_air_date", ""))[:4],
+        "year": (details.get("release_date") or details.get("first_air_date") or "")[:4],
         "release_date": details.get("release_date") or details.get("first_air_date"),
         "imdb_id": details.get("external_ids", {}).get("imdb_id"),
         "tmdb_id": details.get("id"),
@@ -313,7 +330,7 @@ async def _fetch_tmdb_data(query: str, api_key=None):
         "plot": details.get("overview"),
         "tagline": details.get("tagline"),
         "box_office": (
-            details.get("revenue") if details.get("revenue", 0) > 0 else "N/A"
+            f"${details.get('revenue'):,}" if details.get("revenue", 0) > 0 else "N/A"
         ),
         "distributors": _list_to_str_tmdb(
             details.get("production_companies", []), key="name"
@@ -338,135 +355,40 @@ async def _fetch_tmdb_data(query: str, api_key=None):
 
 
 async def get_movie_details(query, bulk=False, id=False, file=None):
-    if not id:
-        from utils import imdb, list_to_str
-
-        query = (query.strip()).lower()
-        title = query
-        year_val = None
-
-        year_list = re.findall(r"[1-2]\d{3}$", query, re.IGNORECASE)
-        if year_list:
-            year_val = year_list[0]
-            title = (query.replace(year_val, "")).strip()
-        elif file is not None:
-            year_list = re.findall(r"[1-2]\d{3}", file, re.IGNORECASE)
-            if year_list:
-                year_val = year_list[0]
-
-        search_result = await asyncio.to_thread(imdb.search_movie, title.lower())
-        if not search_result:
-            return None
-
-        movie_list = search_result[:MAX_LIST_ELM] if MAX_LIST_ELM else search_result
-
-        if year_val:
-            filtered = [
-                m
-                for m in movie_list
-                if m.get("year") and str(m.get("year")) == str(year_val)
-            ]
-            if not filtered:
-                filtered = movie_list
-        else:
-            filtered = movie_list
-
-        kind_filter = ["movie", "tv series", "tvSeries", "tvMiniSeries", "tvMovie"]
-        filtered_kind = [
-            m for m in filtered if m.get("kind") and m.get("kind") in kind_filter
-        ]
-
-        if not filtered_kind:
-            filtered_kind = filtered
-
-        if bulk:
-            return filtered_kind[:MAX_LIST_ELM] if MAX_LIST_ELM else filtered_kind
-        if not filtered_kind:
-            return None
-        movie_brief = filtered_kind[0]
-        movieid_str = movie_brief.movieID
-    else:
-        movieid_str = query
-
-    from utils import imdb, list_to_str
-
-    movie = await asyncio.to_thread(imdb.get_movie, movieid_str)
-    if not movie:
-        return None
-
-    if movie.get("release_date"):
-        date = movie.get("release_date")
-    elif movie.get("year"):
-        date = str(movie.get("year"))
-    else:
-        date = "N/A"
-
-    plot = (
-        movie.get("plot")[0]
-        if isinstance(movie.get("plot"), list)
-        else movie.get("plot") or ""
-    )
-    if len(plot) > 800:
-        plot = plot[:800] + "..."
-    imdb_id = str(movie.movieID)
-    if not imdb_id.startswith("tt"):
-        imdb_id = f"tt{imdb_id}"
-
-    return {
-        "title": movie.get("title"),
-        "votes": movie.get("votes"),
-        "aka": list_to_str(movie.get("akas")),
-        "seasons": movie.get("number of seasons", "N/A"),
-        "box_office": movie.get("box office", "N/A"),
-        "localized_title": movie.get("localized title"),
-        "kind": movie.get("kind"),
-        "imdb_id": imdb_id,
-        "cast": list_to_str(movie.get("cast")),
-        "runtime": list_to_str(movie.get("runtimes")),
-        "countries": list_to_str(movie.get("countries")),
-        "certificates": list_to_str(movie.get("certificates")),
-        "languages": list_to_str(movie.get("languages")),
-        "director": list_to_str(movie.get("director")),
-        "writer": list_to_str(movie.get("writer")),
-        "producer": list_to_str(movie.get("producer")),
-        "composer": list_to_str(movie.get("composer")),
-        "cinematographer": list_to_str(movie.get("cinematographer")),
-        "music_team": list_to_str(movie.get("music department")),
-        "distributors": list_to_str(movie.get("distributors")),
-        "release_date": date,
-        "year": movie.get("year"),
-        "genres": list_to_str(movie.get("genres")),
-        "poster": movie.get("full-size cover url"),
-        "poster_url": movie.get("full-size cover url"),
-        "plot": plot,
-        "rating": str(movie.get("rating")),
-        "url": f"https://www.imdb.com/title/{imdb_id}",
-    }
+    """Fallback search function for legacy IMDb callers."""
+    try:
+        data = await _fetch_tmdb_data(str(query), api_key=TMDB_API_KEY or None)
+        if data:
+            if bulk:
+                return [data]
+            return data
+    except Exception as e:
+        logger.error(f"Fallback get_movie_details failed: {e}")
+    return None
 
 
 async def get_movie_detailsx(query, id=False, file=None):
+    """Main TMDB detail fetcher used by /post and message handlers."""
     q = str(query).strip()
     try:
         data = await _fetch_tmdb_data(q, api_key=TMDB_API_KEY or None)
         if not data:
-            logger.warning(
-                f"TMDB returned no results for '{q}' → switching to IMDb fallback"
-            )
-            return await get_movie_details(q)
+            logger.warning(f"TMDB returned no results for '{q}'")
+            return None
     except Exception as e:
-        logger.error(f"TMDB direct call failed → fallback IMDb: {e}")
-        return await get_movie_details(q)
+        logger.error(f"TMDB direct call failed for '{q}': {e}")
+        return None
 
     details = {}
     details["title"] = data.get("title") or data.get("localized_title")
-    details["year"] = (data.get("year", 0)) if data.get("year") else None
+    details["year"] = data.get("year") if data.get("year") else None
     details["release_date"] = data.get("release_date")
     details["rating"] = (
         round(float(data.get("rating", 0)), 1)
         if data.get("rating") is not None
         else None
     )
-    details["votes"] = int(data.get("votes", 0))
+    details["votes"] = int(data.get("votes", 0)) if data.get("votes") else 0
     details["runtime"] = data.get("runtime")
     details["certificates"] = data.get("certificates")
     details["tmdb_url"] = data.get("url")
@@ -474,6 +396,7 @@ async def get_movie_detailsx(query, id=False, file=None):
     for key in ("genres", "languages", "countries"):
         raw = data.get(key)
         details[key] = [s.strip() for s in raw.split(",")] if raw else []
+
     for role in (
         "director",
         "writer",
@@ -485,11 +408,10 @@ async def get_movie_detailsx(query, id=False, file=None):
         raw = data.get(role)
         details[role] = [s.strip() for s in raw.split(",")] if raw else []
 
-    details["plot"] = data.get("plot")
+    details["plot"] = data.get("plot") or "No plot description available."
     details["tagline"] = data.get("tagline")
-    details["box_office"] = (
-        (data.get("box_office", 0)) if data.get("box_office") else None
-    )
+    details["box_office"] = data.get("box_office") if data.get("box_office") else None
+
     raw_dist = data.get("distributors")
     details["distributors"] = (
         [d.strip() for d in raw_dist.split(",")] if raw_dist else []
@@ -510,7 +432,6 @@ async def get_movie_detailsx(query, id=False, file=None):
     )
 
     backdrops = data.get("images", {}).get("backdrops", {})
-    original_language = data.get("images", {}).get("original_language")
     backdrop_url = None
     for key in ("en", original_language, "xx", "no_lang"):
         if key and backdrops.get(key):
@@ -521,3 +442,4 @@ async def get_movie_detailsx(query, id=False, file=None):
     )
 
     return details
+    
