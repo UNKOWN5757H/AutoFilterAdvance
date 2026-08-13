@@ -509,7 +509,7 @@ async def auto_filter(client, msg, spoll=False):
         btn.append([InlineKeyboardButton(text="1/1", callback_data="pages")])
 
     mention = message.from_user.mention if message.from_user else "User"
-    cap = f"Hey {mention} 👋🏻\n\n➤ Title : {search}\n➤ Your Files Ready Now 👇"
+    cap = f"Hᴇʏ {mention} 👋🏻\n\n➤ Tɪᴛʟᴇ : {search}\n➤ Yᴏᴜʀ Fɪʟᴇꜱ Rᴇᴀᴅʏ Nᴏᴡ 👇"
 
     try:
         m = await message.reply_text(cap, reply_markup=InlineKeyboardMarkup(btn))
@@ -1226,10 +1226,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
             k = await client.send_message(
                 chat_id=query.from_user.id,
                 text=(
-                    "<b>📢 Please Note\n\n"
-                    "✅ The above file will be autodeleted in 30mins to avoid copyright issues.\n\n"
-                    "✅ Please forward this file to your saved messages and start downloading from there.\n\n"
-                    "Tᴇᴀᴍ: @KR_Picture</b>"
+                    "<b>📢 Pʟᴇᴀꜱᴇ Nᴏᴛᴇ\n\n✅ Tʜᴇ Aʙᴏᴠᴇ Fɪʟᴇ Wɪʟʟ Bᴇ Aᴜᴛᴏᴅᴇʟᴇᴛᴇᴅ Iɴ 30ᴍɪɴꜱ Tᴏ Aᴠᴏɪᴅ Cᴏᴘʏʀɪɢʜᴛ Iꜱꜱᴜᴇꜱ.\n\n✅ Pʟᴇᴀꜱᴇ Fᴏʀᴡᴀʀᴅ Tʜɪꜱ Fɪʟᴇ Tᴏ Yᴏᴜʀ Sᴀᴠᴇᴅ Mᴇꜱꜱᴀɢᴇꜱ Aɴᴅ Sᴛᴀʀᴛ Dᴏᴡɴʟᴏᴀᴅɪɴɢ Fʀᴏᴍ Tʜᴇʀᴇ.\n\nTᴇᴀᴍ: @KR_Picture</b>"
                 ),
             )
 
