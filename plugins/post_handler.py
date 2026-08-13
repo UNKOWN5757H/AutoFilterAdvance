@@ -36,29 +36,119 @@ TEMPLATES = {
 }
 
 LANGUAGES = [
-    "Kannada", "English", "Gujarati", "Hindi", "Bengali", "Malayalam", "Marathi",
-    "Punjabi", "Tamil", "Telugu", "Urdu", "Arabic", "French", "German", "Italian",
-    "Japanese", "Korean", "Mandarin", "Portuguese", "Russian", "Spanish", "#NotAvailable",
+    "Kannada",
+    "English",
+    "Gujarati",
+    "Hindi",
+    "Bengali",
+    "Malayalam",
+    "Marathi",
+    "Punjabi",
+    "Tamil",
+    "Telugu",
+    "Urdu",
+    "Arabic",
+    "French",
+    "German",
+    "Italian",
+    "Japanese",
+    "Korean",
+    "Mandarin",
+    "Portuguese",
+    "Russian",
+    "Spanish",
+    "#NotAvailable",
 ]
 RESOLUTIONS = [
-    "144p", "240p", "480p", "720p", "1080p", "1440p", "2160p", "4320p", "BluRay",
-    "BDRip", "WEB-DL", "HDRip", "WEBRip", "HDTVRip", "DVDRip", "DVDScr", "TSRip",
-    "CAMRip", "HDTC", "HEVC", "#NotAvailable",
+    "144p",
+    "240p",
+    "480p",
+    "720p",
+    "1080p",
+    "1440p",
+    "2160p",
+    "4320p",
+    "BluRay",
+    "BDRip",
+    "WEB-DL",
+    "HDRip",
+    "WEBRip",
+    "HDTVRip",
+    "DVDRip",
+    "DVDScr",
+    "TSRip",
+    "CAMRip",
+    "HDTC",
+    "HEVC",
+    "#NotAvailable",
 ]
 GENRES = [
-    "Action", "Adventure", "Animation", "Biography", "Comedy", "Crime", "Documentary",
-    "Drama", "Family", "Fantasy", "History", "Horror", "Music", "Musical", "Mystery",
-    "Romance", "Sci-Fi", "Sport", "Thriller", "War", "Western", "Superhero",
-    "Psychological", "Suspense", "Noir", "Disaster", "Survival", "Teen", "Slice of Life",
-    "Coming of Age", "Martial Arts", "Political", "Legal", "Medical", "Spy", "Erotic",
-    "Mythology", "Short", "Experimental", "#NotAvailable",
+    "Action",
+    "Adventure",
+    "Animation",
+    "Biography",
+    "Comedy",
+    "Crime",
+    "Documentary",
+    "Drama",
+    "Family",
+    "Fantasy",
+    "History",
+    "Horror",
+    "Music",
+    "Musical",
+    "Mystery",
+    "Romance",
+    "Sci-Fi",
+    "Sport",
+    "Thriller",
+    "War",
+    "Western",
+    "Superhero",
+    "Psychological",
+    "Suspense",
+    "Noir",
+    "Disaster",
+    "Survival",
+    "Teen",
+    "Slice of Life",
+    "Coming of Age",
+    "Martial Arts",
+    "Political",
+    "Legal",
+    "Medical",
+    "Spy",
+    "Erotic",
+    "Mythology",
+    "Short",
+    "Experimental",
+    "#NotAvailable",
 ]
 OTT_PLATFORMS = [
-    "Aha", "ALTBalaji", "JioHotstar", "ErosNow", "Hoichoi", "JioCinema", "MXPlayer",
-    "SonyLIV", "SunNXT", "Voot", "Zee5", "AmazonPrime", "AppleTV+", "Crunchyroll",
-    "Discovery+", "HBO Max", "Hulu", "Netflix", "Paramount+", "Peacock", "ManoramaMAX",
+    "Aha",
+    "ALTBalaji",
+    "JioHotstar",
+    "ErosNow",
+    "Hoichoi",
+    "JioCinema",
+    "MXPlayer",
+    "SonyLIV",
+    "SunNXT",
+    "Voot",
+    "Zee5",
+    "AmazonPrime",
+    "AppleTV+",
+    "Crunchyroll",
+    "Discovery+",
+    "HBO Max",
+    "Hulu",
+    "Netflix",
+    "Paramount+",
+    "Peacock",
+    "ManoramaMAX",
     "NotAvailable",
 ]
+
 
 # ============================================================
 # 🛡️ BULLETPROOF ADMIN FILTERS
@@ -73,10 +163,12 @@ def get_admin_list():
         return [str(a) for a in raw_admins]
     return []
 
+
 async def admin_check(_, __, message: Message):
     if not message.from_user:
         return False
     return str(message.from_user.id) in get_admin_list()
+
 
 admin_filter = filters.create(admin_check)
 
@@ -104,9 +196,13 @@ async def post_command(client: Client, message: Message):
 async def edit_direct_url(client: Client, message: Message):
     user_id = message.from_user.id
     if user_id not in post_sessions:
-        return await message.reply_text("❌ You don't have an active post session right now.")
+        return await message.reply_text(
+            "❌ You don't have an active post session right now."
+        )
     if len(message.command) < 2:
-        return await message.reply_text("❌ Please provide a URL.\n\n**Usage:** `/editdirect https://t.me/your_bot?start=custom_link`")
+        return await message.reply_text(
+            "❌ Please provide a URL.\n\n**Usage:** `/editdirect https://t.me/your_bot?start=custom_link`"
+        )
 
     new_url = message.command[1]
     session = post_sessions[user_id]
@@ -120,10 +216,14 @@ async def edit_direct_url(client: Client, message: Message):
                     button_updated = True
 
     if button_updated:
-        await message.reply_text(f"✅ **'Direct Search' button URL updated successfully!**\n\n🔗 **New URL:** `{new_url}`")
+        await message.reply_text(
+            f"✅ **'Direct Search' button URL updated successfully!**\n\n🔗 **New URL:** `{new_url}`"
+        )
         await update_post_preview(client, user_id, message.chat.id, force_resend=False)
     else:
-        await message.reply_text("❌ **Button not found!** Ensure you have the 'Direct Search 🔎' button added to your layout first.")
+        await message.reply_text(
+            "❌ **Button not found!** Ensure you have the 'Direct Search 🔎' button added to your layout first."
+        )
 
 
 @Client.on_message(filters.command("editlangs") & admin_filter, group=-4)
@@ -132,12 +232,14 @@ async def edit_langs_cmd(client: Client, message: Message):
     if user_id not in post_sessions:
         return await message.reply_text("❌ No active post session.")
     if len(message.command) < 2:
-        return await message.reply_text("❌ Provide languages separated by commas.\n\n**Usage:** `/editlangs Kannada, English, Hindi`")
-    
+        return await message.reply_text(
+            "❌ Provide languages separated by commas.\n\n**Usage:** `/editlangs Kannada, English, Hindi`"
+        )
+
     # Set the session languages directly based on the user's input
     new_langs = [lang.strip() for lang in message.text.split(None, 1)[1].split(",")]
     post_sessions[user_id]["custom_languages"] = new_langs
-    
+
     await message.reply_text(f"✅ Languages updated to: **{', '.join(new_langs)}**")
     await update_post_preview(client, user_id, message.chat.id, force_resend=False)
 
@@ -148,11 +250,13 @@ async def edit_resolutions_cmd(client: Client, message: Message):
     if user_id not in post_sessions:
         return await message.reply_text("❌ No active post session.")
     if len(message.command) < 2:
-        return await message.reply_text("❌ Provide resolutions separated by commas.\n\n**Usage:** `/editresolutions 1080p, 720p, 480p`")
-    
+        return await message.reply_text(
+            "❌ Provide resolutions separated by commas.\n\n**Usage:** `/editresolutions 1080p, 720p, 480p`"
+        )
+
     new_res = [res.strip() for res in message.text.split(None, 1)[1].split(",")]
     post_sessions[user_id]["custom_resolutions"] = new_res
-    
+
     await message.reply_text(f"✅ Resolutions updated to: **{', '.join(new_res)}**")
     await update_post_preview(client, user_id, message.chat.id, force_resend=False)
 
@@ -163,11 +267,13 @@ async def edit_genres_cmd(client: Client, message: Message):
     if user_id not in post_sessions:
         return await message.reply_text("❌ No active post session.")
     if len(message.command) < 2:
-        return await message.reply_text("❌ Provide genres separated by commas.\n\n**Usage:** `/editgenres Action, Thriller, Drama`")
-    
+        return await message.reply_text(
+            "❌ Provide genres separated by commas.\n\n**Usage:** `/editgenres Action, Thriller, Drama`"
+        )
+
     new_genres = [gen.strip() for gen in message.text.split(None, 1)[1].split(",")]
     post_sessions[user_id]["custom_genres"] = new_genres
-    
+
     await message.reply_text(f"✅ Genres updated to: **{', '.join(new_genres)}**")
     await update_post_preview(client, user_id, message.chat.id, force_resend=False)
 
@@ -178,11 +284,13 @@ async def edit_otts_cmd(client: Client, message: Message):
     if user_id not in post_sessions:
         return await message.reply_text("❌ No active post session.")
     if len(message.command) < 2:
-        return await message.reply_text("❌ Provide OTT platforms separated by commas.\n\n**Usage:** `/editotts Netflix, Prime Video, Aha`")
-    
+        return await message.reply_text(
+            "❌ Provide OTT platforms separated by commas.\n\n**Usage:** `/editotts Netflix, Prime Video, Aha`"
+        )
+
     new_otts = [ott.strip() for ott in message.text.split(None, 1)[1].split(",")]
     post_sessions[user_id]["custom_otts"] = new_otts
-    
+
     await message.reply_text(f"✅ OTTs updated to: **{', '.join(new_otts)}**")
     await update_post_preview(client, user_id, message.chat.id, force_resend=False)
 
@@ -192,21 +300,21 @@ async def edit_image_cmd(client: Client, message: Message):
     user_id = message.from_user.id
     if user_id not in post_sessions:
         return await message.reply_text("❌ No active post session.")
-    
+
     session = post_sessions[user_id]
-    
+
     # 1. If command is typed in the caption of a directly uploaded photo
     if message.photo:
         session["custom_poster"] = message.photo.file_id
         session["photo_mode"] = True
         await message.reply_text("✅ Image updated from uploaded photo!")
-        
+
     # 2. If command is a reply to an existing photo
     elif message.reply_to_message and message.reply_to_message.photo:
         session["custom_poster"] = message.reply_to_message.photo.file_id
         session["photo_mode"] = True
         await message.reply_text("✅ Image updated from replied photo!")
-        
+
     # 3. If a URL or reset command is provided as text
     elif len(message.command) > 1:
         if message.command[1] == "/reset":
@@ -217,8 +325,10 @@ async def edit_image_cmd(client: Client, message: Message):
             session["photo_mode"] = True
             await message.reply_text("✅ Image updated from URL!")
         else:
-            return await message.reply_text("⚠️ Invalid URL. Use a valid http/https link.")
-            
+            return await message.reply_text(
+                "⚠️ Invalid URL. Use a valid http/https link."
+            )
+
     # 4. Invalid usage
     else:
         return await message.reply_text(
@@ -227,7 +337,7 @@ async def edit_image_cmd(client: Client, message: Message):
             "2. Reply to a photo with `/editimage`.\n"
             "3. Send a URL: `/editimage <url>`."
         )
-        
+
     await update_post_preview(client, user_id, message.chat.id, force_resend=True)
 
 
