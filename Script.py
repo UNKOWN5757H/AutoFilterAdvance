@@ -10,7 +10,7 @@ class script(object):
 ○ 𝗗𝗮𝘁𝗮𝗕𝗮𝘀𝗲 : 𝙼𝙾𝙽𝙶𝙾 𝙳𝙱
 ○ 𝗕𝘂𝗶𝗹𝗱 𝗩𝗲𝗿𝘀𝗶𝗼𝗻 : V2.0 [ 𝙱𝙴𝚃𝙰 ]</b>"""
 
-    DELETE_TXT = """<b>Hey {mention} ⚓
+    PRVCY_TXT = """<b>Hey {mention} ⚓
 
 ➡️ Your Request Has Been Deleted To Safeguard Your Privacy!
 
