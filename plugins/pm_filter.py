@@ -509,7 +509,7 @@ async def auto_filter(client, msg, spoll=False):
         btn.append([InlineKeyboardButton(text="1/1", callback_data="pages")])
 
     mention = message.from_user.mention if message.from_user else "User"
-    cap = f"Hᴇʏ {mention} 👋🏻\n\n➤ Tɪᴛʟᴇ : {search}\n➤ Yᴏᴜʀ Fɪʟᴇꜱ Rᴇᴀᴅʏ Nᴏᴡ 👇"
+    cap = f"<b>Hᴇʏ {mention} 👋🏻\n\n➤ Tɪᴛʟᴇ : {search}\n➤ Yᴏᴜʀ Fɪʟᴇꜱ Rᴇᴀᴅʏ Nᴏᴡ 👇</b>"
 
     try:
         m = await message.reply_text(cap, reply_markup=InlineKeyboardMarkup(btn))
