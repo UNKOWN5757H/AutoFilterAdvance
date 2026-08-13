@@ -10,6 +10,12 @@ class script(object):
 ○ 𝗗𝗮𝘁𝗮𝗕𝗮𝘀𝗲 : 𝙼𝙾𝙽𝙶𝙾 𝙳𝙱
 ○ 𝗕𝘂𝗶𝗹𝗱 𝗩𝗲𝗿𝘀𝗶𝗼𝗻 : V2.0 [ 𝙱𝙴𝚃𝙰 ]</b>"""
 
+    DELETE_TXT = """<b>Hey {mention} ⚓
+
+➡️ Your Request Has Been Deleted To Safeguard Your Privacy!
+
+➡️ Thank You For Using @KR_PICTURE</b>"""
+
     SOURCE_TXT = """<b>Source Code Of This Bot is Private 😊</b>"""
 
     BANS_TXT = """<blockquote><b>User Management\nBan or unban users to control access to the bot.</b></blockquote>\n
