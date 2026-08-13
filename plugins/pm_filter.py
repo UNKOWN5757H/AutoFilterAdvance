@@ -72,38 +72,31 @@ async def auto_delete_and_notify(bot_message, delay: int, user_message=None):
         return
     await asyncio.sleep(delay)
     try:
-        is_group = bot_message.chat.type in [
-            enums.ChatType.GROUP,
-            enums.ChatType.SUPERGROUP,
-        ]
-
+        is_group = bot_message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]
+        
         # 1. Delete bot's message
         try:
             await bot_message.delete()
         except Exception:
             pass
-
+        
         # 2. Delete user's message
         if user_message:
             try:
                 await user_message.delete()
             except Exception:
                 pass
-
+            
             # 3. Send notification in group
             if is_group:
-                mention = (
-                    user_message.from_user.mention if user_message.from_user else "User"
-                )
+                mention = user_message.from_user.mention if user_message.from_user else "User"
                 default_text = "<b>Hey {mention} ⚓\n\n➡️ Your Request Has Been Deleted To Safeguard Your Privacy!\n\n➡️ Thank You For Using @KR_PICTURE</b>"
-
+                
                 # Fetch custom text from Script.py if available, else fallback to default
                 text = getattr(script, "DELETE_TXT", default_text)
-
-                notification = await bot_message.chat.send_message(
-                    text.format(mention=mention)
-                )
-
+                
+                notification = await bot_message.chat.send_message(text.format(mention=mention))
+                
                 # 4. Delete notification after 11 minutes (660 seconds)
                 await asyncio.sleep(660)
                 try:
@@ -122,7 +115,411 @@ async def expire_cache_entry(cache: dict, key, delay: int):
 
 
 # ============================================================
-# 🔍 MAIN AUTO-FILTER HANDLER
+# 🔎 SEARCH LOGIC HELPERS (Defined first to prevent NameErrors)
+# ============================================================
+async def advantage_spell_chok(msg):
+    if not msg or not getattr(msg, "text", None):
+        return
+
+    query = (
+        re.sub(
+            r"\b(pl(i|e)*?(s|z+|ease|se|ese|(e+)s(e)?)|((send|snd|giv(e)?|gib)(\sme)?)|movie(s)?|new|latest|br((o|u)h?)*|^h(e|a)?(l)*(o)*|mal(ayalam)?|t(h)?amil|file|that|find|und(o)*|kit(t(i|y)?)?o(w)?|thar(u)?(o)*w?|kittum(o)*|aya(k)*(um(o)*)?|full\smovie|any(one)|with\ssubtitle(s)?)",
+            "",
+            msg.text,
+            flags=re.IGNORECASE,
+        ).strip()
+        + " movie"
+    )
+
+    g_s = await search_gagala(query) or []
+    g_s += await search_gagala(msg.text) or []
+    gs_parsed = []
+
+    pic_to_use = getattr(info, "NOT_FOUND_IMG", None) or FILE_NOT_FOUND_PIC
+    text_to_use = getattr(info, "NOT_FOUND_MSG", None) or NOT_FOUND_TEXT
+
+    if not g_s:
+        try:
+            k_msg = await msg.reply_photo(photo=pic_to_use, caption=text_to_use)
+        except Exception:
+            try:
+                k_msg = await msg.reply_text(text=text_to_use)
+            except Exception:
+                k_msg = None
+
+        if k_msg:
+            delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
+            if delete_timer > 0:
+                asyncio.create_task(auto_delete_and_notify(k_msg, delete_timer, msg))
+        return
+
+    regex = re.compile(r".*(imdb|wikipedia).*", re.IGNORECASE)
+    gs = list(filter(regex.match, g_s))
+    gs_parsed = [
+        re.sub(
+            r"\b(\-([a-zA-Z-\s])\-\simdb|(\-\s)?imdb|(\-\s)?wikipedia|\(|\)|\-|reviews|full|all|episode(s)?|film|movie|series)",
+            "",
+            i,
+            flags=re.IGNORECASE,
+        )
+        for i in gs
+    ]
+
+    if not gs_parsed:
+        reg = re.compile(r"watch(\s[a-zA-Z0-9_\s\-\(\)]*)*\|.*", re.IGNORECASE)
+        for mv in g_s:
+            match = reg.match(mv)
+            if match:
+                gs_parsed.append(match.group(1))
+
+    user = msg.from_user.id if msg.from_user else 0
+    movielist = []
+    gs_parsed = list(dict.fromkeys(gs_parsed))[:3]
+
+    if gs_parsed:
+        for mov in gs_parsed:
+            try:
+                imdb_s = await get_poster(mov.strip(), bulk=True)
+                if imdb_s:
+                    movielist += [movie.get("title") for movie in imdb_s]
+            except Exception:
+                pass
+
+    movielist += [
+        (re.sub(r"(\-|\(|\)|_)", "", i, flags=re.IGNORECASE)).strip() for i in gs_parsed
+    ]
+    movielist = list(dict.fromkeys(movielist))
+
+    if not movielist:
+        try:
+            k_msg = await msg.reply_photo(photo=pic_to_use, caption=text_to_use)
+        except Exception:
+            try:
+                k_msg = await msg.reply_text(text=text_to_use)
+            except Exception:
+                k_msg = None
+
+        if k_msg:
+            delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
+            if delete_timer > 0:
+                asyncio.create_task(auto_delete_and_notify(k_msg, delete_timer, msg))
+        return
+
+    SPELL_CHECK[msg.id] = movielist
+    spell_check_ttl = getattr(info, "BUTTON_AUTO_DELETE", 1800)
+    if spell_check_ttl > 0:
+        asyncio.create_task(expire_cache_entry(SPELL_CHECK, msg.id, spell_check_ttl))
+    btn = [
+        [
+            InlineKeyboardButton(
+                text=movie.strip(), callback_data=f"spolling#{user}#{idx}"
+            )
+        ]
+        for idx, movie in enumerate(movielist)
+    ]
+    btn.append(
+        [
+            InlineKeyboardButton(
+                text="Close", callback_data=f"spolling#{user}#close_spellcheck"
+            )
+        ]
+    )
+
+    try:
+        await msg.reply(
+            "<b>I couldn't find anything related to that. Did you mean any one of these?</b>",
+            reply_markup=InlineKeyboardMarkup(btn),
+        )
+    except Forbidden:
+        pass
+
+
+async def manual_filters(client, message, text=False):
+    group_id = message.chat.id
+    name = text or message.text
+    reply_id = message.reply_to_message.id if message.reply_to_message else message.id
+    keywords = await get_filters(group_id)
+
+    if not keywords:
+        return False
+
+    for keyword in reversed(sorted(keywords, key=len)):
+        pattern = r"( |^|[^\w])" + re.escape(keyword) + r"( |$|[^\w])"
+        if re.search(pattern, name, flags=re.IGNORECASE):
+            reply_text, btn, alert, fileid = await find_filter(group_id, keyword)
+
+            if reply_text:
+                reply_text = reply_text.replace("\\n", "\n").replace("\\t", "\t")
+
+            button_layout = None
+            if btn and btn != "[]":
+                try:
+                    button_layout = ast.literal_eval(btn)
+                except Exception:
+                    pass
+
+            reply_markup = (
+                InlineKeyboardMarkup(button_layout) if button_layout else None
+            )
+
+            try:
+                sent_msg = None
+                fileid_str = str(fileid).strip()
+
+                if not fileid or fileid_str in ["None", "[]", "", "False"]:
+                    if not reply_markup:
+                        sent_msg = await client.send_message(
+                            group_id,
+                            reply_text,
+                            disable_web_page_preview=True,
+                            reply_to_message_id=reply_id,
+                        )
+                    else:
+                        sent_msg = await client.send_message(
+                            group_id,
+                            reply_text,
+                            disable_web_page_preview=True,
+                            reply_markup=reply_markup,
+                            reply_to_message_id=reply_id,
+                        )
+                else:
+                    if not reply_markup:
+                        sent_msg = await client.send_cached_media(
+                            group_id,
+                            fileid,
+                            caption=reply_text or "",
+                            reply_to_message_id=reply_id,
+                        )
+                    else:
+                        sent_msg = await message.reply_cached_media(
+                            fileid,
+                            caption=reply_text or "",
+                            reply_markup=reply_markup,
+                            reply_to_message_id=reply_id,
+                        )
+
+                if sent_msg:
+                    delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
+                    if delete_timer > 0:
+                        asyncio.create_task(
+                            auto_delete_and_notify(sent_msg, delete_timer, message)
+                        )
+
+            except FloodWait as e:
+                logger.warning(f"Telegram FloodWait in manual_filters! Sleeping for {e.value} seconds...")
+                await asyncio.sleep(e.value)
+                try:
+                    if not fileid or fileid_str in ["None", "[]", "", "False"]:
+                        sent_msg = await client.send_message(
+                            group_id,
+                            reply_text,
+                            disable_web_page_preview=True,
+                            reply_markup=reply_markup,
+                            reply_to_message_id=reply_id,
+                        )
+                    else:
+                        sent_msg = await client.send_cached_media(
+                            group_id,
+                            fileid,
+                            caption=reply_text or "",
+                            reply_markup=reply_markup,
+                            reply_to_message_id=reply_id,
+                        )
+                    if sent_msg:
+                        delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
+                        if delete_timer > 0:
+                            asyncio.create_task(
+                                auto_delete_and_notify(sent_msg, delete_timer, message)
+                            )
+                except Exception as e2:
+                    logger.exception(f"manual_filter retry error: {e2}")
+            except Forbidden as e:
+                if "CHAT_SEND_PHOTOS_FORBIDDEN" in str(e) or "CHAT_SEND_MEDIA_FORBIDDEN" in str(e):
+                    try:
+                        fallback_text = (
+                            f"{reply_text}\n\n*(Media blocked by chat permissions)*"
+                            if reply_text
+                            else "*(Media blocked by chat permissions)*"
+                        )
+                        sent_msg = await client.send_message(
+                            group_id,
+                            text=fallback_text,
+                            reply_to_message_id=reply_id,
+                            reply_markup=reply_markup,
+                        )
+                        if sent_msg:
+                            delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
+                            if delete_timer > 0:
+                                asyncio.create_task(
+                                    auto_delete_and_notify(sent_msg, delete_timer, message)
+                                )
+                    except Exception:
+                        pass
+            except Exception as e:
+                logger.exception(e)
+            return True
+    return False
+
+
+async def auto_filter(client, msg, spoll=False):
+    if not spoll:
+        message = msg
+        settings = await get_settings(message.chat.id)
+
+        if not message.text:
+            return
+
+        if message.text.startswith(("/", "!", "#", ".", ",", "?", "@")):
+            return
+
+        if not (2 < len(message.text) < 100):
+            return
+
+        search = message.text
+        files, offset, total_results = await get_search_results(
+            search.lower(), max_results=10, offset=0, filter=True
+        )
+
+        if not files:
+            if settings.get("spell_check"):
+                return await advantage_spell_chok(msg)
+            return
+    else:
+        settings = await get_settings(msg.message.chat.id)
+        message = msg.message.reply_to_message
+        if not message:
+            message = msg.message
+
+        search, files, offset, total_results = spoll
+
+    if not files:
+        return
+
+    files.sort(
+        key=lambda x: (
+            x.get("file_size", 0) if isinstance(x, dict) else getattr(x, "file_size", 0)
+        )
+    )
+
+    pre = "filep" if settings.get("file_secure") else "file"
+    btn = []
+
+    if not temp.U_NAME:
+        try:
+            bot_me = await client.get_me()
+            temp.U_NAME = bot_me.username
+        except Exception:
+            pass
+    bot_username = temp.U_NAME or "my_bot"
+
+    for file in files:
+        file_id = str(
+            file.get("file_id", "")
+            if isinstance(file, dict)
+            else getattr(file, "file_id", "")
+        )
+        file_name = str(
+            file.get("file_name", "Unknown")
+            if isinstance(file, dict)
+            else getattr(file, "file_name", "Unknown")
+        )
+        file_size = int(
+            file.get("file_size", 0)
+            if isinstance(file, dict)
+            else getattr(file, "file_size", 0)
+        )
+
+        if settings.get("button", False):
+            btn.append(
+                [
+                    InlineKeyboardButton(
+                        text=f"{get_size(file_size)} | {file_name}",
+                        url=f"https://t.me/{bot_username}?start={pre}_{file_id}",
+                    )
+                ]
+            )
+        else:
+            btn.append(
+                [
+                    InlineKeyboardButton(
+                        text=file_name,
+                        url=f"https://t.me/{bot_username}?start={pre}_{file_id}",
+                    ),
+                    InlineKeyboardButton(
+                        text=get_size(file_size),
+                        url=f"https://t.me/{bot_username}?start={pre}_{file_id}",
+                    ),
+                ]
+            )
+
+    btn.insert(
+        0,
+        [
+            InlineKeyboardButton(
+                text="• Bᴀᴄᴋ Uᴘ Cʜᴀɴɴᴇʟ •",
+                url="https://t.me/KR_Picture",
+                icon_custom_emoji_id=5258503720928288433,
+                style=ButtonStyle.SUCCESS,
+            )
+        ],
+    )
+
+    if offset:
+        key = f"{message.chat.id}-{message.id}"
+        BUTTONS[key] = search
+        req = message.from_user.id if message.from_user else 0
+        cache_ttl = getattr(info, "BUTTON_AUTO_DELETE", 1800)
+        if cache_ttl > 0:
+            asyncio.create_task(expire_cache_entry(BUTTONS, key, cache_ttl))
+        btn.append(
+            [
+                InlineKeyboardButton(
+                    text=f"1/{math.ceil(int(total_results) / 10)}",
+                    callback_data="pages",
+                ),
+                InlineKeyboardButton(
+                    text="NEXT", callback_data=f"next_{req}_{key}_{offset}"
+                ),
+            ]
+        )
+    else:
+        btn.append([InlineKeyboardButton(text="1/1", callback_data="pages")])
+
+    mention = message.from_user.mention if message.from_user else "User"
+    cap = f"Hey {mention} 👋🏻\n\n➤ Title : {search}\n➤ Your Files Ready Now 👇"
+
+    try:
+        m = await message.reply_text(cap, reply_markup=InlineKeyboardMarkup(btn))
+    except FloodWait as e:
+        logger.warning(f"Telegram FloodWait triggered! Sleeping for {e.value} seconds...")
+        await asyncio.sleep(e.value)
+        try:
+            m = await message.reply_text(cap, reply_markup=InlineKeyboardMarkup(btn))
+        except Exception as e2:
+            logger.exception(f"auto_filter retry error: {e2}")
+            return
+    except ButtonUrlInvalid:
+        logger.error("ButtonUrlInvalid during auto_filter send.")
+        return
+    except Forbidden:
+        return
+    except Exception as e:
+        logger.exception(f"auto_filter error: {e}")
+        return
+
+    if spoll:
+        try:
+            await msg.message.delete()
+        except MessageIdInvalid:
+            pass
+
+    delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
+    if delete_timer > 0:
+        asyncio.create_task(auto_delete_and_notify(m, delete_timer, message))
+
+
+# ============================================================
+# 🔍 MAIN ENTRY POINT
 # ============================================================
 @Client.on_message((filters.group) & filters.text & filters.incoming)
 async def give_filter(client, message):
@@ -336,7 +733,7 @@ async def next_page(bot, query):
 
 
 # ============================================================
-# ✍️ SPELL CHECK HANDLER
+# ✍️ SPELL CHECK CALLBACK HANDLER
 # ============================================================
 @Client.on_callback_query(filters.regex(r"^spolling"))
 async def advantage_spoll_choker(bot, query):
@@ -414,11 +811,7 @@ async def advantage_spoll_choker(bot, query):
             if k_msg:
                 delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
                 if delete_timer > 0:
-                    asyncio.create_task(
-                        auto_delete_and_notify(
-                            k_msg, delete_timer, query.message.reply_to_message
-                        )
-                    )
+                    asyncio.create_task(auto_delete_and_notify(k_msg, delete_timer, query.message.reply_to_message))
 
 
 # ============================================================
@@ -857,7 +1250,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
             ]
 
             # Safe parsing of ADMINS list for both string/int
-            if str(user_id) in [str(a) for a in ADMINS]:
+            if str(user_id) in [str(a) for a in info.ADMINS]:
                 buttons.append(
                     [
                         InlineKeyboardButton("ℹ️ 𝙷𝚎𝚕𝚙", callback_data="help"),
@@ -946,6 +1339,8 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     reply_markup=InlineKeyboardMarkup(buttons),
                     parse_mode=enums.ParseMode.HTML,
                 )
+            except MessageNotModified:
+                pass
             except Exception as e:
                 logger.error(f"Help Button Error: {e}")
                 # Fallback to prevent silent failing if string formatting has issues
@@ -957,8 +1352,8 @@ async def cb_handler(client: Client, query: CallbackQuery):
                         text=safe_text,
                         reply_markup=InlineKeyboardMarkup(buttons),
                     )
-                except Exception as e2:
-                    logger.error(f"Help Button Fallback Failed: {e2}")
+                except (MessageNotModified, Exception):
+                    pass
 
         elif query.data == "about":
             await query.answer()
@@ -1095,299 +1490,3 @@ async def cb_handler(client: Client, query: CallbackQuery):
 
     except QueryIdInvalid:
         pass
-
-
-# ============================================================
-# 🔎 SEARCH LOGIC (auto_filter, advantage_spell_chok, manual_filters)
-# ============================================================
-async def auto_filter(client, msg, spoll=False):
-    if not spoll:
-        message = msg
-        settings = await get_settings(message.chat.id)
-
-        if not message.text:
-            return
-
-        if message.text.startswith(("/", "!", "#", ".", ",", "?", "@")):
-            return
-
-        if not (2 < len(message.text) < 100):
-            return
-
-        search = message.text
-        files, offset, total_results = await get_search_results(
-            search.lower(), max_results=10, offset=0, filter=True
-        )
-
-        if not files:
-            if settings.get("spell_check"):
-                return await advantage_spell_chok(msg)
-            return
-    else:
-        settings = await get_settings(msg.message.chat.id)
-        message = msg.message.reply_to_message
-        if not message:
-            message = msg.message
-
-        search, files, offset, total_results = spoll
-
-    if not files:
-        return
-
-    files.sort(
-        key=lambda x: (
-            x.get("file_size", 0) if isinstance(x, dict) else getattr(x, "file_size", 0)
-        )
-    )
-
-    pre = "filep" if settings.get("file_secure") else "file"
-    btn = []
-
-    if not temp.U_NAME:
-        try:
-            bot_me = await client.get_me()
-            temp.U_NAME = bot_me.username
-        except Exception:
-            pass
-    bot_username = temp.U_NAME or "my_bot"
-
-    for file in files:
-        file_id = str(
-            file.get("file_id", "")
-            if isinstance(file, dict)
-            else getattr(file, "file_id", "")
-        )
-        file_name = str(
-            file.get("file_name", "Unknown")
-            if isinstance(file, dict)
-            else getattr(file, "file_name", "Unknown")
-        )
-        file_size = int(
-            file.get("file_size", 0)
-            if isinstance(file, dict)
-            else getattr(file, "file_size", 0)
-        )
-
-        if settings.get("button", False):
-            btn.append(
-                [
-                    InlineKeyboardButton(
-                        text=f"{get_size(file_size)} | {file_name}",
-                        url=f"https://t.me/{bot_username}?start={pre}_{file_id}",
-                    )
-                ]
-            )
-        else:
-            btn.append(
-                [
-                    InlineKeyboardButton(
-                        text=file_name,
-                        url=f"https://t.me/{bot_username}?start={pre}_{file_id}",
-                    ),
-                    InlineKeyboardButton(
-                        text=get_size(file_size),
-                        url=f"https://t.me/{bot_username}?start={pre}_{file_id}",
-                    ),
-                ]
-            )
-
-    btn.insert(
-        0,
-        [
-            InlineKeyboardButton(
-                text="• Bᴀᴄᴋ Uᴘ Cʜᴀɴɴᴇʟ •",
-                url="https://t.me/KR_Picture",
-                icon_custom_emoji_id=5258503720928288433,
-                style=ButtonStyle.SUCCESS,
-            )
-        ],
-    )
-
-    if offset:
-        key = f"{message.chat.id}-{message.id}"
-        BUTTONS[key] = search
-        req = message.from_user.id if message.from_user else 0
-        cache_ttl = getattr(info, "BUTTON_AUTO_DELETE", 1800)
-        if cache_ttl > 0:
-            asyncio.create_task(expire_cache_entry(BUTTONS, key, cache_ttl))
-        btn.append(
-            [
-                InlineKeyboardButton(
-                    text=f"1/{math.ceil(int(total_results) / 10)}",
-                    callback_data="pages",
-                ),
-                InlineKeyboardButton(
-                    text="NEXT", callback_data=f"next_{req}_{key}_{offset}"
-                ),
-            ]
-        )
-    else:
-        btn.append([InlineKeyboardButton(text="1/1", callback_data="pages")])
-
-    mention = message.from_user.mention if message.from_user else "User"
-    cap = f"Hey {mention} 👋🏻\n\n➤ Title : {search}\n➤ Your Files Ready Now 👇"
-
-    try:
-        m = await message.reply_text(cap, reply_markup=InlineKeyboardMarkup(btn))
-    except FloodWait as e:
-        logger.warning(
-            f"Telegram FloodWait triggered! Sleeping for {e.value} seconds..."
-        )
-        await asyncio.sleep(e.value)
-        try:
-            m = await message.reply_text(cap, reply_markup=InlineKeyboardMarkup(btn))
-        except Exception as e2:
-            logger.exception(f"auto_filter retry error: {e2}")
-            return
-    except ButtonUrlInvalid:
-        logger.error("ButtonUrlInvalid during auto_filter send.")
-        return
-    except Forbidden:
-        return
-    except Exception as e:
-        logger.exception(f"auto_filter error: {e}")
-        return
-
-    if spoll:
-        try:
-            await msg.message.delete()
-        except MessageIdInvalid:
-            pass
-
-    delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
-    if delete_timer > 0:
-        asyncio.create_task(auto_delete_and_notify(m, delete_timer, message))
-
-
-async def manual_filters(client, message, text=False):
-    group_id = message.chat.id
-    name = text or message.text
-    reply_id = message.reply_to_message.id if message.reply_to_message else message.id
-    keywords = await get_filters(group_id)
-
-    if not keywords:
-        return False
-
-    for keyword in reversed(sorted(keywords, key=len)):
-        pattern = r"( |^|[^\w])" + re.escape(keyword) + r"( |$|[^\w])"
-        if re.search(pattern, name, flags=re.IGNORECASE):
-            reply_text, btn, alert, fileid = await find_filter(group_id, keyword)
-
-            if reply_text:
-                reply_text = reply_text.replace("\\n", "\n").replace("\\t", "\t")
-
-            button_layout = None
-            if btn and btn != "[]":
-                try:
-                    button_layout = ast.literal_eval(btn)
-                except Exception:
-                    pass
-
-            reply_markup = (
-                InlineKeyboardMarkup(button_layout) if button_layout else None
-            )
-
-            try:
-                sent_msg = None
-                fileid_str = str(fileid).strip()
-
-                # 🛡️ ROBUST FILE ID CHECK
-                if not fileid or fileid_str in ["None", "[]", "", "False"]:
-                    if not reply_markup:
-                        sent_msg = await client.send_message(
-                            group_id,
-                            reply_text,
-                            disable_web_page_preview=True,
-                            reply_to_message_id=reply_id,
-                        )
-                    else:
-                        sent_msg = await client.send_message(
-                            group_id,
-                            reply_text,
-                            disable_web_page_preview=True,
-                            reply_markup=reply_markup,
-                            reply_to_message_id=reply_id,
-                        )
-                else:
-                    if not reply_markup:
-                        sent_msg = await client.send_cached_media(
-                            group_id,
-                            fileid,
-                            caption=reply_text or "",
-                            reply_to_message_id=reply_id,
-                        )
-                    else:
-                        sent_msg = await message.reply_cached_media(
-                            fileid,
-                            caption=reply_text or "",
-                            reply_markup=reply_markup,
-                            reply_to_message_id=reply_id,
-                        )
-
-                if sent_msg:
-                    delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
-                    if delete_timer > 0:
-                        asyncio.create_task(
-                            auto_delete_and_notify(sent_msg, delete_timer, message)
-                        )
-
-            except FloodWait as e:
-                logger.warning(
-                    f"Telegram FloodWait in manual_filters! Sleeping for {e.value} seconds..."
-                )
-                await asyncio.sleep(e.value)
-                try:
-                    if not fileid or fileid_str in ["None", "[]", "", "False"]:
-                        sent_msg = await client.send_message(
-                            group_id,
-                            reply_text,
-                            disable_web_page_preview=True,
-                            reply_markup=reply_markup,
-                            reply_to_message_id=reply_id,
-                        )
-                    else:
-                        sent_msg = await client.send_cached_media(
-                            group_id,
-                            fileid,
-                            caption=reply_text or "",
-                            reply_markup=reply_markup,
-                            reply_to_message_id=reply_id,
-                        )
-                    if sent_msg:
-                        delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
-                        if delete_timer > 0:
-                            asyncio.create_task(
-                                auto_delete_and_notify(sent_msg, delete_timer, message)
-                            )
-                except Exception as e2:
-                    logger.exception(f"manual_filter retry error: {e2}")
-            except Forbidden as e:
-                if "CHAT_SEND_PHOTOS_FORBIDDEN" in str(
-                    e
-                ) or "CHAT_SEND_MEDIA_FORBIDDEN" in str(e):
-                    try:
-                        fallback_text = (
-                            f"{reply_text}\n\n*(Media blocked by chat permissions)*"
-                            if reply_text
-                            else "*(Media blocked by chat permissions)*"
-                        )
-                        sent_msg = await client.send_message(
-                            group_id,
-                            text=fallback_text,
-                            reply_to_message_id=reply_id,
-                            reply_markup=reply_markup,
-                        )
-                        if sent_msg:
-                            delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
-                            if delete_timer > 0:
-                                asyncio.create_task(
-                                    auto_delete_and_notify(
-                                        sent_msg, delete_timer, message
-                                    )
-                                )
-                    except Exception:
-                        pass
-            except Exception as e:
-                logger.exception(e)
-            return True
-    return False
