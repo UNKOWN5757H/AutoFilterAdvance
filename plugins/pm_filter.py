@@ -63,14 +63,48 @@ MESSAGE_EMOJI_PLANE = '<tg-emoji emoji-id="5875465628285931233">✈️</tg-emoji
 MESSAGE_EMOJI_LINK = '<tg-emoji emoji-id="5877465816030515018">🔗</tg-emoji> Link'
 
 
-async def delete_message_after_delay(message, delay: int):
-    if not message:
+# ============================================================
+# 🗑️ ADVANCED AUTO-DELETE & PRIVACY NOTIFICATION
+# ============================================================
+async def auto_delete_and_notify(bot_message, delay: int, user_message=None):
+    """Deletes bot reply & user request, then sends an 11-minute self-destructing notice."""
+    if not bot_message:
         return
     await asyncio.sleep(delay)
     try:
-        await message.delete()
-    except Exception:
-        pass
+        is_group = bot_message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]
+        
+        # 1. Delete bot's message
+        try:
+            await bot_message.delete()
+        except Exception:
+            pass
+        
+        # 2. Delete user's message
+        if user_message:
+            try:
+                await user_message.delete()
+            except Exception:
+                pass
+            
+            # 3. Send notification in group
+            if is_group:
+                mention = user_message.from_user.mention if user_message.from_user else "User"
+                default_text = "<b>Hey {mention} ⚓\n\n➡️ Your Request Has Been Deleted To Safeguard Your Privacy!\n\n➡️ Thank You For Using @KR_PICTURE</b>"
+                
+                # Fetch custom text from Script.py if available, else fallback to default
+                text = getattr(script, "DELETE_TXT", default_text)
+                
+                notification = await bot_message.chat.send_message(text.format(mention=mention))
+                
+                # 4. Delete notification after 11 minutes (660 seconds)
+                await asyncio.sleep(660)
+                try:
+                    await notification.delete()
+                except Exception:
+                    pass
+    except Exception as e:
+        logger.error(f"Auto-delete notification error: {e}")
 
 
 async def expire_cache_entry(cache: dict, key, delay: int):
@@ -373,7 +407,7 @@ async def advantage_spoll_choker(bot, query):
             if k_msg:
                 delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
                 if delete_timer > 0:
-                    asyncio.create_task(delete_message_after_delay(k_msg, delete_timer))
+                    asyncio.create_task(auto_delete_and_notify(k_msg, delete_timer, query.message.reply_to_message))
 
 
 # ============================================================
@@ -1211,124 +1245,7 @@ async def auto_filter(client, msg, spoll=False):
 
     delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
     if delete_timer > 0:
-        asyncio.create_task(delete_message_after_delay(m, delete_timer))
-
-
-async def advantage_spell_chok(msg):
-    if not msg or not getattr(msg, "text", None):
-        return
-
-    query = (
-        re.sub(
-            r"\b(pl(i|e)*?(s|z+|ease|se|ese|(e+)s(e)?)|((send|snd|giv(e)?|gib)(\sme)?)|movie(s)?|new|latest|br((o|u)h?)*|^h(e|a)?(l)*(o)*|mal(ayalam)?|t(h)?amil|file|that|find|und(o)*|kit(t(i|y)?)?o(w)?|thar(u)?(o)*w?|kittum(o)*|aya(k)*(um(o)*)?|full\smovie|any(one)|with\ssubtitle(s)?)",
-            "",
-            msg.text,
-            flags=re.IGNORECASE,
-        ).strip()
-        + " movie"
-    )
-
-    g_s = await search_gagala(query) or []
-    g_s += await search_gagala(msg.text) or []
-    gs_parsed = []
-
-    pic_to_use = getattr(info, "NOT_FOUND_IMG", None) or FILE_NOT_FOUND_PIC
-    text_to_use = getattr(info, "NOT_FOUND_MSG", None) or NOT_FOUND_TEXT
-
-    if not g_s:
-        try:
-            k_msg = await msg.reply_photo(photo=pic_to_use, caption=text_to_use)
-        except Exception:
-            try:
-                k_msg = await msg.reply_text(text=text_to_use)
-            except Exception:
-                k_msg = None
-
-        if k_msg:
-            delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
-            if delete_timer > 0:
-                asyncio.create_task(delete_message_after_delay(k_msg, delete_timer))
-        return
-
-    regex = re.compile(r".*(imdb|wikipedia).*", re.IGNORECASE)
-    gs = list(filter(regex.match, g_s))
-    gs_parsed = [
-        re.sub(
-            r"\b(\-([a-zA-Z-\s])\-\simdb|(\-\s)?imdb|(\-\s)?wikipedia|\(|\)|\-|reviews|full|all|episode(s)?|film|movie|series)",
-            "",
-            i,
-            flags=re.IGNORECASE,
-        )
-        for i in gs
-    ]
-
-    if not gs_parsed:
-        reg = re.compile(r"watch(\s[a-zA-Z0-9_\s\-\(\)]*)*\|.*", re.IGNORECASE)
-        for mv in g_s:
-            match = reg.match(mv)
-            if match:
-                gs_parsed.append(match.group(1))
-
-    user = msg.from_user.id if msg.from_user else 0
-    movielist = []
-    gs_parsed = list(dict.fromkeys(gs_parsed))[:3]
-
-    if gs_parsed:
-        for mov in gs_parsed:
-            try:
-                imdb_s = await get_poster(mov.strip(), bulk=True)
-                if imdb_s:
-                    movielist += [movie.get("title") for movie in imdb_s]
-            except Exception:
-                pass
-
-    movielist += [
-        (re.sub(r"(\-|\(|\)|_)", "", i, flags=re.IGNORECASE)).strip() for i in gs_parsed
-    ]
-    movielist = list(dict.fromkeys(movielist))
-
-    if not movielist:
-        try:
-            k_msg = await msg.reply_photo(photo=pic_to_use, caption=text_to_use)
-        except Exception:
-            try:
-                k_msg = await msg.reply_text(text=text_to_use)
-            except Exception:
-                k_msg = None
-
-        if k_msg:
-            delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
-            if delete_timer > 0:
-                asyncio.create_task(delete_message_after_delay(k_msg, delete_timer))
-        return
-
-    SPELL_CHECK[msg.id] = movielist
-    spell_check_ttl = getattr(info, "BUTTON_AUTO_DELETE", 1800)
-    if spell_check_ttl > 0:
-        asyncio.create_task(expire_cache_entry(SPELL_CHECK, msg.id, spell_check_ttl))
-    btn = [
-        [
-            InlineKeyboardButton(
-                text=movie.strip(), callback_data=f"spolling#{user}#{idx}"
-            )
-        ]
-        for idx, movie in enumerate(movielist)
-    ]
-    btn.append(
-        [
-            InlineKeyboardButton(
-                text="Close", callback_data=f"spolling#{user}#close_spellcheck"
-            )
-        ]
-    )
-
-    try:
-        await msg.reply(
-            "<b>I couldn't find anything related to that. Did you mean any one of these?</b>",
-            reply_markup=InlineKeyboardMarkup(btn),
-        )
-    except Forbidden:
-        pass
+        asyncio.create_task(auto_delete_and_notify(m, delete_timer, message))
 
 
 async def manual_filters(client, message, text=False):
@@ -1400,7 +1317,7 @@ async def manual_filters(client, message, text=False):
                     delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
                     if delete_timer > 0:
                         asyncio.create_task(
-                            delete_message_after_delay(sent_msg, delete_timer)
+                            auto_delete_and_notify(sent_msg, delete_timer, message)
                         )
 
             except FloodWait as e:
@@ -1429,7 +1346,7 @@ async def manual_filters(client, message, text=False):
                         delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
                         if delete_timer > 0:
                             asyncio.create_task(
-                                delete_message_after_delay(sent_msg, delete_timer)
+                                auto_delete_and_notify(sent_msg, delete_timer, message)
                             )
                 except Exception as e2:
                     logger.exception(f"manual_filter retry error: {e2}")
@@ -1453,7 +1370,7 @@ async def manual_filters(client, message, text=False):
                             delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
                             if delete_timer > 0:
                                 asyncio.create_task(
-                                    delete_message_after_delay(sent_msg, delete_timer)
+                                    auto_delete_and_notify(sent_msg, delete_timer, message)
                                 )
                     except Exception:
                         pass
