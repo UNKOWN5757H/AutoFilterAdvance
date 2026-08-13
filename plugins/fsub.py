@@ -304,7 +304,7 @@ async def add_dynamic_fsub(bot: Client, message: Message):
         await message.reply_text(
             f"🎯 **Target:** `{chat.title}`\n\nDo you want this to be a **Join Request** channel?\n\nReply with `y` for Yes, or `n` for No (Normal invite)."
         )
-        resp = await bot.listen(message.chat.id, timeout=30)
+        resp = await bot.listen(message.chat.id, timeout=120)
 
         if not resp or not resp.text:
             return await message.reply_text(
@@ -495,7 +495,7 @@ async def clear_fsub_users(bot: Client, message: Message):
         await message.reply_text(
             "⚠️ Are you sure you want to clear all FSub users from the database? Reply with 'y' to confirm."
         )
-        resp = await bot.listen(message.chat.id, timeout=30)
+        resp = await bot.listen(message.chat.id, timeout=120)
 
         if resp and resp.text and resp.text.lower() == "y":
             await plugin_db.clear_fsub_users()
