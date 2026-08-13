@@ -72,31 +72,38 @@ async def auto_delete_and_notify(bot_message, delay: int, user_message=None):
         return
     await asyncio.sleep(delay)
     try:
-        is_group = bot_message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]
-        
+        is_group = bot_message.chat.type in [
+            enums.ChatType.GROUP,
+            enums.ChatType.SUPERGROUP,
+        ]
+
         # 1. Delete bot's message
         try:
             await bot_message.delete()
         except Exception:
             pass
-        
+
         # 2. Delete user's message
         if user_message:
             try:
                 await user_message.delete()
             except Exception:
                 pass
-            
+
             # 3. Send notification in group
             if is_group:
-                mention = user_message.from_user.mention if user_message.from_user else "User"
+                mention = (
+                    user_message.from_user.mention if user_message.from_user else "User"
+                )
                 default_text = "<b>Hey {mention} ⚓\n\n➡️ Your Request Has Been Deleted To Safeguard Your Privacy!\n\n➡️ Thank You For Using @KR_PICTURE</b>"
-                
+
                 # Fetch custom text from Script.py if available, else fallback to default
                 text = getattr(script, "DELETE_TXT", default_text)
-                
-                notification = await bot_message.chat.send_message(text.format(mention=mention))
-                
+
+                notification = await bot_message.chat.send_message(
+                    text.format(mention=mention)
+                )
+
                 # 4. Delete notification after 11 minutes (660 seconds)
                 await asyncio.sleep(660)
                 try:
@@ -306,7 +313,9 @@ async def manual_filters(client, message, text=False):
                         )
 
             except FloodWait as e:
-                logger.warning(f"Telegram FloodWait in manual_filters! Sleeping for {e.value} seconds...")
+                logger.warning(
+                    f"Telegram FloodWait in manual_filters! Sleeping for {e.value} seconds..."
+                )
                 await asyncio.sleep(e.value)
                 try:
                     if not fileid or fileid_str in ["None", "[]", "", "False"]:
@@ -334,7 +343,9 @@ async def manual_filters(client, message, text=False):
                 except Exception as e2:
                     logger.exception(f"manual_filter retry error: {e2}")
             except Forbidden as e:
-                if "CHAT_SEND_PHOTOS_FORBIDDEN" in str(e) or "CHAT_SEND_MEDIA_FORBIDDEN" in str(e):
+                if "CHAT_SEND_PHOTOS_FORBIDDEN" in str(
+                    e
+                ) or "CHAT_SEND_MEDIA_FORBIDDEN" in str(e):
                     try:
                         fallback_text = (
                             f"{reply_text}\n\n*(Media blocked by chat permissions)*"
@@ -351,7 +362,9 @@ async def manual_filters(client, message, text=False):
                             delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
                             if delete_timer > 0:
                                 asyncio.create_task(
-                                    auto_delete_and_notify(sent_msg, delete_timer, message)
+                                    auto_delete_and_notify(
+                                        sent_msg, delete_timer, message
+                                    )
                                 )
                     except Exception:
                         pass
@@ -491,7 +504,9 @@ async def auto_filter(client, msg, spoll=False):
     try:
         m = await message.reply_text(cap, reply_markup=InlineKeyboardMarkup(btn))
     except FloodWait as e:
-        logger.warning(f"Telegram FloodWait triggered! Sleeping for {e.value} seconds...")
+        logger.warning(
+            f"Telegram FloodWait triggered! Sleeping for {e.value} seconds..."
+        )
         await asyncio.sleep(e.value)
         try:
             m = await message.reply_text(cap, reply_markup=InlineKeyboardMarkup(btn))
@@ -811,7 +826,11 @@ async def advantage_spoll_choker(bot, query):
             if k_msg:
                 delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
                 if delete_timer > 0:
-                    asyncio.create_task(auto_delete_and_notify(k_msg, delete_timer, query.message.reply_to_message))
+                    asyncio.create_task(
+                        auto_delete_and_notify(
+                            k_msg, delete_timer, query.message.reply_to_message
+                        )
+                    )
 
 
 # ============================================================
