@@ -55,19 +55,19 @@ def get_start_buttons(user_id):
     buttons = [
         [
             InlineKeyboardButton(
-                text="✈️ Group 1",
+                text="✈️ Gʀᴏᴜᴘ 1",
                 url="https://t.me/Sandalwood_Kannada_Group",
                 icon_custom_emoji_id=5258096772776991776,
                 style=ButtonStyle.PRIMARY,
             ),
             InlineKeyboardButton(
-                text="✈️ Group 2",
+                text="✈️ Gʀᴏᴜᴘ 2",
                 url="http://t.me/Kannada_Filmy_Group",
                 icon_custom_emoji_id=5258096772776991776,
                 style=ButtonStyle.PRIMARY,
             ),
             InlineKeyboardButton(
-                text="✈️ Group 3",
+                text="✈️ Gʀᴏᴜᴘ 3",
                 url="https://t.me/+GLsPkRgLGGszMzY1",
                 icon_custom_emoji_id=5258096772776991776,
                 style=ButtonStyle.PRIMARY,
@@ -87,7 +87,7 @@ def get_start_buttons(user_id):
     buttons.append(
         [
             InlineKeyboardButton(
-                text="🔗 New Releases & OTT Updates",
+                text="🔗 Nᴇᴡ Rᴇʟᴇᴀꜱᴇꜱ & Oᴛᴛ Uᴘᴅᴀᴛᴇꜱ",
                 url="https://t.me/sandalwood_kannada_moviesz",
                 icon_custom_emoji_id=5258503720928288433,
                 style=ButtonStyle.SUCCESS,
@@ -301,8 +301,10 @@ async def start(client: Client, message: Message):
                         [
                             [
                                 InlineKeyboardButton(
-                                    "🎥 ಕನ್ನಡ ಹೊಸ ಮೂವೀಗಳು 🎥",
+                                    text="🎥 ಕನ್ನಡ ಹೊಸ ಮೂವೀಗಳು 🎥",
                                     url="https://t.me/Sandalwood_kannada_moviesz",
+                                    icon_custom_emoji_id=5258503720928288433,
+                                    style=ButtonStyle.SUCCESS,
                                 )
                             ]
                         ]
@@ -473,8 +475,10 @@ async def start(client: Client, message: Message):
                 [
                     [
                         InlineKeyboardButton(
-                            "🎥 ಕನ್ನಡ ಹೊಸ ಮೂವೀಗಳು 🎥",
-                            url="https://t.me/Sandalwood_kannada_moviesz",
+                         text="🎥 ಕನ್ನಡ ಹೊಸ ಮೂವೀಗಳು 🎥",
+                         url="https://t.me/Sandalwood_kannada_moviesz",
+                         icon_custom_emoji_id=5258503720928288433,
+                         style=ButtonStyle.SUCCESS,
                         )
                     ]
                 ]
@@ -502,7 +506,7 @@ async def delete_after_delay(msg, warning_msg, delay):
     try:
         await msg.delete()
         await warning_msg.edit_text(
-            "<b>ʏᴏᴜʀ ᴠɪᴅᴇᴏ / ꜰɪʟᴇ ɪꜱ ꜱᴜᴄᴄᴇꜱꜱꜰᴜʟʟʏ ᴅᴇʟᴇᴛᴇᴅ !!. ᴛᴇᴀᴍ: @KR_Picture</b>"
+            "<b>Yᴏᴜʀ Vɪᴅᴇᴏ / Fɪʟᴇ ɪꜱ Sᴜᴄᴄᴇꜱꜱꜰᴜʟʟʏ Dᴇʟᴇᴛᴇᴅ !!. Tᴇᴀᴍ: @KR_Picture</b>"
         )
     except Exception:
         pass
@@ -724,7 +728,7 @@ async def pm_auto_reply(client: Client, message: Message):
     buttons = [
         [
             InlineKeyboardButton(
-                text="🔗 Join Our Main Channel",
+                text="🔗 Jᴏɪɴ Oᴜʀ Mᴀɪɴ Cʜᴀɴɴᴇʟ",
                 url="https://t.me/Sandalwood_Kannada_Group",
                 icon_custom_emoji_id=5258503720928288433,
                 style=ButtonStyle.SUCCESS,
