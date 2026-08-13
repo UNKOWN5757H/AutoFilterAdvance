@@ -2,12 +2,13 @@ import asyncio
 import logging
 import os
 import re
+import urllib.parse
 from datetime import datetime
 from typing import List, Union
 
+import aiohttp
 import requests
 from bs4 import BeautifulSoup
-from imdb import IMDb
 from pyrogram import enums
 from pyrogram.errors import (
     FloodWait,
@@ -20,7 +21,14 @@ from pyrogram.types import InlineKeyboardButton, Message
 
 from database.join_reqs import join_reqs as db2
 from database.users_chats_db import db
-from info import ADMINS, AUTH_CHANNEL, LONG_IMDB_DESCRIPTION, MAX_LIST_ELM, REQ_CHANNEL
+from info import (
+    ADMINS,
+    AUTH_CHANNEL,
+    LONG_IMDB_DESCRIPTION,
+    MAX_LIST_ELM,
+    REQ_CHANNEL,
+    TMDB_API_KEY,
+)
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -28,7 +36,6 @@ logger.setLevel(logging.INFO)
 BTN_URL_REGEX = re.compile(
     r"(\[([^\[]+?)\]\((buttonurl|buttonalert):(?:/{0,2})(.+?)(:same)?\))"
 )
-imdb = IMDb()
 
 SMART_OPEN = "“"
 SMART_CLOSE = "”"
@@ -45,6 +52,12 @@ class temp(object):
     U_NAME = None
     B_NAME = None
     SETTINGS = {}
+
+
+class TMDBWrapper(dict):
+    """Wrapper class so object dot-notation (e.g. movie.movieID) works seamlessly."""
+    def __getattr__(self, name):
+        return self.get(name)
 
 
 def parse_ultra_advanced_query(text):
@@ -116,7 +129,7 @@ def parse_ultra_advanced_query(text):
 
 async def is_subscribed(bot, query):
     user_id = query.from_user.id
-    if user_id in ADMINS:
+    if user_id in ADMINS or str(user_id) in [str(a) for a in ADMINS]:
         return True
     if not AUTH_CHANNEL and not REQ_CHANNEL:
         return True
@@ -137,84 +150,147 @@ async def is_subscribed(bot, query):
         return False
 
 
-def _fetch_imdb_data(query, bulk=False, id=False, file=None):
-    try:
-        if not id:
-            query = query.strip().lower()
-            year_match = re.findall(r"\b(19\d{2}|20\d{2})\b", query, re.IGNORECASE)
-            year = year_match[0] if year_match else None
-            title = query.replace(year, "").strip() if year else query
-
-            movieid = imdb.search_movie(title, results=10)
-            if not movieid:
-                return None
-
-            filtered = (
-                [k for k in movieid if str(k.get("year")) == str(year)]
-                if year
-                else movieid
-            )
-            if not filtered:
-                filtered = movieid
-
-            movieid_filtered = [
-                k for k in filtered if k.get("kind") in ["movie", "tv series"]
-            ]
-            if not movieid_filtered:
-                movieid_filtered = filtered
-
-            if bulk:
-                return movieid_filtered
-            movieid = movieid_filtered[0].movieID
-        else:
-            movieid = query
-
-        movie = imdb.get_movie(movieid)
-        date = movie.get("original air date") or movie.get("year") or "N/A"
-        plot = (
-            movie.get("plot outline")
-            if LONG_IMDB_DESCRIPTION
-            else (movie.get("plot")[0] if movie.get("plot") else "")
-        )
-        if plot and len(plot) > 800:
-            plot = plot[0:800] + "..."
-
-        return {
-            "title": movie.get("title"),
-            "votes": movie.get("votes"),
-            "aka": list_to_str(movie.get("akas")),
-            "seasons": movie.get("number of seasons"),
-            "box_office": movie.get("box office"),
-            "localized_title": movie.get("localized title"),
-            "kind": movie.get("kind"),
-            "imdb_id": f"tt{movie.get('imdbID')}",
-            "cast": list_to_str(movie.get("cast")),
-            "runtime": list_to_str(movie.get("runtimes")),
-            "countries": list_to_str(movie.get("countries")),
-            "certificates": list_to_str(movie.get("certificates")),
-            "languages": list_to_str(movie.get("languages")),
-            "director": list_to_str(movie.get("director")),
-            "writer": list_to_str(movie.get("writer")),
-            "producer": list_to_str(movie.get("producer")),
-            "composer": list_to_str(movie.get("composer")),
-            "cinematographer": list_to_str(movie.get("cinematographer")),
-            "music_team": list_to_str(movie.get("music department")),
-            "distributors": list_to_str(movie.get("distributors")),
-            "release_date": date,
-            "year": movie.get("year"),
-            "genres": list_to_str(movie.get("genres")),
-            "poster": movie.get("full-size cover url"),
-            "plot": plot,
-            "rating": str(movie.get("rating", "N/A")),
-            "url": f"https://www.imdb.com/title/tt{movieid}",
-        }
-    except Exception as e:
-        logger.error(f"IMDb Error: {e}")
+# ============================================================
+# 🎬 TMDB API POWERED MOVIE / POSTER FETCHER
+# ============================================================
+async def get_poster(query, bulk=False, id=False, file=None):
+    if not TMDB_API_KEY:
+        logger.error("TMDB_API_KEY is missing in info.py!")
         return None
 
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+        try:
+            if id:
+                query_str = str(query)
+                media_type = "movie"
+                
+                if query_str.startswith("tt"):
+                    find_url = f"https://api.themoviedb.org/3/find/{query_str}?api_key={TMDB_API_KEY}&external_source=imdb_id"
+                    async with session.get(find_url) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            results = data.get("movie_results", []) + data.get("tv_results", [])
+                            if not results:
+                                return None
+                            query_str = str(results[0]["id"])
+                            media_type = "tv" if "name" in results[0] else "movie"
+                        else:
+                            return None
 
-async def get_poster(query, bulk=False, id=False, file=None):
-    return await asyncio.to_thread(_fetch_imdb_data, query, bulk, id, file)
+                details_url = f"https://api.themoviedb.org/3/{media_type}/{query_str}?api_key={TMDB_API_KEY}&append_to_response=credits"
+                async with session.get(details_url) as resp:
+                    if resp.status != 200:
+                        return None
+                    movie = await resp.json()
+
+                    title = movie.get("title") or movie.get("name")
+                    year = (movie.get("release_date") or movie.get("first_air_date") or "")[:4]
+                    poster_path = movie.get("poster_path")
+                    poster = f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else None
+
+                    crew = movie.get("credits", {}).get("crew", [])
+                    cast_data = movie.get("credits", {}).get("cast", [])
+
+                    director = ", ".join([c["name"] for c in crew if c.get("job") == "Director"])
+                    writer = ", ".join([c["name"] for c in crew if c.get("department") == "Writing"])
+                    cast = ", ".join([c["name"] for c in cast_data[:10]])
+                    genres = ", ".join([g["name"] for g in movie.get("genres", [])])
+
+                    plot = movie.get("overview", "N/A")
+                    if not LONG_IMDB_DESCRIPTION and len(plot) > 800:
+                        plot = plot[:800] + "..."
+
+                    return {
+                        "title": title,
+                        "votes": movie.get("vote_count", 0),
+                        "aka": movie.get("original_title") or movie.get("original_name", "N/A"),
+                        "seasons": movie.get("number_of_seasons", "N/A"),
+                        "box_office": f"${movie.get('revenue', 0):,}" if movie.get("revenue") else "N/A",
+                        "localized_title": title,
+                        "kind": media_type,
+                        "imdb_id": movie.get("imdb_id", query_str),
+                        "cast": cast or "N/A",
+                        "runtime": f"{movie.get('runtime', 'N/A')} min" if movie.get('runtime') else "N/A",
+                        "countries": ", ".join([c["name"] for c in movie.get("production_countries", [])]) or "N/A",
+                        "certificates": "N/A",
+                        "languages": ", ".join([l.get("english_name", "") for l in movie.get("spoken_languages", [])]) or "N/A",
+                        "director": director or "N/A",
+                        "writer": writer or "N/A",
+                        "producer": "N/A",
+                        "composer": "N/A",
+                        "cinematographer": "N/A",
+                        "music_team": "N/A",
+                        "distributors": ", ".join([c["name"] for c in movie.get("production_companies", [])]) or "N/A",
+                        "release_date": movie.get("release_date") or movie.get("first_air_date") or "N/A",
+                        "year": year or "N/A",
+                        "genres": genres or "N/A",
+                        "poster": poster,
+                        "plot": plot,
+                        "rating": str(round(movie.get("vote_average", 0), 1)),
+                        "url": f"https://www.themoviedb.org/{media_type}/{query_str}",
+                    }
+
+            else:
+                clean_query = str(query).strip()
+                year = None
+
+                year_match = re.search(r"\b(19\d{2}|20\d{2})\b", clean_query)
+                if year_match:
+                    year = year_match.group(1)
+                    clean_query = clean_query.replace(year, "").strip()
+
+                clean_query = re.sub(
+                    r"(?i)\b(hdrip|web-dl|webrip|bluray|brrip|dvdrip|dvdscr|tsrip|camrip|hdtc|hevc|x264|x265|1080p|720p|480p|2160p|4k|hindi|kannada|telugu|tamil|malayalam|english|movie|series)\b",
+                    "",
+                    clean_query,
+                )
+                clean_query = re.sub(r"[\(\)\[\]\{\}\-_.:]", " ", clean_query)
+                clean_query = re.sub(r"\s+", " ", clean_query).strip()
+
+                if not clean_query:
+                    clean_query = str(query)
+
+                url = f"https://api.themoviedb.org/3/search/multi?api_key={TMDB_API_KEY}&query={urllib.parse.quote(clean_query)}&include_adult=true"
+                if year:
+                    url += f"&year={year}"
+
+                async with session.get(url) as resp:
+                    if resp.status != 200:
+                        return None
+                    data = await resp.json()
+                    results = data.get("results", [])
+
+                    movies = []
+                    for item in results:
+                        if item.get("media_type") not in ["movie", "tv"]:
+                            continue
+                        movies.append(
+                            TMDBWrapper(
+                                {
+                                    "movieID": str(item.get("id")),
+                                    "title": item.get("title") or item.get("name"),
+                                    "year": (
+                                        item.get("release_date")
+                                        or item.get("first_air_date")
+                                        or ""
+                                    )[:4],
+                                    "kind": item.get("media_type"),
+                                }
+                            )
+                        )
+
+                    if bulk:
+                        return movies[: int(MAX_LIST_ELM)] if MAX_LIST_ELM else movies
+                    if not movies:
+                        return None
+
+                    # If not bulk, recursively fetch full details for top result
+                    top_id = movies[0]["movieID"]
+                    return await get_poster(top_id, id=True)
+
+        except Exception as e:
+            logger.error(f"TMDB Fetch Error: {e}")
+            return None
 
 
 async def broadcast_messages(user_id, message):
@@ -289,30 +365,37 @@ def split_list(l, n):
 
 
 def get_file_id(msg: Message):
-    if not msg.media:
-        return None
+    """Safely returns tuple (file_id, file_ref, media_type) to prevent unpacking crashes."""
+    if not msg or not msg.media:
+        return None, None, None
     media_type = getattr(msg.media, "value", str(msg.media))
+    if media_type == "caption":
+        return None, None, None
     obj = getattr(msg, media_type, None)
-    return obj
+    if not obj:
+        return None, None, None
+    file_id = getattr(obj, "file_id", None)
+    file_ref = getattr(obj, "file_ref", None)
+    return file_id, file_ref, media_type
 
 
-def extract_user(message: Message) -> Union[int, str]:
-    if message.reply_to_message:
-        return (
-            message.reply_to_message.from_user.id,
-            message.reply_to_message.from_user.first_name,
-        )
-    elif len(message.command) > 1:
-        if (
-            len(message.entities) > 1
-            and message.entities[1].type == enums.MessageEntityType.TEXT_MENTION
-        ):
-            return (message.entities[1].user.id, message.entities[1].user.first_name)
+async def extract_user(message: Message, text: str = None):
+    """Async user extractor returning Pyrogram User object for /info command."""
+    client = message._client
+    if message.reply_to_message and message.reply_to_message.from_user:
+        return message.reply_to_message.from_user
+    elif text:
         try:
-            return (int(message.command[1]), str(message.command[1]))
-        except ValueError:
-            return (message.command[1], str(message.command[1]))
-    return (message.from_user.id, message.from_user.first_name)
+            return await client.get_users(text)
+        except Exception:
+            pass
+    elif len(message.command) > 1:
+        target = message.command[1]
+        try:
+            return await client.get_users(target)
+        except Exception:
+            pass
+    return message.from_user
 
 
 def list_to_str(k):
