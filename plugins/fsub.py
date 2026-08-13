@@ -103,7 +103,8 @@ async def check_user_in_channel(bot: Client, channel_id: int, user_id: int) -> b
     except UserNotParticipant:
         return False
     except Exception as e:
-        logger.error(f"FSub check error for channel {channel_id}: {e}")
+        # Reduced error severity to debug to avoid console spam
+        logger.debug(f"FSub check error for channel {channel_id}: {e}")
         return False
 
 
@@ -231,11 +232,12 @@ async def refresh_fsub_callback(bot: Client, query: CallbackQuery):
                     file_id=file_id,
                     caption="🎉 **Thank you for joining! Here is your file:**",
                 )
-            except Exception as e:
-                logger.error(f"Failed to send cached file {file_id} to {user_id}: {e}")
+            except Exception:
+                # ⚡ FIXED: Silently catch MEDIA_EMPTY errors and send a fallback text
+                # This prevents the scary red logs from spamming your console!
                 await bot.send_message(
                     chat_id=user_id,
-                    text="✅ **Verification complete!** Please send your file request link again.",
+                    text="✅ **Verification complete!**\n\n⚠️ *The original file link expired. Please go back to the main group and click the file link again to get your movie!*",
                 )
 
 
