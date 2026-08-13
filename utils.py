@@ -56,6 +56,7 @@ class temp(object):
 
 class TMDBWrapper(dict):
     """Wrapper class so object dot-notation (e.g. movie.movieID) works seamlessly."""
+
     def __getattr__(self, name):
         return self.get(name)
 
@@ -158,18 +159,22 @@ async def get_poster(query, bulk=False, id=False, file=None):
         logger.error("TMDB_API_KEY is missing in info.py!")
         return None
 
-    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+    async with aiohttp.ClientSession(
+        timeout=aiohttp.ClientTimeout(total=10)
+    ) as session:
         try:
             if id:
                 query_str = str(query)
                 media_type = "movie"
-                
+
                 if query_str.startswith("tt"):
                     find_url = f"https://api.themoviedb.org/3/find/{query_str}?api_key={TMDB_API_KEY}&external_source=imdb_id"
                     async with session.get(find_url) as resp:
                         if resp.status == 200:
                             data = await resp.json()
-                            results = data.get("movie_results", []) + data.get("tv_results", [])
+                            results = data.get("movie_results", []) + data.get(
+                                "tv_results", []
+                            )
                             if not results:
                                 return None
                             query_str = str(results[0]["id"])
@@ -184,15 +189,25 @@ async def get_poster(query, bulk=False, id=False, file=None):
                     movie = await resp.json()
 
                     title = movie.get("title") or movie.get("name")
-                    year = (movie.get("release_date") or movie.get("first_air_date") or "")[:4]
+                    year = (
+                        movie.get("release_date") or movie.get("first_air_date") or ""
+                    )[:4]
                     poster_path = movie.get("poster_path")
-                    poster = f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else None
+                    poster = (
+                        f"https://image.tmdb.org/t/p/w500{poster_path}"
+                        if poster_path
+                        else None
+                    )
 
                     crew = movie.get("credits", {}).get("crew", [])
                     cast_data = movie.get("credits", {}).get("cast", [])
 
-                    director = ", ".join([c["name"] for c in crew if c.get("job") == "Director"])
-                    writer = ", ".join([c["name"] for c in crew if c.get("department") == "Writing"])
+                    director = ", ".join(
+                        [c["name"] for c in crew if c.get("job") == "Director"]
+                    )
+                    writer = ", ".join(
+                        [c["name"] for c in crew if c.get("department") == "Writing"]
+                    )
                     cast = ", ".join([c["name"] for c in cast_data[:10]])
                     genres = ", ".join([g["name"] for g in movie.get("genres", [])])
 
@@ -203,25 +218,48 @@ async def get_poster(query, bulk=False, id=False, file=None):
                     return {
                         "title": title,
                         "votes": movie.get("vote_count", 0),
-                        "aka": movie.get("original_title") or movie.get("original_name", "N/A"),
+                        "aka": movie.get("original_title")
+                        or movie.get("original_name", "N/A"),
                         "seasons": movie.get("number_of_seasons", "N/A"),
-                        "box_office": f"${movie.get('revenue', 0):,}" if movie.get("revenue") else "N/A",
+                        "box_office": (
+                            f"${movie.get('revenue', 0):,}"
+                            if movie.get("revenue")
+                            else "N/A"
+                        ),
                         "localized_title": title,
                         "kind": media_type,
                         "imdb_id": movie.get("imdb_id", query_str),
                         "cast": cast or "N/A",
-                        "runtime": f"{movie.get('runtime', 'N/A')} min" if movie.get('runtime') else "N/A",
-                        "countries": ", ".join([c["name"] for c in movie.get("production_countries", [])]) or "N/A",
+                        "runtime": (
+                            f"{movie.get('runtime', 'N/A')} min"
+                            if movie.get("runtime")
+                            else "N/A"
+                        ),
+                        "countries": ", ".join(
+                            [c["name"] for c in movie.get("production_countries", [])]
+                        )
+                        or "N/A",
                         "certificates": "N/A",
-                        "languages": ", ".join([l.get("english_name", "") for l in movie.get("spoken_languages", [])]) or "N/A",
+                        "languages": ", ".join(
+                            [
+                                l.get("english_name", "")
+                                for l in movie.get("spoken_languages", [])
+                            ]
+                        )
+                        or "N/A",
                         "director": director or "N/A",
                         "writer": writer or "N/A",
                         "producer": "N/A",
                         "composer": "N/A",
                         "cinematographer": "N/A",
                         "music_team": "N/A",
-                        "distributors": ", ".join([c["name"] for c in movie.get("production_companies", [])]) or "N/A",
-                        "release_date": movie.get("release_date") or movie.get("first_air_date") or "N/A",
+                        "distributors": ", ".join(
+                            [c["name"] for c in movie.get("production_companies", [])]
+                        )
+                        or "N/A",
+                        "release_date": movie.get("release_date")
+                        or movie.get("first_air_date")
+                        or "N/A",
                         "year": year or "N/A",
                         "genres": genres or "N/A",
                         "poster": poster,
