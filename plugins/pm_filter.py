@@ -1226,9 +1226,10 @@ async def cb_handler(client: Client, query: CallbackQuery):
             k = await client.send_message(
                 chat_id=query.from_user.id,
                 text=(
-                    "<blockquote><b><u>❗️❗️❗️IMPORTANT❗️️❗️❗️</u></b>\n\n"
-                    "⚠️ File will be deleted in 30 Minutes\n\n"
-                    "📌 Save or forward it.</blockquote>"
+                    "<b>📢 Please Note\n\n"
+                    "✅ The above file will be autodeleted in 30mins to avoid copyright issues.\n\n"
+                    "✅ Please forward this file to your saved messages and start downloading from there.\n\n"
+                    "Tᴇᴀᴍ: @KR_Picture</b>"
                 ),
             )
 
@@ -1258,19 +1259,19 @@ async def cb_handler(client: Client, query: CallbackQuery):
             buttons = [
                 [
                     InlineKeyboardButton(
-                        text="✈️ Group 1",
+                        text="✈️ Gʀᴏᴜᴘ 1",
                         url="https://t.me/Sandalwood_Kannada_Group",
                         icon_custom_emoji_id=5258096772776991776,
                         style=ButtonStyle.PRIMARY,
                     ),
                     InlineKeyboardButton(
-                        text="✈️ Group 2",
+                        text="✈️ Gʀᴏᴜᴘ 2",
                         url="http://t.me/Kannada_Filmy_Group",
                         icon_custom_emoji_id=5258096772776991776,
                         style=ButtonStyle.PRIMARY,
                     ),
                     InlineKeyboardButton(
-                        text="✈️ Group 3",
+                        text="✈️ Gʀᴏᴜᴘ 3",
                         url="https://t.me/+GLsPkRgLGGszMzY1",
                         icon_custom_emoji_id=5258096772776991776,
                         style=ButtonStyle.PRIMARY,
@@ -1290,7 +1291,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
             buttons.append(
                 [
                     InlineKeyboardButton(
-                        text="🔗 New Releases & OTT Updates",
+                        text="🔗 Nᴇᴡ Rᴇʟᴇᴀꜱᴇꜱ & Oᴛᴛ Uᴘᴅᴀᴛᴇꜱ",
                         url="https://t.me/sandalwood_kannada_moviesz",
                         icon_custom_emoji_id=5258503720928288433,
                         style=ButtonStyle.SUCCESS,
