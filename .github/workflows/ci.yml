@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: ["main"]
+    branches: ["TECH_VJ"]
   pull_request:
-    branches: ["main"]
+    branches: ["TECH_VJ"]
 
 jobs:
   python:
