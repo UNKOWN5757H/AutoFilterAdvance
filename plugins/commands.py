@@ -475,10 +475,10 @@ async def start(client: Client, message: Message):
                 [
                     [
                         InlineKeyboardButton(
-                         text="🎥 ಕನ್ನಡ ಹೊಸ ಮೂವೀಗಳು 🎥",
-                         url="https://t.me/Sandalwood_kannada_moviesz",
-                         icon_custom_emoji_id=5258503720928288433,
-                         style=ButtonStyle.SUCCESS,
+                            text="🎥 ಕನ್ನಡ ಹೊಸ ಮೂವೀಗಳು 🎥",
+                            url="https://t.me/Sandalwood_kannada_moviesz",
+                            icon_custom_emoji_id=5258503720928288433,
+                            style=ButtonStyle.SUCCESS,
                         )
                     ]
                 ]
