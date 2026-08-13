@@ -83,7 +83,7 @@ async def expire_cache_entry(cache: dict, key, delay: int):
 # ============================================================
 # 🔍 MAIN AUTO-FILTER HANDLER
 # ============================================================
-@Client.on_message((filters.group | filters.private) & filters.text & filters.incoming)
+@Client.on_message((filters.group) & filters.text & filters.incoming)
 async def give_filter(client, message):
     if getattr(info, "REPAIR_MODE", False):
         if not message.from_user or (
