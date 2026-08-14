@@ -70,9 +70,10 @@ async def advantage_spell_chok(client, msg):
     if not msg or not getattr(msg, "text", None):
         return
 
+    # ⚡ FIXED: Added "sandalwood" to the noise filter for the spell checker
     query = (
         re.sub(
-            r"\b(pl(i|e)*?(s|z+|ease|se|ese|(e+)s(e)?)|((send|snd|giv(e)?|gib)(\sme)?)|movie(s)?|new|latest|br((o|u)h?)*|^h(e|a)?(l)*(o)*|mal(ayalam)?|t(h)?amil|file|that|find|und(o)*|kit(t(i|y)?)?o(w)?|thar(u)?(o)*w?|kittum(o)*|aya(k)*(um(o)*)?|full\smovie|any(one)|with\ssubtitle(s)?)",
+            r"\b(sandalwood|pl(i|e)*?(s|z+|ease|se|ese|(e+)s(e)?)|((send|snd|giv(e)?|gib)(\sme)?)|movie(s)?|new|latest|br((o|u)h?)*|^h(e|a)?(l)*(o)*|mal(ayalam)?|t(h)?amil|file|that|find|und(o)*|kit(t(i|y)?)?o(w)?|thar(u)?(o)*w?|kittum(o)*|aya(k)*(um(o)*)?|full\smovie|any(one)|with\ssubtitle(s)?)",
             "",
             msg.text,
             flags=re.IGNORECASE,
@@ -335,16 +336,22 @@ async def auto_filter(client, msg, spoll=False):
         if message.text.startswith(("/", "!", "#", ".", ",", "?", "@")):
             return
 
-        if not (2 < len(message.text) < 100):
+        # ⚡ FIXED: Sanitize the query to completely ignore "sandalwood"
+        search = message.text
+        search = re.sub(r'(?i)\bsandalwood\b', '', search) # Strip word case-insensitively
+        search = re.sub(r'\s+', ' ', search).strip()       # Remove extra double spaces
+
+        if not search or not (2 < len(search) < 100):
             return
 
-        search = message.text
         files, offset, total_results = await get_search_results(
             search.lower(), max_results=10, offset=0, filter=True
         )
 
         if not files:
             if settings.get("spell_check"):
+                # Update the message text to the cleaned query so spell checker doesn't get confused
+                msg.text = search
                 return await advantage_spell_chok(client, msg)
             return
     else:
@@ -1196,19 +1203,19 @@ async def cb_handler(client: Client, query: CallbackQuery):
             buttons = [
                 [
                     InlineKeyboardButton(
-                        text="✈️ Gʀᴏᴜᴘ 1",
+                        text="✈️ Group 1",
                         url="https://t.me/Sandalwood_Kannada_Group",
                         icon_custom_emoji_id=5258096772776991776,
                         style=ButtonStyle.PRIMARY,
                     ),
                     InlineKeyboardButton(
-                        text="✈️ Gʀᴏᴜᴘ 2",
+                        text="✈️ Group 2",
                         url="http://t.me/Kannada_Filmy_Group",
                         icon_custom_emoji_id=5258096772776991776,
                         style=ButtonStyle.PRIMARY,
                     ),
                     InlineKeyboardButton(
-                        text="✈️ Gʀᴏᴜᴘ 3",
+                        text="✈️ Group 3",
                         url="https://t.me/+GLsPkRgLGGszMzY1",
                         icon_custom_emoji_id=5258096772776991776,
                         style=ButtonStyle.PRIMARY,
@@ -1228,7 +1235,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
             buttons.append(
                 [
                     InlineKeyboardButton(
-                        text="🔗 Nᴇᴡ Rᴇʟᴇᴀꜱᴇꜱ & Oᴛᴛ Uᴘᴅᴀᴛᴇꜱ",
+                        text="🔗 New Releases & OTT Updates",
                         url="https://t.me/sandalwood_kannada_moviesz",
                         icon_custom_emoji_id=5258503720928288433,
                         style=ButtonStyle.SUCCESS,
