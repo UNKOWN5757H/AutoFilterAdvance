@@ -338,8 +338,10 @@ async def auto_filter(client, msg, spoll=False):
 
         # ⚡ FIXED: Sanitize the query to completely ignore "sandalwood"
         search = message.text
-        search = re.sub(r'(?i)\bsandalwood\b', '', search) # Strip word case-insensitively
-        search = re.sub(r'\s+', ' ', search).strip()       # Remove extra double spaces
+        search = re.sub(
+            r"(?i)\bsandalwood\b", "", search
+        )  # Strip word case-insensitively
+        search = re.sub(r"\s+", " ", search).strip()  # Remove extra double spaces
 
         if not search or not (2 < len(search) < 100):
             return
