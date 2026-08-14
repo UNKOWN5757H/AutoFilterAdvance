@@ -64,66 +64,6 @@ MESSAGE_EMOJI_LINK = '<tg-emoji emoji-id="5877465816030515018">🔗</tg-emoji> L
 
 
 # ============================================================
-# 🗑️ ADVANCED AUTO-DELETE & PRIVACY NOTIFICATION
-# ============================================================
-async def auto_delete_and_notify(client, bot_message, delay: int, user_message=None):
-    """Deletes bot reply & user request, then sends an 11-minute self-destructing notice."""
-    if not bot_message:
-        return
-    await asyncio.sleep(delay)
-    try:
-        is_group = bot_message.chat.type in [
-            enums.ChatType.GROUP,
-            enums.ChatType.SUPERGROUP,
-        ]
-        chat_id = bot_message.chat.id
-
-        # 1. Delete bot's message
-        try:
-            await bot_message.delete()
-        except Exception:
-            pass
-
-        # 2. Delete user's message
-        if user_message:
-            mention = (
-                user_message.from_user.mention if user_message.from_user else "User"
-            )
-            try:
-                await user_message.delete()
-            except Exception:
-                pass
-
-            # 3. Send notification in group
-            if is_group:
-                default_text = "<b>Hey {mention} ⚓\n\n➡️ Your Request Has Been Deleted To Safeguard Your Privacy!\n\n➡️ Thank You For Using @KR_PICTURE</b>"
-
-                # Fetch custom text from Script.py if available, else fallback to default
-                text = getattr(script, "PRVCY_TXT", default_text)
-
-                # Safely use the client object to send the message
-                notification = await client.send_message(
-                    chat_id, text.format(mention=mention)
-                )
-
-                # 4. Delete notification after 11 minutes (660 seconds)
-                await asyncio.sleep(660)
-                try:
-                    await notification.delete()
-                except Exception:
-                    pass
-    except Exception as e:
-        logger.error(f"Auto-delete notification error: {e}")
-
-
-async def expire_cache_entry(cache: dict, key, delay: int):
-    """Remove `key` from an in-memory cache (BUTTONS / SPELL_CHECK) after `delay`
-    seconds. Without this, both dicts grow forever for as long as the bot runs."""
-    await asyncio.sleep(delay)
-    cache.pop(key, None)
-
-
-# ============================================================
 # 🔎 SEARCH LOGIC HELPERS
 # ============================================================
 async def advantage_spell_chok(client, msg):
