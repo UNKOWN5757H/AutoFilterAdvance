@@ -61,6 +61,7 @@ class script(object):
     FILTERS_TXT = """<blockquote><b>Filter Management\nAdd, delete, or view filters to customize responses based on keywords.</b></blockquote>\n
 <b>‣ /filter - Add a text filter (Reply `/filter keyword` to a message)
 ‣ /addfilter - Add a text filter from pre-made buttons
+‣ /editfiltercolur - Change button colour - /editfiltercolur 1 green 
 ‣ /delfilter - Delete a text filter - /delfilter filter
 ‣ /listfilters - List all filters currently added in the bot\n\nSupports text/photo/video/animation/sticker</b>"""
 
