@@ -112,6 +112,51 @@ You can just forward the message from database channel for starting indexing, no
 ‣ /dbstats - Get database stats
 ‣ /dbschedule - Get scheduled backup status</b>"""
 
+    POSTHAND_TXT = """<b><blockquote>POST_HANDLER.PY - COMMAND REFERENCE GUIDE\n \n POST CREATION & EDITING </blockquote>
+
+/post <Movie Name>
+    - Creates a brand new movie post session by fetching data from TMDB.
+/editpost <Channel Post Link>
+    - Imports an existing post from your channel so you can edit its 
+      caption, buttons, or image, and re-publish it over the original message.
+
+<blockquote>TEXT & FORMATTING CONTROLS </blockquote>
+* Pro Tip: Type 'blank' instead of a value to completely delete that line!
+
+/edittitle <New Title>
+    - Overrides the TMDB movie title. (Ex: /edittitle Kantara)
+      To remove completely: /edittitle blank
+/edityear <New Year>
+    - Overrides the release year. (Ex: /edityear 2022)
+      To remove completely: /edityear blank
+/editlangs <Languages>
+    - Updates the Languages line. (Ex: /editlangs Kannada, Hindi)
+      To remove completely: /editlangs blank
+/editresolutions <Resolutions>
+    - Updates the Resolutions line. (Ex: /editresolutions 1080p, 720p)
+      To remove completely: /editresolutions blank
+/editgenres <Genres>
+    - Updates the Genres line. (Ex: /editgenres Action, Drama)
+      To remove completely: /editgenres blank
+/editotts <OTT Platforms>
+    - Updates the OTT line. (Ex: /editotts Netflix, Prime)
+      To remove completely: /editotts blank
+
+<blockquote> BUTTON & IMAGE CONTROLS </blockquote>
+
+/editbuttoncolour <Button Number> <Colour>
+    - Changes the color of a specific button. 
+    - Available Colours: green, red, blue
+    - Example: /editbuttoncolour 1 red
+/editdirect <URL>
+    - Updates the destination link of the "Direct Search 🔎" button.
+      To remove the button entirely: /editdirect blank
+/editimage
+    - Changes the rich preview image. The bot will pause and ask you 
+      to send a photo or a direct URL.
+    - Send '/reset' to restore the original TMDB poster.
+    - Send 'blank' to completely remove the image preview.</b>"""
+
     STATUS_TXT = """<b>★ 𝚃𝙾𝚃𝙰𝙻 𝙵𝙸𝙻𝙴𝚂:</b> <code>{}</code>
 <b>★ 𝚃𝙾𝚃𝙰𝙻 𝚄𝚂𝙴𝚁𝚂:</b> <code>{}</code>
 <b>★ 𝚃𝙾𝚃𝙰𝙻 𝙲𝙷𝙰𝚃𝚂:</b> <code>{}</code>
