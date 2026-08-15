@@ -95,40 +95,40 @@ def parse_markdown_buttons(text: str):
     """Extracts buttons and automatically groups buttons on the same line into the same row."""
     if not text:
         return "", "[]"
-    
+
     buttons = []
     clean_lines = []
-    
+
     for line in text.split("\n"):
         row_btns = []
-        
+
         # Extract both format types on this specific line
         matches = list(re.finditer(r"\[([^\[\]]+)\]\(([^()]+)\)", line))
         matches += list(re.finditer(r"\[([^\[\]]+)\|([^()]+)\]", line))
-        
+
         # Sort matches so they appear left-to-right as typed
         matches.sort(key=lambda m: m.start())
-        
+
         for match in matches:
             btn_text, btn_url = match.group(1).strip(), match.group(2).strip()
             row_btns.append({"text": btn_text, "url": btn_url})
-        
+
         if row_btns:
             buttons.append(row_btns)
-            
+
         # Clean the button code completely out of the line
         clean_line = re.sub(r"\[([^\[\]]+)\]\(([^()]+)\)", "", line)
         clean_line = re.sub(r"\[([^\[\]]+)\|([^()]+)\]", "", clean_line).strip()
-        
+
         if clean_line:
             clean_lines.append(clean_line)
         elif not matches:
             # Preserve intentional blank lines
             clean_lines.append("")
-            
+
     clean_text = "\n".join(clean_lines).strip()
     btn_str = str(buttons) if buttons else "[]"
-    
+
     return clean_text, btn_str
 
 
@@ -159,12 +159,18 @@ async def add_filter_cmd(client: Client, message: Message):
     # Bulletproof media extraction
     fileid = "None"
     if replied.media:
-        if replied.photo: fileid = replied.photo.file_id
-        elif replied.video: fileid = replied.video.file_id
-        elif replied.document: fileid = replied.document.file_id
-        elif replied.audio: fileid = replied.audio.file_id
-        elif replied.animation: fileid = replied.animation.file_id
-        elif replied.sticker: fileid = replied.sticker.file_id
+        if replied.photo:
+            fileid = replied.photo.file_id
+        elif replied.video:
+            fileid = replied.video.file_id
+        elif replied.document:
+            fileid = replied.document.file_id
+        elif replied.audio:
+            fileid = replied.audio.file_id
+        elif replied.animation:
+            fileid = replied.animation.file_id
+        elif replied.sticker:
+            fileid = replied.sticker.file_id
 
     await add_filter(grp_id, keyword, text, btn, "[]", fileid)
     await message.reply_text(
@@ -198,13 +204,15 @@ async def add_premade_filter_cmd(client: Client, message: Message):
             row_btns = []
             for btn in row:
                 btn_dict = {"text": btn.text}
-                if btn.url: btn_dict["url"] = btn.url
-                elif btn.callback_data: btn_dict["callback_data"] = btn.callback_data
-                
+                if btn.url:
+                    btn_dict["url"] = btn.url
+                elif btn.callback_data:
+                    btn_dict["callback_data"] = btn.callback_data
+
                 # Preserves button colours if they exist in Pyromod forks
-                if hasattr(btn, 'style') and btn.style:
+                if hasattr(btn, "style") and btn.style:
                     btn_dict["style"] = int(btn.style)
-                    
+
                 row_btns.append(btn_dict)
             if row_btns:
                 buttons.append(row_btns)
@@ -213,12 +221,18 @@ async def add_premade_filter_cmd(client: Client, message: Message):
 
     fileid = "None"
     if replied.media:
-        if replied.photo: fileid = replied.photo.file_id
-        elif replied.video: fileid = replied.video.file_id
-        elif replied.document: fileid = replied.document.file_id
-        elif replied.audio: fileid = replied.audio.file_id
-        elif replied.animation: fileid = replied.animation.file_id
-        elif replied.sticker: fileid = replied.sticker.file_id
+        if replied.photo:
+            fileid = replied.photo.file_id
+        elif replied.video:
+            fileid = replied.video.file_id
+        elif replied.document:
+            fileid = replied.document.file_id
+        elif replied.audio:
+            fileid = replied.audio.file_id
+        elif replied.animation:
+            fileid = replied.animation.file_id
+        elif replied.sticker:
+            fileid = replied.sticker.file_id
 
     await add_filter(grp_id, keyword, text, btn_str, "[]", fileid)
     await message.reply_text(
@@ -229,7 +243,10 @@ async def add_premade_filter_cmd(client: Client, message: Message):
 # ============================================================
 # 🎨 3. EDIT FILTER BUTTON COLOUR
 # ============================================================
-@Client.on_message(filters.command(["editfiltercolur", "editfiltercolour"]) & (filters.group | filters.private))
+@Client.on_message(
+    filters.command(["editfiltercolur", "editfiltercolour"])
+    & (filters.group | filters.private)
+)
 async def edit_filter_colour_cmd(client: Client, message: Message):
     grp_id, ok = await get_target_group(client, message)
     if not ok:
@@ -249,29 +266,39 @@ async def edit_filter_colour_cmd(client: Client, message: Message):
         color_str = args[-1].lower()
         keyword = " ".join(args[1:-2]).lower()
     except ValueError:
-        return await message.reply_text("❌ Button number must be an integer. Example: `/editfiltercolur Kantara 1 green`")
+        return await message.reply_text(
+            "❌ Button number must be an integer. Example: `/editfiltercolur Kantara 1 green`"
+        )
 
     color_map = {
-        "green": getattr(ButtonStyle, 'SUCCESS', 3),
-        "red": getattr(ButtonStyle, 'DANGER', 4),
-        "blue": getattr(ButtonStyle, 'PRIMARY', 1),
+        "green": getattr(ButtonStyle, "SUCCESS", 3),
+        "red": getattr(ButtonStyle, "DANGER", 4),
+        "blue": getattr(ButtonStyle, "PRIMARY", 1),
     }
 
     if color_str not in color_map:
-        return await message.reply_text("❌ Invalid colour. Choose from: `green`, `red`, `blue`.")
+        return await message.reply_text(
+            "❌ Invalid colour. Choose from: `green`, `red`, `blue`."
+        )
 
     reply_text, btn, alert, fileid = await find_filter(grp_id, keyword)
 
     if not reply_text and (not fileid or fileid == "None"):
-        return await message.reply_text(f"❌ Filter `{keyword}` not found in this group's database.")
+        return await message.reply_text(
+            f"❌ Filter `{keyword}` not found in this group's database."
+        )
 
     if not btn or btn == "[]" or btn == "None":
-        return await message.reply_text(f"❌ Filter `{keyword}` does not have any buttons to colour.")
+        return await message.reply_text(
+            f"❌ Filter `{keyword}` does not have any buttons to colour."
+        )
 
     try:
         button_data = ast.literal_eval(btn)
     except Exception:
-        return await message.reply_text("❌ Failed to parse filter buttons. Format corrupted.")
+        return await message.reply_text(
+            "❌ Failed to parse filter buttons. Format corrupted."
+        )
 
     count = 0
     found = False
@@ -287,10 +314,14 @@ async def edit_filter_colour_cmd(client: Client, message: Message):
             break
 
     if not found:
-        return await message.reply_text(f"❌ Button number {btn_num} not found! The filter `{keyword}` only has {count} button(s).")
+        return await message.reply_text(
+            f"❌ Button number {btn_num} not found! The filter `{keyword}` only has {count} button(s)."
+        )
 
     await add_filter(grp_id, keyword, reply_text, str(button_data), alert, fileid)
-    await message.reply_text(f"✅ Filter `{keyword}` -> Button {btn_num} colour successfully changed to {color_str.title()}!")
+    await message.reply_text(
+        f"✅ Filter `{keyword}` -> Button {btn_num} colour successfully changed to {color_str.title()}!"
+    )
 
 
 # ============================================================
