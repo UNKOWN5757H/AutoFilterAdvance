@@ -340,8 +340,18 @@ async def manual_filters(client, message, text=False):
             button_layout = None
             if btn and btn != "[]":
                 try:
-                    button_layout = ast.literal_eval(btn)
-                except Exception:
+                    parsed_btn = ast.literal_eval(btn)
+                    button_layout = []
+                    for row in parsed_btn:
+                        btn_row = []
+                        for b in row:
+                            if isinstance(b, dict):
+                                btn_row.append(InlineKeyboardButton(**b))
+                            else:
+                                btn_row.append(b)
+                        button_layout.append(btn_row)
+                except Exception as e:
+                    logger.error(f"Button parsing error: {e}")
                     pass
 
             reply_markup = (
