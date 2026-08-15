@@ -211,7 +211,10 @@ async def add_premade_filter_cmd(client: Client, message: Message):
 # ============================================================
 # 🎨 3. EDIT FILTER BUTTON COLOUR
 # ============================================================
-@Client.on_message(filters.command(["editfiltercolur", "editfiltercolour"]) & (filters.group | filters.private))
+@Client.on_message(
+    filters.command(["editfiltercolur", "editfiltercolour"])
+    & (filters.group | filters.private)
+)
 async def edit_filter_colour_cmd(client: Client, message: Message):
     grp_id, ok = await get_target_group(client, message)
     if not ok:
@@ -225,36 +228,46 @@ async def edit_filter_colour_cmd(client: Client, message: Message):
         )
 
     keyword = message.command[1].lower()
-    
+
     try:
         btn_num = int(message.command[2])
     except ValueError:
-        return await message.reply_text("❌ Button number must be an integer (e.g., 1, 2, 3).")
+        return await message.reply_text(
+            "❌ Button number must be an integer (e.g., 1, 2, 3)."
+        )
 
     color_str = message.command[3].lower()
 
     # Safely map colours to Pyrogram's ButtonStyle Enum integer values
     color_map = {
-        "green": getattr(ButtonStyle, 'SUCCESS', 3),
-        "red": getattr(ButtonStyle, 'DANGER', 4),
-        "blue": getattr(ButtonStyle, 'PRIMARY', 1),
+        "green": getattr(ButtonStyle, "SUCCESS", 3),
+        "red": getattr(ButtonStyle, "DANGER", 4),
+        "blue": getattr(ButtonStyle, "PRIMARY", 1),
     }
 
     if color_str not in color_map:
-        return await message.reply_text("❌ Invalid colour. Choose from: `green`, `red`, `blue`.")
+        return await message.reply_text(
+            "❌ Invalid colour. Choose from: `green`, `red`, `blue`."
+        )
 
     reply_text, btn, alert, fileid = await find_filter(grp_id, keyword)
 
     if not reply_text:
-        return await message.reply_text(f"❌ Filter `{keyword}` not found in this group's database.")
+        return await message.reply_text(
+            f"❌ Filter `{keyword}` not found in this group's database."
+        )
 
     if not btn or btn == "[]":
-        return await message.reply_text(f"❌ Filter `{keyword}` does not have any buttons to colour.")
+        return await message.reply_text(
+            f"❌ Filter `{keyword}` does not have any buttons to colour."
+        )
 
     try:
         button_data = ast.literal_eval(btn)
     except Exception:
-        return await message.reply_text("❌ Failed to parse filter buttons. Format corrupted.")
+        return await message.reply_text(
+            "❌ Failed to parse filter buttons. Format corrupted."
+        )
 
     count = 0
     found = False
@@ -270,12 +283,16 @@ async def edit_filter_colour_cmd(client: Client, message: Message):
             break
 
     if not found:
-        return await message.reply_text(f"❌ Button number {btn_num} not found! The filter `{keyword}` only has {count} button(s).")
+        return await message.reply_text(
+            f"❌ Button number {btn_num} not found! The filter `{keyword}` only has {count} button(s)."
+        )
 
     # Save back to database
     await add_filter(grp_id, keyword, reply_text, str(button_data), alert, fileid)
 
-    await message.reply_text(f"✅ Filter `{keyword}` -> Button {btn_num} colour successfully changed to {color_str.title()}!")
+    await message.reply_text(
+        f"✅ Filter `{keyword}` -> Button {btn_num} colour successfully changed to {color_str.title()}!"
+    )
 
 
 # ============================================================
