@@ -1298,9 +1298,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     InlineKeyboardButton(
                         "📝 Post Handle", callback_data="helps_posthand"
                     ),
-                    InlineKeyboardButton(
-                        "💾 Backup", callback_data="helps_backup"
-                    ),
+                    InlineKeyboardButton("💾 Backup", callback_data="helps_backup"),
                 ],
                 [
                     InlineKeyboardButton("🔙 Back", callback_data="start"),
