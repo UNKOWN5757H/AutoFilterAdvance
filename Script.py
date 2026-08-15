@@ -155,7 +155,11 @@ You can just forward the message from database channel for starting indexing, no
     - Changes the rich preview image. The bot will pause and ask you 
       to send a photo or a direct URL.
     - Send '/reset' to restore the original TMDB poster.
-    - Send 'blank' to completely remove the image preview.</b>"""
+    - Send 'blank' to completely remove the image preview.
+/editnormalimage 
+    - Edit Image Sending Normal Image Without Preview & Telegraph Image
+    - Send '/reset' to restore the original TMDB poster.
+    - Send 'blank' to completely remove the image.</b>"""
 
     STATUS_TXT = """<b>★ 𝚃𝙾𝚃𝙰𝙻 𝙵𝙸𝙻𝙴𝚂:</b> <code>{}</code>
 <b>★ 𝚃𝙾𝚃𝙰𝙻 𝚄𝚂𝙴𝚁𝚂:</b> <code>{}</code>
