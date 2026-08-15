@@ -1,33 +1,3 @@
-B018 Found useless expression. Either assign it to a variable or remove it.
- --> .gemini-fixes/Script.py:1:1
-  |
-1 | / {
-2 | |   "path": "Script.py",
-3 | |   "reason": "Remove redundant object inheritance in Python 3 class definition.",
-4 | |   "content": "class script:\n    START_TXT = \"\"\"<b>Hey {mention} bro 🥂,\nI'm {bname}, the Moviebot! \n\nJoin our gang — We've got…
-5 | | }
-  | |_^
-
-B018 Found useless expression. Either assign it to a variable or remove it.
- --> .gemini-fixes/check_undefined.py:1:1
-  |
-1 | / {
-2 | |   "path": "check_undefined.py",
-3 | |   "reason": "Prevents AttributeError when running on Python versions without ast.MatchAs or ast.MatchStar, safely filters None in kw_…
-4 | |   "content": "import ast\nimport builtins\nimport sys\nfrom pathlib import Path\n\nBUILTINS = set(dir(builtins)) | {\n    \"__name__\…
-5 | | }
-  | |_^
-
-B018 Found useless expression. Either assign it to a variable or remove it.
- --> .gemini-fixes/database__filters_mdb.py:1:1
-  |
-1 | / {
-2 | |   "path": "database/filters_mdb.py",
-3 | |   "reason": "Log exception in del_all when dropping group collection fails rather than catching blind exception silently.",
-4 | |   "content": "import logging\n\nfrom motor.motor_asyncio import AsyncIOMotorClient\nfrom pyrogram import enums\n\nfrom info import DA…
-5 | | }
-  | |_^
-
 UP004 [*] Class `script` inherits from `object`
  --> Script.py:1:14
   |
@@ -3911,780 +3881,801 @@ help: Remove unused import: `info.ADMINS`
    |
 
 S110 `try`-`except`-`pass` detected, consider logging the exception
-   --> plugins/post_handler.py:108:5
+   --> plugins/post_handler.py:202:5
     |
-106 |               elif isinstance(data, dict) and "link" in data:
-107 |                   return data["link"]
-108 | /     except Exception:
-109 | |         pass
+200 |               elif isinstance(data, dict) and "link" in data:
+201 |                   return data["link"]
+202 | /     except Exception:
+203 | |         pass
     | |____________^
-110 |
-111 |       # 2. Try Telegraph (Secondary)
+204 |
+205 |       # 2. Try Telegraph (Secondary)
     |
 
 BLE001 Do not catch blind exception: `Exception`
-   --> plugins/post_handler.py:108:12
+   --> plugins/post_handler.py:202:12
     |
-106 |             elif isinstance(data, dict) and "link" in data:
-107 |                 return data["link"]
-108 |     except Exception:
+200 |             elif isinstance(data, dict) and "link" in data:
+201 |                 return data["link"]
+202 |     except Exception:
     |            ^^^^^^^^^
-109 |         pass
+203 |         pass
     |
 
 S110 `try`-`except`-`pass` detected, consider logging the exception
-   --> plugins/post_handler.py:118:5
+   --> plugins/post_handler.py:217:5
     |
-116 |               if isinstance(data, list) and "src" in data[0]:
-117 |                   return "https://telegra.ph" + data[0]["src"]
-118 | /     except Exception:
-119 | |         pass
+215 |               if isinstance(data, list) and "src" in data[0]:
+216 |                   return "https://telegra.ph" + data[0]["src"]
+217 | /     except Exception:
+218 | |         pass
     | |____________^
-120 |
-121 |       # 3. Try Envs.sh
+219 |
+220 |       # 3. Try Envs.sh
     |
 
 BLE001 Do not catch blind exception: `Exception`
-   --> plugins/post_handler.py:118:12
+   --> plugins/post_handler.py:217:12
     |
-116 |             if isinstance(data, list) and "src" in data[0]:
-117 |                 return "https://telegra.ph" + data[0]["src"]
-118 |     except Exception:
+215 |             if isinstance(data, list) and "src" in data[0]:
+216 |                 return "https://telegra.ph" + data[0]["src"]
+217 |     except Exception:
     |            ^^^^^^^^^
-119 |         pass
+218 |         pass
     |
 
 S110 `try`-`except`-`pass` detected, consider logging the exception
-   --> plugins/post_handler.py:126:5
+   --> plugins/post_handler.py:230:5
     |
-124 |           if res.status_code == 200 and res.text.startswith("http"):
-125 |               return res.text.strip()
-126 | /     except Exception:
-127 | |         pass
+228 |           if res.status_code == 200 and res.text.startswith("http"):
+229 |               return res.text.strip()
+230 | /     except Exception:
+231 | |         pass
     | |____________^
-128 |
-129 |       # 4. Try Catbox.moe
+232 |
+233 |       # 4. Try Catbox.moe
     |
 
 BLE001 Do not catch blind exception: `Exception`
-   --> plugins/post_handler.py:126:12
+   --> plugins/post_handler.py:230:12
     |
-124 |         if res.status_code == 200 and res.text.startswith("http"):
-125 |             return res.text.strip()
-126 |     except Exception:
+228 |         if res.status_code == 200 and res.text.startswith("http"):
+229 |             return res.text.strip()
+230 |     except Exception:
     |            ^^^^^^^^^
-127 |         pass
+231 |         pass
     |
 
 S110 `try`-`except`-`pass` detected, consider logging the exception
-   --> plugins/post_handler.py:135:5
+   --> plugins/post_handler.py:245:5
     |
-133 |           if res.status_code == 200 and res.text.startswith("http"):
-134 |               return res.text.strip()
-135 | /     except Exception:
-136 | |         pass
+243 |           if res.status_code == 200 and res.text.startswith("http"):
+244 |               return res.text.strip()
+245 | /     except Exception:
+246 | |         pass
     | |____________^
-137 |
-138 |       # 5. Try Uguu.se
+247 |
+248 |       # 5. Try Uguu.se
     |
 
 BLE001 Do not catch blind exception: `Exception`
-   --> plugins/post_handler.py:135:12
+   --> plugins/post_handler.py:245:12
     |
-133 |         if res.status_code == 200 and res.text.startswith("http"):
-134 |             return res.text.strip()
-135 |     except Exception:
+243 |         if res.status_code == 200 and res.text.startswith("http"):
+244 |             return res.text.strip()
+245 |     except Exception:
     |            ^^^^^^^^^
-136 |         pass
+246 |         pass
     |
 
 S110 `try`-`except`-`pass` detected, consider logging the exception
-   --> plugins/post_handler.py:143:5
+   --> plugins/post_handler.py:258:5
     |
-141 |           if res.status_code == 200:
-142 |               return res.json()['files'][0]['url']
-143 | /     except Exception:
-144 | |         pass
+256 |           if res.status_code == 200:
+257 |               return res.json()["files"][0]["url"]
+258 | /     except Exception:
+259 | |         pass
     | |____________^
-145 |
-146 |       return None
+260 |
+261 |       return None
     |
 
 BLE001 Do not catch blind exception: `Exception`
-   --> plugins/post_handler.py:143:12
+   --> plugins/post_handler.py:258:12
     |
-141 |         if res.status_code == 200:
-142 |             return res.json()['files'][0]['url']
-143 |     except Exception:
+256 |         if res.status_code == 200:
+257 |             return res.json()["files"][0]["url"]
+258 |     except Exception:
     |            ^^^^^^^^^
-144 |         pass
+259 |         pass
     |
 
 BLE001 Do not catch blind exception: `Exception`
-   --> plugins/post_handler.py:163:12
+   --> plugins/post_handler.py:278:12
     |
-162 |         return url, None
-163 |     except Exception as e:
+277 |         return url, None
+278 |     except Exception as e:
     |            ^^^^^^^^^
-164 |         logger.error(f"Image Processing Error: {e}")
-165 |         return None, f"❌ Internal Error: {e}"
+279 |         logger.error(f"Image Processing Error: {e}")
+280 |         return None, f"❌ Internal Error: {e}"
     |
 
 BLE001 Do not catch blind exception: `Exception`
-   --> plugins/post_handler.py:178:12
+   --> plugins/post_handler.py:295:12
     |
-177 |         await start_post_session(client, message, user_id, movie_name)
-178 |     except Exception as e:
+294 |         await start_post_session(client, message, user_id, movie_name)
+295 |     except Exception as e:
     |            ^^^^^^^^^
-179 |         await message.reply_text(f"❌ **COMMAND ERROR:**\n`{e}`")
+296 |         await message.reply_text(f"❌ **COMMAND ERROR:**\n`{e}`")
     |
 
 S110 `try`-`except`-`pass` detected, consider logging the exception
-   --> plugins/post_handler.py:374:9
+   --> plugins/post_handler.py:528:9
     |
-372 |           try:
-373 |               await response.delete()
-374 | /         except Exception:
-375 | |             pass
+526 |           try:
+527 |               await response.delete()
+528 | /         except Exception:
+529 | |             pass
     | |________________^
-376 |               
-377 |       except asyncio.TimeoutError:
+530 |
+531 |       except asyncio.TimeoutError:
     |
 
 BLE001 Do not catch blind exception: `Exception`
-   --> plugins/post_handler.py:374:16
+   --> plugins/post_handler.py:528:16
     |
-372 |         try:
-373 |             await response.delete()
-374 |         except Exception:
+526 |         try:
+527 |             await response.delete()
+528 |         except Exception:
     |                ^^^^^^^^^
-375 |             pass
+529 |             pass
     |
 
 S110 `try`-`except`-`pass` detected, consider logging the exception
-   --> plugins/post_handler.py:395:13
+   --> plugins/post_handler.py:557:13
     |
-393 |               try:
-394 |                   await client.delete_messages(message.chat.id, post_sessions[user_id]["last_preview_message_id"])
-395 | /             except Exception:
-396 | |                 pass
+555 |                       message.chat.id, post_sessions[user_id]["last_preview_message_id"]
+556 |                   )
+557 | /             except Exception:
+558 | |                 pass
     | |____________________^
-397 |
-398 |           post_sessions[user_id] = {
+559 |
+560 |           post_sessions[user_id] = {
     |
 
 BLE001 Do not catch blind exception: `Exception`
-   --> plugins/post_handler.py:395:20
+   --> plugins/post_handler.py:557:20
     |
-393 |             try:
-394 |                 await client.delete_messages(message.chat.id, post_sessions[user_id]["last_preview_message_id"])
-395 |             except Exception:
+555 |                     message.chat.id, post_sessions[user_id]["last_preview_message_id"]
+556 |                 )
+557 |             except Exception:
     |                    ^^^^^^^^^
-396 |                 pass
+558 |                 pass
     |
 
 BLE001 Do not catch blind exception: `Exception`
-   --> plugins/post_handler.py:424:12
+   --> plugins/post_handler.py:586:12
     |
-423 |         await update_post_preview(client, user_id, message.chat.id, force_resend=True)
-424 |     except Exception as e:
+585 |         await update_post_preview(client, user_id, message.chat.id, force_resend=True)
+586 |     except Exception as e:
     |            ^^^^^^^^^
-425 |         await message.reply_text(f"❌ **SESSION ERROR:**\n`{e}`")
+587 |         await message.reply_text(f"❌ **SESSION ERROR:**\n`{e}`")
     |
 
 S110 `try`-`except`-`pass` detected, consider logging the exception
-   --> plugins/post_handler.py:502:13
+   --> plugins/post_handler.py:716:13
     |
-500 |   …         try:
-501 |   …             await client.delete_messages(chat_id, session["last_preview_message_id"])
-502 | / …         except Exception:
-503 | | …             pass
-    | |__________________^
-504 |   …     try:
-505 |   …         status_msg = await client.send_message(chat_id, "<i>Generating preview...</i>", reply_to_message_id=session["original_mes…
+714 |                       chat_id, session["last_preview_message_id"]
+715 |                   )
+716 | /             except Exception:
+717 | |                 pass
+    | |____________________^
+718 |           try:
+719 |               status_msg = await client.send_message(
     |
 
 BLE001 Do not catch blind exception: `Exception`
-   --> plugins/post_handler.py:502:20
+   --> plugins/post_handler.py:716:20
     |
-500 |             try:
-501 |                 await client.delete_messages(chat_id, session["last_preview_message_id"])
-502 |             except Exception:
+714 |                     chat_id, session["last_preview_message_id"]
+715 |                 )
+716 |             except Exception:
     |                    ^^^^^^^^^
-503 |                 pass
-504 |         try:
+717 |                 pass
+718 |         try:
     |
 
 BLE001 Do not catch blind exception: `Exception`
-   --> plugins/post_handler.py:507:16
+   --> plugins/post_handler.py:725:16
     |
-505 | …         status_msg = await client.send_message(chat_id, "<i>Generating preview...</i>", reply_to_message_id=session["original_messa…
-506 | …         session["last_preview_message_id"] = status_msg.id
-507 | …     except Exception:
-    |              ^^^^^^^^^
-508 | …         try:
-509 | …             status_msg = await client.send_message(chat_id, "<i>Generating preview...</i>")
-    |
-
-BLE001 Do not catch blind exception: `Exception`
-   --> plugins/post_handler.py:511:20
-    |
-509 |                 status_msg = await client.send_message(chat_id, "<i>Generating preview...</i>")
-510 |                 session["last_preview_message_id"] = status_msg.id
-511 |             except Exception:
-    |                    ^^^^^^^^^
-512 |                 return
-    |
-
-BLE001 Do not catch blind exception: `Exception`
-   --> plugins/post_handler.py:516:12
-    |
-514 |     try:
-515 |         final_caption, keyboard, poster_to_use = await _build_final_post_content(session, session_id)
-516 |     except Exception as e:
-    |            ^^^^^^^^^
-517 |         try:
-518 |             await client.send_message(chat_id, f"❌ **BUILD CONTENT ERROR:**\n`{e}`")
-    |
-
-S110 `try`-`except`-`pass` detected, consider logging the exception
-   --> plugins/post_handler.py:519:9
-    |
-517 |           try:
-518 |               await client.send_message(chat_id, f"❌ **BUILD CONTENT ERROR:**\n`{e}`")
-519 | /         except Exception:
-520 | |             pass
-    | |________________^
-521 |           return
-    |
-
-BLE001 Do not catch blind exception: `Exception`
-   --> plugins/post_handler.py:519:16
-    |
-517 |         try:
-518 |             await client.send_message(chat_id, f"❌ **BUILD CONTENT ERROR:**\n`{e}`")
-519 |         except Exception:
+723 |             )
+724 |             session["last_preview_message_id"] = status_msg.id
+725 |         except Exception:
     |                ^^^^^^^^^
-520 |             pass
-521 |         return
+726 |             try:
+727 |                 status_msg = await client.send_message(
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/post_handler.py:731:20
+    |
+729 |                 )
+730 |                 session["last_preview_message_id"] = status_msg.id
+731 |             except Exception:
+    |                    ^^^^^^^^^
+732 |                 return
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/post_handler.py:738:12
+    |
+736 |             session, session_id
+737 |         )
+738 |     except Exception as e:
+    |            ^^^^^^^^^
+739 |         try:
+740 |             await client.send_message(chat_id, f"❌ **BUILD CONTENT ERROR:**\n`{e}`")
     |
 
 S110 `try`-`except`-`pass` detected, consider logging the exception
-   --> plugins/post_handler.py:542:17
+   --> plugins/post_handler.py:741:9
     |
-540 |                   try:
-541 |                       await client.delete_messages(chat_id, old_msg_id)
-542 | /                 except Exception:
-543 | |                     pass
+739 |           try:
+740 |               await client.send_message(chat_id, f"❌ **BUILD CONTENT ERROR:**\n`{e}`")
+741 | /         except Exception:
+742 | |             pass
+    | |________________^
+743 |           return
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/post_handler.py:741:16
+    |
+739 |         try:
+740 |             await client.send_message(chat_id, f"❌ **BUILD CONTENT ERROR:**\n`{e}`")
+741 |         except Exception:
+    |                ^^^^^^^^^
+742 |             pass
+743 |         return
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/post_handler.py:768:17
+    |
+766 |                   try:
+767 |                       await client.delete_messages(chat_id, old_msg_id)
+768 | /                 except Exception:
+769 | |                     pass
     | |________________________^
-544 |           else:
-545 |               await client.edit_message_text(
+770 |           else:
+771 |               await client.edit_message_text(
     |
 
 BLE001 Do not catch blind exception: `Exception`
-   --> plugins/post_handler.py:542:24
+   --> plugins/post_handler.py:768:24
     |
-540 |                 try:
-541 |                     await client.delete_messages(chat_id, old_msg_id)
-542 |                 except Exception:
+766 |                 try:
+767 |                     await client.delete_messages(chat_id, old_msg_id)
+768 |                 except Exception:
     |                        ^^^^^^^^^
-543 |                     pass
-544 |         else:
+769 |                     pass
+770 |         else:
     |
 
 BLE001 Do not catch blind exception: `Exception`
-   --> plugins/post_handler.py:552:12
+   --> plugins/post_handler.py:778:12
     |
-550 |                 disable_web_page_preview=False,
-551 |             )
-552 |     except Exception as e:
+776 |                 disable_web_page_preview=False,
+777 |             )
+778 |     except Exception as e:
     |            ^^^^^^^^^
-553 |         try:
-554 |             await client.send_message(chat_id, f"❌ **PREVIEW SEND ERROR:**\n`{e}`")
+779 |         try:
+780 |             await client.send_message(chat_id, f"❌ **PREVIEW SEND ERROR:**\n`{e}`")
     |
 
 S110 `try`-`except`-`pass` detected, consider logging the exception
-   --> plugins/post_handler.py:555:9
+   --> plugins/post_handler.py:781:9
     |
-553 |           try:
-554 |               await client.send_message(chat_id, f"❌ **PREVIEW SEND ERROR:**\n`{e}`")
-555 | /         except Exception:
-556 | |             pass
+779 |           try:
+780 |               await client.send_message(chat_id, f"❌ **PREVIEW SEND ERROR:**\n`{e}`")
+781 | /         except Exception:
+782 | |             pass
     | |________________^
 
 BLE001 Do not catch blind exception: `Exception`
-   --> plugins/post_handler.py:555:16
+   --> plugins/post_handler.py:781:16
     |
-553 |         try:
-554 |             await client.send_message(chat_id, f"❌ **PREVIEW SEND ERROR:**\n`{e}`")
-555 |         except Exception:
+779 |         try:
+780 |             await client.send_message(chat_id, f"❌ **PREVIEW SEND ERROR:**\n`{e}`")
+781 |         except Exception:
     |                ^^^^^^^^^
-556 |             pass
+782 |             pass
     |
 
 BLE001 Do not catch blind exception: `Exception`
-   --> plugins/post_handler.py:616:20
+   --> plugins/post_handler.py:860:20
     |
-614 |             try:
-615 |                 return await query.message.delete()
-616 |             except Exception:
+858 |             try:
+859 |                 return await query.message.delete()
+860 |             except Exception:
     |                    ^^^^^^^^^
-617 |                 return
+861 |                 return
     |
 
 BLE001 Do not catch blind exception: `Exception`
-   --> plugins/post_handler.py:703:12
+   --> plugins/post_handler.py:976:12
     |
-702 |         await update_post_preview(client, session_id, query.message.chat.id, force_resend)
-703 |     except Exception as e:
+974 |             client, session_id, query.message.chat.id, force_resend
+975 |         )
+976 |     except Exception as e:
     |            ^^^^^^^^^
-704 |         await query.message.reply_text(f"❌ **CALLBACK ERROR:**\n`{e}`")
+977 |         await query.message.reply_text(f"❌ **CALLBACK ERROR:**\n`{e}`")
     |
 
 BLE001 Do not catch blind exception: `Exception`
-   --> plugins/post_handler.py:735:12
-    |
-733 |     try:
-734 |         ask_msg = await query.message.reply_text(prompt_text, reply_to_message_id=session.get("original_message_id"))
-735 |     except Exception:
-    |            ^^^^^^^^^
-736 |         ask_msg = await query.message.reply_text(prompt_text)
-    |
+    --> plugins/post_handler.py:1044:12
+     |
+1042 |             prompt_text, reply_to_message_id=session.get("original_message_id")
+1043 |         )
+1044 |     except Exception:
+     |            ^^^^^^^^^
+1045 |         ask_msg = await query.message.reply_text(prompt_text)
+     |
 
 S110 `try`-`except`-`pass` detected, consider logging the exception
-   --> plugins/post_handler.py:742:9
-    |
-740 |           try:
-741 |               await ask_msg.delete()
-742 | /         except Exception:
-743 | |             pass
-    | |________________^
-744 |           if response:
-745 |               try:
-    |
+    --> plugins/post_handler.py:1053:9
+     |
+1051 |           try:
+1052 |               await ask_msg.delete()
+1053 | /         except Exception:
+1054 | |             pass
+     | |________________^
+1055 |           if response:
+1056 |               try:
+     |
 
 BLE001 Do not catch blind exception: `Exception`
-   --> plugins/post_handler.py:742:16
-    |
-740 |         try:
-741 |             await ask_msg.delete()
-742 |         except Exception:
-    |                ^^^^^^^^^
-743 |             pass
-744 |         if response:
-    |
+    --> plugins/post_handler.py:1053:16
+     |
+1051 |         try:
+1052 |             await ask_msg.delete()
+1053 |         except Exception:
+     |                ^^^^^^^^^
+1054 |             pass
+1055 |         if response:
+     |
 
 S110 `try`-`except`-`pass` detected, consider logging the exception
-   --> plugins/post_handler.py:747:13
-    |
-745 |               try:
-746 |                   await response.delete()
-747 | /             except Exception:
-748 | |                 pass
-    | |____________________^
-749 |               return response
-750 |       except asyncio.TimeoutError:
-    |
+    --> plugins/post_handler.py:1058:13
+     |
+1056 |               try:
+1057 |                   await response.delete()
+1058 | /             except Exception:
+1059 | |                 pass
+     | |____________________^
+1060 |               return response
+1061 |       except asyncio.TimeoutError:
+     |
 
 BLE001 Do not catch blind exception: `Exception`
-   --> plugins/post_handler.py:747:20
-    |
-745 |             try:
-746 |                 await response.delete()
-747 |             except Exception:
-    |                    ^^^^^^^^^
-748 |                 pass
-749 |             return response
-    |
+    --> plugins/post_handler.py:1058:20
+     |
+1056 |             try:
+1057 |                 await response.delete()
+1058 |             except Exception:
+     |                    ^^^^^^^^^
+1059 |                 pass
+1060 |             return response
+     |
 
 S110 `try`-`except`-`pass` detected, consider logging the exception
-   --> plugins/post_handler.py:755:9
-    |
-753 |               await asyncio.sleep(3)
-754 |               await ask_msg.delete()
-755 | /         except Exception:
-756 | |             pass
-    | |________________^
-757 |       return None
-    |
+    --> plugins/post_handler.py:1066:9
+     |
+1064 |               await asyncio.sleep(3)
+1065 |               await ask_msg.delete()
+1066 | /         except Exception:
+1067 | |             pass
+     | |________________^
+1068 |       return None
+     |
 
 BLE001 Do not catch blind exception: `Exception`
-   --> plugins/post_handler.py:755:16
-    |
-753 |             await asyncio.sleep(3)
-754 |             await ask_msg.delete()
-755 |         except Exception:
-    |                ^^^^^^^^^
-756 |             pass
-757 |     return None
-    |
+    --> plugins/post_handler.py:1066:16
+     |
+1064 |             await asyncio.sleep(3)
+1065 |             await ask_msg.delete()
+1066 |         except Exception:
+     |                ^^^^^^^^^
+1067 |             pass
+1068 |     return None
+     |
 
 S110 `try`-`except`-`pass` detected, consider logging the exception
-   --> plugins/post_handler.py:845:13
-    |
-843 |             try:
-844 |                 await query.message.edit_text("⏳ Uploading image for preview...")
-845 |             except Exception: pass
-    |             ^^^^^^^^^^^^^^^^^^^^^^
-846 |             
-847 |             url, err = await upload_image_safely(client, response)
-    |
+    --> plugins/post_handler.py:1218:13
+     |
+1216 |               try:
+1217 |                   await query.message.edit_text("⏳ Uploading image for preview...")
+1218 | /             except Exception:
+1219 | |                 pass
+     | |____________________^
+1220 |
+1221 |               url, err = await upload_image_safely(client, response)
+     |
 
 BLE001 Do not catch blind exception: `Exception`
-   --> plugins/post_handler.py:845:20
-    |
-843 |             try:
-844 |                 await query.message.edit_text("⏳ Uploading image for preview...")
-845 |             except Exception: pass
-    |                    ^^^^^^^^^
-846 |             
-847 |             url, err = await upload_image_safely(client, response)
-    |
+    --> plugins/post_handler.py:1218:20
+     |
+1216 |             try:
+1217 |                 await query.message.edit_text("⏳ Uploading image for preview...")
+1218 |             except Exception:
+     |                    ^^^^^^^^^
+1219 |                 pass
+     |
 
 S110 `try`-`except`-`pass` detected, consider logging the exception
-   --> plugins/post_handler.py:852:17
-    |
-850 |                 try:
-851 |                     await query.answer("Image set as rich preview!", show_alert=True)
-852 |                 except Exception: pass
-    |                 ^^^^^^^^^^^^^^^^^^^^^^
-853 |             else:
-854 |                 try:
-    |
+    --> plugins/post_handler.py:1226:17
+     |
+1224 |                   try:
+1225 |                       await query.answer("Image set as rich preview!", show_alert=True)
+1226 | /                 except Exception:
+1227 | |                     pass
+     | |________________________^
+1228 |               else:
+1229 |                   try:
+     |
 
 BLE001 Do not catch blind exception: `Exception`
-   --> plugins/post_handler.py:852:24
-    |
-850 |                 try:
-851 |                     await query.answer("Image set as rich preview!", show_alert=True)
-852 |                 except Exception: pass
-    |                        ^^^^^^^^^
-853 |             else:
-854 |                 try:
-    |
+    --> plugins/post_handler.py:1226:24
+     |
+1224 |                 try:
+1225 |                     await query.answer("Image set as rich preview!", show_alert=True)
+1226 |                 except Exception:
+     |                        ^^^^^^^^^
+1227 |                     pass
+1228 |             else:
+     |
 
 S110 `try`-`except`-`pass` detected, consider logging the exception
-   --> plugins/post_handler.py:856:17
-    |
-854 |                 try:
-855 |                     await query.message.edit_text(err)
-856 |                 except Exception: pass
-    |                 ^^^^^^^^^^^^^^^^^^^^^^
-857 |                 
-858 |         elif response.text and response.text.startswith("http"):
-    |
+    --> plugins/post_handler.py:1231:17
+     |
+1229 |                   try:
+1230 |                       await query.message.edit_text(err)
+1231 | /                 except Exception:
+1232 | |                     pass
+     | |________________________^
+1233 |
+1234 |           elif response.text and response.text.startswith("http"):
+     |
 
 BLE001 Do not catch blind exception: `Exception`
-   --> plugins/post_handler.py:856:24
-    |
-854 |                 try:
-855 |                     await query.message.edit_text(err)
-856 |                 except Exception: pass
-    |                        ^^^^^^^^^
-857 |                 
-858 |         elif response.text and response.text.startswith("http"):
-    |
+    --> plugins/post_handler.py:1231:24
+     |
+1229 |                 try:
+1230 |                     await query.message.edit_text(err)
+1231 |                 except Exception:
+     |                        ^^^^^^^^^
+1232 |                     pass
+     |
 
 S110 `try`-`except`-`pass` detected, consider logging the exception
-   --> plugins/post_handler.py:883:13
-    |
-881 |         elif "{langs}" not in response.text:
-882 |             try: await query.message.reply_text("⚠️ Invalid format! The format must contain `{langs}` placeholder.", quote=True)
-883 |             except Exception: pass
-    |             ^^^^^^^^^^^^^^^^^^^^^^
-884 |         else: session["lang_format"] = response.text
-885 |     await update_post_preview(client, session_id, query.message.chat.id, force_resend=False)
-    |
+    --> plugins/post_handler.py:1274:13
+     |
+1272 |                       quote=True,
+1273 |                   )
+1274 | /             except Exception:
+1275 | |                 pass
+     | |____________________^
+1276 |           else:
+1277 |               session["lang_format"] = response.text
+     |
 
 BLE001 Do not catch blind exception: `Exception`
-   --> plugins/post_handler.py:883:20
-    |
-881 |         elif "{langs}" not in response.text:
-882 |             try: await query.message.reply_text("⚠️ Invalid format! The format must contain `{langs}` placeholder.", quote=True)
-883 |             except Exception: pass
-    |                    ^^^^^^^^^
-884 |         else: session["lang_format"] = response.text
-885 |     await update_post_preview(client, session_id, query.message.chat.id, force_resend=False)
-    |
+    --> plugins/post_handler.py:1274:20
+     |
+1272 |                     quote=True,
+1273 |                 )
+1274 |             except Exception:
+     |                    ^^^^^^^^^
+1275 |                 pass
+1276 |         else:
+     |
 
 S110 `try`-`except`-`pass` detected, consider logging the exception
-   --> plugins/post_handler.py:895:13
-    |
-893 |         elif "{resolutions}" not in response.text:
-894 |             try: await query.message.reply_text("⚠️ Invalid format! The format must contain `{resolutions}` placeholder.", quote=True)
-895 |             except Exception: pass
-    |             ^^^^^^^^^^^^^^^^^^^^^^
-896 |         else: session["res_format"] = response.text
-897 |     await update_post_preview(client, session_id, query.message.chat.id, force_resend=False)
-    |
+    --> plugins/post_handler.py:1300:13
+     |
+1298 |                       quote=True,
+1299 |                   )
+1300 | /             except Exception:
+1301 | |                 pass
+     | |____________________^
+1302 |           else:
+1303 |               session["res_format"] = response.text
+     |
 
 BLE001 Do not catch blind exception: `Exception`
-   --> plugins/post_handler.py:895:20
-    |
-893 |         elif "{resolutions}" not in response.text:
-894 |             try: await query.message.reply_text("⚠️ Invalid format! The format must contain `{resolutions}` placeholder.", quote=True)
-895 |             except Exception: pass
-    |                    ^^^^^^^^^
-896 |         else: session["res_format"] = response.text
-897 |     await update_post_preview(client, session_id, query.message.chat.id, force_resend=False)
-    |
+    --> plugins/post_handler.py:1300:20
+     |
+1298 |                     quote=True,
+1299 |                 )
+1300 |             except Exception:
+     |                    ^^^^^^^^^
+1301 |                 pass
+1302 |         else:
+     |
 
 S110 `try`-`except`-`pass` detected, consider logging the exception
-   --> plugins/post_handler.py:907:13
-    |
-905 |         elif "{genres}" not in response.text:
-906 |             try: await query.message.reply_text("⚠️ Invalid format! The format must contain `{genres}` placeholder.", quote=True)
-907 |             except Exception: pass
-    |             ^^^^^^^^^^^^^^^^^^^^^^
-908 |         else: session["gen_format"] = response.text
-909 |     await update_post_preview(client, session_id, query.message.chat.id, force_resend=False)
-    |
+    --> plugins/post_handler.py:1326:13
+     |
+1324 |                       quote=True,
+1325 |                   )
+1326 | /             except Exception:
+1327 | |                 pass
+     | |____________________^
+1328 |           else:
+1329 |               session["gen_format"] = response.text
+     |
 
 BLE001 Do not catch blind exception: `Exception`
-   --> plugins/post_handler.py:907:20
-    |
-905 |         elif "{genres}" not in response.text:
-906 |             try: await query.message.reply_text("⚠️ Invalid format! The format must contain `{genres}` placeholder.", quote=True)
-907 |             except Exception: pass
-    |                    ^^^^^^^^^
-908 |         else: session["gen_format"] = response.text
-909 |     await update_post_preview(client, session_id, query.message.chat.id, force_resend=False)
-    |
+    --> plugins/post_handler.py:1326:20
+     |
+1324 |                     quote=True,
+1325 |                 )
+1326 |             except Exception:
+     |                    ^^^^^^^^^
+1327 |                 pass
+1328 |         else:
+     |
 
 S110 `try`-`except`-`pass` detected, consider logging the exception
-   --> plugins/post_handler.py:919:13
-    |
-917 |         elif "{otts}" not in response.text:
-918 |             try: await query.message.reply_text("⚠️ Invalid format! The format must contain `{otts}` placeholder.", quote=True)
-919 |             except Exception: pass
-    |             ^^^^^^^^^^^^^^^^^^^^^^
-920 |         else: session["ott_format"] = response.text
-921 |     await update_post_preview(client, session_id, query.message.chat.id, force_resend=False)
-    |
+    --> plugins/post_handler.py:1352:13
+     |
+1350 |                       quote=True,
+1351 |                   )
+1352 | /             except Exception:
+1353 | |                 pass
+     | |____________________^
+1354 |           else:
+1355 |               session["ott_format"] = response.text
+     |
 
 BLE001 Do not catch blind exception: `Exception`
-   --> plugins/post_handler.py:919:20
-    |
-917 |         elif "{otts}" not in response.text:
-918 |             try: await query.message.reply_text("⚠️ Invalid format! The format must contain `{otts}` placeholder.", quote=True)
-919 |             except Exception: pass
-    |                    ^^^^^^^^^
-920 |         else: session["ott_format"] = response.text
-921 |     await update_post_preview(client, session_id, query.message.chat.id, force_resend=False)
-    |
+    --> plugins/post_handler.py:1352:20
+     |
+1350 |                     quote=True,
+1351 |                 )
+1352 |             except Exception:
+     |                    ^^^^^^^^^
+1353 |                 pass
+1354 |         else:
+     |
 
 SIM102 Use a single `if` statement instead of nested `if` statements
-   --> plugins/post_handler.py:962:5
-    |
-961 |   async def handle_cancel(client: Client, query: CallbackQuery, session_id: int, _=None):
-962 | /     if session := post_sessions.pop(session_id, None):
-963 | |         if session.get("last_preview_message_id"):
-    | |__________________________________________________^
-964 |               try: await client.delete_messages(query.message.chat.id, session["last_preview_message_id"])
-965 |               except Exception: pass
-    |
+    --> plugins/post_handler.py:1426:5
+     |
+1425 |   async def handle_cancel(client: Client, query: CallbackQuery, session_id: int, _=None):
+1426 | /     if session := post_sessions.pop(session_id, None):
+1427 | |         if session.get("last_preview_message_id"):
+     | |__________________________________________________^
+1428 |               try:
+1429 |                   await client.delete_messages(
+     |
 help: Combine `if` statements using `and`
 
 S110 `try`-`except`-`pass` detected, consider logging the exception
-   --> plugins/post_handler.py:965:13
-    |
-963 |         if session.get("last_preview_message_id"):
-964 |             try: await client.delete_messages(query.message.chat.id, session["last_preview_message_id"])
-965 |             except Exception: pass
-    |             ^^^^^^^^^^^^^^^^^^^^^^
-966 |     try: await query.message.reply_to_message.reply_text("Post creation cancelled.")
-967 |     except Exception: pass
-    |
-
-BLE001 Do not catch blind exception: `Exception`
-   --> plugins/post_handler.py:965:20
-    |
-963 |         if session.get("last_preview_message_id"):
-964 |             try: await client.delete_messages(query.message.chat.id, session["last_preview_message_id"])
-965 |             except Exception: pass
-    |                    ^^^^^^^^^
-966 |     try: await query.message.reply_to_message.reply_text("Post creation cancelled.")
-967 |     except Exception: pass
-    |
-
-S110 `try`-`except`-`pass` detected, consider logging the exception
-   --> plugins/post_handler.py:967:5
-    |
-965 |             except Exception: pass
-966 |     try: await query.message.reply_to_message.reply_text("Post creation cancelled.")
-967 |     except Exception: pass
-    |     ^^^^^^^^^^^^^^^^^^^^^^
-
-BLE001 Do not catch blind exception: `Exception`
-   --> plugins/post_handler.py:967:12
-    |
-965 |             except Exception: pass
-966 |     try: await query.message.reply_to_message.reply_text("Post creation cancelled.")
-967 |     except Exception: pass
-    |            ^^^^^^^^^
-
-S110 `try`-`except`-`pass` detected, consider logging the exception
-   --> plugins/post_handler.py:982:5
-    |
-981 |     try: await client.delete_messages(query.message.chat.id, session["last_preview_message_id"])
-982 |     except Exception: pass
-    |     ^^^^^^^^^^^^^^^^^^^^^^
-983 |
-984 |     try: status_msg = await query.message.reply_to_message.reply_text("<i>Finalizing and posting...</i>")
-    |
-
-BLE001 Do not catch blind exception: `Exception`
-   --> plugins/post_handler.py:982:12
-    |
-981 |     try: await client.delete_messages(query.message.chat.id, session["last_preview_message_id"])
-982 |     except Exception: pass
-    |            ^^^^^^^^^
-983 |
-984 |     try: status_msg = await query.message.reply_to_message.reply_text("<i>Finalizing and posting...</i>")
-    |
-
-BLE001 Do not catch blind exception: `Exception`
-   --> plugins/post_handler.py:985:12
-    |
-984 |     try: status_msg = await query.message.reply_to_message.reply_text("<i>Finalizing and posting...</i>")
-985 |     except Exception: status_msg = None
-    |            ^^^^^^^^^
-986 |
-987 |     final_caption, _, poster_to_use = await _build_final_post_content(session, session_id)
-    |
-
-S110 `try`-`except`-`pass` detected, consider logging the exception
-   --> plugins/post_handler.py:993:13
-    |
-991 |         if status_msg:
-992 |             try: await status_msg.edit("Could not fetch movie details to post. Aborting.")
-993 |             except Exception: pass
-    |             ^^^^^^^^^^^^^^^^^^^^^^
-994 |         return
-    |
-
-BLE001 Do not catch blind exception: `Exception`
-   --> plugins/post_handler.py:993:20
-    |
-991 |         if status_msg:
-992 |             try: await status_msg.edit("Could not fetch movie details to post. Aborting.")
-993 |             except Exception: pass
-    |                    ^^^^^^^^^
-994 |         return
-    |
-
-S110 `try`-`except`-`pass` detected, consider logging the exception
-    --> plugins/post_handler.py:999:13
+    --> plugins/post_handler.py:1432:13
      |
- 997 |         if status_msg:
- 998 |             try: await status_msg.edit("❌ **MOVIE_UPDATE_CHANNEL is not set in config!**")
- 999 |             except Exception: pass
-     |             ^^^^^^^^^^^^^^^^^^^^^^
-1000 |         return
+1430 |                       query.message.chat.id, session["last_preview_message_id"]
+1431 |                   )
+1432 | /             except Exception:
+1433 | |                 pass
+     | |____________________^
+1434 |       try:
+1435 |           await query.message.reply_to_message.reply_text("Post creation cancelled.")
      |
 
 BLE001 Do not catch blind exception: `Exception`
-    --> plugins/post_handler.py:999:20
+    --> plugins/post_handler.py:1432:20
      |
- 997 |         if status_msg:
- 998 |             try: await status_msg.edit("❌ **MOVIE_UPDATE_CHANNEL is not set in config!**")
- 999 |             except Exception: pass
+1430 |                     query.message.chat.id, session["last_preview_message_id"]
+1431 |                 )
+1432 |             except Exception:
      |                    ^^^^^^^^^
-1000 |         return
+1433 |                 pass
+1434 |     try:
      |
 
 S110 `try`-`except`-`pass` detected, consider logging the exception
-    --> plugins/post_handler.py:1014:13
+    --> plugins/post_handler.py:1436:5
      |
-1012 |         if status_msg:
-1013 |             try: await status_msg.edit("✅ Post has been sent to the update channel.")
-1014 |             except Exception: pass
-     |             ^^^^^^^^^^^^^^^^^^^^^^
-1015 |             
-1016 |     except ButtonUrlInvalid:
-     |
+1434 |       try:
+1435 |           await query.message.reply_to_message.reply_text("Post creation cancelled.")
+1436 | /     except Exception:
+1437 | |         pass
+     | |____________^
 
 BLE001 Do not catch blind exception: `Exception`
-    --> plugins/post_handler.py:1014:20
+    --> plugins/post_handler.py:1436:12
      |
-1012 |         if status_msg:
-1013 |             try: await status_msg.edit("✅ Post has been sent to the update channel.")
-1014 |             except Exception: pass
-     |                    ^^^^^^^^^
-1015 |             
-1016 |     except ButtonUrlInvalid:
-     |
-
-S110 `try`-`except`-`pass` detected, consider logging the exception
-    --> plugins/post_handler.py:1019:13
-     |
-1017 |         if status_msg:
-1018 |             try: await status_msg.edit("❌ **Post Failed:** One of the button URLs is invalid. Ensure all URLs start with `http://` …
-1019 |             except Exception: pass
-     |             ^^^^^^^^^^^^^^^^^^^^^^
-1020 |     except MessageTooLong:
-1021 |         if status_msg:
-     |
-
-BLE001 Do not catch blind exception: `Exception`
-    --> plugins/post_handler.py:1019:20
-     |
-1017 |         if status_msg:
-1018 |             try: await status_msg.edit("❌ **Post Failed:** One of the button URLs is invalid. Ensure all URLs start with `http://` …
-1019 |             except Exception: pass
-     |                    ^^^^^^^^^
-1020 |     except MessageTooLong:
-1021 |         if status_msg:
-     |
-
-S110 `try`-`except`-`pass` detected, consider logging the exception
-    --> plugins/post_handler.py:1023:13
-     |
-1021 |         if status_msg:
-1022 |             try: await status_msg.edit("<b>Post Failed</b>\n\nThe final caption is too long for a Telegram message. Please shorten t…
-1023 |             except Exception: pass
-     |             ^^^^^^^^^^^^^^^^^^^^^^
-1024 |     except Exception as e:
-1025 |         if status_msg:
-     |
-
-BLE001 Do not catch blind exception: `Exception`
-    --> plugins/post_handler.py:1023:20
-     |
-1021 |         if status_msg:
-1022 |             try: await status_msg.edit("<b>Post Failed</b>\n\nThe final caption is too long for a Telegram message. Please shorten t…
-1023 |             except Exception: pass
-     |                    ^^^^^^^^^
-1024 |     except Exception as e:
-1025 |         if status_msg:
-     |
-
-BLE001 Do not catch blind exception: `Exception`
-    --> plugins/post_handler.py:1024:12
-     |
-1022 |             try: await status_msg.edit("<b>Post Failed</b>\n\nThe final caption is too long for a Telegram message. Please shorten t…
-1023 |             except Exception: pass
-1024 |     except Exception as e:
+1434 |     try:
+1435 |         await query.message.reply_to_message.reply_text("Post creation cancelled.")
+1436 |     except Exception:
      |            ^^^^^^^^^
-1025 |         if status_msg:
-1026 |             try: await status_msg.edit(f"Failed to post to update channel.\n<b>Error:</b> <code>{e}</code>")
+1437 |         pass
      |
 
 S110 `try`-`except`-`pass` detected, consider logging the exception
-    --> plugins/post_handler.py:1027:13
+    --> plugins/post_handler.py:1458:5
      |
-1025 |         if status_msg:
-1026 |             try: await status_msg.edit(f"Failed to post to update channel.\n<b>Error:</b> <code>{e}</code>")
-1027 |             except Exception: pass
-     |             ^^^^^^^^^^^^^^^^^^^^^^
+1456 |               query.message.chat.id, session["last_preview_message_id"]
+1457 |           )
+1458 | /     except Exception:
+1459 | |         pass
+     | |____________^
+1460 |
+1461 |       try:
+     |
 
 BLE001 Do not catch blind exception: `Exception`
-    --> plugins/post_handler.py:1027:20
+    --> plugins/post_handler.py:1458:12
      |
-1025 |         if status_msg:
-1026 |             try: await status_msg.edit(f"Failed to post to update channel.\n<b>Error:</b> <code>{e}</code>")
-1027 |             except Exception: pass
+1456 |             query.message.chat.id, session["last_preview_message_id"]
+1457 |         )
+1458 |     except Exception:
+     |            ^^^^^^^^^
+1459 |         pass
+     |
+
+BLE001 Do not catch blind exception: `Exception`
+    --> plugins/post_handler.py:1465:12
+     |
+1463 |             "<i>Finalizing and posting...</i>"
+1464 |         )
+1465 |     except Exception:
+     |            ^^^^^^^^^
+1466 |         status_msg = None
+     |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+    --> plugins/post_handler.py:1479:13
+     |
+1477 |                       "Could not fetch movie details to post. Aborting."
+1478 |                   )
+1479 | /             except Exception:
+1480 | |                 pass
+     | |____________________^
+1481 |           return
+     |
+
+BLE001 Do not catch blind exception: `Exception`
+    --> plugins/post_handler.py:1479:20
+     |
+1477 |                     "Could not fetch movie details to post. Aborting."
+1478 |                 )
+1479 |             except Exception:
      |                    ^^^^^^^^^
+1480 |                 pass
+1481 |         return
+     |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+    --> plugins/post_handler.py:1489:13
+     |
+1487 |                       "❌ **MOVIE_UPDATE_CHANNEL is not set in config!**"
+1488 |                   )
+1489 | /             except Exception:
+1490 | |                 pass
+     | |____________________^
+1491 |           return
+     |
+
+BLE001 Do not catch blind exception: `Exception`
+    --> plugins/post_handler.py:1489:20
+     |
+1487 |                     "❌ **MOVIE_UPDATE_CHANNEL is not set in config!**"
+1488 |                 )
+1489 |             except Exception:
+     |                    ^^^^^^^^^
+1490 |                 pass
+1491 |         return
+     |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+    --> plugins/post_handler.py:1510:13
+     |
+1508 |               try:
+1509 |                   await status_msg.edit("✅ Post has been sent to the update channel.")
+1510 | /             except Exception:
+1511 | |                 pass
+     | |____________________^
+1512 |
+1513 |       except ButtonUrlInvalid:
+     |
+
+BLE001 Do not catch blind exception: `Exception`
+    --> plugins/post_handler.py:1510:20
+     |
+1508 |             try:
+1509 |                 await status_msg.edit("✅ Post has been sent to the update channel.")
+1510 |             except Exception:
+     |                    ^^^^^^^^^
+1511 |                 pass
+     |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+    --> plugins/post_handler.py:1519:13
+     |
+1517 |                       "❌ **Post Failed:** One of the button URLs is invalid. Ensure all URLs start with `http://` or `https://`."
+1518 |                   )
+1519 | /             except Exception:
+1520 | |                 pass
+     | |____________________^
+1521 |       except MessageTooLong:
+1522 |           if status_msg:
+     |
+
+BLE001 Do not catch blind exception: `Exception`
+    --> plugins/post_handler.py:1519:20
+     |
+1517 |                     "❌ **Post Failed:** One of the button URLs is invalid. Ensure all URLs start with `http://` or `https://`."
+1518 |                 )
+1519 |             except Exception:
+     |                    ^^^^^^^^^
+1520 |                 pass
+1521 |     except MessageTooLong:
+     |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+    --> plugins/post_handler.py:1527:13
+     |
+1525 |                       "<b>Post Failed</b>\n\nThe final caption is too long for a Telegram message. Please shorten the plot."
+1526 |                   )
+1527 | /             except Exception:
+1528 | |                 pass
+     | |____________________^
+1529 |       except Exception as e:
+1530 |           if status_msg:
+     |
+
+BLE001 Do not catch blind exception: `Exception`
+    --> plugins/post_handler.py:1527:20
+     |
+1525 |                     "<b>Post Failed</b>\n\nThe final caption is too long for a Telegram message. Please shorten the plot."
+1526 |                 )
+1527 |             except Exception:
+     |                    ^^^^^^^^^
+1528 |                 pass
+1529 |     except Exception as e:
+     |
+
+BLE001 Do not catch blind exception: `Exception`
+    --> plugins/post_handler.py:1529:12
+     |
+1527 |             except Exception:
+1528 |                 pass
+1529 |     except Exception as e:
+     |            ^^^^^^^^^
+1530 |         if status_msg:
+1531 |             try:
+     |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+    --> plugins/post_handler.py:1535:13
+     |
+1533 |                       f"Failed to post to update channel.\n<b>Error:</b> <code>{e}</code>"
+1534 |                   )
+1535 | /             except Exception:
+1536 | |                 pass
+     | |____________________^
+
+BLE001 Do not catch blind exception: `Exception`
+    --> plugins/post_handler.py:1535:20
+     |
+1533 |                     f"Failed to post to update channel.\n<b>Error:</b> <code>{e}</code>"
+1534 |                 )
+1535 |             except Exception:
+     |                    ^^^^^^^^^
+1536 |                 pass
+     |
 
 BLE001 Do not catch blind exception: `Exception`
   --> plugins/search_interceptor.py:28:16
@@ -5000,5 +4991,5 @@ BLE001 Do not catch blind exception: `Exception`
 510 |         return note_data, buttons, None
     |
 
-Found 428 errors.
+Found 425 errors.
 [*] 51 fixable with the `--fix` option (45 hidden fixes can be enabled with the `--unsafe-fixes` option).
