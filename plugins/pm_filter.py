@@ -808,7 +808,7 @@ async def next_page(bot, query):
 # ============================================================
 @Client.on_callback_query(
     filters.regex(
-        r"^(close_data|delallconfirm|delallcancel|groupcb.*|connectcb.*|disconnect.*|deletecb.*|backcb|alertmessage.*|file.*|checksub.*|pages|start|help|about|helps_bans|helps_custommessages|helps_customcaption|helps_delete|helps_forcesub|helps_filters|helps_index|helps_promotions|helps_settings|helps_utilities|helps_connections|helps_forceadd|helps_backup|stats|rfrsh)$"
+        r"^(close_data|delallconfirm|delallcancel|groupcb.*|connectcb.*|disconnect.*|deletecb.*|backcb|alertmessage.*|file.*|checksub.*|pages|start|help|about|helps_bans|helps_custommessages|helps_customcaption|helps_delete|helps_forcesub|helps_filters|helps_index|helps_promotions|helps_settings|helps_utilities|helps_connections|helps_forceadd|helps_posthand|helps_backup|stats|rfrsh)$"
     )
 )
 async def cb_handler(client: Client, query: CallbackQuery):
