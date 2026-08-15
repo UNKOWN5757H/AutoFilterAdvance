@@ -1294,7 +1294,14 @@ async def cb_handler(client: Client, query: CallbackQuery):
                         "👥 Force Add", callback_data="helps_forceadd"
                     ),
                 ],
-                [InlineKeyboardButton("💾 Backup", callback_data="helps_backup")],
+                [
+                    InlineKeyboardButton(
+                        "📝 Post Handle", callback_data="helps_posthand"
+                    ),
+                    InlineKeyboardButton(
+                        "💾 Backup", callback_data="helps_backup"
+                    ),
+                ],
                 [
                     InlineKeyboardButton("🔙 Back", callback_data="start"),
                     InlineKeyboardButton("🔐 Cʟᴏsᴇ", callback_data="close_data"),
@@ -1350,6 +1357,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 "helps_utilities": ("UTILITIES_TXT", "📊 Utilities Help"),
                 "helps_connections": ("CONNECTIONS_TXT", "🌐 Connections Help"),
                 "helps_forceadd": ("FORCEADD_TXT", "👥 Force Add Help"),
+                "helps_posthand": ("POSTHAND_TXT", "📝 Post Handle Help"),
                 "helps_backup": ("BACKUP_TXT", "💾 Backup Help"),
             }
 
