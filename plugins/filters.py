@@ -95,31 +95,31 @@ def build_keyboard(btn_str: str):
 def parse_markdown_buttons(text: str):
     if not text:
         return "", "[]"
-    
+
     buttons = []
     clean_lines = []
-    
+
     for line in text.split("\n"):
         row_btns = []
         matches = list(re.finditer(r"\[([^\[\]]+)\]\(([^()]+)\)", line))
         matches += list(re.finditer(r"\[([^\[\]]+)\|([^()]+)\]", line))
         matches.sort(key=lambda m: m.start())
-        
+
         for match in matches:
             btn_text, btn_url = match.group(1).strip(), match.group(2).strip()
             row_btns.append({"text": btn_text, "url": btn_url})
-        
+
         if row_btns:
             buttons.append(row_btns)
-            
+
         clean_line = re.sub(r"\[([^\[\]]+)\]\(([^()]+)\)", "", line)
         clean_line = re.sub(r"\[([^\[\]]+)\|([^()]+)\]", "", clean_line).strip()
-        
+
         if clean_line:
             clean_lines.append(clean_line)
         elif not matches:
             clean_lines.append("")
-            
+
     clean_text = "\n".join(clean_lines).strip()
     btn_str = str(buttons) if buttons else "[]"
     return clean_text, btn_str
@@ -128,12 +128,17 @@ def parse_markdown_buttons(text: str):
 @Client.on_message(filters.command("filter") & (filters.group | filters.private))
 async def add_filter_cmd(client: Client, message: Message):
     grp_id, ok = await get_target_group(client, message)
-    if not ok: return
+    if not ok:
+        return
 
     if not message.reply_to_message:
-        return await message.reply_text("⚠️ **Reply to a message to set it as a filter.**")
+        return await message.reply_text(
+            "⚠️ **Reply to a message to set it as a filter.**"
+        )
     if len(message.command) < 2:
-        return await message.reply_text("⚙️ **Usage:** `/filter <keyword>`\n\n*(You can format buttons in your text using `[Btn 1](http://link.com) [Btn 2](http://link.com)`)*")
+        return await message.reply_text(
+            "⚙️ **Usage:** `/filter <keyword>`\n\n*(You can format buttons in your text using `[Btn 1](http://link.com) [Btn 2](http://link.com)`)*"
+        )
 
     keyword = message.text.split(None, 1)[1].lower()
     replied = message.reply_to_message
@@ -141,24 +146,35 @@ async def add_filter_cmd(client: Client, message: Message):
     text, btn = parse_markdown_buttons(raw_text)
 
     fileid = "None"
-    if replied.photo: fileid = replied.photo.file_id
-    elif replied.video: fileid = replied.video.file_id
-    elif replied.document: fileid = replied.document.file_id
-    elif replied.audio: fileid = replied.audio.file_id
-    elif replied.animation: fileid = replied.animation.file_id
-    elif replied.sticker: fileid = replied.sticker.file_id
+    if replied.photo:
+        fileid = replied.photo.file_id
+    elif replied.video:
+        fileid = replied.video.file_id
+    elif replied.document:
+        fileid = replied.document.file_id
+    elif replied.audio:
+        fileid = replied.audio.file_id
+    elif replied.animation:
+        fileid = replied.animation.file_id
+    elif replied.sticker:
+        fileid = replied.sticker.file_id
 
     await add_filter(grp_id, keyword, text, btn, "[]", fileid)
-    await message.reply_text(f"✅ **Filter successfully added!**\n\n**Keyword:** `{keyword}`")
+    await message.reply_text(
+        f"✅ **Filter successfully added!**\n\n**Keyword:** `{keyword}`"
+    )
 
 
 @Client.on_message(filters.command("addfilter") & (filters.group | filters.private))
 async def add_premade_filter_cmd(client: Client, message: Message):
     grp_id, ok = await get_target_group(client, message)
-    if not ok: return
+    if not ok:
+        return
 
     if not message.reply_to_message:
-        return await message.reply_text("⚠️ **Reply to a message containing inline buttons to set it as a filter.**")
+        return await message.reply_text(
+            "⚠️ **Reply to a message containing inline buttons to set it as a filter.**"
+        )
     if len(message.command) < 2:
         return await message.reply_text("⚙️ **Usage:** `/addfilter <keyword>`")
 
@@ -172,9 +188,11 @@ async def add_premade_filter_cmd(client: Client, message: Message):
             row_btns = []
             for btn in row:
                 btn_dict = {"text": btn.text}
-                if btn.url: btn_dict["url"] = btn.url
-                elif btn.callback_data: btn_dict["callback_data"] = btn.callback_data
-                if hasattr(btn, 'style') and btn.style:
+                if btn.url:
+                    btn_dict["url"] = btn.url
+                elif btn.callback_data:
+                    btn_dict["callback_data"] = btn.callback_data
+                if hasattr(btn, "style") and btn.style:
                     btn_dict["style"] = int(btn.style)
                 row_btns.append(btn_dict)
             if row_btns:
@@ -183,21 +201,33 @@ async def add_premade_filter_cmd(client: Client, message: Message):
     btn_str = str(buttons) if buttons else "[]"
 
     fileid = "None"
-    if replied.photo: fileid = replied.photo.file_id
-    elif replied.video: fileid = replied.video.file_id
-    elif replied.document: fileid = replied.document.file_id
-    elif replied.audio: fileid = replied.audio.file_id
-    elif replied.animation: fileid = replied.animation.file_id
-    elif replied.sticker: fileid = replied.sticker.file_id
+    if replied.photo:
+        fileid = replied.photo.file_id
+    elif replied.video:
+        fileid = replied.video.file_id
+    elif replied.document:
+        fileid = replied.document.file_id
+    elif replied.audio:
+        fileid = replied.audio.file_id
+    elif replied.animation:
+        fileid = replied.animation.file_id
+    elif replied.sticker:
+        fileid = replied.sticker.file_id
 
     await add_filter(grp_id, keyword, text, btn_str, "[]", fileid)
-    await message.reply_text(f"✅ **Filter with Pre-Made Buttons successfully added!**\n\n**Keyword:** `{keyword}`")
+    await message.reply_text(
+        f"✅ **Filter with Pre-Made Buttons successfully added!**\n\n**Keyword:** `{keyword}`"
+    )
 
 
-@Client.on_message(filters.command(["editfiltercolur", "editfiltercolour"]) & (filters.group | filters.private))
+@Client.on_message(
+    filters.command(["editfiltercolur", "editfiltercolour"])
+    & (filters.group | filters.private)
+)
 async def edit_filter_colour_cmd(client: Client, message: Message):
     grp_id, ok = await get_target_group(client, message)
-    if not ok: return
+    if not ok:
+        return
 
     args = message.command
     if len(args) < 4:
@@ -212,28 +242,38 @@ async def edit_filter_colour_cmd(client: Client, message: Message):
         color_str = args[-1].lower()
         keyword = " ".join(args[1:-2]).lower()
     except ValueError:
-        return await message.reply_text("❌ Button number must be an integer. Example: `/editfiltercolur Kantara 1 green`")
+        return await message.reply_text(
+            "❌ Button number must be an integer. Example: `/editfiltercolur Kantara 1 green`"
+        )
 
     color_map = {
-        "green": 3, # ButtonStyle.SUCCESS
-        "red": 4,   # ButtonStyle.DANGER
+        "green": 3,  # ButtonStyle.SUCCESS
+        "red": 4,  # ButtonStyle.DANGER
         "blue": 1,  # ButtonStyle.PRIMARY
     }
 
     if color_str not in color_map:
-        return await message.reply_text("❌ Invalid colour. Choose from: `green`, `red`, `blue`.")
+        return await message.reply_text(
+            "❌ Invalid colour. Choose from: `green`, `red`, `blue`."
+        )
 
     reply_text, btn, alert, fileid = await find_filter(grp_id, keyword)
 
     if not reply_text and (not fileid or fileid == "None"):
-        return await message.reply_text(f"❌ Filter `{keyword}` not found in this group's database.")
+        return await message.reply_text(
+            f"❌ Filter `{keyword}` not found in this group's database."
+        )
     if not btn or btn in ["[]", "None", "False", ""]:
-        return await message.reply_text(f"❌ Filter `{keyword}` does not have any buttons to colour.")
+        return await message.reply_text(
+            f"❌ Filter `{keyword}` does not have any buttons to colour."
+        )
 
     try:
         button_data = ast.literal_eval(btn)
     except Exception:
-        return await message.reply_text("❌ Failed to parse filter buttons. Format corrupted.")
+        return await message.reply_text(
+            "❌ Failed to parse filter buttons. Format corrupted."
+        )
 
     count, found = 0, False
 
@@ -244,60 +284,82 @@ async def edit_filter_colour_cmd(client: Client, message: Message):
                 button_data[r_idx][c_idx]["style"] = color_map[color_str]
                 found = True
                 break
-        if found: break
+        if found:
+            break
 
     if not found:
-        return await message.reply_text(f"❌ Button number {btn_num} not found! The filter `{keyword}` only has {count} button(s).")
+        return await message.reply_text(
+            f"❌ Button number {btn_num} not found! The filter `{keyword}` only has {count} button(s)."
+        )
 
     await add_filter(grp_id, keyword, reply_text, str(button_data), alert, fileid)
-    await message.reply_text(f"✅ Filter `{keyword}` -> Button {btn_num} colour successfully changed to {color_str.title()}!")
+    await message.reply_text(
+        f"✅ Filter `{keyword}` -> Button {btn_num} colour successfully changed to {color_str.title()}!"
+    )
 
 
 @Client.on_message(filters.command("delfilter") & (filters.group | filters.private))
 async def del_filter_cmd(client: Client, message: Message):
     grp_id, ok = await get_target_group(client, message)
-    if not ok: return
-    if len(message.command) < 2: return await message.reply_text("⚙️ **Usage:** `/delfilter <keyword>`")
+    if not ok:
+        return
+    if len(message.command) < 2:
+        return await message.reply_text("⚙️ **Usage:** `/delfilter <keyword>`")
     keyword = message.text.split(None, 1)[1].lower()
     await delete_filter(message, keyword, grp_id)
-    await message.reply_text(f"🗑️ **Filter `{keyword}` has been deleted (if it existed).**")
+    await message.reply_text(
+        f"🗑️ **Filter `{keyword}` has been deleted (if it existed).**"
+    )
 
 
 @Client.on_message(filters.command("listfilters") & (filters.group | filters.private))
 async def list_filters_cmd(client: Client, message: Message):
     grp_id, ok = await get_target_group(client, message)
-    if not ok: return
+    if not ok:
+        return
     keywords = await get_filters(grp_id)
-    if not keywords: return await message.reply_text("⚠️ **No active filters found for this group.**")
+    if not keywords:
+        return await message.reply_text(
+            "⚠️ **No active filters found for this group.**"
+        )
     text = "📋 **Current Filters:**\n\n"
-    for kw in keywords: text += f"• `{kw}`\n"
+    for kw in keywords:
+        text += f"• `{kw}`\n"
     await message.reply_text(text)
 
 
 async def manual_filters(client: Client, message: Message, text=False):
     if getattr(info, "REPAIR_MODE", False):
-        if not message.from_user or (message.from_user.id not in info.ADMINS and str(message.from_user.id) not in info.ADMINS):
+        if not message.from_user or (
+            message.from_user.id not in info.ADMINS
+            and str(message.from_user.id) not in info.ADMINS
+        ):
             return False
 
     group_id = message.chat.id
     if message.chat.type == enums.ChatType.PRIVATE:
         active_grp = await active_connection(str(message.from_user.id))
-        if active_grp: group_id = active_grp
+        if active_grp:
+            group_id = active_grp
 
     name = text or message.text
     reply_id = message.reply_to_message.id if message.reply_to_message else message.id
     keywords = await get_filters(group_id)
 
-    if not keywords: return False
+    if not keywords:
+        return False
 
     for keyword in reversed(sorted(keywords, key=len)):
         pattern = r"( |^|[^\w])" + re.escape(keyword) + r"( |$|[^\w])"
         if re.search(pattern, name, flags=re.IGNORECASE):
             reply_text, btn, alert, fileid = await find_filter(group_id, keyword)
-            if reply_text: reply_text = reply_text.replace("\\n", "\n").replace("\\t", "\t")
+            if reply_text:
+                reply_text = reply_text.replace("\\n", "\n").replace("\\t", "\t")
 
             button_layout = build_keyboard(btn)
-            reply_markup = InlineKeyboardMarkup(button_layout) if button_layout else None
+            reply_markup = (
+                InlineKeyboardMarkup(button_layout) if button_layout else None
+            )
 
             try:
                 sent_msg = None
@@ -305,28 +367,53 @@ async def manual_filters(client: Client, message: Message, text=False):
 
                 if not fileid or fileid_str in ["None", "[]", "", "False"]:
                     sent_msg = await client.send_message(
-                        message.chat.id, reply_text, disable_web_page_preview=True,
-                        reply_markup=reply_markup, reply_to_message_id=reply_id,
+                        message.chat.id,
+                        reply_text,
+                        disable_web_page_preview=True,
+                        reply_markup=reply_markup,
+                        reply_to_message_id=reply_id,
                     )
                 else:
                     sent_msg = await client.send_cached_media(
-                        message.chat.id, fileid, caption=reply_text or "",
-                        reply_markup=reply_markup, reply_to_message_id=reply_id,
+                        message.chat.id,
+                        fileid,
+                        caption=reply_text or "",
+                        reply_markup=reply_markup,
+                        reply_to_message_id=reply_id,
                     )
 
                 if sent_msg:
                     delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
-                    if delete_timer > 0: asyncio.create_task(delete_message_after_delay(sent_msg, delete_timer))
+                    if delete_timer > 0:
+                        asyncio.create_task(
+                            delete_message_after_delay(sent_msg, delete_timer)
+                        )
 
             except Forbidden as e:
-                if "CHAT_SEND_PHOTOS_FORBIDDEN" in str(e) or "CHAT_SEND_MEDIA_FORBIDDEN" in str(e):
+                if "CHAT_SEND_PHOTOS_FORBIDDEN" in str(
+                    e
+                ) or "CHAT_SEND_MEDIA_FORBIDDEN" in str(e):
                     try:
-                        fallback_text = f"{reply_text}\n\n*(Media blocked by chat permissions)*" if reply_text else "*(Media blocked by chat permissions)*"
-                        sent_msg = await client.send_message(message.chat.id, text=fallback_text, reply_to_message_id=reply_id, reply_markup=reply_markup)
+                        fallback_text = (
+                            f"{reply_text}\n\n*(Media blocked by chat permissions)*"
+                            if reply_text
+                            else "*(Media blocked by chat permissions)*"
+                        )
+                        sent_msg = await client.send_message(
+                            message.chat.id,
+                            text=fallback_text,
+                            reply_to_message_id=reply_id,
+                            reply_markup=reply_markup,
+                        )
                         if sent_msg:
                             delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
-                            if delete_timer > 0: asyncio.create_task(delete_message_after_delay(sent_msg, delete_timer))
-                    except Exception: pass
-            except Exception as e: logger.exception(e)
+                            if delete_timer > 0:
+                                asyncio.create_task(
+                                    delete_message_after_delay(sent_msg, delete_timer)
+                                )
+                    except Exception:
+                        pass
+            except Exception as e:
+                logger.exception(e)
             return True
     return False
