@@ -492,7 +492,7 @@ async def start(client: Client, message: Message):
         )
 
     k = await msg.reply(
-        f"<b>📢 Pʟᴇᴀꜱᴇ Nᴏᴛᴇ\n\n✅ Tʜᴇ Aʙᴏᴠᴇ Fɪʟᴇ Wɪʟʟ Bᴇ Aᴜᴛᴏᴅᴇʟᴇᴛᴇᴅ Iɴ 30ᴍɪɴꜱ Tᴏ Aᴠᴏɪᴅ Cᴏᴘʏʀɪɢʜᴛ Iꜱꜱᴜᴇꜱ.\n\n✅ Pʟᴇᴀꜱᴇ Fᴏʀᴡᴀʀᴅ Tʜɪꜱ Fɪʟᴇ Tᴏ Yᴏᴜʀ Sᴀᴠᴇᴅ Mᴇꜱꜱᴀɢᴇꜱ Aɴᴅ Sᴛᴀʀᴛ Dᴏᴡɴʟᴏᴀᴅɪɴɢ Fʀᴏᴍ Tʜᴇʀᴇ.\n\nTᴇᴀᴍ: @KR_Picture</b>",
+        f"<b>📢 <u>Please Note</u>\n \n✅ The above file will be autodeleted in 30mins to avoid copyright issues.\n \n✅ Please forward this file to your saved messages and start downloading from there.\n \nTᴇᴀᴍ: @KR_Picture</b>",
         quote=True,
     )
 
