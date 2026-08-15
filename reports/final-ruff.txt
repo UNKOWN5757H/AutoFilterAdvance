@@ -1,0 +1,5004 @@
+B018 Found useless expression. Either assign it to a variable or remove it.
+ --> .gemini-fixes/Script.py:1:1
+  |
+1 | / {
+2 | |   "path": "Script.py",
+3 | |   "reason": "Remove redundant object inheritance in Python 3 class definition.",
+4 | |   "content": "class script:\n    START_TXT = \"\"\"<b>Hey {mention} bro 🥂,\nI'm {bname}, the Moviebot! \n\nJoin our gang — We've got…
+5 | | }
+  | |_^
+
+B018 Found useless expression. Either assign it to a variable or remove it.
+ --> .gemini-fixes/check_undefined.py:1:1
+  |
+1 | / {
+2 | |   "path": "check_undefined.py",
+3 | |   "reason": "Prevents AttributeError when running on Python versions without ast.MatchAs or ast.MatchStar, safely filters None in kw_…
+4 | |   "content": "import ast\nimport builtins\nimport sys\nfrom pathlib import Path\n\nBUILTINS = set(dir(builtins)) | {\n    \"__name__\…
+5 | | }
+  | |_^
+
+B018 Found useless expression. Either assign it to a variable or remove it.
+ --> .gemini-fixes/database__filters_mdb.py:1:1
+  |
+1 | / {
+2 | |   "path": "database/filters_mdb.py",
+3 | |   "reason": "Log exception in del_all when dropping group collection fails rather than catching blind exception silently.",
+4 | |   "content": "import logging\n\nfrom motor.motor_asyncio import AsyncIOMotorClient\nfrom pyrogram import enums\n\nfrom info import DA…
+5 | | }
+  | |_^
+
+UP004 [*] Class `script` inherits from `object`
+ --> Script.py:1:14
+  |
+1 | class script(object):
+  |              ^^^^^^
+2 |     START_TXT = """<b>Hey {mention} bro 🥂,\nI'm {bname}, the Moviebot! \n\nJoin our gang — We've got Movies hotter than your ex's new …
+  |
+help: Remove `object` inheritance
+  |
+  - class script(object):
+1 + class script:
+2 |     START_TXT = """<b>Hey {mention} bro 🥂,\nI'm {bname}, the Moviebot! \n\nJoin our gang — We've got Movies hotter than your ex's new filing 😊🎬</b>"""
+  |
+
+UP035 [*] Import from `collections.abc` instead: `AsyncGenerator`
+  --> bot.py:8:1
+   |
+ 6 | import signal
+ 7 | import sys
+ 8 | from typing import AsyncGenerator, Union
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 9 |
+10 | import pyromod  # ⚡ Injects .listen() into Pyrogram globally
+   |
+help: Import from `collections.abc`
+   |
+7  | import sys
+   - from typing import AsyncGenerator, Union
+8  + from typing import Union
+9  + from collections.abc import AsyncGenerator
+10 |
+   |
+
+F401 [*] `pyromod` imported but unused
+  --> bot.py:10:8
+   |
+ 8 | from typing import AsyncGenerator, Union
+ 9 |
+10 | import pyromod  # ⚡ Injects .listen() into Pyrogram globally
+   |        ^^^^^^^
+11 | from aiohttp import web
+12 | from pyrogram import Client, __version__, filters, idle, types
+   |
+help: Remove unused import: `pyromod`
+   |
+9  |
+   - import pyromod  # ⚡ Injects .listen() into Pyrogram globally
+10 | from aiohttp import web
+   |
+
+BLE001 Do not catch blind exception: `Exception`
+  --> bot.py:79:16
+   |
+77 |                 if u_id and u_id not in b_users:
+78 |                     b_users.append(u_id)
+79 |         except Exception as e:
+   |                ^^^^^^^^^
+80 |             logger.error(f"Error loading bans: {e}")
+   |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+  --> bot.py:88:9
+   |
+86 |           try:
+87 |               await Media.collection.drop_index("file_name_text")
+88 | /         except Exception:
+89 | |             pass
+   | |________________^
+90 |
+91 |           try:
+   |
+
+BLE001 Do not catch blind exception: `Exception`
+  --> bot.py:88:16
+   |
+86 |         try:
+87 |             await Media.collection.drop_index("file_name_text")
+88 |         except Exception:
+   |                ^^^^^^^^^
+89 |             pass
+   |
+
+BLE001 Do not catch blind exception: `Exception`
+  --> bot.py:93:16
+   |
+91 |         try:
+92 |             await Media.ensure_indexes()
+93 |         except Exception as e:
+   |                ^^^^^^^^^
+94 |             logger.error(f"Error ensuring DB indexes: {e}")
+   |
+
+ASYNC230 Async functions should not open files with blocking methods like `open`
+   --> bot.py:110:22
+    |
+108 |         if os.path.exists("restart.txt"):
+109 |             try:
+110 |                 with open("restart.txt", "r") as f:
+    |                      ^^^^
+111 |                     chat_id_str, msg_id_str = f.read().strip().split("\n")
+112 |                 await self.edit_message_text(
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> bot.py:117:20
+    |
+115 |                     text="✅ **Bot Restarted Successfully!**",
+116 |                 )
+117 |             except Exception as e:
+    |                    ^^^^^^^^^
+118 |                 logger.error(f"Failed to edit restart success message: {e}")
+119 |             finally:
+    |
+
+UP007 [*] Use `X | Y` for type annotations
+   --> bot.py:128:24
+    |
+127 |     async def iter_messages(
+128 |         self, chat_id: Union[int, str], limit: int, offset: int = 0
+    |                        ^^^^^^^^^^^^^^^
+129 |     ) -> AsyncGenerator[types.Message, None]:
+130 |         current = offset
+    |
+help: Convert to `X | Y`
+    |
+127 |     async def iter_messages(
+    -         self, chat_id: Union[int, str], limit: int, offset: int = 0
+128 +         self, chat_id: int | str, limit: int, offset: int = 0
+129 |     ) -> AsyncGenerator[types.Message, None]:
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> bot.py:155:12
+    |
+153 |         if message:
+154 |             await message.delete()
+155 |     except Exception as e:
+    |            ^^^^^^^^^
+156 |         logger.error(f"Failed to auto-delete PM media for {message.from_user.id}: {e}")
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> bot.py:192:16
+    |
+190 |             os.remove(file)
+191 |             print(f"🗑️ Deleted old session file: {file}")
+192 |         except Exception as e:
+    |                ^^^^^^^^^
+193 |             print(f"⚠️ Could not delete {file}: {e}")
+    |
+
+SIM114 [*] Combine `if` branches using logical `or` operator
+  --> check_undefined.py:42:9
+   |
+40 |           elif isinstance(node, ast.arg):
+41 |               bound.add(node.arg)
+42 | /         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+43 | |             bound.add(node.name)
+44 | |         elif isinstance(node, ast.ExceptHandler) and node.name:
+45 | |             bound.add(node.name)
+   | |________________________________^
+46 |           elif isinstance(node, ast.Import):
+47 |               for alias in node.names:
+   |
+help: Combine `if` branches
+   |
+41 |             bound.add(node.arg)
+   -         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+   -             bound.add(node.name)
+   -         elif isinstance(node, ast.ExceptHandler) and node.name:
+42 +         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) or isinstance(node, ast.ExceptHandler) and node.name:
+43 |             bound.add(node.name)
+   |
+
+SIM114 [*] Combine `if` branches using logical `or` operator
+  --> check_undefined.py:57:9
+   |
+55 |               bound.update(targets_names(node.target))
+56 |           # --- NEW: Python 3.10+ Match/Case support ---
+57 | /         elif isinstance(node, ast.MatchAs) and node.name:
+58 | |             bound.add(node.name)
+59 | |         elif isinstance(node, ast.MatchStar) and node.name:
+60 | |             bound.add(node.name)
+   | |________________________________^
+61 |           # --- NEW: Python 3.12+ Type Alias support ---
+62 |           elif hasattr(ast, "TypeAlias") and isinstance(node, ast.TypeAlias):
+   |
+help: Combine `if` branches
+   |
+56 |         # --- NEW: Python 3.10+ Match/Case support ---
+   -         elif isinstance(node, ast.MatchAs) and node.name:
+   -             bound.add(node.name)
+   -         elif isinstance(node, ast.MatchStar) and node.name:
+57 +         elif isinstance(node, ast.MatchAs) and node.name or isinstance(node, ast.MatchStar) and node.name:
+58 |             bound.add(node.name)
+   |
+
+SIM102 Use a single `if` statement instead of nested `if` statements
+  --> check_undefined.py:62:9
+   |
+60 |               bound.add(node.name)
+61 |           # --- NEW: Python 3.12+ Type Alias support ---
+62 | /         elif hasattr(ast, "TypeAlias") and isinstance(node, ast.TypeAlias):
+63 | |             if isinstance(node.name, ast.Name):
+   | |_______________________________________________^
+64 |                   bound.add(node.name.id)
+   |
+help: Combine `if` statements using `and`
+
+SIM102 Use a single `if` statement instead of nested `if` statements
+  --> check_undefined.py:72:9
+   |
+70 |       issues = []
+71 |       for node in ast.walk(tree):
+72 | /         if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
+73 | |             if node.id not in bound:
+   | |____________________________________^
+74 |                   issues.append((node.lineno, node.id))
+75 |       return sorted(set(issues))
+   |
+help: Combine `if` statements using `and`
+
+SIM114 [*] Combine `if` branches using logical `or` operator
+   --> check_undefined.py:112:17
+    |
+110 |               for d in all_defaults:
+111 |                   # If the default is a list, dict, or set literal
+112 | /                 if isinstance(d, (ast.List, ast.Dict, ast.Set)):
+113 | |                     bad.append((node.lineno, node.name))
+114 | |                 # Catch `set()` calls as defaults
+115 | |                 elif (
+116 | |                     isinstance(d, ast.Call)
+117 | |                     and isinstance(d.func, ast.Name)
+118 | |                     and d.func.id == "set"
+119 | |                 ):
+120 | |                     bad.append((node.lineno, node.name))
+    | |________________________________________________________^
+121 |       return bad
+    |
+help: Combine `if` branches
+    |
+111 |                 # If the default is a list, dict, or set literal
+    -                 if isinstance(d, (ast.List, ast.Dict, ast.Set)):
+    -                     bad.append((node.lineno, node.name))
+    -                 # Catch `set()` calls as defaults
+    -                 elif (
+112 +                 if isinstance(d, (ast.List, ast.Dict, ast.Set)) or (
+113 |                     isinstance(d, ast.Call)
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+  --> database/filters_mdb.py:53:12
+   |
+51 |         await mydb[str(group_id)].drop()
+52 |         await message.edit_text(f"All filters from {title} have been removed")
+53 |     except Exception:
+   |            ^^^^^^^^^
+54 |         await message.edit_text("Couldn't remove all filters from group!")
+   |
+
+F401 [*] `marshmallow.exceptions.ValidationError` imported but unused
+ --> database/ia_filterdb.py:7:36
+  |
+5 | from struct import pack, unpack
+6 |
+7 | from marshmallow.exceptions import ValidationError
+  |                                    ^^^^^^^^^^^^^^^
+8 | from motor.motor_asyncio import AsyncIOMotorClient
+9 | from pymongo.errors import BulkWriteError, DuplicateKeyError
+  |
+help: Remove unused import: `marshmallow.exceptions.ValidationError`
+  |
+6 |
+  - from marshmallow.exceptions import ValidationError
+7 | from motor.motor_asyncio import AsyncIOMotorClient
+  |
+
+F401 [*] `pymongo.errors.DuplicateKeyError` imported but unused
+  --> database/ia_filterdb.py:9:44
+   |
+ 7 | from marshmallow.exceptions import ValidationError
+ 8 | from motor.motor_asyncio import AsyncIOMotorClient
+ 9 | from pymongo.errors import BulkWriteError, DuplicateKeyError
+   |                                            ^^^^^^^^^^^^^^^^^
+10 | from pyrogram.file_id import FileId, FileType
+11 | from umongo import Document, fields
+   |
+help: Remove unused import: `pymongo.errors.DuplicateKeyError`
+   |
+8  | from motor.motor_asyncio import AsyncIOMotorClient
+   - from pymongo.errors import BulkWriteError, DuplicateKeyError
+9  + from pymongo.errors import BulkWriteError
+10 | from pyrogram.file_id import FileId, FileType
+   |
+
+BLE001 Do not catch blind exception: `Exception`
+  --> database/ia_filterdb.py:81:12
+   |
+79 |         )
+80 |         return file_id_obj.encode()
+81 |     except Exception as e:
+   |            ^^^^^^^^^
+82 |         logger.error(f"Failed to encode file_id: {e}")
+83 |         return s_pack
+   |
+
+RUF012 Mutable default value for class attribute
+   --> database/ia_filterdb.py:97:19
+    |
+ 96 |       class Meta:
+ 97 |           indexes = [
+    |  ___________________^
+ 98 | |             {
+ 99 | |                 "key": [("file_name", "text"), ("caption", "text")],
+100 | |                 "name": "media_text_index",
+101 | |                 "weights": {"file_name": 10, "caption": 2},
+102 | |             }
+103 | |         ]
+    | |_________^
+104 |           collection_name = COLLECTION_NAME
+    |
+help: Consider initializing in `__init__` or annotating with `typing.ClassVar`
+
+BLE001 Do not catch blind exception: `Exception`
+   --> database/ia_filterdb.py:146:12
+    |
+145 |         parsed = parse_ultra_advanced_query(query_text)
+146 |     except Exception:
+    |            ^^^^^^^^^
+147 |         parsed = {}
+    |
+
+SIM102 Use a single `if` statement instead of nested `if` statements
+   --> database/ia_filterdb.py:205:5
+    |
+203 |       total_results = await db[COLLECTION_NAME].count_documents(mongo_query)
+204 |
+205 | /     if total_results == 0 and not is_autocorrect and process and KNOWN_TITLES:
+206 | |         if best_match := process.extractOne(query_text, KNOWN_TITLES):
+207 | |             if 75 <= best_match[1] <= 100:
+    | |__________________________________________^
+208 |                   corrected = await get_search_results(
+209 |                       best_match[0],
+    |
+help: Combine `if` statements using `and`
+
+SIM102 Use a single `if` statement instead of nested `if` statements
+   --> database/ia_filterdb.py:206:9
+    |
+205 |       if total_results == 0 and not is_autocorrect and process and KNOWN_TITLES:
+206 | /         if best_match := process.extractOne(query_text, KNOWN_TITLES):
+207 | |             if 75 <= best_match[1] <= 100:
+    | |__________________________________________^
+208 |                   corrected = await get_search_results(
+209 |                       best_match[0],
+    |
+help: Combine `if` statements using `and`
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> database/ia_filterdb.py:265:9
+    |
+263 |                   }
+264 |               )
+265 | /         except Exception:
+266 | |             pass
+    | |________________^
+267 |
+268 |       if not documents:
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> database/ia_filterdb.py:265:16
+    |
+263 |                 }
+264 |             )
+265 |         except Exception:
+    |                ^^^^^^^^^
+266 |             pass
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+  --> database/join_reqs.py:23:20
+   |
+21 |                     str(REQ_CHANNEL) if REQ_CHANNEL else "join_reqs_default"
+22 |                 ]
+23 |             except Exception as e:
+   |                    ^^^^^^^^^
+24 |                 logger.error(f"MongoDB Error: {e}")
+   |
+
+RUF013 PEP 484 prohibits implicit `Optional`
+   --> database/plugin_dbs.py:104:55
+    |
+103 |     async def get_fa_user_adds(
+104 |         self, chat_id: int, user_id: int, time_limit: int = None
+    |                                                       ^^^
+105 |     ) -> int:
+106 |         doc = await self.fa_col.find_one({"_id": f"adds_{chat_id}_{user_id}"})
+    |
+help: Convert to `T | None`
+
+RUF013 PEP 484 prohibits implicit `Optional`
+   --> database/plugin_dbs.py:127:63
+    |
+125 |         await self.fa_col.delete_many({"_id": {"$regex": f"^adds_{chat_id}_"}})
+126 |
+127 |     async def get_fa_top_adds(self, chat_id: int, time_limit: int = None) -> list:
+    |                                                               ^^^
+128 |         cursor = self.fa_col.find({"_id": {"$regex": f"^adds_{chat_id}_"}})
+129 |         scores, now = [], int(time.time())
+    |
+help: Convert to `T | None`
+
+C408 Unnecessary `dict()` call (rewrite as a literal)
+  --> database/users_chats_db.py:30:16
+   |
+29 |     def new_user(self, id, name):
+30 |         return dict(id=id, name=name, ban_status=dict(is_banned=False, ban_reason=""))
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+31 |
+32 |     def new_group(self, id, title):
+   |
+help: Rewrite as a literal
+
+C408 Unnecessary `dict()` call (rewrite as a literal)
+  --> database/users_chats_db.py:30:50
+   |
+29 |     def new_user(self, id, name):
+30 |         return dict(id=id, name=name, ban_status=dict(is_banned=False, ban_reason=""))
+   |                                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+31 |
+32 |     def new_group(self, id, title):
+   |
+help: Rewrite as a literal
+
+C408 Unnecessary `dict()` call (rewrite as a literal)
+  --> database/users_chats_db.py:33:16
+   |
+32 |     def new_group(self, id, title):
+33 |         return dict(id=id, title=title, chat_status=dict(is_disabled=False, reason=""))
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+34 |
+35 |     async def add_user(self, id, name):
+   |
+help: Rewrite as a literal
+
+C408 Unnecessary `dict()` call (rewrite as a literal)
+  --> database/users_chats_db.py:33:53
+   |
+32 |     def new_group(self, id, title):
+33 |         return dict(id=id, title=title, chat_status=dict(is_disabled=False, reason=""))
+   |                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+34 |
+35 |     async def add_user(self, id, name):
+   |
+help: Rewrite as a literal
+
+C408 Unnecessary `dict()` call (rewrite as a literal)
+  --> database/users_chats_db.py:60:38
+   |
+58 |         await self.grp.update_one(
+59 |             {"id": int(id)},
+60 |             {"$set": {"chat_status": dict(is_disabled=False, reason="")}},
+   |                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+61 |         )
+   |
+help: Rewrite as a literal
+
+C408 Unnecessary `dict()` call (rewrite as a literal)
+  --> database/users_chats_db.py:66:38
+   |
+64 |         await self.grp.update_one(
+65 |             {"id": int(chat)},
+66 |             {"$set": {"chat_status": dict(is_disabled=True, reason=reason)}},
+   |                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+67 |         )
+   |
+help: Rewrite as a literal
+
+PLW1508 Invalid type for environment variable default; expected `str` or `None`
+  --> info.py:24:44
+   |
+23 | # Bot settings
+24 | CACHE_TIME = int(environ.get("CACHE_TIME", 300))
+   |                                            ^^^
+25 | USE_CAPTION_FILTER = bool(environ.get("USE_CAPTION_FILTER", False))
+26 | PICS = (environ.get("PICS", "https://iili.io/COHUHil.jpg")).split()
+   |
+
+PLW1508 Invalid type for environment variable default; expected `str` or `None`
+  --> info.py:25:61
+   |
+23 | # Bot settings
+24 | CACHE_TIME = int(environ.get("CACHE_TIME", 300))
+25 | USE_CAPTION_FILTER = bool(environ.get("USE_CAPTION_FILTER", False))
+   |                                                             ^^^^^
+26 | PICS = (environ.get("PICS", "https://iili.io/COHUHil.jpg")).split()
+   |
+
+PLW1508 Invalid type for environment variable default; expected `str` or `None`
+  --> info.py:29:56
+   |
+28 | # Auto-Delete Timers (in seconds)
+29 | FILE_AUTO_DELETE = int(environ.get("FILE_AUTO_DELETE", 1800))
+   |                                                        ^^^^
+30 | BUTTON_AUTO_DELETE = int(environ.get("BUTTON_AUTO_DELETE", 1800))
+   |
+
+PLW1508 Invalid type for environment variable default; expected `str` or `None`
+  --> info.py:30:60
+   |
+28 | # Auto-Delete Timers (in seconds)
+29 | FILE_AUTO_DELETE = int(environ.get("FILE_AUTO_DELETE", 1800))
+30 | BUTTON_AUTO_DELETE = int(environ.get("BUTTON_AUTO_DELETE", 1800))
+   |                                                            ^^^^
+31 |
+32 | # Maintenance / Repair Mode
+   |
+
+PLW1508 Invalid type for environment variable default; expected `str` or `None`
+  --> info.py:74:52
+   |
+72 | # Dynamic Runtime FSub Variables
+73 | IS_FSUB_ENABLED = is_enabled(environ.get("IS_FSUB_ENABLED", "True"), True)
+74 | FSUB_MAX_COUNT = int(environ.get("FSUB_MAX_COUNT", 0))
+   |                                                    ^
+75 | FSUB_CHANNELS = {}  # Populated dynamically at runtime
+   |
+
+F401 [*] `asyncio` imported but unused
+ --> plugins/Imdbposter.py:1:8
+  |
+1 | import asyncio
+  |        ^^^^^^^
+2 | import logging
+3 | import re
+  |
+help: Remove unused import: `asyncio`
+  |
+  - import asyncio
+1 | import logging
+  |
+
+F401 [*] `urllib.parse` imported but unused
+ --> plugins/Imdbposter.py:4:8
+  |
+2 | import logging
+3 | import re
+4 | import urllib.parse
+  |        ^^^^^^^^^^^^
+5 | import warnings
+6 | from datetime import datetime
+  |
+help: Remove unused import: `urllib.parse`
+  |
+3 | import re
+  - import urllib.parse
+4 | import warnings
+  |
+
+F401 [*] `datetime.datetime` imported but unused
+ --> plugins/Imdbposter.py:6:22
+  |
+4 | import urllib.parse
+5 | import warnings
+6 | from datetime import datetime
+  |                      ^^^^^^^^
+7 | from difflib import SequenceMatcher
+8 | from io import BytesIO
+  |
+help: Remove unused import: `datetime.datetime`
+  |
+5 | import warnings
+  - from datetime import datetime
+6 | from difflib import SequenceMatcher
+  |
+
+F401 [*] `info.MAX_LIST_ELM` imported but unused
+  --> plugins/Imdbposter.py:13:31
+   |
+11 | from PIL import Image
+12 |
+13 | from info import IMAGE_FETCH, MAX_LIST_ELM, TMDB_API_KEY
+   |                               ^^^^^^^^^^^^
+14 |
+15 | logger = logging.getLogger(__name__)
+   |
+help: Remove unused import: `info.MAX_LIST_ELM`
+   |
+12 |
+   - from info import IMAGE_FETCH, MAX_LIST_ELM, TMDB_API_KEY
+13 + from info import IMAGE_FETCH, TMDB_API_KEY
+14 |
+   |
+
+BLE001 Do not catch blind exception: `Exception`
+  --> plugins/Imdbposter.py:60:12
+   |
+58 |             return out
+59 |
+60 |     except Exception as e:
+   |            ^^^^^^^^^
+61 |         logger.error(f"Error in fetch_image: {e}")
+   |
+
+PLW0602 Using global for `_session` but no assignment is done
+  --> plugins/Imdbposter.py:67:12
+   |
+66 | async def close_session():
+67 |     global _session
+   |            ^^^^^^^^
+68 |     if _session and not _session.closed:
+69 |         await _session.close()
+   |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/Imdbposter.py:169:16
+    |
+167 |             if multi_results:
+168 |                 break
+169 |         except Exception as e:
+    |                ^^^^^^^^^
+170 |             logger.debug(f"TMDB search failed for '{target_query}': {e}")
+171 |             continue
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/Imdbposter.py:184:9
+    |
+182 |               result = await _tmdb_get("search/multi", params=params, api_key=api_key)
+183 |               multi_results = result.get("results", [])
+184 | /         except Exception:
+185 | |             pass
+    | |________________^
+186 |
+187 |       if not multi_results:
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/Imdbposter.py:184:16
+    |
+182 |             result = await _tmdb_get("search/multi", params=params, api_key=api_key)
+183 |             multi_results = result.get("results", [])
+184 |         except Exception:
+    |                ^^^^^^^^^
+185 |             pass
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/Imdbposter.py:378:12
+    |
+376 |                 return [data]
+377 |             return data
+378 |     except Exception as e:
+    |            ^^^^^^^^^
+379 |         logger.error(f"Fallback get_movie_details failed: {e}")
+380 |     return None
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/Imdbposter.py:391:12
+    |
+389 |             logger.warning(f"TMDB returned no results for '{q}'")
+390 |             return None
+391 |     except Exception as e:
+    |            ^^^^^^^^^
+392 |         logger.error(f"TMDB direct call failed for '{q}': {e}")
+393 |         return None
+    |
+
+F841 Local variable `response` is assigned to but never used
+  --> plugins/auto_reaction.py:55:66
+   |
+53 |         session = await get_http_session()
+54 |         # timeout=2 ensures that if Telegram is slow, the bot doesn't wait around
+55 |         async with session.post(url, json=payload, timeout=2) as response:
+   |                                                                  ^^^^^^^^
+56 |             pass
+57 |     except Exception:
+   |
+help: Remove assignment to unused variable `response`
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+  --> plugins/auto_reaction.py:57:5
+   |
+55 |           async with session.post(url, json=payload, timeout=2) as response:
+56 |               pass
+57 | /     except Exception:
+58 | |         # Silently fail so it doesn't spam your logs on network hiccups
+59 | |         pass
+   | |____________^
+
+BLE001 Do not catch blind exception: `Exception`
+  --> plugins/auto_reaction.py:57:12
+   |
+55 |         async with session.post(url, json=payload, timeout=2) as response:
+56 |             pass
+57 |     except Exception:
+   |            ^^^^^^^^^
+58 |         # Silently fail so it doesn't spam your logs on network hiccups
+59 |         pass
+   |
+
+DTZ005 `datetime.datetime.now()` called without a `tz` argument
+  --> plugins/backup.py:65:75
+   |
+63 |         try:
+64 |             file_path = await generate_backup_file()
+65 |             caption = f"🔄 **Automated Daily Database Backup**\n\n📅 Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+   |                                                                             ^^^^^^^^^^^^^^
+66 |             await bot.send_document(
+67 |                 chat_id=target_admin_id, document=file_path, caption=caption
+   |
+help: Pass a `datetime.timezone` object to the `tz` parameter
+
+BLE001 Do not catch blind exception: `Exception`
+  --> plugins/backup.py:70:16
+   |
+68 |             )
+69 |             os.remove(file_path)
+70 |         except Exception as e:
+   |                ^^^^^^^^^
+71 |             logger.error(f"Auto-backup failed: {e}")
+   |
+
+DTZ005 `datetime.datetime.now()` called without a `tz` argument
+  --> plugins/backup.py:86:30
+   |
+84 |         backup_data[coll_name] = docs
+85 |
+86 |     file_name = f"DB_Backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+   |                              ^^^^^^^^^^^^^^
+87 |     with open(file_name, "w", encoding="utf-8") as f:
+88 |         f.write(dumps(backup_data, indent=4))
+   |
+help: Pass a `datetime.timezone` object to the `tz` parameter
+
+ASYNC230 Async functions should not open files with blocking methods like `open`
+  --> plugins/backup.py:87:10
+   |
+86 |     file_name = f"DB_Backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+87 |     with open(file_name, "w", encoding="utf-8") as f:
+   |          ^^^^
+88 |         f.write(dumps(backup_data, indent=4))
+   |
+
+DTZ005 `datetime.datetime.now()` called without a `tz` argument
+   --> plugins/backup.py:104:65
+    |
+102 |     try:
+103 |         file_path = await generate_backup_file()
+104 |         caption = f"✅ **Database Backup Complete!**\n\n📅 Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n👤 **Requested By:**…
+    |                                                                   ^^^^^^^^^^^^^^
+105 |
+106 |         await message.reply_document(document=file_path, caption=caption)
+    |
+help: Pass a `datetime.timezone` object to the `tz` parameter
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/backup.py:110:12
+    |
+108 |         await status_msg.delete()
+109 |
+110 |     except Exception as e:
+    |            ^^^^^^^^^
+111 |         await status_msg.edit_text(f"⚠️ **Backup Failed!**\n\nError: `{e}`")
+    |
+
+ASYNC230 Async functions should not open files with blocking methods like `open`
+   --> plugins/backup.py:138:14
+    |
+136 |         await status_msg.edit_text("⏳ **Restoring database...**")
+137 |
+138 |         with open(file_path, "r", encoding="utf-8") as f:
+    |              ^^^^
+139 |             backup_data = loads(f.read())
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/backup.py:159:12
+    |
+157 |         )
+158 |
+159 |     except Exception as e:
+    |            ^^^^^^^^^
+160 |         await status_msg.edit_text(f"⚠️ **Restore Failed!**\n\nError: `{e}`")
+161 |         if "file_path" in locals() and os.path.exists(file_path):
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/backup.py:189:12
+    |
+187 |         await message.reply_text(text)
+188 |
+189 |     except Exception as e:
+    |            ^^^^^^^^^
+190 |         await message.reply_text(f"⚠️ **Failed to fetch stats:**\n`{e}`")
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+  --> plugins/bans.py:42:12
+   |
+40 |             "❌ **Invalid User ID!** Please provide a valid numerical ID."
+41 |         )
+42 |     except Exception as e:
+   |            ^^^^^^^^^
+43 |         await message.reply_text(f"❌ **Error:** `{e}`")
+   |
+
+BLE001 Do not catch blind exception: `Exception`
+  --> plugins/bans.py:72:12
+   |
+70 |             "❌ **Invalid User ID!** Please provide a valid numerical ID."
+71 |         )
+72 |     except Exception as e:
+   |            ^^^^^^^^^
+73 |         await message.reply_text(f"❌ **Error:** `{e}`")
+   |
+
+BLE001 Do not catch blind exception: `Exception`
+  --> plugins/bans.py:84:12
+   |
+82 |         count = await plugin_db.get_ban_count()
+83 |         await message.reply_text(f"📊 **Total Banned Users:** `{count}`")
+84 |     except Exception as e:
+   |            ^^^^^^^^^
+85 |         await message.reply_text(f"❌ **Error:** `{e}`")
+   |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+  --> plugins/broadcast.py:30:5
+   |
+28 |       try:
+29 |           await bot.delete_messages(chat_id=chat_id, message_ids=message_id)
+30 | /     except Exception:
+31 | |         # Ignore errors if the message is already deleted or bot lacks permissions
+32 | |         pass
+   | |____________^
+
+BLE001 Do not catch blind exception: `Exception`
+  --> plugins/broadcast.py:30:12
+   |
+28 |     try:
+29 |         await bot.delete_messages(chat_id=chat_id, message_ids=message_id)
+30 |     except Exception:
+   |            ^^^^^^^^^
+31 |         # Ignore errors if the message is already deleted or bot lacks permissions
+32 |         pass
+   |
+
+BLE001 Do not catch blind exception: `Exception`
+  --> plugins/broadcast.py:67:12
+   |
+65 |         return 400, "Left"
+66 |
+67 |     except Exception as e:
+   |            ^^^^^^^^^
+68 |         return 500, "Error"
+   |
+
+F841 [*] Local variable `e` is assigned to but never used
+  --> plugins/broadcast.py:67:25
+   |
+65 |         return 400, "Left"
+66 |
+67 |     except Exception as e:
+   |                         ^
+68 |         return 500, "Error"
+   |
+help: Remove assignment to unused variable `e`
+   |
+66 |
+   -     except Exception as e:
+67 +     except Exception:
+68 |         return 500, "Error"
+   |
+
+RUF059 Unpacked variable `reason` is never used
+   --> plugins/broadcast.py:102:17
+    |
+100 |         user_id = int(user["id"])
+101 |
+102 |         status, reason = await send_and_schedule_delete(
+    |                 ^^^^^^
+103 |             bot, user_id, b_msg, is_group=False
+104 |         )
+    |
+help: Prefix it with an underscore or any other dummy variable pattern
+
+SIM113 Use `enumerate()` for index variable `done` in `for` loop
+   --> plugins/broadcast.py:114:9
+    |
+112 |             failed += 1
+113 |
+114 |         done += 1
+    |         ^^^^^^^^^
+115 |
+116 |         # Update progress every 20 messages
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/broadcast.py:129:13
+    |
+127 |               except FloodWait as e:
+128 |                   await asyncio.sleep(e.value)
+129 | /             except Exception:
+130 | |                 pass
+    | |____________________^
+131 |
+132 |           await asyncio.sleep(0.5)  # Prevent Telegram flood limits
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/broadcast.py:129:20
+    |
+127 |             except FloodWait as e:
+128 |                 await asyncio.sleep(e.value)
+129 |             except Exception:
+    |                    ^^^^^^^^^
+130 |                 pass
+    |
+
+SIM113 Use `enumerate()` for index variable `done` in `for` loop
+   --> plugins/broadcast.py:192:9
+    |
+190 |             failed += 1
+191 |
+192 |         done += 1
+    |         ^^^^^^^^^
+193 |
+194 |         # Update progress every 20 messages
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/broadcast.py:207:13
+    |
+205 |               except FloodWait as e:
+206 |                   await asyncio.sleep(e.value)
+207 | /             except Exception:
+208 | |                 pass
+    | |____________________^
+209 |
+210 |           await asyncio.sleep(0.8)  # Group limits are stricter, higher sleep interval
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/broadcast.py:207:20
+    |
+205 |             except FloodWait as e:
+206 |                 await asyncio.sleep(e.value)
+207 |             except Exception:
+    |                    ^^^^^^^^^
+208 |                 pass
+    |
+
+DTZ003 `datetime.datetime.utcnow()` used
+  --> plugins/channel.py:29:33
+   |
+28 |     text = "🧍 **User List Export**\n\n"
+29 |     text += f"📅 Generated on: `{datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC`\n"
+   |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^
+30 |     text += f"👥 Total Users: `{total}`\n\n"
+   |
+help: Use `datetime.datetime.now(tz=...)` instead
+
+DTZ003 `datetime.datetime.utcnow()` used
+  --> plugins/channel.py:63:33
+   |
+62 |     text = "💬 **Group Chats Export**\n\n"
+63 |     text += f"📅 Generated on: `{datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC`\n"
+   |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^
+64 |     text += f"🏘️ Total Chats: `{total}`\n"
+65 |     text += f"👥 Groups: `{len(groups)}` | 📢 Supergroups: `{len(supergroups)}`\n\n"
+   |
+help: Use `datetime.datetime.now(tz=...)` instead
+
+DTZ003 `datetime.datetime.utcnow()` used
+  --> plugins/channel.py:96:33
+   |
+95 |     text = "📢 **Channel List Export**\n\n"
+96 |     text += f"📅 Generated on: `{datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC`\n"
+   |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^
+97 |     text += f"📺 Total Channels: `{total}`\n\n"
+   |
+help: Use `datetime.datetime.now(tz=...)` instead
+
+F401 [*] `re` imported but unused
+ --> plugins/commands.py:7:8
+  |
+5 | import os
+6 | import random
+7 | import re
+  |        ^^
+8 | import sys
+  |
+help: Remove unused import: `re`
+  |
+6 | import random
+  - import re
+7 | import sys
+  |
+
+F401 [*] `sys` imported but unused
+  --> plugins/commands.py:8:8
+   |
+ 6 | import random
+ 7 | import re
+ 8 | import sys
+   |        ^^^
+ 9 |
+10 | from pyrogram import Client, enums, filters
+   |
+help: Remove unused import: `sys`
+  |
+7 | import re
+  - import sys
+8 |
+  |
+
+F401 [*] `pyrogram.errors.ChatAdminRequired` imported but unused
+  --> plugins/commands.py:12:29
+   |
+10 | from pyrogram import Client, enums, filters
+11 | from pyrogram.enums import ButtonStyle
+12 | from pyrogram.errors import ChatAdminRequired, FloodWait
+   |                             ^^^^^^^^^^^^^^^^^
+13 | from pyrogram.types import (
+14 |     CallbackQuery,
+   |
+help: Remove unused import: `pyrogram.errors.ChatAdminRequired`
+   |
+11 | from pyrogram.enums import ButtonStyle
+   - from pyrogram.errors import ChatAdminRequired, FloodWait
+12 + from pyrogram.errors import FloodWait
+13 | from pyrogram.types import (
+   |
+
+F401 [*] `database.ia_filterdb.Media` imported but unused
+  --> plugins/commands.py:22:34
+   |
+20 | import info
+21 | from database.connections_mdb import active_connection
+22 | from database.ia_filterdb import Media, SafeMediaWrapper, get_file_details
+   |                                  ^^^^^
+23 |
+24 | # Centralized database for ban checks
+   |
+help: Remove unused import
+   |
+21 | from database.connections_mdb import active_connection
+   - from database.ia_filterdb import Media, SafeMediaWrapper, get_file_details
+22 + from database.ia_filterdb import get_file_details
+23 |
+   |
+
+F401 [*] `database.ia_filterdb.SafeMediaWrapper` imported but unused
+  --> plugins/commands.py:22:41
+   |
+20 | import info
+21 | from database.connections_mdb import active_connection
+22 | from database.ia_filterdb import Media, SafeMediaWrapper, get_file_details
+   |                                         ^^^^^^^^^^^^^^^^
+23 |
+24 | # Centralized database for ban checks
+   |
+help: Remove unused import
+   |
+21 | from database.connections_mdb import active_connection
+   - from database.ia_filterdb import Media, SafeMediaWrapper, get_file_details
+22 + from database.ia_filterdb import get_file_details
+23 |
+   |
+
+F401 [*] `info.AUTH_CHANNEL` imported but unused
+  --> plugins/commands.py:29:5
+   |
+27 | from info import (
+28 |     ADMINS,
+29 |     AUTH_CHANNEL,
+   |     ^^^^^^^^^^^^
+30 |     BATCH_FILE_CAPTION,
+31 |     CHANNELS,
+   |
+help: Remove unused import: `info.AUTH_CHANNEL`
+   |
+28 |     ADMINS,
+   -     AUTH_CHANNEL,
+29 |     BATCH_FILE_CAPTION,
+   |
+
+SIM102 Use a single `if` statement instead of nested `if` statements
+   --> plugins/commands.py:105:5
+    |
+103 |   @Client.on_message(filters.command("start") & filters.incoming)
+104 |   async def start(client: Client, message: Message):
+105 | /     if getattr(info, "REPAIR_MODE", False):
+106 | |         if not message.from_user or str(message.from_user.id) not in [
+107 | |             str(a) for a in info.ADMINS
+108 | |         ]:
+    | |__________^
+109 |               return await message.reply_text(
+110 |                   "🛠️ **Bot is currently under maintenance!**\n\nWe are performing some upgrades/fixes. Please try again later."
+    |
+help: Combine `if` statements using `and`
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/commands.py:151:20
+    |
+149 |                     ),
+150 |                 )
+151 |             except Exception as e:
+    |                    ^^^^^^^^^
+152 |                 logger.error(f"Failed to log new group: {e}")
+153 |             await db.add_chat(message.chat.id, message.chat.title)
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/commands.py:165:16
+    |
+163 |                 ),
+164 |             )
+165 |         except Exception as e:
+    |                ^^^^^^^^^
+166 |             logger.error(f"Failed to log new user: {e}")
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/commands.py:173:16
+    |
+171 |         try:
+172 |             photo_to_send = random.choice(PICS) if PICS else None
+173 |         except Exception:
+    |                ^^^^^^^^^
+174 |             photo_to_send = None
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/commands.py:207:16
+    |
+205 |         try:
+206 |             photo_to_send = random.choice(PICS) if PICS else None
+207 |         except Exception:
+    |                ^^^^^^^^^
+208 |             photo_to_send = None
+    |
+
+ASYNC230 Async functions should not open files with blocking methods like `open`
+   --> plugins/commands.py:253:22
+    |
+251 |             file = await client.download_media(file_id)
+252 |             try:
+253 |                 with open(file) as file_data:
+    |                      ^^^^
+254 |                     msgs = json.loads(file_data.read())
+255 |             except Exception:
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/commands.py:255:20
+    |
+253 |                 with open(file) as file_data:
+254 |                     msgs = json.loads(file_data.read())
+255 |             except Exception:
+    |                    ^^^^^^^^^
+256 |                 await sts.edit("FAILED")
+257 |                 try:
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/commands.py:259:17
+    |
+257 |                   try:
+258 |                       await client.send_message(LOG_CHANNEL, "UNABLE TO OPEN BATCH FILE.")
+259 | /                 except Exception:
+260 | |                     pass
+    | |________________________^
+261 |                   return
+262 |               finally:
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/commands.py:259:24
+    |
+257 |                 try:
+258 |                     await client.send_message(LOG_CHANNEL, "UNABLE TO OPEN BATCH FILE.")
+259 |                 except Exception:
+    |                        ^^^^^^^^^
+260 |                     pass
+261 |                 return
+    |
+
+TRY401 Redundant exception object included in `logging.exception` call
+   --> plugins/commands.py:280:38
+    |
+278 |                     )
+279 |                 except Exception as e:
+280 |                     logger.exception(e)
+    |                                      ^
+281 |
+282 |             if not f_caption:
+    |
+
+TRY401 Redundant exception object included in `logging.exception` call
+   --> plugins/commands.py:351:50
+    |
+349 |                                 )
+350 |                             except Exception as e:
+351 |                                 logger.exception(e)
+    |                                                  ^
+352 |                                 f_caption = getattr(msg, "caption", "")
+353 |                         else:
+    |
+
+SIM210 Remove unnecessary `True if ... else False`
+   --> plugins/commands.py:365:49
+    |
+363 |                                 message.chat.id,
+364 |                                 caption=f_caption,
+365 |                                 protect_content=True if protect == "/pbatch" else False,
+    |                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+366 |                             )
+367 |                         except FloodWait as e:
+    |
+help: Remove unnecessary `True if ... else False`
+
+SIM210 Remove unnecessary `True if ... else False`
+   --> plugins/commands.py:372:49
+    |
+370 |                                 message.chat.id,
+371 |                                 caption=f_caption,
+372 |                                 protect_content=True if protect == "/pbatch" else False,
+    |                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+373 |                             )
+374 |                         except Exception as e:
+    |
+help: Remove unnecessary `True if ... else False`
+
+TRY401 Redundant exception object included in `logging.exception` call
+   --> plugins/commands.py:375:46
+    |
+373 |                             )
+374 |                         except Exception as e:
+375 |                             logger.exception(e)
+    |                                              ^
+376 |                             continue
+377 |                     else:
+    |
+
+SIM210 Remove unnecessary `True if ... else False`
+   --> plugins/commands.py:381:49
+    |
+379 |                             await msg.copy(
+380 |                                 message.chat.id,
+381 |                                 protect_content=True if protect == "/pbatch" else False,
+    |                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+382 |                             )
+383 |                         except FloodWait as e:
+    |
+help: Remove unnecessary `True if ... else False`
+
+SIM210 Remove unnecessary `True if ... else False`
+   --> plugins/commands.py:387:49
+    |
+385 |                             await msg.copy(
+386 |                                 message.chat.id,
+387 |                                 protect_content=True if protect == "/pbatch" else False,
+    |                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+388 |                             )
+389 |                         except Exception as e:
+    |
+help: Remove unnecessary `True if ... else False`
+
+TRY401 Redundant exception object included in `logging.exception` call
+   --> plugins/commands.py:390:46
+    |
+388 |                             )
+389 |                         except Exception as e:
+390 |                             logger.exception(e)
+    |                                              ^
+391 |                             continue
+392 |                     await asyncio.sleep(1)
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/commands.py:393:20
+    |
+391 |                             continue
+392 |                     await asyncio.sleep(1)
+393 |             except Exception as e:
+    |                    ^^^^^^^^^
+394 |                 logger.error(f"DSTORE Fetch Failed: {e}")
+    |
+
+SIM210 Remove unnecessary `True if ... else False`
+   --> plugins/commands.py:413:41
+    |
+411 |                         chat_id=message.from_user.id,
+412 |                         file_id=decode_file_id,
+413 |                         protect_content=True if pre_str == "filep" else False,
+    |                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+414 |                     )
+415 |                     filetype = msg.media.value
+    |
+help: Remove unnecessary `True if ... else False`
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/commands.py:425:25
+    |
+423 |                                   file_name=title, file_size=size, file_caption=""
+424 |                               )
+425 | /                         except Exception:
+426 | |                             pass
+    | |________________________________^
+427 |                       if getattr(info, "CAPTION_PLUS", None):
+428 |                           f_caption += f"\n\n{info.CAPTION_PLUS}"
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/commands.py:425:32
+    |
+423 |                                 file_name=title, file_size=size, file_caption=""
+424 |                             )
+425 |                         except Exception:
+    |                                ^^^^^^^^^
+426 |                             pass
+427 |                     if getattr(info, "CAPTION_PLUS", None):
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/commands.py:431:24
+    |
+430 |                     await msg.edit_caption(f_caption)
+431 |                 except Exception as e:
+    |                        ^^^^^^^^^
+432 |                     logger.error(f"Fallback direct send failed: {e}")
+433 |                     return await message.reply("⚠️ No such file exist.")
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/commands.py:436:16
+    |
+434 |                 return
+435 |             kk = pre_str
+436 |         except Exception:
+    |                ^^^^^^^^^
+437 |             return await message.reply("⚠️ No such file exist.")
+    |
+
+TRY401 Redundant exception object included in `logging.exception` call
+   --> plugins/commands.py:461:30
+    |
+459 |             )
+460 |         except Exception as e:
+461 |             logger.exception(e)
+    |                              ^
+462 |
+463 |     if not f_caption:
+    |
+
+SIM210 Remove unnecessary `True if ... else False`
+   --> plugins/commands.py:486:29
+    |
+484 |                 ]
+485 |             ),
+486 |             protect_content=True if kk in ["filep", "checksubp"] else False,
+    |                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+487 |         )
+488 |     except Exception as e:
+    |
+help: Remove unnecessary `True if ... else False`
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/commands.py:488:12
+    |
+486 |             protect_content=True if kk in ["filep", "checksubp"] else False,
+487 |         )
+488 |     except Exception as e:
+    |            ^^^^^^^^^
+489 |         logger.error(f"Failed to send cached media: {e}")
+490 |         return await message.reply(
+    |
+
+F541 [*] f-string without any placeholders
+   --> plugins/commands.py:495:9
+    |
+494 | … k = await msg.reply(
+495 | …     f"<b>📢 Pʟᴇᴀꜱᴇ Nᴏᴛᴇ\n\n✅ Tʜᴇ Aʙᴏᴠᴇ Fɪʟᴇ Wɪʟʟ Bᴇ Aᴜᴛᴏᴅᴇʟᴇᴛᴇᴅ Iɴ 30ᴍɪɴꜱ Tᴏ Aᴠᴏɪᴅ Cᴏᴘʏʀɪɢʜᴛ Iꜱꜱᴜᴇꜱ.\n\n✅ Pʟᴇᴀꜱᴇ Fᴏʀᴡᴀʀᴅ Tʜɪꜱ Fɪʟᴇ Tᴏ Yᴏᴜʀ Sᴀᴠᴇᴅ Mᴇꜱꜱᴀɢᴇꜱ Aɴᴅ Sᴛᴀʀᴛ Dᴏᴡɴʟᴏᴀᴅɪɴɢ Fʀᴏᴍ Tʜᴇʀᴇ.\n\nTᴇᴀᴍ: @KR_Picture</b>",
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+496 | …     quote=True,
+497 | … )
+    |
+help: Remove extraneous `f` prefix
+    |
+494 |     k = await msg.reply(
+    -         f"<b>📢 Pʟᴇᴀꜱᴇ Nᴏᴛᴇ\n\n✅ Tʜᴇ Aʙᴏᴠᴇ Fɪʟᴇ Wɪʟʟ Bᴇ Aᴜᴛᴏᴅᴇʟᴇᴛᴇᴅ Iɴ 30ᴍɪɴꜱ Tᴏ Aᴠᴏɪᴅ Cᴏᴘʏʀɪɢʜᴛ Iꜱꜱᴜᴇꜱ.\n\n✅ Pʟᴇᴀꜱᴇ Fᴏʀᴡᴀʀᴅ Tʜɪꜱ Fɪʟᴇ Tᴏ Yᴏᴜʀ Sᴀᴠᴇᴅ Mᴇꜱꜱᴀɢᴇꜱ Aɴᴅ Sᴛᴀʀᴛ Dᴏᴡɴʟᴏᴀᴅɪɴɢ Fʀᴏᴍ Tʜᴇʀᴇ.\n\nTᴇᴀᴍ: @KR_Picture</b>",
+495 +         "<b>📢 Pʟᴇᴀꜱᴇ Nᴏᴛᴇ\n\n✅ Tʜᴇ Aʙᴏᴠᴇ Fɪʟᴇ Wɪʟʟ Bᴇ Aᴜᴛᴏᴅᴇʟᴇᴛᴇᴅ Iɴ 30ᴍɪɴꜱ Tᴏ Aᴠᴏɪᴅ Cᴏᴘʏʀɪɢʜᴛ Iꜱꜱᴜᴇꜱ.\n\n✅ Pʟᴇᴀꜱᴇ Fᴏʀᴡᴀʀᴅ Tʜɪꜱ Fɪʟᴇ Tᴏ Yᴏᴜʀ Sᴀᴠᴇᴅ Mᴇꜱꜱᴀɢᴇꜱ Aɴᴅ Sᴛᴀʀᴛ Dᴏᴡɴʟᴏᴀᴅɪɴɢ Fʀᴏᴍ Tʜᴇʀᴇ.\n\nTᴇᴀᴍ: @KR_Picture</b>",
+496 |         quote=True,
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/commands.py:511:5
+    |
+509 |               "<b>Yᴏᴜʀ Vɪᴅᴇᴏ / Fɪʟᴇ ɪꜱ Sᴜᴄᴄᴇꜱꜱꜰᴜʟʟʏ Dᴇʟᴇᴛᴇᴅ !!. Tᴇᴀᴍ: @KR_Picture</b>"
+510 |           )
+511 | /     except Exception:
+512 | |         pass
+    | |____________^
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/commands.py:511:12
+    |
+509 |             "<b>Yᴏᴜʀ Vɪᴅᴇᴏ / Fɪʟᴇ ɪꜱ Sᴜᴄᴄᴇꜱꜱꜰᴜʟʟʏ Dᴇʟᴇᴛᴇᴅ !!. Tᴇᴀᴍ: @KR_Picture</b>"
+510 |         )
+511 |     except Exception:
+    |            ^^^^^^^^^
+512 |         pass
+    |
+
+TRY004 Prefer `TypeError` exception for invalid type
+   --> plugins/commands.py:522:9
+    |
+520 |         channels = CHANNELS
+521 |     else:
+522 |         raise ValueError("Unexpected type of CHANNELS")
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+523 |
+524 |     text = "📑 **Indexed channels/groups**\n"
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/commands.py:533:16
+    |
+531 |                 else "\n" + (chat.title or chat.first_name)
+532 |             )
+533 |         except Exception as e:
+    |                ^^^^^^^^^
+534 |             text += f"\n{channel} - (Error fetching: {e})"
+    |
+
+ASYNC230 Async functions should not open files with blocking methods like `open`
+   --> plugins/commands.py:541:14
+    |
+539 |     else:
+540 |         file = "Indexed channels.txt"
+541 |         with open(file, "w") as f:
+    |              ^^^^
+542 |             f.write(text)
+543 |         await message.reply_document(file)
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/commands.py:566:20
+    |
+564 |                 title = chat.title
+565 |                 grp_id = chat.id
+566 |             except Exception:
+    |                    ^^^^^^^^^
+567 |                 return await message.reply("Make sure I'm present in your group!")
+568 |         else:
+    |
+
+SIM211 Use `not ...` instead of `False if ... else True`
+   --> plugins/commands.py:632:21
+    |
+630 |         _, setting_name, current_state, grp_id = query.data.split("#")
+631 |         grp_id = int(grp_id)
+632 |         new_state = False if current_state.lower() == "true" else True
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+633 |         await save_group_settings(grp_id, setting_name, new_state)
+    |
+help: Replace with `not ...`
+
+F841 [*] Local variable `e` is assigned to but never used
+   --> plugins/commands.py:685:25
+    |
+683 |         )
+684 |         await query.answer("Settings Updated! ✅")
+685 |     except Exception as e:
+    |                         ^
+686 |         logger.exception("Error in settings_callback")
+687 |         await query.answer("An error occurred!", show_alert=True)
+    |
+help: Remove assignment to unused variable `e`
+    |
+684 |         await query.answer("Settings Updated! ✅")
+    -     except Exception as e:
+685 +     except Exception:
+686 |         logger.exception("Error in settings_callback")
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/commands.py:710:12
+    |
+708 |         )
+709 |         await message.reply_text(response_text)
+710 |     except Exception as e:
+    |            ^^^^^^^^^
+711 |         logger.error(f"Error in set_movie_update_notification: {e}")
+712 |         await message.reply_text(f"<b>❗ An error occurred: {e}</b>")
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/commands.py:743:12
+    |
+741 |             text=reply_text, reply_markup=InlineKeyboardMarkup(buttons), quote=True
+742 |         )
+743 |     except Exception as e:
+    |            ^^^^^^^^^
+744 |         logger.error(f"Error in PM auto-reply: {e}")
+    |
+
+RUF059 Unpacked variable `cmd` is never used
+  --> plugins/connection.py:29:13
+   |
+27 |     if chat_type == enums.ChatType.PRIVATE:
+28 |         try:
+29 |             cmd, group_id = message.text.split(" ", 1)
+   |             ^^^
+30 |         except:
+31 |             await message.reply_text(
+   |
+help: Prefix it with an underscore or any other dummy variable pattern
+
+E722 Do not use bare `except`
+  --> plugins/connection.py:30:9
+   |
+28 |         try:
+29 |             cmd, group_id = message.text.split(" ", 1)
+30 |         except:
+   |         ^^^^^^
+31 |             await message.reply_text(
+32 |                 "<b>Enter in correct format!</b>\n\n"
+   |
+
+TRY401 Redundant exception object included in `logging.exception` call
+  --> plugins/connection.py:54:26
+   |
+52 |             return
+53 |     except Exception as e:
+54 |         logger.exception(e)
+   |                          ^
+55 |         await message.reply_text(
+56 |             "Invalid Group ID!\n\nIf correct, Make sure I'm present in your group!!",
+   |
+
+TRY401 Redundant exception object included in `logging.exception` call
+  --> plugins/connection.py:87:26
+   |
+85 |             await message.reply_text("Add me as an admin in group", quote=True)
+86 |     except Exception as e:
+87 |         logger.exception(e)
+   |                          ^
+88 |         await message.reply_text("Some error occurred! Try again later.", quote=True)
+89 |         return
+   |
+
+E722 Do not use bare `except`
+   --> plugins/connection.py:153:9
+    |
+151 |                 ]
+152 |             )
+153 |         except:
+    |         ^^^^^^
+154 |             pass
+155 |     if buttons:
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/connection.py:153:9
+    |
+151 |                   ]
+152 |               )
+153 | /         except:
+154 | |             pass
+    | |________________^
+155 |       if buttons:
+156 |           await message.reply_text(
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+  --> plugins/filters.py:24:5
+   |
+22 |       try:
+23 |           await message.delete()
+24 | /     except Exception:
+25 | |         pass
+   | |____________^
+
+BLE001 Do not catch blind exception: `Exception`
+  --> plugins/filters.py:24:12
+   |
+22 |     try:
+23 |         await message.delete()
+24 |     except Exception:
+   |            ^^^^^^^^^
+25 |         pass
+   |
+
+RUF013 PEP 484 prohibits implicit `Optional`
+  --> plugins/filters.py:28:62
+   |
+28 | async def is_admin(client: Client, message: Message, grp_id: int = None) -> bool:
+   |                                                              ^^^
+29 |     """Helper to verify if a user is a chat admin or a bot admin."""
+30 |     if not message.from_user:
+   |
+help: Convert to `T | None`
+
+BLE001 Do not catch blind exception: `Exception`
+  --> plugins/filters.py:45:12
+   |
+43 |             enums.ChatMemberStatus.ADMINISTRATOR,
+44 |         ]
+45 |     except Exception:
+   |            ^^^^^^^^^
+46 |         return False
+   |
+
+BLE001 Do not catch blind exception: `Exception`
+  --> plugins/filters.py:85:16
+   |
+83 |         try:
+84 |             return eval(btn_str)
+85 |         except Exception:
+   |                ^^^^^^^^^
+86 |             return None
+   |
+
+SIM102 Use a single `if` statement instead of nested `if` statements
+   --> plugins/filters.py:256:5
+    |
+254 |   # ============================================================
+255 |   async def manual_filters(client: Client, message: Message, text=False):
+256 | /     if getattr(info, "REPAIR_MODE", False):
+257 | |         if not message.from_user or (
+258 | |             message.from_user.id not in info.ADMINS
+259 | |             and str(message.from_user.id) not in info.ADMINS
+260 | |         ):
+    | |__________^
+261 |               return False
+    |
+help: Combine `if` statements using `and`
+
+C413 Unnecessary `reversed()` call around `sorted()`
+   --> plugins/filters.py:276:20
+    |
+274 |         return False
+275 |
+276 |     for keyword in reversed(sorted(keywords, key=len)):
+    |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+277 |         pattern = r"( |^|[^\w])" + re.escape(keyword) + r"( |$|[^\w])"
+278 |         if re.search(pattern, name, flags=re.IGNORECASE):
+    |
+help: Remove unnecessary `reversed()` call
+
+RUF059 Unpacked variable `alert` is never used
+   --> plugins/filters.py:279:30
+    |
+277 |         pattern = r"( |^|[^\w])" + re.escape(keyword) + r"( |$|[^\w])"
+278 |         if re.search(pattern, name, flags=re.IGNORECASE):
+279 |             reply_text, btn, alert, fileid = await find_filter(group_id, keyword)
+    |                              ^^^^^
+280 |
+281 |             if reply_text:
+    |
+help: Prefix it with an underscore or any other dummy variable pattern
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/filters.py:338:21
+    |
+336 |                                       delete_message_after_delay(sent_msg, delete_timer)
+337 |                                   )
+338 | /                     except Exception:
+339 | |                         pass
+    | |____________________________^
+340 |               except Exception as e:
+341 |                   logger.exception(e)
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/filters.py:338:28
+    |
+336 |                                     delete_message_after_delay(sent_msg, delete_timer)
+337 |                                 )
+338 |                     except Exception:
+    |                            ^^^^^^^^^
+339 |                         pass
+340 |             except Exception as e:
+    |
+
+TRY401 Redundant exception object included in `logging.exception` call
+   --> plugins/filters.py:341:34
+    |
+339 |                         pass
+340 |             except Exception as e:
+341 |                 logger.exception(e)
+    |                                  ^
+342 |
+343 |             return True
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+  --> plugins/force_add.py:27:5
+   |
+25 |           if str(user_id) in [str(a) for a in getattr(info, "ADMINS", [])]:
+26 |               return True
+27 | /     except Exception:
+28 | |         pass
+   | |____________^
+29 |
+30 |       try:
+   |
+
+BLE001 Do not catch blind exception: `Exception`
+  --> plugins/force_add.py:27:12
+   |
+25 |         if str(user_id) in [str(a) for a in getattr(info, "ADMINS", [])]:
+26 |             return True
+27 |     except Exception:
+   |            ^^^^^^^^^
+28 |         pass
+   |
+
+BLE001 Do not catch blind exception: `Exception`
+  --> plugins/force_add.py:36:12
+   |
+34 |             enums.ChatMemberStatus.OWNER,
+35 |         ]
+36 |     except Exception:
+   |            ^^^^^^^^^
+37 |         return False
+   |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/force_add.py:112:12
+    |
+110 |             reply_markup=kb,
+111 |         )
+112 |     except Exception as e:
+    |            ^^^^^^^^^
+113 |         logger.error(f"Error in set_force_add: {e}")
+114 |         try:
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/force_add.py:118:9
+    |
+116 |                   "❌ **An error occurred while setting Force Add.**"
+117 |               )
+118 | /         except Exception:
+119 | |             pass
+    | |________________^
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/force_add.py:118:16
+    |
+116 |                 "❌ **An error occurred while setting Force Add.**"
+117 |             )
+118 |         except Exception:
+    |                ^^^^^^^^^
+119 |             pass
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/force_add.py:153:12
+    |
+151 |             pass
+152 |         await query.answer()
+153 |     except Exception as e:
+    |            ^^^^^^^^^
+154 |         logger.error(f"Callback error in set_forceadd: {e}")
+155 |         await query.answer("An error occurred.", show_alert=True)
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/force_add.py:169:12
+    |
+167 |             "🗑️ **Force Add requirement has been completely removed.**"
+168 |         )
+169 |     except Exception as e:
+    |            ^^^^^^^^^
+170 |         logger.error(f"Error in remforceadd: {e}")
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/force_add.py:188:12
+    |
+186 |                 f"ℹ️ **Current Requirement:** Users must add {settings['limit']} members.\n🎯 **Applies to:** {target}"
+187 |             )
+188 |     except Exception as e:
+    |            ^^^^^^^^^
+189 |         logger.error(f"Error in getforceadd: {e}")
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/force_add.py:209:20
+    |
+207 |                 user = await bot.get_users(uid)
+208 |                 user_name = user.mention if user else f"User {uid}"
+209 |             except Exception:
+    |                    ^^^^^^^^^
+210 |                 user_name = f"User {uid}"
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/force_add.py:215:12
+    |
+214 |         await message.reply_text(text, disable_web_page_preview=True)
+215 |     except Exception as e:
+    |            ^^^^^^^^^
+216 |         logger.error(f"Error generating leaderboard: {e}")
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/force_add.py:255:12
+    |
+253 |             "♻️ **Daily/Weekly limits reset!** Leaderboards for 24h and 7d have been wiped."
+254 |         )
+255 |     except Exception as e:
+    |            ^^^^^^^^^
+256 |         logger.error(f"Error in resetadddaily: {e}")
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/force_add.py:270:12
+    |
+268 |             "💥 **TOTAL RESET!** All members' scores are now 0. Everyone must add members again."
+269 |         )
+270 |     except Exception as e:
+    |            ^^^^^^^^^
+271 |         logger.error(f"Error in resetadd: {e}")
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/force_add.py:297:12
+    |
+295 |                 f"⚠️ You have added **{current_adds}/{settings['limit']}** members."
+296 |             )
+297 |     except Exception as e:
+    |            ^^^^^^^^^
+298 |         logger.error(f"Error in myadds command: {e}")
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/force_add.py:340:20
+    |
+338 |                     ),
+339 |                 )
+340 |             except Exception as e:
+    |                    ^^^^^^^^^
+341 |                 logger.error(f"Failed to unrestrict user {adder_id}: {e}")
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/force_add.py:349:13
+    |
+347 |                   await asyncio.sleep(8)
+348 |                   await msg.delete()
+349 | /             except Exception:
+350 | |                 pass
+    | |____________________^
+351 |       except Exception as e:
+352 |           logger.error(f"Error in track_added_members: {e}")
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/force_add.py:349:20
+    |
+347 |                 await asyncio.sleep(8)
+348 |                 await msg.delete()
+349 |             except Exception:
+    |                    ^^^^^^^^^
+350 |                 pass
+351 |     except Exception as e:
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/force_add.py:351:12
+    |
+349 |             except Exception:
+350 |                 pass
+351 |     except Exception as e:
+    |            ^^^^^^^^^
+352 |         logger.error(f"Error in track_added_members: {e}")
+    |
+
+SIM102 Use a single `if` statement instead of nested `if` statements
+   --> plugins/force_add.py:371:9
+    |
+369 |               return
+370 |
+371 | /         if settings["mode"] == "new":
+372 | |             if not await plugin_db.is_fa_new_user(chat_id, user_id):
+    | |____________________________________________________________________^
+373 |                   return
+    |
+help: Combine `if` statements using `and`
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/force_add.py:386:13
+    |
+384 |               try:
+385 |                   await message.delete()
+386 | /             except Exception:
+387 | |                 pass
+    | |____________________^
+388 |
+389 |               try:
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/force_add.py:386:20
+    |
+384 |             try:
+385 |                 await message.delete()
+386 |             except Exception:
+    |                    ^^^^^^^^^
+387 |                 pass
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/force_add.py:399:13
+    |
+397 |                       until_date=until_time,
+398 |                   )
+399 | /             except Exception:
+400 | |                 pass
+    | |____________________^
+401 |
+402 |               try:
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/force_add.py:399:20
+    |
+397 |                     until_date=until_time,
+398 |                 )
+399 |             except Exception:
+    |                    ^^^^^^^^^
+400 |                 pass
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/force_add.py:418:13
+    |
+416 |                       ),
+417 |                   )
+418 | /             except Exception:
+419 | |                 pass
+    | |____________________^
+420 |
+421 |               raise StopPropagation
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/force_add.py:418:20
+    |
+416 |                     ),
+417 |                 )
+418 |             except Exception:
+    |                    ^^^^^^^^^
+419 |                 pass
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/force_add.py:424:12
+    |
+422 |     except StopPropagation:
+423 |         raise
+424 |     except Exception as e:
+    |            ^^^^^^^^^
+425 |         logger.error(f"Error in enforce_force_add: {e}\n{traceback.format_exc()}")
+426 |     finally:
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/force_add.py:433:17
+    |
+431 |                   try:
+432 |                       await msg_to_delete.delete()
+433 | /                 except Exception:
+434 | |                     pass
+    | |________________________^
+435 |
+436 |               asyncio.create_task(delete_warning(warn_msg))
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/force_add.py:433:24
+    |
+431 |                 try:
+432 |                     await msg_to_delete.delete()
+433 |                 except Exception:
+    |                        ^^^^^^^^^
+434 |                     pass
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/force_add.py:465:12
+    |
+463 |                 show_alert=True,
+464 |             )
+465 |     except Exception as e:
+    |            ^^^^^^^^^
+466 |         logger.error(f"Error in check_adds_button: {e}")
+467 |         try:
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/force_add.py:471:9
+    |
+469 |                   "An error occurred checking your status.", show_alert=True
+470 |               )
+471 | /         except Exception:
+472 | |             pass
+    | |________________^
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/force_add.py:471:16
+    |
+469 |                 "An error occurred checking your status.", show_alert=True
+470 |             )
+471 |         except Exception:
+    |                ^^^^^^^^^
+472 |             pass
+    |
+
+F401 [*] `pyrogram.errors.MessageNotModified` imported but unused
+  --> plugins/fsub.py:8:5
+   |
+ 6 | from pyrogram.errors import (
+ 7 |     ChatAdminRequired,
+ 8 |     MessageNotModified,
+   |     ^^^^^^^^^^^^^^^^^^
+ 9 |     UserIsBlocked,
+10 |     UserNotParticipant,
+   |
+help: Remove unused import: `pyrogram.errors.MessageNotModified`
+  |
+7 |     ChatAdminRequired,
+  -     MessageNotModified,
+8 |     UserIsBlocked,
+  |
+
+BLE001 Do not catch blind exception: `Exception`
+  --> plugins/fsub.py:87:12
+   |
+85 |         info.FSUB_CHANNELS[chat_id]["title"] = chat.title
+86 |         return invite.invite_link
+87 |     except Exception as e:
+   |            ^^^^^^^^^
+88 |         logger.error(f"Failed to fetch invite link for {chat_id}: {e}")
+89 |         return ""
+   |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/fsub.py:105:12
+    |
+103 |     except UserNotParticipant:
+104 |         return False
+105 |     except Exception as e:
+    |            ^^^^^^^^^
+106 |         # Reduced error severity to debug to avoid console spam
+107 |         logger.debug(f"FSub check error for channel {channel_id}: {e}")
+    |
+
+RUF013 PEP 484 prohibits implicit `Optional`
+   --> plugins/fsub.py:112:45
+    |
+111 | async def ForceSub(
+112 |     bot: Client, message: Message, file_id: str = None, mode: str = None
+    |                                             ^^^
+113 | ) -> bool:
+114 |     user = message.from_user
+    |
+help: Convert to `T | None`
+
+RUF013 PEP 484 prohibits implicit `Optional`
+   --> plugins/fsub.py:112:63
+    |
+111 | async def ForceSub(
+112 |     bot: Client, message: Message, file_id: str = None, mode: str = None
+    |                                                               ^^^
+113 | ) -> bool:
+114 |     user = message.from_user
+    |
+help: Convert to `T | None`
+
+TRY401 Redundant exception object included in `logging.exception` call
+   --> plugins/fsub.py:184:46
+    |
+183 |     except Exception as e:
+184 |         logger.exception(f"[ForceSub Error] {e}")
+    |                                              ^
+185 |         return True
+    |
+
+SIM118 [*] Use `key in dict` instead of `key in dict.keys()`
+   --> plugins/fsub.py:207:9
+    |
+205 |     not_joined_channels = False
+206 |
+207 |     for chat_id_str in active_fsubs.keys():
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+208 |         is_participant = await check_user_in_channel(bot, int(chat_id_str), user_id)
+209 |         if not is_participant:
+    |
+help: Remove `.keys()`
+    |
+206 |
+    -     for chat_id_str in active_fsubs.keys():
+207 +     for chat_id_str in active_fsubs:
+208 |         is_participant = await check_user_in_channel(bot, int(chat_id_str), user_id)
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/fsub.py:222:9
+    |
+220 |           try:
+221 |               await query.message.delete()
+222 | /         except Exception:
+223 | |             pass
+    | |________________^
+224 |
+225 |           await query.answer("✅ Subscriptions verified!", show_alert=False)
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/fsub.py:222:16
+    |
+220 |         try:
+221 |             await query.message.delete()
+222 |         except Exception:
+    |                ^^^^^^^^^
+223 |             pass
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/fsub.py:235:20
+    |
+233 |                     caption="🎉 **Thank you for joining! Here is your file:**",
+234 |                 )
+235 |             except Exception:
+    |                    ^^^^^^^^^
+236 |                 # ⚡ FIXED: Silently catch MEDIA_EMPTY errors and send a fallback text
+237 |                 # This prevents the scary red logs from spamming your console!
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/fsub.py:298:12
+    |
+296 |     try:
+297 |         chat = await bot.get_chat(int(channel_id))
+298 |     except Exception as e:
+    |            ^^^^^^^^^
+299 |         return await message.reply_text(
+300 |             f"❌ **Failed to fetch channel.** Make sure the bot is an admin in `{channel_id}`.\n`Error: {e}`"
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/fsub.py:350:12
+    |
+348 |     except asyncio.TimeoutError:
+349 |         await message.reply_text("⌛ **Timeout.** Setup cancelled.")
+350 |     except Exception as e:
+    |            ^^^^^^^^^
+351 |         await message.reply_text(f"❌ **Error:** {e}")
+    |
+
+RUF013 PEP 484 prohibits implicit `Optional`
+   --> plugins/fsub.py:445:60
+    |
+443 | # 📊 Get Lists (All / Active / Pending)
+444 | # ============================================================
+445 | def build_fsub_list_text(title_prefix: str, filter_status: str = None) -> str:
+    |                                                            ^^^
+446 |     channels = info.FSUB_CHANNELS.items()
+447 |     if filter_status:
+    |
+help: Convert to `T | None`
+
+SIM103 Return the condition directly
+  --> plugins/genlink.py:25:5
+   |
+23 |       if PUBLIC_FILE_STORE:
+24 |           return True
+25 | /     if message.from_user and message.from_user.id in ADMINS:
+26 | |         return True
+27 | |     return False
+   | |________________^
+help: Inline condition
+
+RUF059 Unpacked variable `ref` is never used
+  --> plugins/genlink.py:44:14
+   |
+42 |     if message.has_protected_content and message.chat.id not in ADMINS:
+43 |         return await message.reply("okDa")
+44 |     file_id, ref = unpack_new_file_id((getattr(replied, file_type.value)).file_id)
+   |              ^^^
+45 |     string = "filep_" if message.text.lower().strip() == "/plink" else "file_"
+46 |     string += file_id
+   |
+help: Prefix it with an underscore or any other dummy variable pattern
+
+W605 [*] Invalid escape sequence: `\.`
+  --> plugins/genlink.py:66:23
+   |
+64 |     cmd, first, last = links
+65 |     regex = re.compile(
+66 |         "(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$"
+   |                       ^^
+67 |     )
+68 |     match = regex.match(first)
+   |
+help: Use a raw string literal
+   |
+65 |     regex = re.compile(
+   -         "(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$"
+66 +         r"(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$"
+67 |     )
+   |
+
+W605 [*] Invalid escape sequence: `\.`
+  --> plugins/genlink.py:66:37
+   |
+64 |     cmd, first, last = links
+65 |     regex = re.compile(
+66 |         "(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$"
+   |                                     ^^
+67 |     )
+68 |     match = regex.match(first)
+   |
+help: Use a raw string literal
+   |
+65 |     regex = re.compile(
+   -         "(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$"
+66 +         r"(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$"
+67 |     )
+   |
+
+W605 [*] Invalid escape sequence: `\.`
+  --> plugins/genlink.py:66:51
+   |
+64 |     cmd, first, last = links
+65 |     regex = re.compile(
+66 |         "(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$"
+   |                                                   ^^
+67 |     )
+68 |     match = regex.match(first)
+   |
+help: Use a raw string literal
+   |
+65 |     regex = re.compile(
+   -         "(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$"
+66 +         r"(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$"
+67 |     )
+   |
+
+W605 [*] Invalid escape sequence: `\d`
+  --> plugins/genlink.py:66:64
+   |
+64 |     cmd, first, last = links
+65 |     regex = re.compile(
+66 |         "(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$"
+   |                                                                ^^
+67 |     )
+68 |     match = regex.match(first)
+   |
+help: Use a raw string literal
+   |
+65 |     regex = re.compile(
+   -         "(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$"
+66 +         r"(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$"
+67 |     )
+   |
+
+W605 [*] Invalid escape sequence: `\d`
+  --> plugins/genlink.py:66:84
+   |
+64 |     cmd, first, last = links
+65 |     regex = re.compile(
+66 |         "(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$"
+   |                                                                                    ^^
+67 |     )
+68 |     match = regex.match(first)
+   |
+help: Use a raw string literal
+   |
+65 |     regex = re.compile(
+   -         "(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$"
+66 +         r"(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$"
+67 |     )
+   |
+
+UP034 [*] Avoid extraneous parentheses
+  --> plugins/genlink.py:74:25
+   |
+72 |     f_msg_id = int(match.group(5))
+73 |     if f_chat_id.isnumeric():
+74 |         f_chat_id = int(("-100" + f_chat_id))
+   |                         ^^^^^^^^^^^^^^^^^^^^
+75 |
+76 |     match = regex.match(last)
+   |
+help: Remove extraneous parentheses
+   |
+73 |     if f_chat_id.isnumeric():
+   -         f_chat_id = int(("-100" + f_chat_id))
+74 +         f_chat_id = int("-100" + f_chat_id)
+75 |
+   |
+
+UP034 [*] Avoid extraneous parentheses
+  --> plugins/genlink.py:82:25
+   |
+80 |     l_msg_id = int(match.group(5))
+81 |     if l_chat_id.isnumeric():
+82 |         l_chat_id = int(("-100" + l_chat_id))
+   |                         ^^^^^^^^^^^^^^^^^^^^
+83 |
+84 |     if f_chat_id != l_chat_id:
+   |
+help: Remove extraneous parentheses
+   |
+81 |     if l_chat_id.isnumeric():
+   -         l_chat_id = int(("-100" + l_chat_id))
+82 +         l_chat_id = int("-100" + l_chat_id)
+83 |
+   |
+
+BLE001 Do not catch blind exception: `Exception`
+  --> plugins/genlink.py:94:12
+   |
+92 |     except (UsernameInvalid, UsernameNotModified):
+93 |         return await message.reply("Invalid Link specified.")
+94 |     except Exception as e:
+   |            ^^^^^^^^^
+95 |         return await message.reply(f"Errors - {e}")
+   |
+
+E722 Do not use bare `except`
+   --> plugins/genlink.py:138:9
+    |
+136 |                 og_msg += 1
+137 |                 outlist.append(file)
+138 |         except:
+    |         ^^^^^^
+139 |             pass
+140 |         if not og_msg % 20:
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/genlink.py:138:9
+    |
+136 |                   og_msg += 1
+137 |                   outlist.append(file)
+138 | /         except:
+139 | |             pass
+    | |________________^
+140 |           if not og_msg % 20:
+141 |               try:
+    |
+
+E722 Do not use bare `except`
+   --> plugins/genlink.py:150:13
+    |
+148 |                     )
+149 |                 )
+150 |             except:
+    |             ^^^^^^
+151 |                 pass
+152 |     with open(f"batchmode_{message.from_user.id}.json", "w+") as out:
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/genlink.py:150:13
+    |
+148 |                       )
+149 |                   )
+150 | /             except:
+151 | |                 pass
+    | |____________________^
+152 |       with open(f"batchmode_{message.from_user.id}.json", "w+") as out:
+153 |           json.dump(outlist, out)
+    |
+
+ASYNC230 Async functions should not open files with blocking methods like `open`
+   --> plugins/genlink.py:152:10
+    |
+150 |             except:
+151 |                 pass
+152 |     with open(f"batchmode_{message.from_user.id}.json", "w+") as out:
+    |          ^^^^
+153 |         json.dump(outlist, out)
+154 |     post = await bot.send_document(
+    |
+
+RUF059 Unpacked variable `ref` is never used
+   --> plugins/genlink.py:161:14
+    |
+159 |     )
+160 |     os.remove(f"batchmode_{message.from_user.id}.json")
+161 |     file_id, ref = unpack_new_file_id(post.document.file_id)
+    |              ^^^
+162 |     await sts.edit(
+163 |         f"Here is your link\nContains `{og_msg}` files.\n https://t.me/{temp.U_NAME}?start=BATCH-{file_id}"
+    |
+help: Prefix it with an underscore or any other dummy variable pattern
+
+BLE001 Do not catch blind exception: `Exception`
+  --> plugins/index.py:81:12
+   |
+79 |             f"Auto-indexed new file from {message.chat.title} ({message.chat.id})"
+80 |         )
+81 |     except Exception as e:
+   |            ^^^^^^^^^
+82 |         logger.error(f"Auto-index failed for {message.chat.title}: {e}")
+   |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/index.py:103:9
+    |
+101 |           try:
+102 |               await query.message.delete()
+103 | /         except Exception:
+104 | |             pass
+    | |________________^
+105 |
+106 |           try:
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/index.py:103:16
+    |
+101 |         try:
+102 |             await query.message.delete()
+103 |         except Exception:
+    |                ^^^^^^^^^
+104 |             pass
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/index.py:112:16
+    |
+110 |                 reply_to_message_id=int(lst_msg_id),
+111 |             )
+112 |         except Exception as e:
+    |                ^^^^^^^^^
+113 |             logger.error(f"Failed to send rejection to user {from_user}: {e}")
+114 |         return
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/index.py:130:16
+    |
+128 |                 f"Your submission for indexing `{chat}` has been accepted by our moderators and will be added soon.",
+129 |             )
+130 |         except Exception as e:
+    |                ^^^^^^^^^
+131 |             logger.error(f"Failed to send acceptance notification to {from_user}: {e}")
+    |
+
+TRY401 Redundant exception object included in `logging.exception` call
+   --> plugins/index.py:163:26
+    |
+161 |         return await message.reply("Invalid Link/Username specified.")
+162 |     except Exception as e:
+163 |         logger.exception(e)
+    |                          ^
+164 |         return await message.reply(f"Error accessing chat: {e}")
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/index.py:172:12
+    |
+170 |                 "This may be a group and I am not an admin, or the message does not exist."
+171 |             )
+172 |     except Exception:
+    |            ^^^^^^^^^
+173 |         return await message.reply(
+174 |             "Make sure that I am an admin in the channel (if the channel is private)."
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/index.py:201:17
+    |
+199 |                   try:
+200 |                       await response.delete()
+201 | /                 except Exception:
+202 | |                     pass
+    | |________________________^
+203 |
+204 |               try:
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/index.py:201:24
+    |
+199 |                 try:
+200 |                     await response.delete()
+201 |                 except Exception:
+    |                        ^^^^^^^^^
+202 |                     pass
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/index.py:206:13
+    |
+204 |               try:
+205 |                   await ask_msg.delete()
+206 | /             except Exception:
+207 | |                 pass
+    | |____________________^
+208 |
+209 |           except asyncio.TimeoutError:
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/index.py:206:20
+    |
+204 |             try:
+205 |                 await ask_msg.delete()
+206 |             except Exception:
+    |                    ^^^^^^^^^
+207 |                 pass
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/index.py:213:13
+    |
+211 |               try:
+212 |                   await ask_msg.edit("⏳ Timeout reached. Defaulting to skip `0`.")
+213 | /             except Exception:
+214 | |                 pass
+    | |____________________^
+215 |
+216 |           current_skip = getattr(temp, "CURRENT", 0)
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/index.py:213:20
+    |
+211 |             try:
+212 |                 await ask_msg.edit("⏳ Timeout reached. Defaulting to skip `0`.")
+213 |             except Exception:
+    |                    ^^^^^^^^^
+214 |                 pass
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/index.py:417:28
+    |
+415 |                         await asyncio.sleep(e.value + 1)
+416 |                         max_retries -= 1
+417 |                     except Exception as e:
+    |                            ^^^^^^^^^
+418 |                         logger.error(f"Error fetching messages: {e}")
+419 |                         break
+    |
+
+TRY401 Redundant exception object included in `logging.exception` call
+   --> plugins/index.py:485:30
+    |
+484 |         except Exception as e:
+485 |             logger.exception(e)
+    |                              ^
+486 |             await msg.edit(f"Error: {e}")
+487 |         else:
+    |
+
+F401 [*] `pyrogram.filters` imported but unused
+ --> plugins/inline.py:3:37
+  |
+1 | import logging
+2 |
+3 | from pyrogram import Client, emoji, filters
+  |                                     ^^^^^^^
+4 | from pyrogram.errors.exceptions.bad_request_400 import QueryIdInvalid
+5 | from pyrogram.types import (
+  |
+help: Remove unused import: `pyrogram.filters`
+  |
+2 |
+  - from pyrogram import Client, emoji, filters
+3 + from pyrogram import Client, emoji
+4 | from pyrogram.errors.exceptions.bad_request_400 import QueryIdInvalid
+  |
+
+SIM103 Return the condition directly
+  --> plugins/inline.py:22:9
+   |
+20 |   async def inline_users(query: InlineQuery):
+21 |       if AUTH_USERS:
+22 | /         if query.from_user and query.from_user.id in AUTH_USERS:
+23 | |             return True
+24 | |         else:
+25 | |             return False
+   | |________________________^
+26 |       if query.from_user and query.from_user.id not in temp.BANNED_USERS:
+27 |           return True
+   |
+help: Inline condition
+
+SIM103 Return the condition directly
+  --> plugins/inline.py:26:5
+   |
+24 |           else:
+25 |               return False
+26 | /     if query.from_user and query.from_user.id not in temp.BANNED_USERS:
+27 | |         return True
+28 | |     return False
+   | |________________^
+help: Inline condition
+
+TRY401 Redundant exception object included in `logging.exception` call
+  --> plugins/inline.py:77:34
+   |
+75 |                 )
+76 |             except Exception as e:
+77 |                 logger.exception(e)
+   |                                  ^
+78 |                 f_caption = f_caption
+79 |         if f_caption is None:
+   |
+
+PLW0127 Self-assignment of variable `f_caption`
+  --> plugins/inline.py:78:17
+   |
+76 |             except Exception as e:
+77 |                 logger.exception(e)
+78 |                 f_caption = f_caption
+   |                 ^^^^^^^^^
+79 |         if f_caption is None:
+80 |             f_caption = f"{file.file_name}"
+   |
+
+LOG015 `exception()` call on root logger
+   --> plugins/inline.py:107:13
+    |
+105 |             pass
+106 |         except Exception as e:
+107 |             logging.exception(str(e))
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^
+108 |     else:
+109 |         switch_pm_text = f"{emoji.CROSS_MARK} No results"
+    |
+help: Use own logger instead
+
+TRY401 Redundant exception object included in `logging.exception` call
+   --> plugins/inline.py:107:35
+    |
+105 |             pass
+106 |         except Exception as e:
+107 |             logging.exception(str(e))
+    |                                   ^
+108 |     else:
+109 |         switch_pm_text = f"{emoji.CROSS_MARK} No results"
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+  --> plugins/join_req.py:18:8
+   |
+16 |     )
+17 |     req_filter = filters.chat(req_chat) if req_chat else filters.chat([])
+18 | except Exception:
+   |        ^^^^^^^^^
+19 |     req_filter = filters.chat([])
+   |
+
+TRY401 Redundant exception object included in `logging.exception` call
+  --> plugins/join_req.py:45:73
+   |
+43 |         logger.info(f"📥 Stored join request: {user.first_name} ({user.id})")
+44 |     except Exception as e:
+45 |         logger.exception(f"❌ Failed to log join request for {user.id}: {e}")
+   |                                                                          ^
+
+TRY401 Redundant exception object included in `logging.exception` call
+  --> plugins/join_req.py:65:61
+   |
+63 |         await message.reply_text(f"📨 **Total Join Requests:** <code>{total}</code>")
+64 |     except Exception as e:
+65 |         logger.exception(f"❌ Error fetching join requests: {e}")
+   |                                                              ^
+66 |         await message.reply_text(f"⚠️ Error: <code>{e}</code>")
+   |
+
+F841 Local variable `confirm_msg` is assigned to but never used
+  --> plugins/join_req.py:82:5
+   |
+80 |         )
+81 |
+82 |     confirm_msg = await message.reply_text(
+   |     ^^^^^^^^^^^
+83 |         "⚠️ Are you sure you want to delete all join requests? (y/n)"
+84 |     )
+   |
+help: Remove assignment to unused variable `confirm_msg`
+
+TRY401 Redundant exception object included in `logging.exception` call
+  --> plugins/join_req.py:98:61
+   |
+96 |         await message.reply_text("⌛ Timeout: No response, operation cancelled.")
+97 |     except Exception as e:
+98 |         logger.exception(f"❌ Error clearing join requests: {e}")
+   |                                                              ^
+99 |         await message.reply_text(f"⚠️ Error clearing requests: <code>{e}</code>")
+   |
+
+F401 [*] `os` imported but unused
+ --> plugins/misc.py:2:8
+  |
+1 | import logging
+2 | import os
+  |        ^^
+3 | from datetime import datetime
+  |
+help: Remove unused import: `os`
+  |
+1 | import logging
+  - import os
+2 | from datetime import datetime
+  |
+
+F401 [*] `datetime.datetime` imported but unused
+ --> plugins/misc.py:3:22
+  |
+1 | import logging
+2 | import os
+3 | from datetime import datetime
+  |                      ^^^^^^^^
+4 |
+5 | from pyrogram import Client, enums, filters
+  |
+help: Remove unused import: `datetime.datetime`
+  |
+2 | import os
+  - from datetime import datetime
+3 |
+  |
+
+F401 [*] `pyrogram.errors.UserNotParticipant` imported but unused
+  --> plugins/misc.py:9:5
+   |
+ 7 |     MediaEmpty,
+ 8 |     PhotoInvalidDimensions,
+ 9 |     UserNotParticipant,
+   |     ^^^^^^^^^^^^^^^^^^
+10 |     WebpageMediaEmpty,
+11 | )
+   |
+help: Remove unused import: `pyrogram.errors.UserNotParticipant`
+  |
+8 |     PhotoInvalidDimensions,
+  -     UserNotParticipant,
+9 |     WebpageMediaEmpty,
+  |
+
+F401 [*] `utils.extract_user` imported but unused
+  --> plugins/misc.py:15:19
+   |
+14 | from info import IMDB_TEMPLATE
+15 | from utils import extract_user, get_file_id, get_poster
+   |                   ^^^^^^^^^^^^
+16 |
+17 | logger = logging.getLogger(__name__)
+   |
+help: Remove unused import: `utils.extract_user`
+   |
+14 | from info import IMDB_TEMPLATE
+   - from utils import extract_user, get_file_id, get_poster
+15 + from utils import get_file_id, get_poster
+16 |
+   |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+  --> plugins/misc.py:81:13
+   |
+79 |               try:
+80 |                   user = await client.get_users(target)
+81 | /             except Exception:
+82 | |                 pass
+   | |____________________^
+83 |
+84 |           # 3. Fallback to the command sender
+   |
+
+BLE001 Do not catch blind exception: `Exception`
+  --> plugins/misc.py:81:20
+   |
+79 |             try:
+80 |                 user = await client.get_users(target)
+81 |             except Exception:
+   |                    ^^^^^^^^^
+82 |                 pass
+   |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/misc.py:111:13
+    |
+109 |                       joined_date = member.joined_date.strftime("%Y-%m-%d %H:%M:%S")
+110 |                       text += f"<b>📅 Joined Chat On:</b> <code>{joined_date}</code>\n"
+111 | /             except Exception:
+112 | |                 pass
+    | |____________________^
+113 |
+114 |           buttons = [[InlineKeyboardButton("🔐 Close", callback_data="close_data")]]
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/misc.py:111:20
+    |
+109 |                     joined_date = member.joined_date.strftime("%Y-%m-%d %H:%M:%S")
+110 |                     text += f"<b>📅 Joined Chat On:</b> <code>{joined_date}</code>\n"
+111 |             except Exception:
+    |                    ^^^^^^^^^
+112 |                 pass
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/misc.py:126:20
+    |
+124 |                     parse_mode=enums.ParseMode.HTML,
+125 |                 )
+126 |             except Exception as e:
+    |                    ^^^^^^^^^
+127 |                 logger.error(f"Instant photo failed: {e}")
+128 |                 await message.reply_text(
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/misc.py:138:12
+    |
+136 |         await status.delete()
+137 |
+138 |     except Exception as e:
+    |            ^^^^^^^^^
+139 |         logger.error(f"Info Command Error: {e}")
+140 |         await status.edit("❌ An error occurred while fetching user data.")
+    |
+
+TRY401 Redundant exception object included in `logging.exception` call
+   --> plugins/misc.py:191:26
+    |
+190 |     except Exception as e:
+191 |         logger.exception(e)
+    |                          ^
+192 |         return await wait_msg.edit(f"⚠️ IMDb search error: `{e}`")
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/misc.py:270:12
+    |
+268 |             )
+269 |
+270 |     except Exception as e:
+    |            ^^^^^^^^^
+271 |         logger.error(f"IMDb Callback Error: {e}")
+272 |         try:
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/misc.py:274:9
+    |
+272 |           try:
+273 |               await query.message.edit(f"⚠️ Error loading details: `{e}`")
+274 | /         except Exception:
+275 | |             pass
+    | |________________^
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/misc.py:274:16
+    |
+272 |         try:
+273 |             await query.message.edit(f"⚠️ Error loading details: `{e}`")
+274 |         except Exception:
+    |                ^^^^^^^^^
+275 |             pass
+    |
+
+F401 [*] `pyrogram.enums` imported but unused
+ --> plugins/p_ttishow.py:3:30
+  |
+1 | import os
+2 |
+3 | from pyrogram import Client, enums, filters
+  |                              ^^^^^
+4 | from pyrogram.errors import ChatAdminRequired, MessageTooLong
+5 | from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+  |
+help: Remove unused import: `pyrogram.enums`
+  |
+2 |
+  - from pyrogram import Client, enums, filters
+3 + from pyrogram import Client, filters
+4 | from pyrogram.errors import ChatAdminRequired, MessageTooLong
+  |
+
+F401 [*] `pyrogram.errors.ChatAdminRequired` imported but unused
+ --> plugins/p_ttishow.py:4:29
+  |
+3 | from pyrogram import Client, enums, filters
+4 | from pyrogram.errors import ChatAdminRequired, MessageTooLong
+  |                             ^^^^^^^^^^^^^^^^^
+5 | from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+  |
+help: Remove unused import: `pyrogram.errors.ChatAdminRequired`
+  |
+3 | from pyrogram import Client, enums, filters
+  - from pyrogram.errors import ChatAdminRequired, MessageTooLong
+4 + from pyrogram.errors import MessageTooLong
+5 | from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+  |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+  --> plugins/p_ttishow.py:27:13
+   |
+25 |                       ),
+26 |                   )
+27 | /             except Exception:
+28 | |                 pass
+   | |____________________^
+29 |               await db.add_chat(message.chat.id, message.chat.title)
+   |
+
+BLE001 Do not catch blind exception: `Exception`
+  --> plugins/p_ttishow.py:27:20
+   |
+25 |                     ),
+26 |                 )
+27 |             except Exception:
+   |                    ^^^^^^^^^
+28 |                 pass
+29 |             await db.add_chat(message.chat.id, message.chat.title)
+   |
+
+F841 Local variable `warn_msg` is assigned to but never used
+  --> plugins/p_ttishow.py:35:13
+   |
+33 |                 [InlineKeyboardButton("🤖 ADMINS", url=f"https://t.me/{SUPPORT_CHAT}")]
+34 |             ]
+35 |             warn_msg = await message.reply_text(
+   |             ^^^^^^^^
+36 |                 "<b>🚫 This chat is restricted!\nMy admins have disabled me here.</b>",
+37 |                 reply_markup=InlineKeyboardMarkup(btn),
+   |
+help: Remove assignment to unused variable `warn_msg`
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+  --> plugins/p_ttishow.py:65:21
+   |
+63 |                       try:
+64 |                           await old_msg.delete()
+65 | /                     except Exception:
+66 | |                         pass
+   | |____________________________^
+67 |                   temp.MELCOW[message.chat.id] = await message.reply_text(
+68 |                       f"<b>👋 Hey {user.mention}, welcome to {message.chat.title}!</b>"
+   |
+
+BLE001 Do not catch blind exception: `Exception`
+  --> plugins/p_ttishow.py:65:28
+   |
+63 |                     try:
+64 |                         await old_msg.delete()
+65 |                     except Exception:
+   |                            ^^^^^^^^^
+66 |                         pass
+67 |                 temp.MELCOW[message.chat.id] = await message.reply_text(
+   |
+
+BLE001 Do not catch blind exception: `Exception`
+  --> plugins/p_ttishow.py:90:12
+   |
+88 |         await bot.leave_chat(chat_id)
+89 |         await message.reply_text(f"✅ Left the chat `{chat_id}` successfully.")
+90 |     except Exception as e:
+   |            ^^^^^^^^^
+91 |         await message.reply_text(f"⚠️ Error: `{e}`")
+   |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/p_ttishow.py:128:5
+    |
+126 |           )
+127 |           await bot.leave_chat(chat_id)
+128 | /     except Exception as e:
+129 | |         pass
+    | |____________^
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/p_ttishow.py:128:12
+    |
+126 |         )
+127 |         await bot.leave_chat(chat_id)
+128 |     except Exception as e:
+    |            ^^^^^^^^^
+129 |         pass
+    |
+
+F841 [*] Local variable `e` is assigned to but never used
+   --> plugins/p_ttishow.py:128:25
+    |
+126 |         )
+127 |         await bot.leave_chat(chat_id)
+128 |     except Exception as e:
+    |                         ^
+129 |         pass
+    |
+help: Remove assignment to unused variable `e`
+    |
+127 |         await bot.leave_chat(chat_id)
+    -     except Exception as e:
+128 +     except Exception:
+129 |         pass
+    |
+
+ASYNC230 Async functions should not open files with blocking methods like `open`
+   --> plugins/p_ttishow.py:172:14
+    |
+170 |         await temp_msg.edit(out)
+171 |     except MessageTooLong:
+172 |         with open("users.txt", "w+", encoding="utf-8") as f:
+    |              ^^^^
+173 |             f.write(out)
+174 |         await message.reply_document("users.txt", caption="👥 List of users in DB.")
+    |
+
+F401 [*] `pyrogram.errors.RandomIdDuplicate` imported but unused
+  --> plugins/pm_filter.py:17:5
+   |
+15 |     PeerIdInvalid,
+16 |     QueryIdInvalid,
+17 |     RandomIdDuplicate,
+   |     ^^^^^^^^^^^^^^^^^
+18 |     UserIsBlocked,
+19 | )
+   |
+help: Remove unused import: `pyrogram.errors.RandomIdDuplicate`
+   |
+16 |     QueryIdInvalid,
+   -     RandomIdDuplicate,
+17 |     UserIsBlocked,
+   |
+
+F401 [*] `info.ADMINS` imported but unused
+  --> plugins/pm_filter.py:35:18
+   |
+33 | from database.plugin_dbs import plugin_db
+34 | from database.users_chats_db import db
+35 | from info import ADMINS, AUTH_CHANNEL, CUSTOM_FILE_CAPTION, REQ_CHANNEL
+   |                  ^^^^^^
+36 | from Script import script
+37 | from utils import get_poster, get_settings, get_size, is_subscribed, search_gagala, temp
+   |
+help: Remove unused import: `info.ADMINS`
+   |
+34 | from database.users_chats_db import db
+   - from info import ADMINS, AUTH_CHANNEL, CUSTOM_FILE_CAPTION, REQ_CHANNEL
+35 + from info import AUTH_CHANNEL, CUSTOM_FILE_CAPTION, REQ_CHANNEL
+36 | from Script import script
+   |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/pm_filter.py:195:5
+    |
+193 |       try:
+194 |           await bot_message.delete()
+195 | /     except Exception:
+196 | |         pass
+    | |____________^
+197 |
+198 |       # 2. Delete user's message safely
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/pm_filter.py:195:12
+    |
+193 |     try:
+194 |         await bot_message.delete()
+195 |     except Exception:
+    |            ^^^^^^^^^
+196 |         pass
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/pm_filter.py:202:9
+    |
+200 |           try:
+201 |               await user_message.delete()
+202 | /         except Exception:
+203 | |             pass
+    | |________________^
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/pm_filter.py:202:16
+    |
+200 |         try:
+201 |             await user_message.delete()
+202 |         except Exception:
+    |                ^^^^^^^^^
+203 |             pass
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/pm_filter.py:227:16
+    |
+225 |         try:
+226 |             k_msg = await msg.reply_photo(photo=pic_to_use, caption=text_to_use)
+227 |         except Exception:
+    |                ^^^^^^^^^
+228 |             try:
+229 |                 k_msg = await msg.reply_text(text=text_to_use)
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/pm_filter.py:230:20
+    |
+228 |             try:
+229 |                 k_msg = await msg.reply_text(text=text_to_use)
+230 |             except Exception:
+    |                    ^^^^^^^^^
+231 |                 k_msg = None
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/pm_filter.py:268:13
+    |
+266 |                   if imdb_s:
+267 |                       movielist += [movie.get("title") for movie in imdb_s]
+268 | /             except Exception:
+269 | |                 pass
+    | |____________________^
+270 |
+271 |       movielist += [
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/pm_filter.py:268:20
+    |
+266 |                 if imdb_s:
+267 |                     movielist += [movie.get("title") for movie in imdb_s]
+268 |             except Exception:
+    |                    ^^^^^^^^^
+269 |                 pass
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/pm_filter.py:279:16
+    |
+277 |         try:
+278 |             k_msg = await msg.reply_photo(photo=pic_to_use, caption=text_to_use)
+279 |         except Exception:
+    |                ^^^^^^^^^
+280 |             try:
+281 |                 k_msg = await msg.reply_text(text=text_to_use)
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/pm_filter.py:282:20
+    |
+280 |             try:
+281 |                 k_msg = await msg.reply_text(text=text_to_use)
+282 |             except Exception:
+    |                    ^^^^^^^^^
+283 |                 k_msg = None
+    |
+
+C413 Unnecessary `reversed()` call around `sorted()`
+   --> plugins/pm_filter.py:332:20
+    |
+330 |         return False
+331 |
+332 |     for keyword in reversed(sorted(keywords, key=len)):
+    |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+333 |         pattern = r"( |^|[^\w])" + re.escape(keyword) + r"( |$|[^\w])"
+334 |         if re.search(pattern, name, flags=re.IGNORECASE):
+    |
+help: Remove unnecessary `reversed()` call
+
+RUF059 Unpacked variable `alert` is never used
+   --> plugins/pm_filter.py:335:30
+    |
+333 |         pattern = r"( |^|[^\w])" + re.escape(keyword) + r"( |$|[^\w])"
+334 |         if re.search(pattern, name, flags=re.IGNORECASE):
+335 |             reply_text, btn, alert, fileid = await find_filter(group_id, keyword)
+    |                              ^^^^^
+336 |
+337 |             if reply_text:
+    |
+help: Prefix it with an underscore or any other dummy variable pattern
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/pm_filter.py:344:17
+    |
+342 |                   try:
+343 |                       button_layout = ast.literal_eval(btn)
+344 | /                 except Exception:
+345 | |                     pass
+    | |________________________^
+346 |
+347 |               reply_markup = (
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/pm_filter.py:344:24
+    |
+342 |                 try:
+343 |                     button_layout = ast.literal_eval(btn)
+344 |                 except Exception:
+    |                        ^^^^^^^^^
+345 |                     pass
+    |
+
+TRY401 Redundant exception object included in `logging.exception` call
+   --> plugins/pm_filter.py:405:68
+    |
+403 |                             )
+404 |                 except Exception as e2:
+405 |                     logger.exception(f"manual_filter retry error: {e2}")
+    |                                                                    ^^
+406 |             except Exception as e:
+407 |                 logger.exception(e)
+    |
+
+TRY401 Redundant exception object included in `logging.exception` call
+   --> plugins/pm_filter.py:407:34
+    |
+405 |                     logger.exception(f"manual_filter retry error: {e2}")
+406 |             except Exception as e:
+407 |                 logger.exception(e)
+    |                                  ^
+408 |             return True
+409 |     return False
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/pm_filter.py:480:9
+    |
+478 |               bot_me = await client.get_me()
+479 |               temp.U_NAME = bot_me.username
+480 | /         except Exception:
+481 | |             pass
+    | |________________^
+482 |       bot_username = temp.U_NAME or "my_bot"
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/pm_filter.py:480:16
+    |
+478 |             bot_me = await client.get_me()
+479 |             temp.U_NAME = bot_me.username
+480 |         except Exception:
+    |                ^^^^^^^^^
+481 |             pass
+482 |     bot_username = temp.U_NAME or "my_bot"
+    |
+
+TRY401 Redundant exception object included in `logging.exception` call
+   --> plugins/pm_filter.py:569:58
+    |
+567 |             m = await message.reply_text(cap, reply_markup=InlineKeyboardMarkup(btn))
+568 |         except Exception as e2:
+569 |             logger.exception(f"auto_filter retry error: {e2}")
+    |                                                          ^^
+570 |             return
+571 |     except Exception as e:
+    |
+
+TRY401 Redundant exception object included in `logging.exception` call
+   --> plugins/pm_filter.py:572:48
+    |
+570 |             return
+571 |     except Exception as e:
+572 |         logger.exception(f"auto_filter error: {e}")
+    |                                                ^
+573 |         return
+    |
+
+SIM102 Use a single `if` statement instead of nested `if` statements
+   --> plugins/pm_filter.py:591:5
+    |
+589 |   @Client.on_message((filters.group) & filters.text & filters.incoming)
+590 |   async def give_filter(client, message):
+591 | /     if getattr(info, "REPAIR_MODE", False):
+592 | |         if not message.from_user or (
+593 | |             str(message.from_user.id) not in [str(a) for a in info.ADMINS]
+594 | |         ):
+    | |__________^
+595 |               return await message.reply_text(
+596 |                   "🛠️ **Bot is currently under maintenance!**\n\n"
+    |
+help: Combine `if` statements using `and`
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/pm_filter.py:605:12
+    |
+603 |     try:
+604 |         k = await manual_filters(client, message)
+605 |     except Exception as e:
+    |            ^^^^^^^^^
+606 |         logger.error(f"Manual filter error: {e}")
+607 |         k = False
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/pm_filter.py:612:16
+    |
+610 |         try:
+611 |             await auto_filter(client, message)
+612 |         except Exception as e:
+    |                ^^^^^^^^^
+613 |             logger.error(f"Auto filter error: {e}")
+    |
+
+SIM102 Use a single `if` statement instead of nested `if` statements
+   --> plugins/pm_filter.py:621:5
+    |
+619 |   @Client.on_callback_query(filters.regex(r"^next"))
+620 |   async def next_page(bot, query):
+621 | /     if getattr(info, "REPAIR_MODE", False):
+622 | |         if str(query.from_user.id) not in [str(a) for a in info.ADMINS]:
+    | |________________________________________________________________________^
+623 |               return await query.answer("🛠️ Bot is under maintenance!", show_alert=True)
+    |
+help: Combine `if` statements using `and`
+
+RUF059 Unpacked variable `ident` is never used
+   --> plugins/pm_filter.py:626:9
+    |
+625 |     try:
+626 |         ident, req, key, offset = query.data.split("_")
+    |         ^^^^^
+627 |     except ValueError:
+628 |         return await query.answer("Invalid button data!", show_alert=True)
+    |
+help: Prefix it with an underscore or any other dummy variable pattern
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/pm_filter.py:672:9
+    |
+670 |               bot_me = await bot.get_me()
+671 |               temp.U_NAME = bot_me.username
+672 | /         except Exception:
+673 | |             pass
+    | |________________^
+674 |       bot_username = temp.U_NAME or "my_bot"
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/pm_filter.py:672:16
+    |
+670 |             bot_me = await bot.get_me()
+671 |             temp.U_NAME = bot_me.username
+672 |         except Exception:
+    |                ^^^^^^^^^
+673 |             pass
+674 |     bot_username = temp.U_NAME or "my_bot"
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/pm_filter.py:788:9
+    |
+786 |                   reply_markup=InlineKeyboardMarkup(btn)
+787 |               )
+788 | /         except Exception:
+789 | |             pass
+    | |________________^
+790 |       try:
+791 |           await query.answer()
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/pm_filter.py:788:16
+    |
+786 |                 reply_markup=InlineKeyboardMarkup(btn)
+787 |             )
+788 |         except Exception:
+    |                ^^^^^^^^^
+789 |             pass
+790 |     try:
+    |
+
+SIM102 Use a single `if` statement instead of nested `if` statements
+   --> plugins/pm_filter.py:805:5
+    |
+803 |   )
+804 |   async def cb_handler(client: Client, query: CallbackQuery):
+805 | /     if getattr(info, "REPAIR_MODE", False):
+806 | |         if (
+807 | |             str(query.from_user.id) not in [str(a) for a in info.ADMINS]
+808 | |             and query.data != "close_data"
+809 | |         ):
+    | |__________^
+810 |               return await query.answer("🛠️ Bot is under maintenance!", show_alert=True)
+    |
+help: Combine `if` statements using `and`
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/pm_filter.py:826:28
+    |
+824 |                         chat = await client.get_chat(grpid)
+825 |                         title = chat.title
+826 |                     except Exception:
+    |                            ^^^^^^^^^
+827 |                         try:
+828 |                             await query.message.edit_text(
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/pm_filter.py:855:20
+    |
+853 |                     str(userid) in [str(a) for a in info.ADMINS]
+854 |                 )
+855 |             except Exception:
+    |                    ^^^^^^^^^
+856 |                 is_owner_or_admin = str(userid) in [str(a) for a in info.ADMINS]
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/pm_filter.py:873:17
+    |
+871 |                       await query.message.reply_to_message.delete()
+872 |                       await query.message.delete()
+873 | /                 except Exception:
+874 | |                     pass
+    | |________________________^
+875 |               elif chat_type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
+876 |                   grp_id = query.message.chat.id
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/pm_filter.py:873:24
+    |
+871 |                     await query.message.reply_to_message.delete()
+872 |                     await query.message.delete()
+873 |                 except Exception:
+    |                        ^^^^^^^^^
+874 |                     pass
+875 |             elif chat_type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/pm_filter.py:882:24
+    |
+880 |                         str(userid) in [str(a) for a in info.ADMINS]
+881 |                     )
+882 |                 except Exception:
+    |                        ^^^^^^^^^
+883 |                     is_owner_or_admin = str(userid) in [str(a) for a in info.ADMINS]
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/pm_filter.py:889:21
+    |
+887 |                           await query.message.delete()
+888 |                           await query.message.reply_to_message.delete()
+889 | /                     except Exception:
+890 | |                         pass
+    | |____________________________^
+891 |                   else:
+892 |                       await query.answer("That's not for you!!", show_alert=True)
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/pm_filter.py:889:28
+    |
+887 |                         await query.message.delete()
+888 |                         await query.message.reply_to_message.delete()
+889 |                     except Exception:
+    |                            ^^^^^^^^^
+890 |                         pass
+891 |                 else:
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/pm_filter.py:985:17
+    |
+983 |                           ]
+984 |                       )
+985 | /                 except Exception:
+986 | |                     pass
+    | |________________________^
+987 |               if buttons:
+988 |                   try:
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/pm_filter.py:985:24
+    |
+983 |                         ]
+984 |                     )
+985 |                 except Exception:
+    |                        ^^^^^^^^^
+986 |                     pass
+987 |             if buttons:
+    |
+
+RUF059 Unpacked variable `reply_text` is never used
+    --> plugins/pm_filter.py:1000:17
+     |
+ 998 |                 grp_id = query.message.chat.id
+ 999 |                 _, i, keyword = query.data.split(":", 2)
+1000 |                 reply_text, btn, alerts, fileid = await find_filter(grp_id, keyword)
+     |                 ^^^^^^^^^^
+1001 |                 if alerts is not None:
+1002 |                     alerts = ast.literal_eval(alerts)
+     |
+help: Prefix it with an underscore or any other dummy variable pattern
+
+RUF059 Unpacked variable `btn` is never used
+    --> plugins/pm_filter.py:1000:29
+     |
+ 998 |                 grp_id = query.message.chat.id
+ 999 |                 _, i, keyword = query.data.split(":", 2)
+1000 |                 reply_text, btn, alerts, fileid = await find_filter(grp_id, keyword)
+     |                             ^^^
+1001 |                 if alerts is not None:
+1002 |                     alerts = ast.literal_eval(alerts)
+     |
+help: Prefix it with an underscore or any other dummy variable pattern
+
+RUF059 Unpacked variable `fileid` is never used
+    --> plugins/pm_filter.py:1000:42
+     |
+ 998 |                 grp_id = query.message.chat.id
+ 999 |                 _, i, keyword = query.data.split(":", 2)
+1000 |                 reply_text, btn, alerts, fileid = await find_filter(grp_id, keyword)
+     |                                          ^^^^^^
+1001 |                 if alerts is not None:
+1002 |                     alerts = ast.literal_eval(alerts)
+     |
+help: Prefix it with an underscore or any other dummy variable pattern
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+    --> plugins/pm_filter.py:1047:17
+     |
+1045 |                       bot_me = await client.get_me()
+1046 |                       temp.U_NAME = bot_me.username
+1047 | /                 except Exception:
+1048 | |                     pass
+     | |________________________^
+1049 |               bot_username = temp.U_NAME or "my_bot"
+     |
+
+BLE001 Do not catch blind exception: `Exception`
+    --> plugins/pm_filter.py:1047:24
+     |
+1045 |                     bot_me = await client.get_me()
+1046 |                     temp.U_NAME = bot_me.username
+1047 |                 except Exception:
+     |                        ^^^^^^^^^
+1048 |                     pass
+1049 |             bot_username = temp.U_NAME or "my_bot"
+     |
+
+TRY401 Redundant exception object included in `logging.exception` call
+    --> plugins/pm_filter.py:1059:38
+     |
+1057 |                     )
+1058 |                 except Exception as e:
+1059 |                     logger.exception(e)
+     |                                      ^
+1060 |
+1061 |             if not f_caption:
+     |
+
+SIM114 [*] Combine `if` branches using logical `or` operator
+    --> plugins/pm_filter.py:1065:17
+     |
+1064 |               try:
+1065 | /                 if (AUTH_CHANNEL or REQ_CHANNEL) and not await is_subscribed(
+1066 | |                     client, query
+1067 | |                 ):
+1068 | |                     return await query.answer(
+1069 | |                         url=f"https://t.me/{bot_username}?start={ident}_{file_id}"
+1070 | |                     )
+1071 | |                 elif settings.get("botpm", False):
+1072 | |                     return await query.answer(
+1073 | |                         url=f"https://t.me/{bot_username}?start={ident}_{file_id}"
+1074 | |                     )
+     | |_____________________^
+1075 |                   else:
+1076 |                       await client.send_cached_media(
+     |
+help: Combine `if` branches
+     |
+1066 |                     client, query
+     -                 ):
+     -                     return await query.answer(
+     -                         url=f"https://t.me/{bot_username}?start={ident}_{file_id}"
+     -                     )
+     -                 elif settings.get("botpm", False):
+1067 +                 ) or settings.get("botpm", False):
+1068 |                     return await query.answer(
+     |
+
+SIM210 Remove unnecessary `True if ... else False`
+    --> plugins/pm_filter.py:1080:41
+     |
+1078 |                         file_id=file_id,
+1079 |                         caption=f_caption,
+1080 |                         protect_content=True if ident == "filep" else False,
+     |                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1081 |                     )
+1082 |                     await query.answer(
+     |
+help: Remove unnecessary `True if ... else False`
+
+SIM210 Remove unnecessary `True if ... else False`
+    --> plugins/pm_filter.py:1098:41
+     |
+1096 |                         file_id=file_id,
+1097 |                         caption=f_caption,
+1098 |                         protect_content=True if ident == "filep" else False,
+     |                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1099 |                     )
+1100 |                     await query.answer(
+     |
+help: Remove unnecessary `True if ... else False`
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+    --> plugins/pm_filter.py:1103:17
+     |
+1101 |                           "Check PM, I have sent files in pm", show_alert=True
+1102 |                       )
+1103 | /                 except Exception:
+1104 | |                     pass
+     | |________________________^
+1105 |               except QueryIdInvalid:
+1106 |                   pass
+     |
+
+BLE001 Do not catch blind exception: `Exception`
+    --> plugins/pm_filter.py:1103:24
+     |
+1101 |                         "Check PM, I have sent files in pm", show_alert=True
+1102 |                     )
+1103 |                 except Exception:
+     |                        ^^^^^^^^^
+1104 |                     pass
+1105 |             except QueryIdInvalid:
+     |
+
+TRY401 Redundant exception object included in `logging.exception` call
+    --> plugins/pm_filter.py:1108:54
+     |
+1106 |                 pass
+1107 |             except Exception as e:
+1108 |                 logger.exception(f"File send error: {e}")
+     |                                                      ^
+1109 |                 try:
+1110 |                     await query.answer(
+     |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+    --> plugins/pm_filter.py:1113:17
+     |
+1111 |                           url=f"https://t.me/{bot_username}?start={ident}_{file_id}"
+1112 |                       )
+1113 | /                 except Exception:
+1114 | |                     pass
+     | |________________________^
+1115 |
+1116 |           elif query.data.startswith("checksub"):
+     |
+
+BLE001 Do not catch blind exception: `Exception`
+    --> plugins/pm_filter.py:1113:24
+     |
+1111 |                         url=f"https://t.me/{bot_username}?start={ident}_{file_id}"
+1112 |                     )
+1113 |                 except Exception:
+     |                        ^^^^^^^^^
+1114 |                     pass
+     |
+
+TRY401 Redundant exception object included in `logging.exception` call
+    --> plugins/pm_filter.py:1158:38
+     |
+1156 |                     )
+1157 |                 except Exception as e:
+1158 |                     logger.exception(e)
+     |                                      ^
+1159 |             if not f_caption:
+1160 |                 f_caption = f"{title}"
+     |
+
+SIM210 Remove unnecessary `True if ... else False`
+    --> plugins/pm_filter.py:1167:33
+     |
+1165 |                 file_id=file_id,
+1166 |                 caption=f_caption,
+1167 |                 protect_content=True if ident == "checksubp" else False,
+     |                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1168 |             )
+1169 |             k = await client.send_message(
+     |
+help: Remove unnecessary `True if ... else False`
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+    --> plugins/pm_filter.py:1184:17
+     |
+1182 |   …                 f"<b>Hey <i>{query.from_user.first_name}</i>\n\nYour Request Has Been Deleted 👍\n\nIF YOU WANT THAT FILE, REQUE…
+1183 |   …             )
+1184 | / …         except Exception:
+1185 | | …             pass
+     | |__________________^
+1186 |   …
+1187 |   …     file_timer = getattr(info, "FILE_AUTO_DELETE", 1800)
+     |
+
+BLE001 Do not catch blind exception: `Exception`
+    --> plugins/pm_filter.py:1184:24
+     |
+1182 | …             f"<b>Hey <i>{query.from_user.first_name}</i>\n\nYour Request Has Been Deleted 👍\n\nIF YOU WANT THAT FILE, REQUEST AGA…
+1183 | …         )
+1184 | …     except Exception:
+     |              ^^^^^^^^^
+1185 | …         pass
+     |
+
+BLE001 Do not catch blind exception: `Exception`
+    --> plugins/pm_filter.py:1253:20
+     |
+1251 |                     parse_mode=enums.ParseMode.HTML,
+1252 |                 )
+1253 |             except Exception as e:
+     |                    ^^^^^^^^^
+1254 |                 logger.error(f"Error editing start message: {e}")
+     |
+
+BLE001 Do not catch blind exception: `Exception`
+    --> plugins/pm_filter.py:1311:20
+     |
+1309 |             except MessageNotModified:
+1310 |                 pass
+1311 |             except Exception as e:
+     |                    ^^^^^^^^^
+1312 |                 logger.error(f"Help Button Error: {e}")
+     |
+
+PLE2515 [*] Invalid unescaped character zero-width-space, use "\u200B" instead
+    --> plugins/pm_filter.py:1317:47
+     |
+1315 |             await query.answer()
+1316 |             buttons = [
+1317 |                 [InlineKeyboardButton("Sᴛᴀᴛᴜs ​", callback_data="stats")],
+     |                                               ^
+1318 |                 [
+1319 |                     InlineKeyboardButton("🏘 Hᴏᴍᴇ", callback_data="start"),
+     |
+help: Replace with escape sequence
+     |
+1316 |             buttons = [
+     -                 [InlineKeyboardButton("Sᴛᴀᴛᴜs ​", callback_data="stats")],
+1317 +                 [InlineKeyboardButton("Sᴛᴀᴛᴜs \u200b", callback_data="stats")],
+1318 |                 [
+     |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+    --> plugins/pm_filter.py:1330:13
+     |
+1328 |                       parse_mode=enums.ParseMode.HTML,
+1329 |                   )
+1330 | /             except Exception:
+1331 | |                 pass
+     | |____________________^
+1332 |
+1333 |           elif query.data.startswith("helps_"):
+     |
+
+BLE001 Do not catch blind exception: `Exception`
+    --> plugins/pm_filter.py:1330:20
+     |
+1328 |                     parse_mode=enums.ParseMode.HTML,
+1329 |                 )
+1330 |             except Exception:
+     |                    ^^^^^^^^^
+1331 |                 pass
+     |
+
+BLE001 Do not catch blind exception: `Exception`
+    --> plugins/pm_filter.py:1367:20
+     |
+1365 |                     parse_mode=enums.ParseMode.HTML,
+1366 |                 )
+1367 |             except Exception:
+     |                    ^^^^^^^^^
+1368 |                 clean_text = re.sub(
+1369 |                     r"</?(b|i|u|s|code|pre|a|blockquote)[^>]*>", "", text
+     |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+    --> plugins/pm_filter.py:1399:13
+     |
+1397 |                       parse_mode=enums.ParseMode.HTML,
+1398 |                   )
+1399 | /             except Exception:
+1400 | |                 pass
+     | |____________________^
+1401 |
+1402 |       except QueryIdInvalid:
+     |
+
+BLE001 Do not catch blind exception: `Exception`
+    --> plugins/pm_filter.py:1399:20
+     |
+1397 |                     parse_mode=enums.ParseMode.HTML,
+1398 |                 )
+1399 |             except Exception:
+     |                    ^^^^^^^^^
+1400 |                 pass
+     |
+
+F401 [*] `os` imported but unused
+ --> plugins/post_handler.py:4:8
+  |
+2 | import html
+3 | import logging
+4 | import os
+  |        ^^
+5 | import re
+6 | import traceback
+  |
+help: Remove unused import: `os`
+  |
+3 | import logging
+  - import os
+4 | import re
+  |
+
+F401 [*] `traceback` imported but unused
+ --> plugins/post_handler.py:6:8
+  |
+4 | import os
+5 | import re
+6 | import traceback
+  |        ^^^^^^^^^
+7 | from io import BytesIO
+  |
+help: Remove unused import: `traceback`
+  |
+5 | import re
+  - import traceback
+6 | from io import BytesIO
+  |
+
+F401 [*] `io.BytesIO` imported but unused
+ --> plugins/post_handler.py:7:16
+  |
+5 | import re
+6 | import traceback
+7 | from io import BytesIO
+  |                ^^^^^^^
+8 |
+9 | import requests
+  |
+help: Remove unused import: `io.BytesIO`
+  |
+6 | import traceback
+  - from io import BytesIO
+7 |
+  |
+
+F401 [*] `info.ADMINS` imported but unused
+  --> plugins/post_handler.py:21:18
+   |
+20 | import info
+21 | from info import ADMINS, MOVIE_UPDATE_CHANNEL
+   |                  ^^^^^^
+22 | from plugins.Imdbposter import get_movie_detailsx
+23 | from utils import temp
+   |
+help: Remove unused import: `info.ADMINS`
+   |
+20 | import info
+   - from info import ADMINS, MOVIE_UPDATE_CHANNEL
+21 + from info import MOVIE_UPDATE_CHANNEL
+22 | from plugins.Imdbposter import get_movie_detailsx
+   |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/post_handler.py:108:5
+    |
+106 |               elif isinstance(data, dict) and "link" in data:
+107 |                   return data["link"]
+108 | /     except Exception:
+109 | |         pass
+    | |____________^
+110 |
+111 |       # 2. Try Telegraph (Secondary)
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/post_handler.py:108:12
+    |
+106 |             elif isinstance(data, dict) and "link" in data:
+107 |                 return data["link"]
+108 |     except Exception:
+    |            ^^^^^^^^^
+109 |         pass
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/post_handler.py:118:5
+    |
+116 |               if isinstance(data, list) and "src" in data[0]:
+117 |                   return "https://telegra.ph" + data[0]["src"]
+118 | /     except Exception:
+119 | |         pass
+    | |____________^
+120 |
+121 |       # 3. Try Envs.sh
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/post_handler.py:118:12
+    |
+116 |             if isinstance(data, list) and "src" in data[0]:
+117 |                 return "https://telegra.ph" + data[0]["src"]
+118 |     except Exception:
+    |            ^^^^^^^^^
+119 |         pass
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/post_handler.py:126:5
+    |
+124 |           if res.status_code == 200 and res.text.startswith("http"):
+125 |               return res.text.strip()
+126 | /     except Exception:
+127 | |         pass
+    | |____________^
+128 |
+129 |       # 4. Try Catbox.moe
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/post_handler.py:126:12
+    |
+124 |         if res.status_code == 200 and res.text.startswith("http"):
+125 |             return res.text.strip()
+126 |     except Exception:
+    |            ^^^^^^^^^
+127 |         pass
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/post_handler.py:135:5
+    |
+133 |           if res.status_code == 200 and res.text.startswith("http"):
+134 |               return res.text.strip()
+135 | /     except Exception:
+136 | |         pass
+    | |____________^
+137 |
+138 |       # 5. Try Uguu.se
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/post_handler.py:135:12
+    |
+133 |         if res.status_code == 200 and res.text.startswith("http"):
+134 |             return res.text.strip()
+135 |     except Exception:
+    |            ^^^^^^^^^
+136 |         pass
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/post_handler.py:143:5
+    |
+141 |           if res.status_code == 200:
+142 |               return res.json()['files'][0]['url']
+143 | /     except Exception:
+144 | |         pass
+    | |____________^
+145 |
+146 |       return None
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/post_handler.py:143:12
+    |
+141 |         if res.status_code == 200:
+142 |             return res.json()['files'][0]['url']
+143 |     except Exception:
+    |            ^^^^^^^^^
+144 |         pass
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/post_handler.py:163:12
+    |
+162 |         return url, None
+163 |     except Exception as e:
+    |            ^^^^^^^^^
+164 |         logger.error(f"Image Processing Error: {e}")
+165 |         return None, f"❌ Internal Error: {e}"
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/post_handler.py:178:12
+    |
+177 |         await start_post_session(client, message, user_id, movie_name)
+178 |     except Exception as e:
+    |            ^^^^^^^^^
+179 |         await message.reply_text(f"❌ **COMMAND ERROR:**\n`{e}`")
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/post_handler.py:374:9
+    |
+372 |           try:
+373 |               await response.delete()
+374 | /         except Exception:
+375 | |             pass
+    | |________________^
+376 |               
+377 |       except asyncio.TimeoutError:
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/post_handler.py:374:16
+    |
+372 |         try:
+373 |             await response.delete()
+374 |         except Exception:
+    |                ^^^^^^^^^
+375 |             pass
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/post_handler.py:395:13
+    |
+393 |               try:
+394 |                   await client.delete_messages(message.chat.id, post_sessions[user_id]["last_preview_message_id"])
+395 | /             except Exception:
+396 | |                 pass
+    | |____________________^
+397 |
+398 |           post_sessions[user_id] = {
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/post_handler.py:395:20
+    |
+393 |             try:
+394 |                 await client.delete_messages(message.chat.id, post_sessions[user_id]["last_preview_message_id"])
+395 |             except Exception:
+    |                    ^^^^^^^^^
+396 |                 pass
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/post_handler.py:424:12
+    |
+423 |         await update_post_preview(client, user_id, message.chat.id, force_resend=True)
+424 |     except Exception as e:
+    |            ^^^^^^^^^
+425 |         await message.reply_text(f"❌ **SESSION ERROR:**\n`{e}`")
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/post_handler.py:502:13
+    |
+500 |   …         try:
+501 |   …             await client.delete_messages(chat_id, session["last_preview_message_id"])
+502 | / …         except Exception:
+503 | | …             pass
+    | |__________________^
+504 |   …     try:
+505 |   …         status_msg = await client.send_message(chat_id, "<i>Generating preview...</i>", reply_to_message_id=session["original_mes…
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/post_handler.py:502:20
+    |
+500 |             try:
+501 |                 await client.delete_messages(chat_id, session["last_preview_message_id"])
+502 |             except Exception:
+    |                    ^^^^^^^^^
+503 |                 pass
+504 |         try:
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/post_handler.py:507:16
+    |
+505 | …         status_msg = await client.send_message(chat_id, "<i>Generating preview...</i>", reply_to_message_id=session["original_messa…
+506 | …         session["last_preview_message_id"] = status_msg.id
+507 | …     except Exception:
+    |              ^^^^^^^^^
+508 | …         try:
+509 | …             status_msg = await client.send_message(chat_id, "<i>Generating preview...</i>")
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/post_handler.py:511:20
+    |
+509 |                 status_msg = await client.send_message(chat_id, "<i>Generating preview...</i>")
+510 |                 session["last_preview_message_id"] = status_msg.id
+511 |             except Exception:
+    |                    ^^^^^^^^^
+512 |                 return
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/post_handler.py:516:12
+    |
+514 |     try:
+515 |         final_caption, keyboard, poster_to_use = await _build_final_post_content(session, session_id)
+516 |     except Exception as e:
+    |            ^^^^^^^^^
+517 |         try:
+518 |             await client.send_message(chat_id, f"❌ **BUILD CONTENT ERROR:**\n`{e}`")
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/post_handler.py:519:9
+    |
+517 |           try:
+518 |               await client.send_message(chat_id, f"❌ **BUILD CONTENT ERROR:**\n`{e}`")
+519 | /         except Exception:
+520 | |             pass
+    | |________________^
+521 |           return
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/post_handler.py:519:16
+    |
+517 |         try:
+518 |             await client.send_message(chat_id, f"❌ **BUILD CONTENT ERROR:**\n`{e}`")
+519 |         except Exception:
+    |                ^^^^^^^^^
+520 |             pass
+521 |         return
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/post_handler.py:542:17
+    |
+540 |                   try:
+541 |                       await client.delete_messages(chat_id, old_msg_id)
+542 | /                 except Exception:
+543 | |                     pass
+    | |________________________^
+544 |           else:
+545 |               await client.edit_message_text(
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/post_handler.py:542:24
+    |
+540 |                 try:
+541 |                     await client.delete_messages(chat_id, old_msg_id)
+542 |                 except Exception:
+    |                        ^^^^^^^^^
+543 |                     pass
+544 |         else:
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/post_handler.py:552:12
+    |
+550 |                 disable_web_page_preview=False,
+551 |             )
+552 |     except Exception as e:
+    |            ^^^^^^^^^
+553 |         try:
+554 |             await client.send_message(chat_id, f"❌ **PREVIEW SEND ERROR:**\n`{e}`")
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/post_handler.py:555:9
+    |
+553 |           try:
+554 |               await client.send_message(chat_id, f"❌ **PREVIEW SEND ERROR:**\n`{e}`")
+555 | /         except Exception:
+556 | |             pass
+    | |________________^
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/post_handler.py:555:16
+    |
+553 |         try:
+554 |             await client.send_message(chat_id, f"❌ **PREVIEW SEND ERROR:**\n`{e}`")
+555 |         except Exception:
+    |                ^^^^^^^^^
+556 |             pass
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/post_handler.py:616:20
+    |
+614 |             try:
+615 |                 return await query.message.delete()
+616 |             except Exception:
+    |                    ^^^^^^^^^
+617 |                 return
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/post_handler.py:703:12
+    |
+702 |         await update_post_preview(client, session_id, query.message.chat.id, force_resend)
+703 |     except Exception as e:
+    |            ^^^^^^^^^
+704 |         await query.message.reply_text(f"❌ **CALLBACK ERROR:**\n`{e}`")
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/post_handler.py:735:12
+    |
+733 |     try:
+734 |         ask_msg = await query.message.reply_text(prompt_text, reply_to_message_id=session.get("original_message_id"))
+735 |     except Exception:
+    |            ^^^^^^^^^
+736 |         ask_msg = await query.message.reply_text(prompt_text)
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/post_handler.py:742:9
+    |
+740 |           try:
+741 |               await ask_msg.delete()
+742 | /         except Exception:
+743 | |             pass
+    | |________________^
+744 |           if response:
+745 |               try:
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/post_handler.py:742:16
+    |
+740 |         try:
+741 |             await ask_msg.delete()
+742 |         except Exception:
+    |                ^^^^^^^^^
+743 |             pass
+744 |         if response:
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/post_handler.py:747:13
+    |
+745 |               try:
+746 |                   await response.delete()
+747 | /             except Exception:
+748 | |                 pass
+    | |____________________^
+749 |               return response
+750 |       except asyncio.TimeoutError:
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/post_handler.py:747:20
+    |
+745 |             try:
+746 |                 await response.delete()
+747 |             except Exception:
+    |                    ^^^^^^^^^
+748 |                 pass
+749 |             return response
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/post_handler.py:755:9
+    |
+753 |               await asyncio.sleep(3)
+754 |               await ask_msg.delete()
+755 | /         except Exception:
+756 | |             pass
+    | |________________^
+757 |       return None
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/post_handler.py:755:16
+    |
+753 |             await asyncio.sleep(3)
+754 |             await ask_msg.delete()
+755 |         except Exception:
+    |                ^^^^^^^^^
+756 |             pass
+757 |     return None
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/post_handler.py:845:13
+    |
+843 |             try:
+844 |                 await query.message.edit_text("⏳ Uploading image for preview...")
+845 |             except Exception: pass
+    |             ^^^^^^^^^^^^^^^^^^^^^^
+846 |             
+847 |             url, err = await upload_image_safely(client, response)
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/post_handler.py:845:20
+    |
+843 |             try:
+844 |                 await query.message.edit_text("⏳ Uploading image for preview...")
+845 |             except Exception: pass
+    |                    ^^^^^^^^^
+846 |             
+847 |             url, err = await upload_image_safely(client, response)
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/post_handler.py:852:17
+    |
+850 |                 try:
+851 |                     await query.answer("Image set as rich preview!", show_alert=True)
+852 |                 except Exception: pass
+    |                 ^^^^^^^^^^^^^^^^^^^^^^
+853 |             else:
+854 |                 try:
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/post_handler.py:852:24
+    |
+850 |                 try:
+851 |                     await query.answer("Image set as rich preview!", show_alert=True)
+852 |                 except Exception: pass
+    |                        ^^^^^^^^^
+853 |             else:
+854 |                 try:
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/post_handler.py:856:17
+    |
+854 |                 try:
+855 |                     await query.message.edit_text(err)
+856 |                 except Exception: pass
+    |                 ^^^^^^^^^^^^^^^^^^^^^^
+857 |                 
+858 |         elif response.text and response.text.startswith("http"):
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/post_handler.py:856:24
+    |
+854 |                 try:
+855 |                     await query.message.edit_text(err)
+856 |                 except Exception: pass
+    |                        ^^^^^^^^^
+857 |                 
+858 |         elif response.text and response.text.startswith("http"):
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/post_handler.py:883:13
+    |
+881 |         elif "{langs}" not in response.text:
+882 |             try: await query.message.reply_text("⚠️ Invalid format! The format must contain `{langs}` placeholder.", quote=True)
+883 |             except Exception: pass
+    |             ^^^^^^^^^^^^^^^^^^^^^^
+884 |         else: session["lang_format"] = response.text
+885 |     await update_post_preview(client, session_id, query.message.chat.id, force_resend=False)
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/post_handler.py:883:20
+    |
+881 |         elif "{langs}" not in response.text:
+882 |             try: await query.message.reply_text("⚠️ Invalid format! The format must contain `{langs}` placeholder.", quote=True)
+883 |             except Exception: pass
+    |                    ^^^^^^^^^
+884 |         else: session["lang_format"] = response.text
+885 |     await update_post_preview(client, session_id, query.message.chat.id, force_resend=False)
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/post_handler.py:895:13
+    |
+893 |         elif "{resolutions}" not in response.text:
+894 |             try: await query.message.reply_text("⚠️ Invalid format! The format must contain `{resolutions}` placeholder.", quote=True)
+895 |             except Exception: pass
+    |             ^^^^^^^^^^^^^^^^^^^^^^
+896 |         else: session["res_format"] = response.text
+897 |     await update_post_preview(client, session_id, query.message.chat.id, force_resend=False)
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/post_handler.py:895:20
+    |
+893 |         elif "{resolutions}" not in response.text:
+894 |             try: await query.message.reply_text("⚠️ Invalid format! The format must contain `{resolutions}` placeholder.", quote=True)
+895 |             except Exception: pass
+    |                    ^^^^^^^^^
+896 |         else: session["res_format"] = response.text
+897 |     await update_post_preview(client, session_id, query.message.chat.id, force_resend=False)
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/post_handler.py:907:13
+    |
+905 |         elif "{genres}" not in response.text:
+906 |             try: await query.message.reply_text("⚠️ Invalid format! The format must contain `{genres}` placeholder.", quote=True)
+907 |             except Exception: pass
+    |             ^^^^^^^^^^^^^^^^^^^^^^
+908 |         else: session["gen_format"] = response.text
+909 |     await update_post_preview(client, session_id, query.message.chat.id, force_resend=False)
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/post_handler.py:907:20
+    |
+905 |         elif "{genres}" not in response.text:
+906 |             try: await query.message.reply_text("⚠️ Invalid format! The format must contain `{genres}` placeholder.", quote=True)
+907 |             except Exception: pass
+    |                    ^^^^^^^^^
+908 |         else: session["gen_format"] = response.text
+909 |     await update_post_preview(client, session_id, query.message.chat.id, force_resend=False)
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/post_handler.py:919:13
+    |
+917 |         elif "{otts}" not in response.text:
+918 |             try: await query.message.reply_text("⚠️ Invalid format! The format must contain `{otts}` placeholder.", quote=True)
+919 |             except Exception: pass
+    |             ^^^^^^^^^^^^^^^^^^^^^^
+920 |         else: session["ott_format"] = response.text
+921 |     await update_post_preview(client, session_id, query.message.chat.id, force_resend=False)
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/post_handler.py:919:20
+    |
+917 |         elif "{otts}" not in response.text:
+918 |             try: await query.message.reply_text("⚠️ Invalid format! The format must contain `{otts}` placeholder.", quote=True)
+919 |             except Exception: pass
+    |                    ^^^^^^^^^
+920 |         else: session["ott_format"] = response.text
+921 |     await update_post_preview(client, session_id, query.message.chat.id, force_resend=False)
+    |
+
+SIM102 Use a single `if` statement instead of nested `if` statements
+   --> plugins/post_handler.py:962:5
+    |
+961 |   async def handle_cancel(client: Client, query: CallbackQuery, session_id: int, _=None):
+962 | /     if session := post_sessions.pop(session_id, None):
+963 | |         if session.get("last_preview_message_id"):
+    | |__________________________________________________^
+964 |               try: await client.delete_messages(query.message.chat.id, session["last_preview_message_id"])
+965 |               except Exception: pass
+    |
+help: Combine `if` statements using `and`
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/post_handler.py:965:13
+    |
+963 |         if session.get("last_preview_message_id"):
+964 |             try: await client.delete_messages(query.message.chat.id, session["last_preview_message_id"])
+965 |             except Exception: pass
+    |             ^^^^^^^^^^^^^^^^^^^^^^
+966 |     try: await query.message.reply_to_message.reply_text("Post creation cancelled.")
+967 |     except Exception: pass
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/post_handler.py:965:20
+    |
+963 |         if session.get("last_preview_message_id"):
+964 |             try: await client.delete_messages(query.message.chat.id, session["last_preview_message_id"])
+965 |             except Exception: pass
+    |                    ^^^^^^^^^
+966 |     try: await query.message.reply_to_message.reply_text("Post creation cancelled.")
+967 |     except Exception: pass
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/post_handler.py:967:5
+    |
+965 |             except Exception: pass
+966 |     try: await query.message.reply_to_message.reply_text("Post creation cancelled.")
+967 |     except Exception: pass
+    |     ^^^^^^^^^^^^^^^^^^^^^^
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/post_handler.py:967:12
+    |
+965 |             except Exception: pass
+966 |     try: await query.message.reply_to_message.reply_text("Post creation cancelled.")
+967 |     except Exception: pass
+    |            ^^^^^^^^^
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/post_handler.py:982:5
+    |
+981 |     try: await client.delete_messages(query.message.chat.id, session["last_preview_message_id"])
+982 |     except Exception: pass
+    |     ^^^^^^^^^^^^^^^^^^^^^^
+983 |
+984 |     try: status_msg = await query.message.reply_to_message.reply_text("<i>Finalizing and posting...</i>")
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/post_handler.py:982:12
+    |
+981 |     try: await client.delete_messages(query.message.chat.id, session["last_preview_message_id"])
+982 |     except Exception: pass
+    |            ^^^^^^^^^
+983 |
+984 |     try: status_msg = await query.message.reply_to_message.reply_text("<i>Finalizing and posting...</i>")
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/post_handler.py:985:12
+    |
+984 |     try: status_msg = await query.message.reply_to_message.reply_text("<i>Finalizing and posting...</i>")
+985 |     except Exception: status_msg = None
+    |            ^^^^^^^^^
+986 |
+987 |     final_caption, _, poster_to_use = await _build_final_post_content(session, session_id)
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/post_handler.py:993:13
+    |
+991 |         if status_msg:
+992 |             try: await status_msg.edit("Could not fetch movie details to post. Aborting.")
+993 |             except Exception: pass
+    |             ^^^^^^^^^^^^^^^^^^^^^^
+994 |         return
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/post_handler.py:993:20
+    |
+991 |         if status_msg:
+992 |             try: await status_msg.edit("Could not fetch movie details to post. Aborting.")
+993 |             except Exception: pass
+    |                    ^^^^^^^^^
+994 |         return
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+    --> plugins/post_handler.py:999:13
+     |
+ 997 |         if status_msg:
+ 998 |             try: await status_msg.edit("❌ **MOVIE_UPDATE_CHANNEL is not set in config!**")
+ 999 |             except Exception: pass
+     |             ^^^^^^^^^^^^^^^^^^^^^^
+1000 |         return
+     |
+
+BLE001 Do not catch blind exception: `Exception`
+    --> plugins/post_handler.py:999:20
+     |
+ 997 |         if status_msg:
+ 998 |             try: await status_msg.edit("❌ **MOVIE_UPDATE_CHANNEL is not set in config!**")
+ 999 |             except Exception: pass
+     |                    ^^^^^^^^^
+1000 |         return
+     |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+    --> plugins/post_handler.py:1014:13
+     |
+1012 |         if status_msg:
+1013 |             try: await status_msg.edit("✅ Post has been sent to the update channel.")
+1014 |             except Exception: pass
+     |             ^^^^^^^^^^^^^^^^^^^^^^
+1015 |             
+1016 |     except ButtonUrlInvalid:
+     |
+
+BLE001 Do not catch blind exception: `Exception`
+    --> plugins/post_handler.py:1014:20
+     |
+1012 |         if status_msg:
+1013 |             try: await status_msg.edit("✅ Post has been sent to the update channel.")
+1014 |             except Exception: pass
+     |                    ^^^^^^^^^
+1015 |             
+1016 |     except ButtonUrlInvalid:
+     |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+    --> plugins/post_handler.py:1019:13
+     |
+1017 |         if status_msg:
+1018 |             try: await status_msg.edit("❌ **Post Failed:** One of the button URLs is invalid. Ensure all URLs start with `http://` …
+1019 |             except Exception: pass
+     |             ^^^^^^^^^^^^^^^^^^^^^^
+1020 |     except MessageTooLong:
+1021 |         if status_msg:
+     |
+
+BLE001 Do not catch blind exception: `Exception`
+    --> plugins/post_handler.py:1019:20
+     |
+1017 |         if status_msg:
+1018 |             try: await status_msg.edit("❌ **Post Failed:** One of the button URLs is invalid. Ensure all URLs start with `http://` …
+1019 |             except Exception: pass
+     |                    ^^^^^^^^^
+1020 |     except MessageTooLong:
+1021 |         if status_msg:
+     |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+    --> plugins/post_handler.py:1023:13
+     |
+1021 |         if status_msg:
+1022 |             try: await status_msg.edit("<b>Post Failed</b>\n\nThe final caption is too long for a Telegram message. Please shorten t…
+1023 |             except Exception: pass
+     |             ^^^^^^^^^^^^^^^^^^^^^^
+1024 |     except Exception as e:
+1025 |         if status_msg:
+     |
+
+BLE001 Do not catch blind exception: `Exception`
+    --> plugins/post_handler.py:1023:20
+     |
+1021 |         if status_msg:
+1022 |             try: await status_msg.edit("<b>Post Failed</b>\n\nThe final caption is too long for a Telegram message. Please shorten t…
+1023 |             except Exception: pass
+     |                    ^^^^^^^^^
+1024 |     except Exception as e:
+1025 |         if status_msg:
+     |
+
+BLE001 Do not catch blind exception: `Exception`
+    --> plugins/post_handler.py:1024:12
+     |
+1022 |             try: await status_msg.edit("<b>Post Failed</b>\n\nThe final caption is too long for a Telegram message. Please shorten t…
+1023 |             except Exception: pass
+1024 |     except Exception as e:
+     |            ^^^^^^^^^
+1025 |         if status_msg:
+1026 |             try: await status_msg.edit(f"Failed to post to update channel.\n<b>Error:</b> <code>{e}</code>")
+     |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+    --> plugins/post_handler.py:1027:13
+     |
+1025 |         if status_msg:
+1026 |             try: await status_msg.edit(f"Failed to post to update channel.\n<b>Error:</b> <code>{e}</code>")
+1027 |             except Exception: pass
+     |             ^^^^^^^^^^^^^^^^^^^^^^
+
+BLE001 Do not catch blind exception: `Exception`
+    --> plugins/post_handler.py:1027:20
+     |
+1025 |         if status_msg:
+1026 |             try: await status_msg.edit(f"Failed to post to update channel.\n<b>Error:</b> <code>{e}</code>")
+1027 |             except Exception: pass
+     |                    ^^^^^^^^^
+
+BLE001 Do not catch blind exception: `Exception`
+  --> plugins/search_interceptor.py:28:16
+   |
+26 |             await auto_filter(client, message)
+27 |
+28 |         except Exception as e:
+   |                ^^^^^^^^^
+29 |             logger.error(f"Failed to intercept search: {e}")
+30 |             # Fallback if the auto_filter function fails to import
+   |
+
+BLE001 Do not catch blind exception: `Exception`
+  --> plugins/utility.py:89:12
+   |
+87 |             document=log_file, caption="📜 **Here are the latest bot logs.**"
+88 |         )
+89 |     except Exception as e:
+   |            ^^^^^^^^^
+90 |         await message.reply_text(f"❌ **Failed to send logs:**\n`{e}`")
+   |
+
+ASYNC230 Async functions should not open files with blocking methods like `open`
+   --> plugins/utility.py:126:10
+    |
+124 |     await query.answer("♻️ Restarting...", show_alert=True)
+125 |     msg = await query.edit_message_text("♻️ **Bot is restarting... Please wait.**")
+126 |     with open("restart.txt", "w") as f:
+    |          ^^^^
+127 |         f.write(f"{msg.chat.id}\n{msg.id}")
+128 |     await asyncio.sleep(2)
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/utility.py:177:20
+    |
+175 |                 await asyncio.sleep(e.value)
+176 |                 return "active"
+177 |             except Exception:
+    |                    ^^^^^^^^^
+178 |                 return "active"
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> plugins/utility.py:188:13
+    |
+186 |                       f"⏳ **Cleaning:** `{i + len(chunk)}/{len(users)}`"
+187 |                   )
+188 | /             except Exception:
+189 | |                 pass
+    | |____________________^
+190 |           await asyncio.sleep(1.5)
+191 |       await status_msg.edit_text(
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> plugins/utility.py:188:20
+    |
+186 |                     f"⏳ **Cleaning:** `{i + len(chunk)}/{len(users)}`"
+187 |                 )
+188 |             except Exception:
+    |                    ^^^^^^^^^
+189 |                 pass
+190 |         await asyncio.sleep(1.5)
+    |
+
+F401 [*] `datetime.datetime` imported but unused
+ --> utils.py:6:22
+  |
+4 | import re
+5 | import urllib.parse
+6 | from datetime import datetime
+  |                      ^^^^^^^^
+7 | from typing import List, Union
+  |
+help: Remove unused import: `datetime.datetime`
+  |
+5 | import urllib.parse
+  - from datetime import datetime
+6 | from typing import List, Union
+  |
+
+UP035 `typing.List` is deprecated, use `list` instead
+ --> utils.py:7:1
+  |
+5 | import urllib.parse
+6 | from datetime import datetime
+7 | from typing import List, Union
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+8 |
+9 | import aiohttp
+  |
+
+F401 [*] `typing.List` imported but unused
+ --> utils.py:7:20
+  |
+5 | import urllib.parse
+6 | from datetime import datetime
+7 | from typing import List, Union
+  |                    ^^^^
+8 |
+9 | import aiohttp
+  |
+help: Remove unused import
+  |
+6 | from datetime import datetime
+  - from typing import List, Union
+7 |
+  |
+
+F401 [*] `typing.Union` imported but unused
+ --> utils.py:7:26
+  |
+5 | import urllib.parse
+6 | from datetime import datetime
+7 | from typing import List, Union
+  |                          ^^^^^
+8 |
+9 | import aiohttp
+  |
+help: Remove unused import
+  |
+6 | from datetime import datetime
+  - from typing import List, Union
+7 |
+  |
+
+UP004 [*] Class `temp` inherits from `object`
+  --> utils.py:45:12
+   |
+45 | class temp(object):
+   |            ^^^^^^
+46 |     BANNED_USERS = []
+47 |     BANNED_CHATS = []
+   |
+help: Remove `object` inheritance
+   |
+44 |
+   - class temp(object):
+45 + class temp:
+46 |     BANNED_USERS = []
+   |
+
+RUF012 Mutable default value for class attribute
+  --> utils.py:46:20
+   |
+45 | class temp(object):
+46 |     BANNED_USERS = []
+   |                    ^^
+47 |     BANNED_CHATS = []
+48 |     ME = None
+   |
+help: Consider initializing in `__init__` or annotating with `typing.ClassVar`
+
+RUF012 Mutable default value for class attribute
+  --> utils.py:47:20
+   |
+45 | class temp(object):
+46 |     BANNED_USERS = []
+47 |     BANNED_CHATS = []
+   |                    ^^
+48 |     ME = None
+49 |     CURRENT = int(os.environ.get("SKIP", 2))
+   |
+help: Consider initializing in `__init__` or annotating with `typing.ClassVar`
+
+PLW1508 Invalid type for environment variable default; expected `str` or `None`
+  --> utils.py:49:42
+   |
+47 |     BANNED_CHATS = []
+48 |     ME = None
+49 |     CURRENT = int(os.environ.get("SKIP", 2))
+   |                                          ^
+50 |     CANCEL = False
+51 |     MELCOW = {}
+   |
+
+RUF012 Mutable default value for class attribute
+  --> utils.py:51:14
+   |
+49 |     CURRENT = int(os.environ.get("SKIP", 2))
+50 |     CANCEL = False
+51 |     MELCOW = {}
+   |              ^^
+52 |     U_NAME = None
+53 |     B_NAME = None
+   |
+help: Consider initializing in `__init__` or annotating with `typing.ClassVar`
+
+RUF012 Mutable default value for class attribute
+  --> utils.py:54:16
+   |
+52 |     U_NAME = None
+53 |     B_NAME = None
+54 |     SETTINGS = {}
+   |                ^^
+help: Consider initializing in `__init__` or annotating with `typing.ClassVar`
+
+TRY401 Redundant exception object included in `logging.exception` call
+   --> utils.py:150:49
+    |
+148 |         return False
+149 |     except Exception as e:
+150 |         logger.exception(f"Subscription Error: {e}")
+    |                                                 ^
+151 |         return False
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> utils.py:329:16
+    |
+327 |                     return await get_poster(top_id, id=True)
+328 |
+329 |         except Exception as e:
+    |                ^^^^^^^^^
+330 |             logger.error(f"TMDB Fetch Error: {e}")
+331 |             return None
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> utils.py:349:12
+    |
+347 |         await db.delete_user(int(user_id))
+348 |         return False, "Error"
+349 |     except Exception:
+    |            ^^^^^^^^^
+350 |         return False, "Error"
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> utils.py:366:12
+    |
+364 |         soup = BeautifulSoup(response.text, "html.parser")
+365 |         return [title.getText() for title in soup.find_all("h3") if title.getText()]
+366 |     except Exception as e:
+    |            ^^^^^^^^^
+367 |         logger.error(f"Google Scrape Error: {e}")
+368 |         return []
+    |
+
+UP031 Use format specifiers instead of percent format
+   --> utils.py:397:12
+    |
+395 |         i += 1
+396 |         size /= 1024.0
+397 |     return "%.2f %s" % (size, units[i])
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: Replace with format specifiers
+
+RUF013 PEP 484 prohibits implicit `Optional`
+   --> utils.py:420:48
+    |
+420 | async def extract_user(message: Message, text: str = None):
+    |                                                ^^^
+421 |     """Async user extractor returning Pyrogram User object for /info command."""
+422 |     client = message._client
+    |
+help: Convert to `T | None`
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> utils.py:428:9
+    |
+426 |           try:
+427 |               return await client.get_users(text)
+428 | /         except Exception:
+429 | |             pass
+    | |________________^
+430 |       elif len(message.command) > 1:
+431 |           target = message.command[1]
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> utils.py:428:16
+    |
+426 |         try:
+427 |             return await client.get_users(text)
+428 |         except Exception:
+    |                ^^^^^^^^^
+429 |             pass
+430 |     elif len(message.command) > 1:
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> utils.py:434:9
+    |
+432 |           try:
+433 |               return await client.get_users(target)
+434 | /         except Exception:
+435 | |             pass
+    | |________________^
+436 |       return message.from_user
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> utils.py:434:16
+    |
+432 |         try:
+433 |             return await client.get_users(target)
+434 |         except Exception:
+    |                ^^^^^^^^^
+435 |             pass
+436 |     return message.from_user
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> utils.py:508:12
+    |
+506 |         note_data += text[prev:]
+507 |         return note_data, buttons, alerts if alerts else None
+508 |     except Exception as e:
+    |            ^^^^^^^^^
+509 |         logger.error(f"Parser Error: {e}")
+510 |         return note_data, buttons, None
+    |
+
+Found 428 errors.
+[*] 51 fixable with the `--fix` option (45 hidden fixes can be enabled with the `--unsafe-fixes` option).
