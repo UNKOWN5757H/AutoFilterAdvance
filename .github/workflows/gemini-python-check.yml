@@ -1,166 +1,850 @@
-name: Gemini Python Error Check
+name: Gemini Python Auto-Fix
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
+      - master
+      - TECH_VJ
   pull_request:
     branches:
       - main
-  workflow_dispatch:
+      - master
+      - TECH_VJ
 
 permissions:
-  contents: read
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: gemini-autofix-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  python-check:
-    name: Python Syntax & Runtime Analysis
+  gemini-autofix:
+    name: Gemini Python Auto-Fix
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    env:
+      PYTHON_VERSION: "3.11"
+      GEMINI_MODEL: "gemini-3.6-flash"
+      FIX_BRANCH: "gemini-fixes"
 
     steps:
+
+      # ==========================================================
+      # Checkout
+      # ==========================================================
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
+      # ==========================================================
+      # Python
+      # ==========================================================
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
 
-      - name: Install basic tools
+      # ==========================================================
+      # Install dependencies
+      # ==========================================================
+      - name: Install project dependencies
+        shell: bash
         run: |
-          python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then
-            pip install -r requirements.txt
+          set -euo pipefail
+
+          python -m pip install --upgrade pip setuptools wheel
+
+          if [[ -f requirements.txt ]]; then
+            python -m pip install -r requirements.txt
           fi
 
-      - name: Check Python syntax
+          if [[ -f requirements-dev.txt ]]; then
+            python -m pip install -r requirements-dev.txt
+          fi
+
+      # ==========================================================
+      # Install analysis/fix tools
+      # ==========================================================
+      - name: Install analysis tools
         run: |
-          set +e
+          python -m pip install \
+            "ruff>=0.12,<1" \
+            "pytest>=8,<9" \
+            "google-genai>=1.30"
+
+      # ==========================================================
+      # Create reports directory
+      # ==========================================================
+      - name: Prepare reports
+        run: |
           mkdir -p reports
 
-          python_files=$(find . \
+      # ==========================================================
+      # Discover Python files
+      # ==========================================================
+      - name: Discover Python files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          find . \
             -type f \
             -name "*.py" \
             -not -path "./.git/*" \
             -not -path "./venv/*" \
-            -not -path "./.venv/*")
+            -not -path "./.venv/*" \
+            -not -path "./env/*" \
+            -not -path "*/__pycache__/*" \
+            | sort > reports/python-files.txt
+
+          echo "Python files:"
+          cat reports/python-files.txt
+
+          count=$(wc -l < reports/python-files.txt)
+
+          if [[ "$count" -eq 0 ]]; then
+            echo "::error::No Python files found."
+            exit 1
+          fi
+
+          echo "Found $count Python files."
+
+      # ==========================================================
+      # Baseline syntax check
+      # ==========================================================
+      - name: Run baseline Python syntax check
+        shell: bash
+        run: |
+          set +e
 
           failed=0
 
-          for file in $python_files; do
+          while IFS= read -r file; do
             echo "Checking $file"
 
             if ! python -m py_compile "$file"; then
               failed=1
             fi
-          done
+          done < reports/python-files.txt
 
-          if [ "$failed" -ne 0 ]; then
-            echo "Python syntax errors were found."
+          echo "$failed" > reports/baseline-syntax-status.txt
+
+          if [[ "$failed" -ne 0 ]]; then
+            echo "Baseline syntax errors detected."
+          else
+            echo "Baseline syntax check passed."
+          fi
+
+          # Don't stop yet.
+          exit 0
+
+      # ==========================================================
+      # Baseline Ruff
+      # ==========================================================
+      - name: Run baseline Ruff
+        shell: bash
+        run: |
+          set +e
+
+          ruff check . \
+            --exclude .git \
+            --exclude venv \
+            --exclude .venv \
+            --exclude env \
+            --output-format=full \
+            2>&1 | tee reports/baseline-ruff.txt
+
+          echo "${PIPESTATUS[0]}" > reports/baseline-ruff-status.txt
+
+          exit 0
+
+      # ==========================================================
+      # Gemini analysis + fix generation
+      # ==========================================================
+      - name: Generate fixes with Gemini
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ env.GEMINI_MODEL }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${GEMINI_API_KEY:-}" ]]; then
+            echo "::error::GEMINI_API_KEY repository secret is missing."
             exit 1
           fi
 
-          echo "All Python files passed syntax checking."
-
-      - name: Install Gemini SDK
-        run: |
-          pip install google-genai
-
-      - name: Run Gemini code analysis
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: |
           python <<'PY'
+          import asyncio
+          import json
           import os
+          import re
+          import time
           from pathlib import Path
+
           from google import genai
+          from google.genai import errors
 
-          api_key = os.environ.get("GEMINI_API_KEY")
+          MODEL = os.environ.get(
+              "GEMINI_MODEL",
+              "gemini-3.6-flash",
+          )
 
-          if not api_key:
-              raise RuntimeError("GEMINI_API_KEY GitHub secret is missing.")
+          API_KEY = os.environ["GEMINI_API_KEY"]
 
-          client = genai.Client(api_key=api_key)
+          client = genai.Client(api_key=API_KEY)
 
-          files = []
+          root = Path(".").resolve()
+          reports = root / "reports"
+          fixes_dir = root / ".gemini-fixes"
 
-          for path in Path(".").rglob("*.py"):
-              if any(part in {".git", "venv", ".venv", "__pycache__"} for part in path.parts):
+          fixes_dir.mkdir(exist_ok=True)
+
+          excluded = {
+              ".git",
+              "venv",
+              ".venv",
+              "env",
+              "__pycache__",
+              ".gemini-fixes",
+          }
+
+          python_files = []
+
+          for path in sorted(root.rglob("*.py")):
+              if any(part in excluded for part in path.parts):
                   continue
 
               try:
-                  content = path.read_text(encoding="utf-8")
+                  source = path.read_text(encoding="utf-8")
               except UnicodeDecodeError:
                   continue
 
-              files.append(
-                  f"\n\n===== FILE: {path} =====\n{content}"
+              python_files.append(
+                  {
+                      "path": str(path.relative_to(root)),
+                      "content": source,
+                  }
               )
 
-          if not files:
-              raise RuntimeError("No Python files found.")
-
-          source = "".join(files)
-
-          prompt = f"""
-          You are an expert Python code reviewer.
-
-          Analyze the following GitHub repository Python source code.
-
-          Find REAL and likely problems, especially:
-
-          1. Syntax errors
-          2. Runtime errors
-          3. NameError / undefined variables
-          4. ImportError / ModuleNotFoundError
-          5. AttributeError
-          6. Type errors
-          7. Incorrect function calls
-          8. Missing dependencies
-          9. Async/await problems
-          10. File/path problems
-          11. Environment-variable/configuration problems
-          12. Database/API errors
-          13. Logic errors that are very likely to cause runtime failures
-
-          For every important problem give:
-
-          - File
-          - Line number if possible
-          - Severity
-          - Error/problem
-          - Why it happens
-          - Recommended fix
-
-          Do NOT invent errors.
-          Clearly distinguish confirmed problems from possible problems.
-
-          Repository source:
-
-          {source}
-          """
-
-          response = client.models.generate_content(
-              model="gemini-3.6-flash",
-              contents=prompt,
+          baseline_ruff = (
+              reports / "baseline-ruff.txt"
+          ).read_text(
+              encoding="utf-8",
+              errors="replace",
           )
 
-          Path("reports").mkdir(exist_ok=True)
+          system_instruction = """
+          You are an expert Python maintainer.
 
-          report = response.text or "Gemini returned no analysis."
+          Your job is to make MINIMAL, SAFE fixes.
 
-          Path("reports/gemini-python-report.md").write_text(
-              "# Gemini Python Error Analysis\n\n" + report,
+          Rules:
+
+          1. Fix only real or highly probable problems.
+          2. Never invent an error.
+          3. Preserve existing application behavior.
+          4. Do not rewrite working code unnecessarily.
+          5. Do not remove features.
+          6. Do not replace dependencies unless absolutely necessary.
+          7. Never add secrets, API keys, passwords, tokens, or credentials.
+          8. Never hard-code environment-specific credentials.
+          9. Preserve async architecture.
+          10. Preserve Pyrogram/API behavior unless the existing call is clearly wrong.
+          11. Fix syntax errors first.
+          12. Fix undefined names and imports next.
+          13. Fix obvious runtime errors next.
+          14. Fix incorrect function calls and async/await issues.
+          15. Fix configuration/environment handling when clearly incorrect.
+          16. Keep changes as small as possible.
+
+          You MUST return JSON only.
+
+          JSON format:
+
+          {
+            "should_change": true,
+            "summary": "short summary",
+            "files": [
+              {
+                "path": "relative/path.py",
+                "reason": "why this file needs modification",
+                "content": "COMPLETE corrected file contents"
+              }
+            ]
+          }
+
+          Important:
+
+          The "content" field MUST contain the COMPLETE file,
+          not a partial diff.
+
+          If no safe fix is necessary:
+
+          {
+            "should_change": false,
+            "summary": "No safe fixes found",
+            "files": []
+          }
+          """
+
+          def ask_gemini(prompt):
+              last_error = None
+
+              for attempt in range(6):
+                  try:
+                      chat = client.chats.create(
+                          model=MODEL,
+                          config={
+                              "system_instruction":
+                                  system_instruction,
+                              "temperature": 0.1,
+                          },
+                      )
+
+                      response = chat.send_message(prompt)
+
+                      text = getattr(response, "text", None)
+
+                      if not text:
+                          raise RuntimeError(
+                              "Gemini returned an empty response."
+                          )
+
+                      return text
+
+                  except errors.APIError as exc:
+                      last_error = exc
+
+                      status = getattr(exc, "code", None)
+
+                      if status not in {
+                          429,
+                          500,
+                          502,
+                          503,
+                          504,
+                      }:
+                          raise
+
+                      if attempt == 5:
+                          break
+
+                      delay = min(
+                          60,
+                          2 ** attempt,
+                      )
+
+                      print(
+                          f"Gemini API error {status}. "
+                          f"Retrying in {delay}s..."
+                      )
+
+                      time.sleep(delay)
+
+                  except errors.ServerError as exc:
+                      last_error = exc
+
+                      if attempt == 5:
+                          break
+
+                      delay = min(
+                          60,
+                          2 ** attempt,
+                      )
+
+                      print(
+                          f"Gemini server error. "
+                          f"Retrying in {delay}s..."
+                      )
+
+                      time.sleep(delay)
+
+              raise RuntimeError(
+                  f"Gemini failed after retries: {last_error}"
+              )
+
+          def extract_json(text):
+              text = text.strip()
+
+              if text.startswith("```"):
+                  text = re.sub(
+                      r"^```(?:json)?\s*",
+                      "",
+                      text,
+                  )
+                  text = re.sub(
+                      r"\s*```$",
+                      "",
+                      text,
+                  )
+
+              return json.loads(text)
+
+          async def analyze_file(file_info):
+              prompt = f"""
+          Analyze this Python file and produce safe fixes.
+
+          FILE:
+          {file_info["path"]}
+
+          SOURCE:
+
+          ```python
+          {file_info["content"]}
+          ```
+
+          Existing Ruff findings:
+
+          {baseline_ruff[:30000]}
+
+          Return JSON exactly according to the required format.
+          """
+
+              text = await asyncio.to_thread(
+                  ask_gemini,
+                  prompt,
+              )
+
+              return extract_json(text)
+
+          async def main():
+              changed = []
+
+              for index, file_info in enumerate(
+                  python_files,
+                  start=1,
+              ):
+                  print(
+                      f"[{index}/{len(python_files)}] "
+                      f"Analyzing {file_info['path']}"
+                  )
+
+                  try:
+                      result = await analyze_file(file_info)
+                  except Exception as exc:
+                      print(
+                          f"Gemini failed for "
+                          f"{file_info['path']}: {exc}"
+                      )
+                      continue
+
+                  if not result.get("should_change"):
+                      continue
+
+                  for item in result.get("files", []):
+                      path = Path(item["path"])
+
+                      if (
+                          path.is_absolute()
+                          or ".." in path.parts
+                          or path.suffix != ".py"
+                      ):
+                          print(
+                              f"Rejected unsafe path: {path}"
+                          )
+                          continue
+
+                      target = root / path
+
+                      if not target.exists():
+                          print(
+                              f"Rejected nonexistent file: {path}"
+                          )
+                          continue
+
+                      content = item.get("content")
+
+                      if not isinstance(content, str):
+                          print(
+                              f"Rejected invalid content: {path}"
+                          )
+                          continue
+
+                      output = fixes_dir / (
+                          path.as_posix().replace(
+                              "/",
+                              "__",
+                          )
+                      )
+
+                      output.write_text(
+                          json.dumps(
+                              {
+                                  "path": str(path),
+                                  "reason": item.get(
+                                      "reason",
+                                      "",
+                                  ),
+                                  "content": content,
+                              },
+                              ensure_ascii=False,
+                              indent=2,
+                          ),
+                          encoding="utf-8",
+                      )
+
+                      changed.append(str(path))
+
+              Path(
+                  "reports/gemini-fix-list.json"
+              ).write_text(
+                  json.dumps(
+                      sorted(set(changed)),
+                      indent=2,
+                  ),
+                  encoding="utf-8",
+              )
+
+              print(
+                  f"Gemini proposed fixes for "
+                  f"{len(set(changed))} files."
+              )
+
+          asyncio.run(main())
+          PY
+
+      # ==========================================================
+      # Apply Gemini fixes
+      # ==========================================================
+      - name: Apply Gemini fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python <<'PY'
+          import json
+          from pathlib import Path
+
+          fixes_dir = Path(".gemini-fixes")
+
+          if not fixes_dir.exists():
+              print("No fixes directory.")
+              raise SystemExit(0)
+
+          applied = []
+
+          for fix_file in sorted(fixes_dir.glob("*.json")):
+              data = json.loads(
+                  fix_file.read_text(
+                      encoding="utf-8"
+                  )
+              )
+
+              path = Path(data["path"])
+
+              if (
+                  path.is_absolute()
+                  or ".." in path.parts
+                  or path.suffix != ".py"
+              ):
+                  print(
+                      f"Skipping unsafe path: {path}"
+                  )
+                  continue
+
+              target = Path(path)
+
+              if not target.exists():
+                  print(
+                      f"Skipping nonexistent file: {path}"
+                  )
+                  continue
+
+              new_content = data["content"]
+
+              if not isinstance(new_content, str):
+                  print(
+                      f"Skipping invalid content: {path}"
+                  )
+                  continue
+
+              old_content = target.read_text(
+                  encoding="utf-8"
+              )
+
+              if old_content == new_content:
+                  print(
+                      f"No change required: {path}"
+                  )
+                  continue
+
+              target.write_text(
+                  new_content,
+                  encoding="utf-8",
+              )
+
+              applied.append(
+                  {
+                      "path": str(path),
+                      "reason": data.get(
+                          "reason",
+                          "",
+                      ),
+                  }
+              )
+
+              print(f"Fixed: {path}")
+
+          Path(
+              "reports/applied-fixes.json"
+          ).write_text(
+              json.dumps(
+                  applied,
+                  indent=2,
+              ),
               encoding="utf-8",
           )
 
-          print(report)
+          print(
+              f"Applied {len(applied)} fixes."
+          )
           PY
 
-      - name: Upload Gemini report
+      # ==========================================================
+      # Validate fixes
+      # ==========================================================
+      - name: Validate Python syntax after fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          failed=0
+
+          while IFS= read -r file; do
+            echo "Checking $file"
+
+            if ! python -m py_compile "$file"; then
+              failed=1
+            fi
+          done < reports/python-files.txt
+
+          if [[ "$failed" -ne 0 ]]; then
+            echo "::error::Gemini produced invalid Python."
+            exit 1
+          fi
+
+      # ==========================================================
+      # Ruff after fixes
+      # ==========================================================
+      - name: Run Ruff after fixes
+        shell: bash
+        run: |
+          set +e
+
+          ruff check . \
+            --exclude .git \
+            --exclude venv \
+            --exclude .venv \
+            --exclude env \
+            --output-format=full \
+            2>&1 | tee reports/final-ruff.txt
+
+          status=${PIPESTATUS[0]}
+
+          echo "Ruff exit code: $status"
+
+          exit 0
+
+      # ==========================================================
+      # Compile repository after fixes
+      # ==========================================================
+      - name: Compile repository after fixes
+        run: |
+          python -m compileall -q \
+            -x '(^|/)(\.git|venv|\.venv|env|__pycache__)(/|$)' \
+            .
+
+      # ==========================================================
+      # Run tests
+      # ==========================================================
+      - name: Run tests after fixes
+        shell: bash
+        run: |
+          set +e
+
+          if [[ -d tests ]] || find . -maxdepth 3 \
+              -type f \
+              -name "test_*.py" -o -name "*_test.py" \
+              -not -path "./.git/*" \
+              -not -path "./venv/*" \
+              -not -path "./.venv/*" \
+              | grep -q .; then
+
+            pytest -ra 2>&1 | tee reports/final-pytest.txt
+            status=${PIPESTATUS[0]}
+
+            echo "$status" \
+              > reports/final-pytest-status.txt
+          else
+            echo "No tests found." \
+              | tee reports/final-pytest.txt
+
+            echo "0" \
+              > reports/final-pytest-status.txt
+          fi
+
+          exit 0
+
+      # ==========================================================
+      # Check whether files actually changed
+      # ==========================================================
+      - name: Check Git changes
+        id: changes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git status --short
+
+          if [[ -z "$(git status --porcelain)" ]]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No changes were produced."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Changes detected."
+          fi
+
+      # ==========================================================
+      # Create gemini-fixes branch
+      # ==========================================================
+      - name: Create gemini-fixes branch
+        if: steps.changes.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git fetch origin
+
+          git checkout -B "$FIX_BRANCH" \
+            "origin/${GITHUB_BASE_REF:-${GITHUB_REF_NAME}}"
+
+      # ==========================================================
+      # Commit fixes
+      # ==========================================================
+      - name: Commit Gemini fixes
+        if: steps.changes.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git add \
+            '*.py' \
+            'reports/' \
+            ':!.gemini-fixes'
+
+          git status --short
+
+          if git diff --cached --quiet; then
+            echo "No staged changes."
+            exit 0
+          fi
+
+          git commit \
+            -m "fix: apply Gemini Python fixes"
+
+      # ==========================================================
+      # Push branch
+      # ==========================================================
+      - name: Push gemini-fixes branch
+        if: steps.changes.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git push \
+            --force-with-lease \
+            origin \
+            "HEAD:${FIX_BRANCH}"
+
+      # ==========================================================
+      # Create/update pull request
+      # ==========================================================
+      - name: Create or update pull request
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BASE="${GITHUB_BASE_REF:-${GITHUB_REF_NAME}}"
+
+          existing_pr=$(
+            gh pr list \
+              --base "$BASE" \
+              --head "$FIX_BRANCH" \
+              --state open \
+              --json number \
+              --jq '.[0].number'
+          )
+
+          BODY=$(cat <<'EOF'
+          ## Gemini Python Auto-Fix
+
+          This pull request was generated automatically by the
+          Gemini Python Auto-Fix workflow.
+
+          ### Checks performed
+
+          - Python syntax compilation
+          - Python repository compilation
+          - Ruff static analysis
+          - Pytest when tests are available
+          - Gemini Python analysis
+          - Post-fix validation
+
+          ### Safety
+
+          - Changes are isolated to the `gemini-fixes` branch.
+          - `main`/`master`/`TECH_VJ` is not modified directly.
+          - Gemini is instructed to make minimal changes.
+          - Python syntax is validated after modifications.
+
+          Please review the diff before merging.
+          EOF
+          )
+
+          if [[ -n "$existing_pr" ]]; then
+            echo "Updating existing PR #$existing_pr"
+
+            gh pr edit "$existing_pr" \
+              --title "fix: Gemini Python auto-fixes" \
+              --body "$BODY"
+
+            gh pr comment "$existing_pr" \
+              --body "Gemini Auto-Fix workflow updated this branch."
+
+          else
+            echo "Creating new pull request."
+
+            gh pr create \
+              --base "$BASE" \
+              --head "$FIX_BRANCH" \
+              --title "fix: Gemini Python auto-fixes" \
+              --body "$BODY"
+          fi
+
+      # ==========================================================
+      # Upload reports
+      # ==========================================================
+      - name: Upload reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: gemini-python-analysis
-          path: reports/gemini-python-report.md
+          name: gemini-autofix-reports-${{ github.run_number }}
+          path: reports/
           if-no-files-found: warn
+          retention-days: 30
