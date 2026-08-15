@@ -1,0 +1,166 @@
+name: Gemini Python Error Check
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python-check:
+    name: Python Syntax & Runtime Analysis
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install basic tools
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+
+      - name: Check Python syntax
+        run: |
+          set +e
+          mkdir -p reports
+
+          python_files=$(find . \
+            -type f \
+            -name "*.py" \
+            -not -path "./.git/*" \
+            -not -path "./venv/*" \
+            -not -path "./.venv/*")
+
+          failed=0
+
+          for file in $python_files; do
+            echo "Checking $file"
+
+            if ! python -m py_compile "$file"; then
+              failed=1
+            fi
+          done
+
+          if [ "$failed" -ne 0 ]; then
+            echo "Python syntax errors were found."
+            exit 1
+          fi
+
+          echo "All Python files passed syntax checking."
+
+      - name: Install Gemini SDK
+        run: |
+          pip install google-genai
+
+      - name: Run Gemini code analysis
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          python <<'PY'
+          import os
+          from pathlib import Path
+          from google import genai
+
+          api_key = os.environ.get("GEMINI_API_KEY")
+
+          if not api_key:
+              raise RuntimeError("GEMINI_API_KEY GitHub secret is missing.")
+
+          client = genai.Client(api_key=api_key)
+
+          files = []
+
+          for path in Path(".").rglob("*.py"):
+              if any(part in {".git", "venv", ".venv", "__pycache__"} for part in path.parts):
+                  continue
+
+              try:
+                  content = path.read_text(encoding="utf-8")
+              except UnicodeDecodeError:
+                  continue
+
+              files.append(
+                  f"\n\n===== FILE: {path} =====\n{content}"
+              )
+
+          if not files:
+              raise RuntimeError("No Python files found.")
+
+          source = "".join(files)
+
+          prompt = f"""
+          You are an expert Python code reviewer.
+
+          Analyze the following GitHub repository Python source code.
+
+          Find REAL and likely problems, especially:
+
+          1. Syntax errors
+          2. Runtime errors
+          3. NameError / undefined variables
+          4. ImportError / ModuleNotFoundError
+          5. AttributeError
+          6. Type errors
+          7. Incorrect function calls
+          8. Missing dependencies
+          9. Async/await problems
+          10. File/path problems
+          11. Environment-variable/configuration problems
+          12. Database/API errors
+          13. Logic errors that are very likely to cause runtime failures
+
+          For every important problem give:
+
+          - File
+          - Line number if possible
+          - Severity
+          - Error/problem
+          - Why it happens
+          - Recommended fix
+
+          Do NOT invent errors.
+          Clearly distinguish confirmed problems from possible problems.
+
+          Repository source:
+
+          {source}
+          """
+
+          response = client.models.generate_content(
+              model="gemini-3.6-flash",
+              contents=prompt,
+          )
+
+          Path("reports").mkdir(exist_ok=True)
+
+          report = response.text or "Gemini returned no analysis."
+
+          Path("reports/gemini-python-report.md").write_text(
+              "# Gemini Python Error Analysis\n\n" + report,
+              encoding="utf-8",
+          )
+
+          print(report)
+          PY
+
+      - name: Upload Gemini report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gemini-python-analysis
+          path: reports/gemini-python-report.md
+          if-no-files-found: warn
