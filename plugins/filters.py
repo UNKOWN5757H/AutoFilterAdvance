@@ -72,39 +72,63 @@ async def get_target_group(client: Client, message: Message):
 
 def build_keyboard(btn_str: str):
     """Safely converts stored string buttons back to InlineKeyboardButtons."""
-    if not btn_str or btn_str == "[]":
+    if not btn_str or btn_str == "[]" or btn_str == "None":
         return None
     try:
-        button_data = ast.literal_eval(btn_str)
-        if button_data and isinstance(button_data[0][0], dict):
-            return [[InlineKeyboardButton(**b) for b in row] for row in button_data]
-        else:
-            return button_data
-    except (ValueError, SyntaxError):
-        try:
-            return eval(btn_str)
-        except Exception:
-            return None
+        parsed_btn = ast.literal_eval(btn_str)
+        button_layout = []
+        for row in parsed_btn:
+            btn_row = []
+            for b in row:
+                if isinstance(b, dict):
+                    btn_row.append(InlineKeyboardButton(**b))
+                else:
+                    btn_row.append(b)
+            button_layout.append(btn_row)
+        return button_layout
+    except Exception as e:
+        logger.error(f"Button parsing error: {e}")
+        return None
 
 
 def parse_markdown_buttons(text: str):
-    """Extracts [Text](url) or [Text|url] formats from text to create buttons."""
+    """Extracts buttons and automatically groups buttons on the same line into the same row."""
     if not text:
         return "", "[]"
+    
     buttons = []
-
-    for match in re.finditer(r"\[(.+?)\]\((.+?)\)", text):
-        btn_text, btn_url = match.group(1), match.group(2)
-        buttons.append([{"text": btn_text, "url": btn_url}])
-
-    for match in re.finditer(r"\[([^\[\]]+)\|([^()]+)\]", text):
-        btn_text, btn_url = match.group(1).strip(), match.group(2).strip()
-        buttons.append([{"text": btn_text, "url": btn_url}])
-
-    clean_text = re.sub(r"\[(.+?)\]\((.+?)\)", "", text)
-    clean_text = re.sub(r"\[([^\[\]]+)\|([^()]+)\]", "", clean_text).strip()
-
+    clean_lines = []
+    
+    for line in text.split("\n"):
+        row_btns = []
+        
+        # Extract both format types on this specific line
+        matches = list(re.finditer(r"\[([^\[\]]+)\]\(([^()]+)\)", line))
+        matches += list(re.finditer(r"\[([^\[\]]+)\|([^()]+)\]", line))
+        
+        # Sort matches so they appear left-to-right as typed
+        matches.sort(key=lambda m: m.start())
+        
+        for match in matches:
+            btn_text, btn_url = match.group(1).strip(), match.group(2).strip()
+            row_btns.append({"text": btn_text, "url": btn_url})
+        
+        if row_btns:
+            buttons.append(row_btns)
+            
+        # Clean the button code completely out of the line
+        clean_line = re.sub(r"\[([^\[\]]+)\]\(([^()]+)\)", "", line)
+        clean_line = re.sub(r"\[([^\[\]]+)\|([^()]+)\]", "", clean_line).strip()
+        
+        if clean_line:
+            clean_lines.append(clean_line)
+        elif not matches:
+            # Preserve intentional blank lines
+            clean_lines.append("")
+            
+    clean_text = "\n".join(clean_lines).strip()
     btn_str = str(buttons) if buttons else "[]"
+    
     return clean_text, btn_str
 
 
@@ -123,7 +147,7 @@ async def add_filter_cmd(client: Client, message: Message):
         )
     if len(message.command) < 2:
         return await message.reply_text(
-            "⚙️ **Usage:** `/filter <keyword>`\n\n*(You can format buttons in your text using `[Button Name](http://link.com)`)*"
+            "⚙️ **Usage:** `/filter <keyword>`\n\n*(You can format buttons in your text using `[Btn 1](http://link.com) [Btn 2](http://link.com)`)*"
         )
 
     keyword = message.text.split(None, 1)[1].lower()
@@ -132,19 +156,15 @@ async def add_filter_cmd(client: Client, message: Message):
     raw_text = replied.text or replied.caption or ""
     text, btn = parse_markdown_buttons(raw_text)
 
+    # Bulletproof media extraction
     fileid = "None"
     if replied.media:
-        for media_type in (
-            replied.photo,
-            replied.video,
-            replied.animation,
-            replied.sticker,
-            replied.document,
-            replied.audio,
-        ):
-            if media_type:
-                fileid = media_type.file_id
-                break
+        if replied.photo: fileid = replied.photo.file_id
+        elif replied.video: fileid = replied.video.file_id
+        elif replied.document: fileid = replied.document.file_id
+        elif replied.audio: fileid = replied.audio.file_id
+        elif replied.animation: fileid = replied.animation.file_id
+        elif replied.sticker: fileid = replied.sticker.file_id
 
     await add_filter(grp_id, keyword, text, btn, "[]", fileid)
     await message.reply_text(
@@ -177,12 +197,15 @@ async def add_premade_filter_cmd(client: Client, message: Message):
         for row in replied.reply_markup.inline_keyboard:
             row_btns = []
             for btn in row:
-                if btn.url:
-                    row_btns.append({"text": btn.text, "url": btn.url})
-                elif btn.callback_data:
-                    row_btns.append(
-                        {"text": btn.text, "callback_data": btn.callback_data}
-                    )
+                btn_dict = {"text": btn.text}
+                if btn.url: btn_dict["url"] = btn.url
+                elif btn.callback_data: btn_dict["callback_data"] = btn.callback_data
+                
+                # Preserves button colours if they exist in Pyromod forks
+                if hasattr(btn, 'style') and btn.style:
+                    btn_dict["style"] = int(btn.style)
+                    
+                row_btns.append(btn_dict)
             if row_btns:
                 buttons.append(row_btns)
 
@@ -190,17 +213,12 @@ async def add_premade_filter_cmd(client: Client, message: Message):
 
     fileid = "None"
     if replied.media:
-        for media_type in (
-            replied.photo,
-            replied.video,
-            replied.animation,
-            replied.sticker,
-            replied.document,
-            replied.audio,
-        ):
-            if media_type:
-                fileid = media_type.file_id
-                break
+        if replied.photo: fileid = replied.photo.file_id
+        elif replied.video: fileid = replied.video.file_id
+        elif replied.document: fileid = replied.document.file_id
+        elif replied.audio: fileid = replied.audio.file_id
+        elif replied.animation: fileid = replied.animation.file_id
+        elif replied.sticker: fileid = replied.sticker.file_id
 
     await add_filter(grp_id, keyword, text, btn_str, "[]", fileid)
     await message.reply_text(
@@ -211,63 +229,49 @@ async def add_premade_filter_cmd(client: Client, message: Message):
 # ============================================================
 # 🎨 3. EDIT FILTER BUTTON COLOUR
 # ============================================================
-@Client.on_message(
-    filters.command(["editfiltercolur", "editfiltercolour"])
-    & (filters.group | filters.private)
-)
+@Client.on_message(filters.command(["editfiltercolur", "editfiltercolour"]) & (filters.group | filters.private))
 async def edit_filter_colour_cmd(client: Client, message: Message):
     grp_id, ok = await get_target_group(client, message)
     if not ok:
         return
 
-    if len(message.command) < 4:
+    args = message.command
+    if len(args) < 4:
         return await message.reply_text(
-            "⚙️ **Usage:** `/editfiltercolur <keyword> <button_number> <colour>`\n\n"
-            "**Example:** `/editfiltercolur Movie 1 green`\n"
+            "❌ **Usage:** `/editfiltercolur <keyword> <button_number> <colour>`\n\n"
+            "**Example:** `/editfiltercolur Kantara 1 green`\n"
+            "*(You must specify the filter keyword so the bot knows which filter to edit!)*\n\n"
             "**Colours:** `green`, `red`, `blue`"
         )
 
-    keyword = message.command[1].lower()
-
     try:
-        btn_num = int(message.command[2])
+        btn_num = int(args[-2])
+        color_str = args[-1].lower()
+        keyword = " ".join(args[1:-2]).lower()
     except ValueError:
-        return await message.reply_text(
-            "❌ Button number must be an integer (e.g., 1, 2, 3)."
-        )
+        return await message.reply_text("❌ Button number must be an integer. Example: `/editfiltercolur Kantara 1 green`")
 
-    color_str = message.command[3].lower()
-
-    # Safely map colours to Pyrogram's ButtonStyle Enum integer values
     color_map = {
-        "green": getattr(ButtonStyle, "SUCCESS", 3),
-        "red": getattr(ButtonStyle, "DANGER", 4),
-        "blue": getattr(ButtonStyle, "PRIMARY", 1),
+        "green": getattr(ButtonStyle, 'SUCCESS', 3),
+        "red": getattr(ButtonStyle, 'DANGER', 4),
+        "blue": getattr(ButtonStyle, 'PRIMARY', 1),
     }
 
     if color_str not in color_map:
-        return await message.reply_text(
-            "❌ Invalid colour. Choose from: `green`, `red`, `blue`."
-        )
+        return await message.reply_text("❌ Invalid colour. Choose from: `green`, `red`, `blue`.")
 
     reply_text, btn, alert, fileid = await find_filter(grp_id, keyword)
 
-    if not reply_text:
-        return await message.reply_text(
-            f"❌ Filter `{keyword}` not found in this group's database."
-        )
+    if not reply_text and (not fileid or fileid == "None"):
+        return await message.reply_text(f"❌ Filter `{keyword}` not found in this group's database.")
 
-    if not btn or btn == "[]":
-        return await message.reply_text(
-            f"❌ Filter `{keyword}` does not have any buttons to colour."
-        )
+    if not btn or btn == "[]" or btn == "None":
+        return await message.reply_text(f"❌ Filter `{keyword}` does not have any buttons to colour.")
 
     try:
         button_data = ast.literal_eval(btn)
     except Exception:
-        return await message.reply_text(
-            "❌ Failed to parse filter buttons. Format corrupted."
-        )
+        return await message.reply_text("❌ Failed to parse filter buttons. Format corrupted.")
 
     count = 0
     found = False
@@ -283,16 +287,10 @@ async def edit_filter_colour_cmd(client: Client, message: Message):
             break
 
     if not found:
-        return await message.reply_text(
-            f"❌ Button number {btn_num} not found! The filter `{keyword}` only has {count} button(s)."
-        )
+        return await message.reply_text(f"❌ Button number {btn_num} not found! The filter `{keyword}` only has {count} button(s).")
 
-    # Save back to database
     await add_filter(grp_id, keyword, reply_text, str(button_data), alert, fileid)
-
-    await message.reply_text(
-        f"✅ Filter `{keyword}` -> Button {btn_num} colour successfully changed to {color_str.title()}!"
-    )
+    await message.reply_text(f"✅ Filter `{keyword}` -> Button {btn_num} colour successfully changed to {color_str.title()}!")
 
 
 # ============================================================
@@ -376,8 +374,9 @@ async def manual_filters(client: Client, message: Message, text=False):
 
             try:
                 sent_msg = None
+                fileid_str = str(fileid).strip()
 
-                if fileid == "None":
+                if not fileid or fileid_str in ["None", "[]", "", "False"]:
                     sent_msg = await client.send_message(
                         message.chat.id,
                         reply_text,
