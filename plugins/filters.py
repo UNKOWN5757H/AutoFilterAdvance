@@ -4,6 +4,7 @@ import logging
 import re
 
 from pyrogram import Client, enums, filters
+from pyrogram.enums import ButtonStyle
 from pyrogram.errors import Forbidden
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
@@ -208,7 +209,77 @@ async def add_premade_filter_cmd(client: Client, message: Message):
 
 
 # ============================================================
-# 🗑 3. DELETE FILTER
+# 🎨 3. EDIT FILTER BUTTON COLOUR
+# ============================================================
+@Client.on_message(filters.command(["editfiltercolur", "editfiltercolour"]) & (filters.group | filters.private))
+async def edit_filter_colour_cmd(client: Client, message: Message):
+    grp_id, ok = await get_target_group(client, message)
+    if not ok:
+        return
+
+    if len(message.command) < 4:
+        return await message.reply_text(
+            "⚙️ **Usage:** `/editfiltercolur <keyword> <button_number> <colour>`\n\n"
+            "**Example:** `/editfiltercolur Movie 1 green`\n"
+            "**Colours:** `green`, `red`, `blue`"
+        )
+
+    keyword = message.command[1].lower()
+    
+    try:
+        btn_num = int(message.command[2])
+    except ValueError:
+        return await message.reply_text("❌ Button number must be an integer (e.g., 1, 2, 3).")
+
+    color_str = message.command[3].lower()
+
+    # Safely map colours to Pyrogram's ButtonStyle Enum integer values
+    color_map = {
+        "green": getattr(ButtonStyle, 'SUCCESS', 3),
+        "red": getattr(ButtonStyle, 'DANGER', 4),
+        "blue": getattr(ButtonStyle, 'PRIMARY', 1),
+    }
+
+    if color_str not in color_map:
+        return await message.reply_text("❌ Invalid colour. Choose from: `green`, `red`, `blue`.")
+
+    reply_text, btn, alert, fileid = await find_filter(grp_id, keyword)
+
+    if not reply_text:
+        return await message.reply_text(f"❌ Filter `{keyword}` not found in this group's database.")
+
+    if not btn or btn == "[]":
+        return await message.reply_text(f"❌ Filter `{keyword}` does not have any buttons to colour.")
+
+    try:
+        button_data = ast.literal_eval(btn)
+    except Exception:
+        return await message.reply_text("❌ Failed to parse filter buttons. Format corrupted.")
+
+    count = 0
+    found = False
+
+    for r_idx, row in enumerate(button_data):
+        for c_idx, b in enumerate(row):
+            count += 1
+            if count == btn_num:
+                button_data[r_idx][c_idx]["style"] = int(color_map[color_str])
+                found = True
+                break
+        if found:
+            break
+
+    if not found:
+        return await message.reply_text(f"❌ Button number {btn_num} not found! The filter `{keyword}` only has {count} button(s).")
+
+    # Save back to database
+    await add_filter(grp_id, keyword, reply_text, str(button_data), alert, fileid)
+
+    await message.reply_text(f"✅ Filter `{keyword}` -> Button {btn_num} colour successfully changed to {color_str.title()}!")
+
+
+# ============================================================
+# 🗑 4. DELETE FILTER
 # ============================================================
 @Client.on_message(filters.command("delfilter") & (filters.group | filters.private))
 async def del_filter_cmd(client: Client, message: Message):
@@ -228,7 +299,7 @@ async def del_filter_cmd(client: Client, message: Message):
 
 
 # ============================================================
-# 📄 4. LIST FILTERS
+# 📄 5. LIST FILTERS
 # ============================================================
 @Client.on_message(filters.command("listfilters") & (filters.group | filters.private))
 async def list_filters_cmd(client: Client, message: Message):
@@ -250,7 +321,7 @@ async def list_filters_cmd(client: Client, message: Message):
 
 
 # ============================================================
-# 🧠 5. TRIGGER MANUAL FILTERS
+# 🧠 6. TRIGGER MANUAL FILTERS
 # ============================================================
 async def manual_filters(client: Client, message: Message, text=False):
     if getattr(info, "REPAIR_MODE", False):
