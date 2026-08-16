@@ -411,9 +411,7 @@ async def manual_filters(client: Client, message: Message, text=False):
                                 reply_markup=reply_markup,
                             )
                         except Exception as e:
-                            logger.error(
-                                f"Error sending cached media in filter: {e}"
-                            )
+                            logger.error(f"Error sending cached media in filter: {e}")
                             try:
                                 sent_msg = await client.send_message(
                                     message.chat.id,
