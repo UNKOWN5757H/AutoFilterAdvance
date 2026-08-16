@@ -2,11 +2,11 @@ import asyncio
 import base64
 import json
 import logging
+import math
 import os
 import random
 import re
 import sys
-import math
 
 from pyrogram import Client, enums, filters
 from pyrogram.enums import ButtonStyle
@@ -543,13 +543,17 @@ async def get_channels_page(client: Client, page: int = 1):
         else:
             link = "Private"
 
-        text += f"<b>{i}. {title}</b>\n🔗 Link: {link}\n🆔 ID: <code>{chat_id}</code>\n\n"
+        text += (
+            f"<b>{i}. {title}</b>\n🔗 Link: {link}\n🆔 ID: <code>{chat_id}</code>\n\n"
+        )
 
     buttons = []
     nav_row = []
     if page > 1:
         nav_row.append(
-            InlineKeyboardButton("⬅️ Previous", callback_data=f"channels_page#{page - 1}")
+            InlineKeyboardButton(
+                "⬅️ Previous", callback_data=f"channels_page#{page - 1}"
+            )
         )
     if page < total_pages:
         nav_row.append(
@@ -566,10 +570,14 @@ async def get_channels_page(client: Client, page: int = 1):
 @Client.on_message(filters.command("channels") & filters.user(ADMIN_USERS))
 async def list_all_channels_cmd(client: Client, message: Message):
     text, reply_markup = await get_channels_page(client, page=1)
-    await message.reply_text(text, reply_markup=reply_markup, disable_web_page_preview=True)
+    await message.reply_text(
+        text, reply_markup=reply_markup, disable_web_page_preview=True
+    )
 
 
-@Client.on_message(filters.command(["leavechannel", "leave"]) & filters.user(ADMIN_USERS))
+@Client.on_message(
+    filters.command(["leavechannel", "leave"]) & filters.user(ADMIN_USERS)
+)
 async def leave_channel_cmd(client: Client, message: Message):
     if len(message.command) < 2:
         return await message.reply_text(
@@ -580,7 +588,9 @@ async def leave_channel_cmd(client: Client, message: Message):
     try:
         chat_id_int = int(target_chat_id)
     except ValueError:
-        return await message.reply_text("❌ Invalid Channel ID format. Must be an integer like `-100...`")
+        return await message.reply_text(
+            "❌ Invalid Channel ID format. Must be an integer like `-100...`"
+        )
 
     try:
         chat = await client.get_chat(chat_id_int)
@@ -592,7 +602,9 @@ async def leave_channel_cmd(client: Client, message: Message):
             f"✅ <b>Successfully left:</b>\n\n<b>Name:</b> {chat_title}\n<b>ID:</b> <code>{chat_id_int}</code>"
         )
     except Exception as e:
-        await message.reply_text(f"❌ <b>Failed to leave channel:</b>\n<code>{e}</code>")
+        await message.reply_text(
+            f"❌ <b>Failed to leave channel:</b>\n<code>{e}</code>"
+        )
 
 
 @Client.on_message(filters.command("channel") & filters.user(ADMIN_USERS))
