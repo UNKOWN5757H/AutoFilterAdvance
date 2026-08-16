@@ -63,7 +63,6 @@ async def get_target_group(client: Client, message: Message):
 
 
 def build_keyboard(btn_str: str):
-    """Safely converts stored string buttons back to InlineKeyboardButtons mapping ButtonStyle Enums."""
     if not btn_str or btn_str in ["[]", "None", "False", ""]:
         return None
     try:
@@ -74,15 +73,18 @@ def build_keyboard(btn_str: str):
             for b in row:
                 if isinstance(b, dict):
                     b_copy = b.copy()
-                    if "style" in b_copy:
-                        style_val = b_copy["style"]
-                        if style_val == 1:
-                            b_copy["style"] = ButtonStyle.PRIMARY
-                        elif style_val == 3:
-                            b_copy["style"] = ButtonStyle.SUCCESS
-                        elif style_val == 4:
-                            b_copy["style"] = ButtonStyle.DANGER
-                    btn_row.append(InlineKeyboardButton(**b_copy))
+                    style_val = b_copy.pop("style", None)
+                    style_map = {
+                        1: ButtonStyle.PRIMARY,
+                        3: ButtonStyle.SUCCESS,
+                        4: ButtonStyle.DANGER,
+                    }
+                    btn_obj = InlineKeyboardButton(**b_copy)
+                    if style_val in style_map:
+                        btn_obj.style = style_map[style_val]
+                    elif isinstance(style_val, ButtonStyle):
+                        btn_obj.style = style_val
+                    btn_row.append(btn_obj)
                 else:
                     btn_row.append(b)
             button_layout.append(btn_row)
@@ -247,9 +249,9 @@ async def edit_filter_colour_cmd(client: Client, message: Message):
         )
 
     color_map = {
-        "green": 3,  # ButtonStyle.SUCCESS
-        "red": 4,  # ButtonStyle.DANGER
-        "blue": 1,  # ButtonStyle.PRIMARY
+        "green": 3,
+        "red": 4,
+        "blue": 1,
     }
 
     if color_str not in color_map:
@@ -342,7 +344,7 @@ async def manual_filters(client: Client, message: Message, text=False):
         if active_grp:
             group_id = active_grp
 
-    name = text or message.text
+    name = text or message.text or message.caption or ""
     reply_id = message.reply_to_message.id if message.reply_to_message else message.id
     keywords = await get_filters(group_id)
 
@@ -361,19 +363,30 @@ async def manual_filters(client: Client, message: Message, text=False):
                 InlineKeyboardMarkup(button_layout) if button_layout else None
             )
 
-            try:
-                sent_msg = None
-                fileid_str = str(fileid).strip()
+            sent_msg = None
+            fileid_str = str(fileid).strip()
 
-                if not fileid or fileid_str in ["None", "[]", "", "False"]:
+            if not fileid or fileid_str in ["None", "[]", "", "False"]:
+                try:
                     sent_msg = await client.send_message(
                         message.chat.id,
-                        reply_text,
+                        reply_text or "",
                         disable_web_page_preview=True,
                         reply_markup=reply_markup,
                         reply_to_message_id=reply_id,
                     )
-                else:
+                except Exception:
+                    try:
+                        sent_msg = await client.send_message(
+                            message.chat.id,
+                            reply_text or "",
+                            disable_web_page_preview=True,
+                            reply_markup=reply_markup,
+                        )
+                    except Exception as e:
+                        logger.error(f"Error sending filter text message: {e}")
+            else:
+                try:
                     sent_msg = await client.send_cached_media(
                         message.chat.id,
                         fileid,
@@ -381,39 +394,41 @@ async def manual_filters(client: Client, message: Message, text=False):
                         reply_markup=reply_markup,
                         reply_to_message_id=reply_id,
                     )
-
-                if sent_msg:
-                    delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
-                    if delete_timer > 0:
-                        asyncio.create_task(
-                            delete_message_after_delay(sent_msg, delete_timer)
-                        )
-
-            except Forbidden as e:
-                if "CHAT_SEND_PHOTOS_FORBIDDEN" in str(
-                    e
-                ) or "CHAT_SEND_MEDIA_FORBIDDEN" in str(e):
+                except Exception:
                     try:
-                        fallback_text = (
-                            f"{reply_text}\n\n*(Media blocked by chat permissions)*"
-                            if reply_text
-                            else "*(Media blocked by chat permissions)*"
-                        )
-                        sent_msg = await client.send_message(
+                        sent_msg = await client.send_cached_media(
                             message.chat.id,
-                            text=fallback_text,
-                            reply_to_message_id=reply_id,
+                            fileid,
+                            caption=reply_text or "",
                             reply_markup=reply_markup,
                         )
-                        if sent_msg:
-                            delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
-                            if delete_timer > 0:
-                                asyncio.create_task(
-                                    delete_message_after_delay(sent_msg, delete_timer)
-                                )
                     except Exception:
-                        pass
-            except Exception as e:
-                logger.exception(e)
+                        try:
+                            sent_msg = await client.send_photo(
+                                message.chat.id,
+                                photo=fileid,
+                                caption=reply_text or "",
+                                reply_markup=reply_markup,
+                            )
+                        except Exception as e:
+                            logger.error(
+                                f"Error sending cached media in filter: {e}"
+                            )
+                            try:
+                                sent_msg = await client.send_message(
+                                    message.chat.id,
+                                    text=reply_text or "",
+                                    reply_markup=reply_markup,
+                                )
+                            except Exception:
+                                pass
+
+            if sent_msg:
+                delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
+                if delete_timer > 0:
+                    asyncio.create_task(
+                        delete_message_after_delay(sent_msg, delete_timer)
+                    )
+
             return True
     return False
