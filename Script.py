@@ -61,7 +61,7 @@ class script(object):
     FILTERS_TXT = """<blockquote><b>Filter Management\nAdd, delete, or view filters to customize responses based on keywords.</b></blockquote>\n
 <b>‣ /filter - Add a text filter (Reply `/filter keyword` to a message)
 ‣ /addfilter - Add a text filter from pre-made buttons
-‣ /editfiltercolur - Change button colour - /editfiltercolur 1 green 
+‣ /editfiltercolur - Change button colour - `/editfiltercolur keyword 1 green`
 ‣ /delfilter - Delete a text filter - /delfilter filter
 ‣ /listfilters - List all filters currently added in the bot\n\nSupports text/photo/video/animation/sticker</b>"""
 
@@ -80,7 +80,9 @@ You can just forward the message from database channel for starting indexing, no
 ‣ /adminsettings - Get current admin settings</b>"""
 
     UTILITIES_TXT = """<blockquote><b>Utility Commands\nAccess bot logs, server stats, restart the bot, get user and file counts, send broadcasts, and more.</b></blockquote>\n
-<b>‣ /logs - Get logs as a file
+<b>‣ /channels - List all connected groups and channels (15 per page)
+‣ /leavechannel - Leave a channel or group by ID
+‣ /logs - Get logs as a file
 ‣ /server - Get server stats
 ‣ /restart - Restart the bot
 ‣ /stats - Get bot user stats
@@ -115,49 +117,49 @@ You can just forward the message from database channel for starting indexing, no
 
     POSTHAND_TXT = """<b><blockquote>POST_HANDLER.PY - COMMAND REFERENCE GUIDE\n \n POST CREATION & EDITING </blockquote>
 
-/post <Movie Name>
+‣ /post &lt;Movie Name&gt;
     - Creates a brand new movie post session by fetching data from TMDB.
-/editpost <Channel Post Link>
+‣ /editpost &lt;Channel Post Link&gt;
     - Imports an existing post from your channel so you can edit its 
       caption, buttons, or image, and re-publish it over the original message.
 
 <blockquote>TEXT & FORMATTING CONTROLS </blockquote>
 * Pro Tip: Type 'blank' instead of a value to completely delete that line!
 
-/edittitle <New Title>
-    - Overrides the TMDB movie title. (Ex: /edittitle Kantara)
+‣ /edittitle &lt;New Title&gt;
+    - Overrides the TMDB movie title. (Ex: /edittitle joe)
       To remove completely: /edittitle blank
-/edityear <New Year>
+‣ /edityear &lt;New Year&gt;
     - Overrides the release year. (Ex: /edityear 2022)
       To remove completely: /edityear blank
-/editlangs <Languages>
+‣ /editlangs &lt;Languages&gt;
     - Updates the Languages line. (Ex: /editlangs Kannada, Hindi)
       To remove completely: /editlangs blank
-/editresolutions <Resolutions>
+‣ /editresolutions &lt;Resolutions&gt;
     - Updates the Resolutions line. (Ex: /editresolutions 1080p, 720p)
       To remove completely: /editresolutions blank
-/editgenres <Genres>
+‣ /editgenres &lt;Genres&gt;
     - Updates the Genres line. (Ex: /editgenres Action, Drama)
       To remove completely: /editgenres blank
-/editotts <OTT Platforms>
+‣ /editotts &lt;OTT Platforms&gt;
     - Updates the OTT line. (Ex: /editotts Netflix, Prime)
       To remove completely: /editotts blank
 
 <blockquote> BUTTON & IMAGE CONTROLS </blockquote>
 
-/editbuttoncolour <Button Number> <Colour>
+‣ /editbuttoncolour &lt;Button Number&gt; &lt;Colour&gt;
     - Changes the color of a specific button. 
     - Available Colours: green, red, blue
     - Example: /editbuttoncolour 1 red
-/editdirect <URL>
+‣ /editdirect &lt;URL&gt;
     - Updates the destination link of the "Direct Search 🔎" button.
       To remove the button entirely: /editdirect blank
-/editimage
+‣ /editimage
     - Changes the rich preview image. The bot will pause and ask you 
       to send a photo or a direct URL.
     - Send '/reset' to restore the original TMDB poster.
     - Send 'blank' to completely remove the image preview.
-/editnormalimage 
+‣ /editnormalimage 
     - Edit Image Sending Normal Image Without Preview & Telegraph Image
     - Send '/reset' to restore the original TMDB poster.
     - Send 'blank' to completely remove the image.</b>"""
