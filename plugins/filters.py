@@ -79,13 +79,13 @@ def build_keyboard(btn_str: str):
                         3: ButtonStyle.SUCCESS,
                         4: ButtonStyle.DANGER,
                     }
-                    
+
                     # Inject style directly into the kwargs to ensure Pyromod constructor catches it
                     if style_val in style_map:
                         b_copy["style"] = style_map[style_val]
                     elif isinstance(style_val, ButtonStyle):
                         b_copy["style"] = style_val
-                        
+
                     btn_obj = InlineKeyboardButton(**b_copy)
                     btn_row.append(btn_obj)
                 else:
@@ -231,7 +231,9 @@ async def edit_filter_image_cmd(client: Client, message: Message):
     if not ok:
         return
     if not message.reply_to_message or not message.reply_to_message.media:
-        return await message.reply_text("⚠️ **Reply to a photo, video, or document to set the new image.**")
+        return await message.reply_text(
+            "⚠️ **Reply to a photo, video, or document to set the new image.**"
+        )
     if len(message.command) < 2:
         return await message.reply_text("⚙️ **Usage:** `/filterimage <keyword>`")
 
@@ -260,7 +262,9 @@ async def edit_filter_image_cmd(client: Client, message: Message):
         return await message.reply_text("❌ Could not extract valid media.")
 
     await add_filter(grp_id, keyword, reply_text, btn, alert, fileid)
-    await message.reply_text(f"✅ **Filter image updated!**\n\n**Keyword:** `{keyword}`")
+    await message.reply_text(
+        f"✅ **Filter image updated!**\n\n**Keyword:** `{keyword}`"
+    )
 
 
 @Client.on_message(
