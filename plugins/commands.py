@@ -6,6 +6,7 @@ import os
 import random
 import re
 import sys
+import math
 
 from pyrogram import Client, enums, filters
 from pyrogram.enums import ButtonStyle
@@ -51,7 +52,6 @@ ADMIN_USERS = [int(a) for a in ADMINS if str(a).lstrip("-").isdigit()]
 
 
 def get_start_buttons(user_id):
-    """Helper to generate start buttons dynamically based on admin status."""
     buttons = [
         [
             InlineKeyboardButton(
@@ -75,7 +75,6 @@ def get_start_buttons(user_id):
         ]
     ]
 
-    # Safe parsing of ADMINS list for both string/int
     if str(user_id) in [str(a) for a in ADMINS]:
         buttons.append(
             [
@@ -97,9 +96,6 @@ def get_start_buttons(user_id):
     return InlineKeyboardMarkup(buttons)
 
 
-# ============================================================
-# 🚀 MAIN START COMMAND (Handles file delivery links)
-# ============================================================
 @Client.on_message(filters.command("start") & filters.incoming)
 async def start(client: Client, message: Message):
     if getattr(info, "REPAIR_MODE", False):
@@ -512,6 +508,93 @@ async def delete_after_delay(msg, warning_msg, delay):
         pass
 
 
+# ============================================================
+# 📄 CHANNELS & LEAVE CHANNEL COMMANDS (15 PER PAGE)
+# ============================================================
+async def get_channels_page(client: Client, page: int = 1):
+    raw_chats = await db.get_all_chats()
+    if hasattr(raw_chats, "__aiter__"):
+        all_chats = [c async for c in raw_chats]
+    elif isinstance(raw_chats, list):
+        all_chats = raw_chats
+    else:
+        all_chats = list(raw_chats)
+
+    total_chats = len(all_chats)
+    page_size = 15
+    total_pages = max(1, math.ceil(total_chats / page_size))
+    page = max(1, min(page, total_pages))
+
+    start_idx = (page - 1) * page_size
+    end_idx = start_idx + page_size
+    current_chats = all_chats[start_idx:end_idx]
+
+    text = f"📑 <b>All Connected Channels & Groups</b> (Page {page}/{total_pages})\n\n"
+    for i, chat in enumerate(current_chats, start=start_idx + 1):
+        chat_id = chat.get("id") or chat.get("chat_id")
+        title = chat.get("title") or chat.get("name") or "Unknown"
+        username = chat.get("username")
+
+        if username:
+            link = f"https://t.me/{username}"
+        elif str(chat_id).startswith("-100"):
+            clean_id = str(chat_id)[4:]
+            link = f"https://t.me/c/{clean_id}/1"
+        else:
+            link = "Private"
+
+        text += f"<b>{i}. {title}</b>\n🔗 Link: {link}\n🆔 ID: <code>{chat_id}</code>\n\n"
+
+    buttons = []
+    nav_row = []
+    if page > 1:
+        nav_row.append(
+            InlineKeyboardButton("⬅️ Previous", callback_data=f"channels_page#{page - 1}")
+        )
+    if page < total_pages:
+        nav_row.append(
+            InlineKeyboardButton("Next ➡️", callback_data=f"channels_page#{page + 1}")
+        )
+
+    if nav_row:
+        buttons.append(nav_row)
+    buttons.append([InlineKeyboardButton("🔐 Close", callback_data="close_data")])
+
+    return text, InlineKeyboardMarkup(buttons)
+
+
+@Client.on_message(filters.command("channels") & filters.user(ADMIN_USERS))
+async def list_all_channels_cmd(client: Client, message: Message):
+    text, reply_markup = await get_channels_page(client, page=1)
+    await message.reply_text(text, reply_markup=reply_markup, disable_web_page_preview=True)
+
+
+@Client.on_message(filters.command(["leavechannel", "leave"]) & filters.user(ADMIN_USERS))
+async def leave_channel_cmd(client: Client, message: Message):
+    if len(message.command) < 2:
+        return await message.reply_text(
+            "⚙️ <b>Usage:</b> `/leavechannel <channel_id>`\n\n<b>Example:</b> `/leavechannel -1001234567890`"
+        )
+
+    target_chat_id = message.command[1].strip()
+    try:
+        chat_id_int = int(target_chat_id)
+    except ValueError:
+        return await message.reply_text("❌ Invalid Channel ID format. Must be an integer like `-100...`")
+
+    try:
+        chat = await client.get_chat(chat_id_int)
+        chat_title = chat.title or "Unknown"
+        await client.leave_chat(chat_id_int)
+        if hasattr(db, "delete_chat"):
+            await db.delete_chat(chat_id_int)
+        await message.reply_text(
+            f"✅ <b>Successfully left:</b>\n\n<b>Name:</b> {chat_title}\n<b>ID:</b> <code>{chat_id_int}</code>"
+        )
+    except Exception as e:
+        await message.reply_text(f"❌ <b>Failed to leave channel:</b>\n<code>{e}</code>")
+
+
 @Client.on_message(filters.command("channel") & filters.user(ADMIN_USERS))
 async def channel_info(bot, message):
     if isinstance(CHANNELS, (int, str)):
@@ -712,19 +795,13 @@ async def set_movie_update_notification(client, message):
         await message.reply_text(f"<b>❗ An error occurred: {e}</b>")
 
 
-# ============================================================
-# 📩 PM AUTO-REPLY CATCH-ALL
-# ============================================================
 @Client.on_message(filters.private & filters.incoming, group=1)
 async def pm_auto_reply(client: Client, message: Message):
-    # Ignore commands (like /start or /help) so it doesn't double-reply
     if message.text and message.text.startswith("/"):
         return
 
-    # --- YOUR CUSTOM MESSAGE HERE ---
     reply_text = "<b>Request Movies Here 👇</b>"
 
-    # --- GREEN BUTTON (Matched exactly to your /start command style) ---
     buttons = [
         [
             InlineKeyboardButton(
