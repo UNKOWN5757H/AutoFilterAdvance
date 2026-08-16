@@ -16,7 +16,6 @@ logger = logging.getLogger(__name__)
 
 
 async def delete_message_after_delay(message, delay: int):
-    """Helper function to auto-delete messages."""
     if not message:
         return
     await asyncio.sleep(delay)
@@ -27,15 +26,11 @@ async def delete_message_after_delay(message, delay: int):
 
 
 async def is_admin(client: Client, message: Message, grp_id: int = None) -> bool:
-    """Helper to verify if a user is a chat admin or a bot admin."""
     if not message.from_user:
         return False
-
     if message.from_user.id in info.ADMINS or str(message.from_user.id) in info.ADMINS:
         return True
-
     target_chat_id = grp_id or message.chat.id
-
     try:
         member = await client.get_chat_member(target_chat_id, message.from_user.id)
         return member.status in [
@@ -47,7 +42,6 @@ async def is_admin(client: Client, message: Message, grp_id: int = None) -> bool
 
 
 async def get_target_group(client: Client, message: Message):
-    """Resolves target group ID and verifies admin permissions."""
     if message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
         grp_id = message.chat.id
     else:
@@ -65,12 +59,10 @@ async def get_target_group(client: Client, message: Message):
             "⚠️ **You must be an admin of the connected group to use this command.**"
         )
         return None, False
-
     return grp_id, True
 
 
 def build_keyboard(btn_str: str):
-    """Safely converts stored string buttons back to InlineKeyboardButtons with correct ButtonStyle."""
     if not btn_str or btn_str in ["[]", "None", "False", ""]:
         return None
     try:
@@ -82,20 +74,19 @@ def build_keyboard(btn_str: str):
                 if isinstance(b, dict):
                     b_copy = b.copy()
                     style_val = b_copy.pop("style", None)
-
-                    # Map integer styles back to ButtonStyle Enums
                     style_map = {
                         1: ButtonStyle.PRIMARY,
                         3: ButtonStyle.SUCCESS,
                         4: ButtonStyle.DANGER,
                     }
-
-                    btn_obj = InlineKeyboardButton(**b_copy)
+                    
+                    # Inject style directly into the kwargs to ensure Pyromod constructor catches it
                     if style_val in style_map:
-                        btn_obj.style = style_map[style_val]
+                        b_copy["style"] = style_map[style_val]
                     elif isinstance(style_val, ButtonStyle):
-                        btn_obj.style = style_val
-
+                        b_copy["style"] = style_val
+                        
+                    btn_obj = InlineKeyboardButton(**b_copy)
                     btn_row.append(btn_obj)
                 else:
                     btn_row.append(b)
@@ -107,7 +98,6 @@ def build_keyboard(btn_str: str):
 
 
 def parse_markdown_buttons(text: str):
-    """Extracts buttons and automatically groups buttons on the same line into the same row."""
     if not text:
         return "", "[]"
 
@@ -137,13 +127,9 @@ def parse_markdown_buttons(text: str):
 
     clean_text = "\n".join(clean_lines).strip()
     btn_str = str(buttons) if buttons else "[]"
-
     return clean_text, btn_str
 
 
-# ============================================================
-# ⚙️ 1. ADD FILTER
-# ============================================================
 @Client.on_message(filters.command("filter") & (filters.group | filters.private))
 async def add_filter_cmd(client: Client, message: Message):
     grp_id, ok = await get_target_group(client, message)
@@ -161,7 +147,6 @@ async def add_filter_cmd(client: Client, message: Message):
 
     keyword = message.text.split(None, 1)[1].lower()
     replied = message.reply_to_message
-
     raw_text = replied.text or replied.caption or ""
     text, btn = parse_markdown_buttons(raw_text)
 
@@ -185,9 +170,6 @@ async def add_filter_cmd(client: Client, message: Message):
     )
 
 
-# ============================================================
-# ⚙️ 2. ADD PRE-MADE FILTER
-# ============================================================
 @Client.on_message(filters.command("addfilter") & (filters.group | filters.private))
 async def add_premade_filter_cmd(client: Client, message: Message):
     grp_id, ok = await get_target_group(client, message)
@@ -215,10 +197,8 @@ async def add_premade_filter_cmd(client: Client, message: Message):
                     btn_dict["url"] = btn.url
                 elif btn.callback_data:
                     btn_dict["callback_data"] = btn.callback_data
-
                 if hasattr(btn, "style") and btn.style:
                     btn_dict["style"] = int(btn.style)
-
                 row_btns.append(btn_dict)
             if row_btns:
                 buttons.append(row_btns)
@@ -245,37 +225,23 @@ async def add_premade_filter_cmd(client: Client, message: Message):
     )
 
 
-# ============================================================
-# 🖼️ 3. UPDATE FILTER IMAGE ONLY
-# ============================================================
 @Client.on_message(filters.command("filterimage") & (filters.group | filters.private))
 async def edit_filter_image_cmd(client: Client, message: Message):
     grp_id, ok = await get_target_group(client, message)
     if not ok:
         return
-
     if not message.reply_to_message or not message.reply_to_message.media:
-        return await message.reply_text(
-            "⚠️ **Please reply to a photo, video, or document to set it as the new filter image.**"
-        )
-
+        return await message.reply_text("⚠️ **Reply to a photo, video, or document to set the new image.**")
     if len(message.command) < 2:
-        return await message.reply_text(
-            "⚙️ **Usage:** `/filterimage <keyword>`\n\n*(Reply to an image/video to update the media for an existing filter)*"
-        )
+        return await message.reply_text("⚙️ **Usage:** `/filterimage <keyword>`")
 
     keyword = message.text.split(None, 1)[1].lower()
     replied = message.reply_to_message
-
-    # Find the existing filter data
     reply_text, btn, alert, old_fileid = await find_filter(grp_id, keyword)
 
     if not reply_text and (not old_fileid or old_fileid == "None"):
-        return await message.reply_text(
-            f"❌ Filter `{keyword}` not found in this group's database."
-        )
+        return await message.reply_text(f"❌ Filter `{keyword}` not found.")
 
-    # Extract the new fileid from the replied message
     fileid = "None"
     if replied.photo:
         fileid = replied.photo.file_id
@@ -291,21 +257,12 @@ async def edit_filter_image_cmd(client: Client, message: Message):
         fileid = replied.sticker.file_id
 
     if fileid == "None":
-        return await message.reply_text(
-            "❌ Could not extract valid media from the replied message."
-        )
+        return await message.reply_text("❌ Could not extract valid media.")
 
-    # Update the filter in the database keeping the old text/buttons but with the new image
     await add_filter(grp_id, keyword, reply_text, btn, alert, fileid)
-
-    await message.reply_text(
-        f"✅ **Filter image successfully updated!**\n\n**Keyword:** `{keyword}`"
-    )
+    await message.reply_text(f"✅ **Filter image updated!**\n\n**Keyword:** `{keyword}`")
 
 
-# ============================================================
-# 🎨 4. EDIT FILTER BUTTON COLOUR
-# ============================================================
 @Client.on_message(
     filters.command(["editfiltercolur", "editfiltercolour"])
     & (filters.group | filters.private)
@@ -332,11 +289,10 @@ async def edit_filter_colour_cmd(client: Client, message: Message):
             "❌ Button number must be an integer. Example: `/editfiltercolur Kantara 1 green`"
         )
 
-    # Mirroring post handler exact ButtonStyle enum mapping
     color_map = {
-        "green": ButtonStyle.SUCCESS,
-        "red": ButtonStyle.DANGER,
-        "blue": ButtonStyle.PRIMARY,
+        "green": 3,  # ButtonStyle.SUCCESS
+        "red": 4,  # ButtonStyle.DANGER
+        "blue": 1,  # ButtonStyle.PRIMARY
     }
 
     if color_str not in color_map:
@@ -350,7 +306,6 @@ async def edit_filter_colour_cmd(client: Client, message: Message):
         return await message.reply_text(
             f"❌ Filter `{keyword}` not found in this group's database."
         )
-
     if not btn or btn in ["[]", "None", "False", ""]:
         return await message.reply_text(
             f"❌ Filter `{keyword}` does not have any buttons to colour."
@@ -363,16 +318,13 @@ async def edit_filter_colour_cmd(client: Client, message: Message):
             "❌ Failed to parse filter buttons. Format corrupted."
         )
 
-    count = 0
-    found = False
+    count, found = 0, False
 
     for r_idx, row in enumerate(button_data):
         for c_idx, b in enumerate(row):
             count += 1
             if count == btn_num:
-                # Save button with explicit style mapping
-                if isinstance(b, dict):
-                    button_data[r_idx][c_idx]["style"] = int(color_map[color_str])
+                button_data[r_idx][c_idx]["style"] = color_map[color_str]
                 found = True
                 break
         if found:
@@ -389,51 +341,36 @@ async def edit_filter_colour_cmd(client: Client, message: Message):
     )
 
 
-# ============================================================
-# 🗑 5. DELETE FILTER
-# ============================================================
 @Client.on_message(filters.command("delfilter") & (filters.group | filters.private))
 async def del_filter_cmd(client: Client, message: Message):
     grp_id, ok = await get_target_group(client, message)
     if not ok:
         return
-
     if len(message.command) < 2:
         return await message.reply_text("⚙️ **Usage:** `/delfilter <keyword>`")
-
     keyword = message.text.split(None, 1)[1].lower()
-
     await delete_filter(message, keyword, grp_id)
     await message.reply_text(
         f"🗑️ **Filter `{keyword}` has been deleted (if it existed).**"
     )
 
 
-# ============================================================
-# 📄 6. LIST FILTERS
-# ============================================================
 @Client.on_message(filters.command("listfilters") & (filters.group | filters.private))
 async def list_filters_cmd(client: Client, message: Message):
     grp_id, ok = await get_target_group(client, message)
     if not ok:
         return
-
     keywords = await get_filters(grp_id)
     if not keywords:
         return await message.reply_text(
             "⚠️ **No active filters found for this group.**"
         )
-
     text = "📋 **Current Filters:**\n\n"
     for kw in keywords:
         text += f"• `{kw}`\n"
-
     await message.reply_text(text)
 
 
-# ============================================================
-# 🧠 7. TRIGGER MANUAL FILTERS
-# ============================================================
 async def manual_filters(client: Client, message: Message, text=False):
     if getattr(info, "REPAIR_MODE", False):
         if not message.from_user or (
@@ -459,7 +396,6 @@ async def manual_filters(client: Client, message: Message, text=False):
         pattern = r"( |^|[^\w])" + re.escape(keyword) + r"( |$|[^\w])"
         if re.search(pattern, name, flags=re.IGNORECASE):
             reply_text, btn, alert, fileid = await find_filter(group_id, keyword)
-
             if reply_text:
                 reply_text = reply_text.replace("\\n", "\n").replace("\\t", "\t")
 
@@ -468,19 +404,30 @@ async def manual_filters(client: Client, message: Message, text=False):
                 InlineKeyboardMarkup(button_layout) if button_layout else None
             )
 
-            try:
-                sent_msg = None
-                fileid_str = str(fileid).strip()
+            sent_msg = None
+            fileid_str = str(fileid).strip()
 
-                if not fileid or fileid_str in ["None", "[]", "", "False"]:
+            if not fileid or fileid_str in ["None", "[]", "", "False"]:
+                try:
                     sent_msg = await client.send_message(
                         message.chat.id,
-                        reply_text,
+                        reply_text or "",
                         disable_web_page_preview=True,
                         reply_markup=reply_markup,
                         reply_to_message_id=reply_id,
                     )
-                else:
+                except Exception:
+                    try:
+                        sent_msg = await client.send_message(
+                            message.chat.id,
+                            reply_text or "",
+                            disable_web_page_preview=True,
+                            reply_markup=reply_markup,
+                        )
+                    except Exception as e:
+                        logger.error(f"Error sending text filter: {e}")
+            else:
+                try:
                     sent_msg = await client.send_cached_media(
                         message.chat.id,
                         fileid,
@@ -488,41 +435,42 @@ async def manual_filters(client: Client, message: Message, text=False):
                         reply_markup=reply_markup,
                         reply_to_message_id=reply_id,
                     )
-
-                if sent_msg:
-                    delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
-                    if delete_timer > 0:
-                        asyncio.create_task(
-                            delete_message_after_delay(sent_msg, delete_timer)
-                        )
-
-            except Forbidden as e:
-                if "CHAT_SEND_PHOTOS_FORBIDDEN" in str(
-                    e
-                ) or "CHAT_SEND_MEDIA_FORBIDDEN" in str(e):
+                except Exception:
                     try:
-                        fallback_text = (
-                            f"{reply_text}\n\n*(Media blocked by chat permissions)*"
-                            if reply_text
-                            else "*(Media blocked by chat permissions)*"
-                        )
-                        sent_msg = await client.send_message(
+                        sent_msg = await client.send_cached_media(
                             message.chat.id,
-                            text=fallback_text,
-                            reply_to_message_id=reply_id,
+                            fileid,
+                            caption=reply_text or "",
                             reply_markup=reply_markup,
                         )
-                        if sent_msg:
-                            delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
-                            if delete_timer > 0:
-                                asyncio.create_task(
-                                    delete_message_after_delay(sent_msg, delete_timer)
-                                )
                     except Exception:
-                        pass
-            except Exception as e:
-                logger.exception(e)
+                        try:
+                            sent_msg = await client.send_photo(
+                                message.chat.id,
+                                photo=fileid,
+                                caption=reply_text or "",
+                                reply_markup=reply_markup,
+                            )
+                        except Exception:
+                            try:
+                                sent_msg = await client.send_document(
+                                    message.chat.id,
+                                    document=fileid,
+                                    caption=reply_text or "",
+                                    reply_markup=reply_markup,
+                                )
+                            except Exception:
+                                sent_msg = await client.send_message(
+                                    message.chat.id,
+                                    text=reply_text or "",
+                                    reply_markup=reply_markup,
+                                )
 
+            if sent_msg:
+                delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
+                if delete_timer > 0:
+                    asyncio.create_task(
+                        delete_message_after_delay(sent_msg, delete_timer)
+                    )
             return True
-
     return False
