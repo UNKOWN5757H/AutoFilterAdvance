@@ -14,14 +14,10 @@ from pyrogram.errors import (
     MessageNotModified,
     PeerIdInvalid,
     QueryIdInvalid,
+    RandomIdDuplicate,
     UserIsBlocked,
 )
-from pyrogram.types import (
-    CallbackQuery,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    Message,
-)
+from pyrogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 import info
 from database.connections_mdb import (
@@ -56,87 +52,16 @@ MESSAGE_EMOJI_PLANE = '<tg-emoji emoji-id="5875465628285931233">✈️</tg-emoji
 MESSAGE_EMOJI_LINK = '<tg-emoji emoji-id="5877465816030515018">🔗</tg-emoji> Link'
 
 STOPWORDS = [
-    "send",
-    "snd",
-    "give",
-    "gib",
-    "pls",
-    "plz",
-    "please",
-    "need",
-    "want",
-    "upload",
-    "uplod",
-    "drop",
-    "share",
-    "find",
-    "search",
-    "provide",
-    "post",
-    "movie",
-    "movies",
-    "film",
-    "films",
-    "cinema",
-    "cinemas",
-    "full",
-    "fullmovie",
-    "download",
-    "downlod",
-    "link",
-    "links",
-    "file",
-    "files",
-    "print",
-    "audio",
-    "video",
-    "ott",
-    "hd",
-    "hq",
-    "bluray",
-    "rip",
-    "watch",
-    "online",
-    "bro",
-    "bhai",
-    "anna",
-    "boss",
-    "admin",
-    "sir",
-    "madam",
-    "brodie",
-    "dude",
-    "macha",
-    "machha",
-    "guru",
-    "chinnu",
-    "brother",
-    "beku",
-    "bekithu",
-    "bekittu",
-    "bekagide",
-    "kodi",
-    "kodro",
-    "kalsi",
-    "kalsro",
-    "kalisi",
-    "haki",
-    "haku",
-    "hakro",
-    "ideya",
-    "irboda",
-    "bidi",
-    "madu",
-    "yaradru",
-    "chitra",
-    "chithra",
-    "chalanachitra",
-    "chalanachithra",
-    "kannadadalli",
-    "sandalwood",
-    "kr_picture",
-    "kannada_filmy_group",
-    "telegram",
+    "send", "snd", "give", "gib", "pls", "plz", "please", "need", "want", "upload",
+    "uplod", "drop", "share", "find", "search", "provide", "post", "movie", "movies",
+    "film", "films", "cinema", "cinemas", "full", "fullmovie", "download", "downlod",
+    "link", "links", "file", "files", "print", "audio", "video", "ott", "hd", "hq",
+    "bluray", "rip", "watch", "online", "bro", "bhai", "anna", "boss", "admin", "sir",
+    "madam", "brodie", "dude", "macha", "machha", "guru", "chinnu", "brother", "beku",
+    "bekithu", "bekittu", "bekagide", "kodi", "kodro", "kalsi", "kalsro", "kalisi",
+    "haki", "haku", "hakro", "ideya", "irboda", "bidi", "madu", "yaradru", "chitra",
+    "chithra", "chalanachitra", "chalanachithra", "kannadadalli", "sandalwood",
+    "kr_picture", "kannada_filmy_group", "telegram",
 ]
 
 
@@ -236,7 +161,8 @@ async def advantage_spell_chok(client, msg, search_query):
                 pass
 
     movielist += [
-        re.sub(r"(\-|\(|\)|_)", "", i, flags=re.IGNORECASE).strip() for i in gs_parsed
+        re.sub(r"(\-|\(|\)|_)", "", i, flags=re.IGNORECASE).strip()
+        for i in gs_parsed
     ]
     movielist = list(dict.fromkeys([m for m in movielist if m]))
 
@@ -385,8 +311,16 @@ async def manual_filters(client, message, text=False):
                                 caption=reply_text or "",
                                 reply_markup=reply_markup,
                             )
-                        except Exception as e:
-                            logger.error(f"Error sending cached media: {e}")
+                        except Exception:
+                            try:
+                                sent_msg = await client.send_document(
+                                    message.chat.id,
+                                    document=fileid,
+                                    caption=reply_text or "",
+                                    reply_markup=reply_markup,
+                                )
+                            except Exception as e:
+                                logger.error(f"Media filter failed entirely: {e}")
 
             if sent_msg:
                 delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
@@ -584,118 +518,6 @@ async def give_filter(client, message):
             logger.error(f"Auto filter error: {e}")
 
 
-# ============================================================
-# 📄 CHANNELS & LEAVE CHANNEL COMMANDS (15 PER PAGE)
-# ============================================================
-async def get_channels_page(client: Client, page: int = 1):
-    raw_chats = await db.get_all_chats()
-    if hasattr(raw_chats, "__aiter__"):
-        all_chats = [c async for c in raw_chats]
-    elif isinstance(raw_chats, list):
-        all_chats = raw_chats
-    else:
-        all_chats = list(raw_chats)
-
-    total_chats = len(all_chats)
-    page_size = 15
-    total_pages = max(1, math.ceil(total_chats / page_size))
-    page = max(1, min(page, total_pages))
-
-    start_idx = (page - 1) * page_size
-    end_idx = start_idx + page_size
-    current_chats = all_chats[start_idx:end_idx]
-
-    text = f"📑 <b>All Connected Channels & Groups</b> (Page {page}/{total_pages})\n\n"
-    for i, chat in enumerate(current_chats, start=start_idx + 1):
-        chat_id = chat.get("id") or chat.get("chat_id")
-        title = chat.get("title") or chat.get("name") or "Unknown"
-        username = chat.get("username")
-
-        if username:
-            link = f"https://t.me/{username}"
-        elif str(chat_id).startswith("-100"):
-            clean_id = str(chat_id)[4:]
-            link = f"https://t.me/c/{clean_id}/1"
-        else:
-            link = "Private"
-
-        text += (
-            f"<b>{i}. {title}</b>\n🔗 Link: {link}\n🆔 ID: <code>{chat_id}</code>\n\n"
-        )
-
-    buttons = []
-    nav_row = []
-    if page > 1:
-        nav_row.append(
-            InlineKeyboardButton(
-                "⬅️ Previous", callback_data=f"channels_page#{page - 1}"
-            )
-        )
-    if page < total_pages:
-        nav_row.append(
-            InlineKeyboardButton("Next ➡️", callback_data=f"channels_page#{page + 1}")
-        )
-
-    if nav_row:
-        buttons.append(nav_row)
-    buttons.append([InlineKeyboardButton("🔐 Close", callback_data="close_data")])
-
-    return text, InlineKeyboardMarkup(buttons)
-
-
-@Client.on_message(filters.command("channels"))
-async def list_all_channels_cmd(client: Client, message: Message):
-    user_id = message.from_user.id if message.from_user else 0
-    if str(user_id) not in [str(a) for a in info.ADMINS]:
-        return await message.reply_text(
-            "❌ This command is restricted to Bot Admins only."
-        )
-
-    text, reply_markup = await get_channels_page(client, page=1)
-    await message.reply_text(
-        text, reply_markup=reply_markup, disable_web_page_preview=True
-    )
-
-
-@Client.on_message(filters.command(["leavechannel", "leave"]))
-async def leave_channel_cmd(client: Client, message: Message):
-    user_id = message.from_user.id if message.from_user else 0
-    if str(user_id) not in [str(a) for a in info.ADMINS]:
-        return await message.reply_text(
-            "❌ This command is restricted to Bot Admins only."
-        )
-
-    if len(message.command) < 2:
-        return await message.reply_text(
-            "⚙️ <b>Usage:</b> `/leavechannel <channel_id>`\n\n<b>Example:</b> `/leavechannel -1001234567890`"
-        )
-
-    target_chat_id = message.command[1].strip()
-    try:
-        chat_id_int = int(target_chat_id)
-    except ValueError:
-        return await message.reply_text(
-            "❌ Invalid Channel ID format. Must be an integer like `-100...`"
-        )
-
-    try:
-        chat = await client.get_chat(chat_id_int)
-        chat_title = chat.title or "Unknown"
-        await client.leave_chat(chat_id_int)
-        if hasattr(db, "delete_chat"):
-            await db.delete_chat(chat_id_int)
-        await message.reply_text(
-            f"✅ <b>Successfully left:</b>\n\n<b>Name:</b> {chat_title}\n<b>ID:</b> <code>{chat_id_int}</code>"
-        )
-    except Exception as e:
-        await message.reply_text(
-            f"❌ <b>Failed to leave channel:</b>\n<code>{e}</code>"
-        )
-
-
-# ============================================================
-# 📄 PAGINATION HANDLER
-# ============================================================
 @Client.on_callback_query(filters.regex(r"^next"))
 async def next_page(bot, query):
     if getattr(info, "REPAIR_MODE", False):
@@ -862,6 +684,59 @@ async def next_page(bot, query):
         await query.answer()
     except QueryIdInvalid:
         pass
+
+
+# Helper for /channels pagination
+async def get_channels_page(client: Client, page: int = 1):
+    raw_chats = await db.get_all_chats()
+    if hasattr(raw_chats, "__aiter__"):
+        all_chats = [c async for c in raw_chats]
+    elif isinstance(raw_chats, list):
+        all_chats = raw_chats
+    else:
+        all_chats = list(raw_chats)
+
+    total_chats = len(all_chats)
+    page_size = 15
+    total_pages = max(1, math.ceil(total_chats / page_size))
+    page = max(1, min(page, total_pages))
+
+    start_idx = (page - 1) * page_size
+    end_idx = start_idx + page_size
+    current_chats = all_chats[start_idx:end_idx]
+
+    text = f"📑 <b>All Connected Channels & Groups</b> (Page {page}/{total_pages})\n\n"
+    for i, chat in enumerate(current_chats, start=start_idx + 1):
+        chat_id = chat.get("id") or chat.get("chat_id")
+        title = chat.get("title") or chat.get("name") or "Unknown"
+        username = chat.get("username")
+
+        if username:
+            link = f"https://t.me/{username}"
+        elif str(chat_id).startswith("-100"):
+            clean_id = str(chat_id)[4:]
+            link = f"https://t.me/c/{clean_id}/1"
+        else:
+            link = "Private"
+
+        text += f"<b>{i}. {title}</b>\n🔗 Link: {link}\n🆔 ID: <code>{chat_id}</code>\n\n"
+
+    buttons = []
+    nav_row = []
+    if page > 1:
+        nav_row.append(
+            InlineKeyboardButton("⬅️ Previous", callback_data=f"channels_page#{page - 1}")
+        )
+    if page < total_pages:
+        nav_row.append(
+            InlineKeyboardButton("Next ➡️", callback_data=f"channels_page#{page + 1}")
+        )
+
+    if nav_row:
+        buttons.append(nav_row)
+    buttons.append([InlineKeyboardButton("🔐 Close", callback_data="close_data")])
+
+    return text, InlineKeyboardMarkup(buttons)
 
 
 @Client.on_callback_query(
@@ -1434,16 +1309,19 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     reply_markup=InlineKeyboardMarkup(buttons),
                     parse_mode=enums.ParseMode.HTML,
                 )
-            except Exception as err:
-                logger.error(f"HTML error rendering {query.data}: {err}")
+            except Exception as e:
+                logger.error(f"Error opening help menu for {query.data}: {e}")
                 clean_text = re.sub(
                     r"</?(b|i|u|s|code|pre|a|blockquote)[^>]*>", "", text
                 )
-                await query.message.edit_text(
-                    text=clean_text,
-                    reply_markup=InlineKeyboardMarkup(buttons),
-                    parse_mode=None,
-                )
+                try:
+                    await query.message.edit_text(
+                        text=clean_text,
+                        reply_markup=InlineKeyboardMarkup(buttons),
+                        parse_mode=None,
+                    )
+                except Exception:
+                    pass
 
         elif query.data in ["stats", "rfrsh"]:
             await query.answer()
