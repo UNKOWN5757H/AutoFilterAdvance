@@ -17,7 +17,12 @@ from pyrogram.errors import (
     RandomIdDuplicate,
     UserIsBlocked,
 )
-from pyrogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from pyrogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 
 import info
 from database.connections_mdb import (
@@ -52,16 +57,87 @@ MESSAGE_EMOJI_PLANE = '<tg-emoji emoji-id="5875465628285931233">✈️</tg-emoji
 MESSAGE_EMOJI_LINK = '<tg-emoji emoji-id="5877465816030515018">🔗</tg-emoji> Link'
 
 STOPWORDS = [
-    "send", "snd", "give", "gib", "pls", "plz", "please", "need", "want", "upload",
-    "uplod", "drop", "share", "find", "search", "provide", "post", "movie", "movies",
-    "film", "films", "cinema", "cinemas", "full", "fullmovie", "download", "downlod",
-    "link", "links", "file", "files", "print", "audio", "video", "ott", "hd", "hq",
-    "bluray", "rip", "watch", "online", "bro", "bhai", "anna", "boss", "admin", "sir",
-    "madam", "brodie", "dude", "macha", "machha", "guru", "chinnu", "brother", "beku",
-    "bekithu", "bekittu", "bekagide", "kodi", "kodro", "kalsi", "kalsro", "kalisi",
-    "haki", "haku", "hakro", "ideya", "irboda", "bidi", "madu", "yaradru", "chitra",
-    "chithra", "chalanachitra", "chalanachithra", "kannadadalli", "sandalwood",
-    "kr_picture", "kannada_filmy_group", "telegram",
+    "send",
+    "snd",
+    "give",
+    "gib",
+    "pls",
+    "plz",
+    "please",
+    "need",
+    "want",
+    "upload",
+    "uplod",
+    "drop",
+    "share",
+    "find",
+    "search",
+    "provide",
+    "post",
+    "movie",
+    "movies",
+    "film",
+    "films",
+    "cinema",
+    "cinemas",
+    "full",
+    "fullmovie",
+    "download",
+    "downlod",
+    "link",
+    "links",
+    "file",
+    "files",
+    "print",
+    "audio",
+    "video",
+    "ott",
+    "hd",
+    "hq",
+    "bluray",
+    "rip",
+    "watch",
+    "online",
+    "bro",
+    "bhai",
+    "anna",
+    "boss",
+    "admin",
+    "sir",
+    "madam",
+    "brodie",
+    "dude",
+    "macha",
+    "machha",
+    "guru",
+    "chinnu",
+    "brother",
+    "beku",
+    "bekithu",
+    "bekittu",
+    "bekagide",
+    "kodi",
+    "kodro",
+    "kalsi",
+    "kalsro",
+    "kalisi",
+    "haki",
+    "haku",
+    "hakro",
+    "ideya",
+    "irboda",
+    "bidi",
+    "madu",
+    "yaradru",
+    "chitra",
+    "chithra",
+    "chalanachitra",
+    "chalanachithra",
+    "kannadadalli",
+    "sandalwood",
+    "kr_picture",
+    "kannada_filmy_group",
+    "telegram",
 ]
 
 
@@ -161,8 +237,7 @@ async def advantage_spell_chok(client, msg, search_query):
                 pass
 
     movielist += [
-        re.sub(r"(\-|\(|\)|_)", "", i, flags=re.IGNORECASE).strip()
-        for i in gs_parsed
+        re.sub(r"(\-|\(|\)|_)", "", i, flags=re.IGNORECASE).strip() for i in gs_parsed
     ]
     movielist = list(dict.fromkeys([m for m in movielist if m]))
 
@@ -719,13 +794,17 @@ async def get_channels_page(client: Client, page: int = 1):
         else:
             link = "Private"
 
-        text += f"<b>{i}. {title}</b>\n🔗 Link: {link}\n🆔 ID: <code>{chat_id}</code>\n\n"
+        text += (
+            f"<b>{i}. {title}</b>\n🔗 Link: {link}\n🆔 ID: <code>{chat_id}</code>\n\n"
+        )
 
     buttons = []
     nav_row = []
     if page > 1:
         nav_row.append(
-            InlineKeyboardButton("⬅️ Previous", callback_data=f"channels_page#{page - 1}")
+            InlineKeyboardButton(
+                "⬅️ Previous", callback_data=f"channels_page#{page - 1}"
+            )
         )
     if page < total_pages:
         nav_row.append(
