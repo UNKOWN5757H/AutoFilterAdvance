@@ -541,13 +541,17 @@ async def get_channels_page(client: Client, page: int = 1):
         else:
             link = "Private"
 
-        text += f"<b>{i}. {title}</b>\n🔗 Link: {link}\n🆔 ID: <code>{chat_id}</code>\n\n"
+        text += (
+            f"<b>{i}. {title}</b>\n🔗 Link: {link}\n🆔 ID: <code>{chat_id}</code>\n\n"
+        )
 
     buttons = []
     nav_row = []
     if page > 1:
         nav_row.append(
-            InlineKeyboardButton("⬅️ Previous", callback_data=f"channels_page#{page - 1}")
+            InlineKeyboardButton(
+                "⬅️ Previous", callback_data=f"channels_page#{page - 1}"
+            )
         )
     if page < total_pages:
         nav_row.append(
