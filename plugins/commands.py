@@ -21,8 +21,6 @@ from pyrogram.types import (
 import info
 from database.connections_mdb import active_connection
 from database.ia_filterdb import Media, SafeMediaWrapper, get_file_details
-
-# Centralized database for ban checks
 from database.plugin_dbs import plugin_db
 from database.users_chats_db import db
 from info import (
@@ -543,17 +541,13 @@ async def get_channels_page(client: Client, page: int = 1):
         else:
             link = "Private"
 
-        text += (
-            f"<b>{i}. {title}</b>\n🔗 Link: {link}\n🆔 ID: <code>{chat_id}</code>\n\n"
-        )
+        text += f"<b>{i}. {title}</b>\n🔗 Link: {link}\n🆔 ID: <code>{chat_id}</code>\n\n"
 
     buttons = []
     nav_row = []
     if page > 1:
         nav_row.append(
-            InlineKeyboardButton(
-                "⬅️ Previous", callback_data=f"channels_page#{page - 1}"
-            )
+            InlineKeyboardButton("⬅️ Previous", callback_data=f"channels_page#{page - 1}")
         )
     if page < total_pages:
         nav_row.append(
@@ -567,7 +561,7 @@ async def get_channels_page(client: Client, page: int = 1):
     return text, InlineKeyboardMarkup(buttons)
 
 
-@Client.on_message(filters.command("channels") & filters.user(ADMIN_USERS))
+@Client.on_message(filters.command(["channels", "channel"]) & filters.user(ADMIN_USERS))
 async def list_all_channels_cmd(client: Client, message: Message):
     text, reply_markup = await get_channels_page(client, page=1)
     await message.reply_text(
@@ -605,38 +599,6 @@ async def leave_channel_cmd(client: Client, message: Message):
         await message.reply_text(
             f"❌ <b>Failed to leave channel:</b>\n<code>{e}</code>"
         )
-
-
-@Client.on_message(filters.command("channel") & filters.user(ADMIN_USERS))
-async def channel_info(bot, message):
-    if isinstance(CHANNELS, (int, str)):
-        channels = [CHANNELS]
-    elif isinstance(CHANNELS, list):
-        channels = CHANNELS
-    else:
-        raise ValueError("Unexpected type of CHANNELS")
-
-    text = "📑 **Indexed channels/groups**\n"
-    for channel in channels:
-        try:
-            chat = await bot.get_chat(channel)
-            text += (
-                "\n@" + chat.username
-                if chat.username
-                else "\n" + (chat.title or chat.first_name)
-            )
-        except Exception as e:
-            text += f"\n{channel} - (Error fetching: {e})"
-
-    text += f"\n\n**Total:** {len(CHANNELS)}"
-    if len(text) < 4096:
-        await message.reply(text)
-    else:
-        file = "Indexed channels.txt"
-        with open(file, "w") as f:
-            f.write(text)
-        await message.reply_document(file)
-        os.remove(file)
 
 
 @Client.on_message(filters.command("settings"))
