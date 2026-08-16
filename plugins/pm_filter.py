@@ -17,7 +17,12 @@ from pyrogram.errors import (
     RandomIdDuplicate,
     UserIsBlocked,
 )
-from pyrogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from pyrogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 
 import info
 from database.connections_mdb import (
@@ -52,16 +57,87 @@ MESSAGE_EMOJI_PLANE = '<tg-emoji emoji-id="5875465628285931233">✈️</tg-emoji
 MESSAGE_EMOJI_LINK = '<tg-emoji emoji-id="5877465816030515018">🔗</tg-emoji> Link'
 
 STOPWORDS = [
-    "send", "snd", "give", "gib", "pls", "plz", "please", "need", "want", "upload",
-    "uplod", "drop", "share", "find", "search", "provide", "post", "movie", "movies",
-    "film", "films", "cinema", "cinemas", "full", "fullmovie", "download", "downlod",
-    "link", "links", "file", "files", "print", "audio", "video", "ott", "hd", "hq",
-    "bluray", "rip", "watch", "online", "bro", "bhai", "anna", "boss", "admin", "sir",
-    "madam", "brodie", "dude", "macha", "machha", "guru", "chinnu", "brother", "beku",
-    "bekithu", "bekittu", "bekagide", "kodi", "kodro", "kalsi", "kalsro", "kalisi",
-    "haki", "haku", "hakro", "ideya", "irboda", "bidi", "madu", "yaradru", "chitra",
-    "chithra", "chalanachitra", "chalanachithra", "kannadadalli", "sandalwood",
-    "kr_picture", "kannada_filmy_group", "telegram",
+    "send",
+    "snd",
+    "give",
+    "gib",
+    "pls",
+    "plz",
+    "please",
+    "need",
+    "want",
+    "upload",
+    "uplod",
+    "drop",
+    "share",
+    "find",
+    "search",
+    "provide",
+    "post",
+    "movie",
+    "movies",
+    "film",
+    "films",
+    "cinema",
+    "cinemas",
+    "full",
+    "fullmovie",
+    "download",
+    "downlod",
+    "link",
+    "links",
+    "file",
+    "files",
+    "print",
+    "audio",
+    "video",
+    "ott",
+    "hd",
+    "hq",
+    "bluray",
+    "rip",
+    "watch",
+    "online",
+    "bro",
+    "bhai",
+    "anna",
+    "boss",
+    "admin",
+    "sir",
+    "madam",
+    "brodie",
+    "dude",
+    "macha",
+    "machha",
+    "guru",
+    "chinnu",
+    "brother",
+    "beku",
+    "bekithu",
+    "bekittu",
+    "bekagide",
+    "kodi",
+    "kodro",
+    "kalsi",
+    "kalsro",
+    "kalisi",
+    "haki",
+    "haku",
+    "hakro",
+    "ideya",
+    "irboda",
+    "bidi",
+    "madu",
+    "yaradru",
+    "chitra",
+    "chithra",
+    "chalanachitra",
+    "chalanachithra",
+    "kannadadalli",
+    "sandalwood",
+    "kr_picture",
+    "kannada_filmy_group",
+    "telegram",
 ]
 
 
@@ -161,8 +237,7 @@ async def advantage_spell_chok(client, msg, search_query):
                 pass
 
     movielist += [
-        re.sub(r"(\-|\(|\)|_)", "", i, flags=re.IGNORECASE).strip()
-        for i in gs_parsed
+        re.sub(r"(\-|\(|\)|_)", "", i, flags=re.IGNORECASE).strip() for i in gs_parsed
     ]
     movielist = list(dict.fromkeys([m for m in movielist if m]))
 
@@ -709,10 +784,11 @@ async def cb_handler(client: Client, query: CallbackQuery):
 
         elif query.data.startswith("channels_page#"):
             page_num = int(query.data.split("#")[1])
-            # Call your local get_channels_page from commands.py if needed, 
+            # Call your local get_channels_page from commands.py if needed,
             # or if this is within pm_filter.py, it isn't strictly needed unless duplicated.
             try:
                 from plugins.commands import get_channels_page
+
                 text, reply_markup = await get_channels_page(client, page=page_num)
                 await query.message.edit_text(
                     text=text, reply_markup=reply_markup, disable_web_page_preview=True
