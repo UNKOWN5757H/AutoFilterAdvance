@@ -10,11 +10,7 @@ class script(object):
 ○ 𝗗𝗮𝘁𝗮𝗕𝗮𝘀𝗲 : 𝙼𝙾𝙽𝙶𝙾 𝙳𝙱
 ○ 𝗕𝘂𝗶𝗹𝗱 𝗩𝗲𝗿𝘀𝗶𝗼𝗻 : V2.0 [ 𝙱𝙴𝚃𝙰 ]</b>"""
 
-    PRVCY_TXT = """<b>Hey {mention} ⚓
-
-➡️ Your Request Has Been Deleted To Safeguard Your Privacy!
-
-➡️ Thank You For Using @KR_PICTURE</b>"""
+    PRVCY_TXT = """<b>Hey {mention} ⚓\n\n➡️ Your Request Has Been Deleted To Safeguard Your Privacy!\n\n➡️ Thank You For Using @KR_PICTURE</b>"""
 
     SOURCE_TXT = """<b>Source Code Of This Bot is Private 😊</b>"""
 
@@ -61,6 +57,7 @@ class script(object):
     FILTERS_TXT = """<blockquote><b>Filter Management\nAdd, delete, or view filters to customize responses based on keywords.</b></blockquote>\n
 <b>‣ /filter - Add a text filter (Reply `/filter keyword` to a message)
 ‣ /addfilter - Add a text filter from pre-made buttons
+‣ /filterimage - Update only image for a filter (Reply to image with `/filterimage keyword`)
 ‣ /editfiltercolur - Change button colour - `/editfiltercolur keyword 1 green`
 ‣ /delfilter - Delete a text filter - /delfilter filter
 ‣ /listfilters - List all filters currently added in the bot\n\nSupports text/photo/video/animation/sticker</b>"""
@@ -115,54 +112,26 @@ You can just forward the message from database channel for starting indexing, no
 ‣ /dbstats - Get database stats
 ‣ /dbschedule - Get scheduled backup status</b>"""
 
-    POSTHAND_TXT = """<b><blockquote>POST_HANDLER.PY - COMMAND REFERENCE GUIDE\n \n POST CREATION & EDITING </blockquote>
+    POSTHAND_TXT = """<b><blockquote>📝 POST HANDLER COMMAND REFERENCE</blockquote>
 
-/post [Movie Name]
-    - Creates a brand new movie post session by fetching data from TMDB.
-/editpost [Channel Post Link]
-    - Imports an existing post from your channel so you can edit its 
-      caption, buttons, or image, and re-publish it over the original message.
+<b>[ CREATION & EDITING ]</b>
+‣ <code>/post [Movie]</code> - Create post via TMDB
+‣ <code>/editpost [Link]</code> - Import & edit post
 
-<blockquote>TEXT & FORMATTING CONTROLS </blockquote>
-* Pro Tip: Type 'blank' instead of a value to completely delete that line!
+<b>[ TEXT FORMATTING ]</b>
+<i>(Send <code>blank</code> to remove any field)</i>
+‣ <code>/edittitle [Title]</code> - Update Title
+‣ <code>/edityear [Year]</code> - Update Year
+‣ <code>/editlangs [Langs]</code> - Update Languages
+‣ <code>/editresolutions [Res]</code> - Update Qualities
+‣ <code>/editgenres [Genres]</code> - Update Genres
+‣ <code>/editotts [Platforms]</code> - Update OTT
 
-/edittitle [New Title]
-    - Overrides the TMDB movie title. (Ex: /edittitle Kantara)
-      To remove completely: /edittitle blank
-/edityear [New Year]
-    - Overrides the release year. (Ex: /edityear 2022)
-      To remove completely: /edityear blank
-/editlangs [Languages]
-    - Updates the Languages line. (Ex: /editlangs Kannada, Hindi)
-      To remove completely: /editlangs blank
-/editresolutions [Resolutions]
-    - Updates the Resolutions line. (Ex: /editresolutions 1080p, 720p)
-      To remove completely: /editresolutions blank
-/editgenres [Genres]
-    - Updates the Genres line. (Ex: /editgenres Action, Drama)
-      To remove completely: /editgenres blank
-/editotts [OTT Platforms]
-    - Updates the OTT line. (Ex: /editotts Netflix, Prime)
-      To remove completely: /editotts blank
-
-<blockquote> BUTTON & IMAGE CONTROLS </blockquote>
-
-/editbuttoncolour [Button Number] [Colour]
-    - Changes the color of a specific button. 
-    - Available Colours: green, red, blue
-    - Example: /editbuttoncolour 1 red
-/editdirect [URL]
-    - Updates the destination link of the "Direct Search 🔎" button.
-      To remove the button entirely: /editdirect blank
-/editimage
-    - Changes the rich preview image. The bot will pause and ask you 
-      to send a photo or a direct URL.
-    - Send '/reset' to restore the original TMDB poster.
-    - Send 'blank' to completely remove the image preview.
-/editnormalimage 
-    - Edit Image Sending Normal Image Without Preview & Telegraph Image
-    - Send '/reset' to restore the original TMDB poster.
-    - Send 'blank' to completely remove the image.</b>"""
+<b>[ BUTTONS & IMAGES ]</b>
+‣ <code>/editbuttoncolour [No.] [Color]</code> - Set color (green/red/blue)
+‣ <code>/editdirect [URL]</code> - Update direct search URL
+‣ <code>/editimage</code> - Change Telegraph preview image
+‣ <code>/editnormalimage</code> - Set native Telegram photo</b>"""
 
     STATUS_TXT = """<b>★ 𝚃𝙾𝚃𝙰𝙻 𝙵𝙸𝙻𝙴𝚂:</b> <code>{}</code>
 <b>★ 𝚃𝙾𝚃𝙰𝙻 𝚄𝚂𝙴𝚁𝚂:</b> <code>{}</code>
@@ -170,21 +139,6 @@ You can just forward the message from database channel for starting indexing, no
 <b>★ 𝚄𝚂𝙴𝙳 𝚂𝚃𝙾𝚁𝙰𝙶𝙴:</b> <code>{}</code> <b>𝙼𝚒𝙱</b>
 <b>★ 𝙵𝚁𝙴𝙴 𝚂𝚃𝙾𝚁𝙰𝙶𝙴:</b> <code>{}</code> <b>𝙼𝚒𝙱</b>"""
 
-    LOG_TEXT_G = """#NewGroup
-Group = {}(<code>{}</code>)
-Total Members = <code>{}</code>
-Added By - {}"""
-
-    LOG_TEXT_P = """#NewUser
-ID - <code>{}</code>
-Name - {}"""
-
-    DICS_TXT = """<b><code>ᴛʜɪꜱ ɪꜱ ᴀɴ ᴏᴘᴇɴ ꜱᴏᴜʀᴄᴇ ᴘʀᴏᴊᴇᴄᴛ.
-
-ᴀʟʟ ᴛʜᴇ ꜰɪʟᴇꜱ ɪɴ ᴛʜɪꜱ ʙᴏᴛ ᴀʀᴇ ꜰʀᴇᴇʟʏ ᴀᴠᴀɪʟᴀʙʟᴇ ᴏɴ ᴛʜᴇ ɪɴᴛᴇʀɴᴇᴛ ᴏʀ ᴘᴏꜱᴛᴇᴅ ʙʏ ꜱᴏᴍᴇʙᴏᴅʏ ᴇʟꜱᴇ. 
-ᴊᴜꜱᴛ ꜰᴏʀ ᴇᴀꜱʏ ꜱᴇᴀʀᴄʜɪɴɢ ᴛʜɪꜱ ʙᴏᴛ ɪꜱ ɪɴᴅᴇxɪɴɢ ꜰɪʟᴇꜱ ᴡʜɪᴄʜ ᴀʀᴇ ᴀʟʀᴇᴀᴅʏ ᴜᴘʟᴏᴀᴅᴇᴅ ᴏɴ ᴛᴇʟᴇɢʀᴀᴍ. 
-ᴡᴇ ʀᴇꜱᴘᴇᴄᴛ ᴀʟʟ ᴛʜᴇ ᴄᴏᴘʏʀɪɢʜᴛ ʟᴀᴡꜱ ᴀɴᴅ ᴡᴏʀᴋꜱ ɪɴ ᴄᴏᴍᴘʟɪᴀɴᴄᴇ ᴡɪᴛʜ ᴅᴍᴄᴀ ᴀɴᴅ ᴇᴜᴄᴅ. 
-ɪꜰ ᴀɴʏᴛʜɪɴɢ ɪꜱ ᴀɢᴀɪɴꜱᴛ ʟᴀᴡ ᴘʟᴇᴀꜱᴇ ᴄᴏɴᴛᴀᴄᴛ ᴍᴇ ꜱᴏ ᴛʜᴀᴛ ɪᴛ ᴄᴀɴ ʙᴇ ʀᴇᴍᴏᴠᴇᴅ ᴀꜱᴀᴘ. 
-ɪᴛ ɪꜱ ꜰᴏʀʙɪᴅᴅᴇɴ ᴛᴏ ᴅᴏᴡɴʟᴏᴀᴅ, ꜱᴛʀᴇᴀᴍ, ʀᴇᴘʀᴏᴅᴜᴄᴇ, ᴏʀ ʙʏ ᴀɴʏ ᴍᴇᴀɴꜱ, ꜱʜᴀʀᴇ, ᴏʀ ᴄᴏɴꜱᴜᴍᴇ, ᴄᴏɴᴛᴇɴᴛ ᴡɪᴛʜᴏᴜᴛ ᴇxᴘʟɪᴄɪᴛ ᴘᴇʀᴍɪꜱꜱɪᴏɴ ꜰʀᴏᴍ ᴛʜᴇ ᴄᴏɴᴛᴇɴᴛ ᴄʀᴇᴀᴛᴏʀ ᴏʀ ʟᴇɢᴀʟ ᴄᴏᴘʏʀɪɢʜᴛ ʜᴏʟᴅᴇʀ. 
-ɪꜰ ʏᴏᴜ ʙᴇʟɪᴇᴠᴇ ᴛʜɪꜱ ʙᴏᴛ ɪꜱ ᴠɪᴏʟᴀᴛɪɴɢ ʏᴏᴜʀ ɪɴᴛᴇʟʟᴇᴄᴛᴜᴀʟ ᴘʀᴏᴘᴇʀᴛʏ, ᴄᴏɴᴛᴀᴄᴛ ᴛʜᴇ ʀᴇꜱᴘᴇᴄᴛɪᴠᴇ ᴄʜᴀɴɴᴇʟꜱ ꜰᴏʀ ʀᴇᴍᴏᴠᴀʟ. 
-ᴛʜᴇ ʙᴏᴛ ᴅᴏᴇꜱ ɴᴏᴛ ᴏᴡɴ ᴀɴʏ ᴏꜰ ᴛʜᴇꜱᴇ ᴄᴏɴᴛᴇɴᴛꜱ, ɪᴛ ᴏɴʟʏ ɪɴᴅᴇx ᴛʜᴇ ꜰɪʟᴇꜱ ꜰʀᴏᴍ ᴛᴇʟᴇɢʀᴀᴍ.</code></b>"""
+    LOG_TEXT_G = """#NewGroup\nGroup = {}(<code>{}</code>)\nTotal Members = <code>{}</code>\nAdded By - {}"""
+    LOG_TEXT_P = """#NewUser\nID - <code>{}</code>\nName - {}"""
+    DICS_TXT = """<b><code>ᴛʜɪꜱ ɪꜱ ᴀɴ ᴏᴘᴇɴ ꜱᴏᴜʀᴄᴇ ᴘʀᴏᴊᴇᴄᴛ.</code></b>"""
