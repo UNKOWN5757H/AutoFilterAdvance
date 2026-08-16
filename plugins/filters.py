@@ -384,7 +384,7 @@ async def manual_filters(client: Client, message: Message, text=False):
                             reply_markup=reply_markup,
                         )
                     except Exception as e:
-                        logger.error(f"Error sending filter text message: {e}")
+                        logger.error(f"Error sending text filter: {e}")
             else:
                 try:
                     sent_msg = await client.send_cached_media(
@@ -410,16 +410,16 @@ async def manual_filters(client: Client, message: Message, text=False):
                                 caption=reply_text or "",
                                 reply_markup=reply_markup,
                             )
-                        except Exception as e:
-                            logger.error(f"Error sending cached media in filter: {e}")
+                        except Exception:
                             try:
-                                sent_msg = await client.send_message(
+                                sent_msg = await client.send_document(
                                     message.chat.id,
-                                    text=reply_text or "",
+                                    document=fileid,
+                                    caption=reply_text or "",
                                     reply_markup=reply_markup,
                                 )
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                logger.error(f"Media filter failed entirely: {e}")
 
             if sent_msg:
                 delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
@@ -427,6 +427,5 @@ async def manual_filters(client: Client, message: Message, text=False):
                     asyncio.create_task(
                         delete_message_after_delay(sent_msg, delete_timer)
                     )
-
             return True
     return False
