@@ -32,7 +32,7 @@ class script(object):
 ‣ /notfoundimg - Set image to send when file not found
 ‣ /fsubmsg - Set force subscribe message
 ‣ /fsubimg - Set force subscribe image\n
-*(Reply to a message/image with the command to set it, or use `<command> off` to remove)*</b>"""
+*(Reply to a message/image with the command to set it, or use `off` to remove)*</b>"""
 
     CUSTOMCAPTION_TXT = """<blockquote><b>File Caption Management\nManage or customize captions for files, including additional captions, to enhance file presentation.</b></blockquote>\n
 <b>‣ /customcaption - Set custom caption for files (Reply to message to set, or `/customcaption off` to disable)
@@ -117,49 +117,49 @@ You can just forward the message from database channel for starting indexing, no
 
     POSTHAND_TXT = """<b><blockquote>POST_HANDLER.PY - COMMAND REFERENCE GUIDE\n \n POST CREATION & EDITING </blockquote>
 
-‣ /post &lt;Movie Name&gt;
+/post [Movie Name]
     - Creates a brand new movie post session by fetching data from TMDB.
-‣ /editpost &lt;Channel Post Link&gt;
+/editpost [Channel Post Link]
     - Imports an existing post from your channel so you can edit its 
       caption, buttons, or image, and re-publish it over the original message.
 
 <blockquote>TEXT & FORMATTING CONTROLS </blockquote>
 * Pro Tip: Type 'blank' instead of a value to completely delete that line!
 
-‣ /edittitle &lt;New Title&gt;
-    - Overrides the TMDB movie title. (Ex: /edittitle joe)
+/edittitle [New Title]
+    - Overrides the TMDB movie title. (Ex: /edittitle Kantara)
       To remove completely: /edittitle blank
-‣ /edityear &lt;New Year&gt;
+/edityear [New Year]
     - Overrides the release year. (Ex: /edityear 2022)
       To remove completely: /edityear blank
-‣ /editlangs &lt;Languages&gt;
+/editlangs [Languages]
     - Updates the Languages line. (Ex: /editlangs Kannada, Hindi)
       To remove completely: /editlangs blank
-‣ /editresolutions &lt;Resolutions&gt;
+/editresolutions [Resolutions]
     - Updates the Resolutions line. (Ex: /editresolutions 1080p, 720p)
       To remove completely: /editresolutions blank
-‣ /editgenres &lt;Genres&gt;
+/editgenres [Genres]
     - Updates the Genres line. (Ex: /editgenres Action, Drama)
       To remove completely: /editgenres blank
-‣ /editotts &lt;OTT Platforms&gt;
+/editotts [OTT Platforms]
     - Updates the OTT line. (Ex: /editotts Netflix, Prime)
       To remove completely: /editotts blank
 
 <blockquote> BUTTON & IMAGE CONTROLS </blockquote>
 
-‣ /editbuttoncolour &lt;Button Number&gt; &lt;Colour&gt;
+/editbuttoncolour [Button Number] [Colour]
     - Changes the color of a specific button. 
     - Available Colours: green, red, blue
     - Example: /editbuttoncolour 1 red
-‣ /editdirect &lt;URL&gt;
+/editdirect [URL]
     - Updates the destination link of the "Direct Search 🔎" button.
       To remove the button entirely: /editdirect blank
-‣ /editimage
+/editimage
     - Changes the rich preview image. The bot will pause and ask you 
       to send a photo or a direct URL.
     - Send '/reset' to restore the original TMDB poster.
     - Send 'blank' to completely remove the image preview.
-‣ /editnormalimage 
+/editnormalimage 
     - Edit Image Sending Normal Image Without Preview & Telegraph Image
     - Send '/reset' to restore the original TMDB poster.
     - Send 'blank' to completely remove the image.</b>"""
