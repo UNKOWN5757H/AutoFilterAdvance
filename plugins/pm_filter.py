@@ -14,10 +14,9 @@ from pyrogram.errors import (
     MessageNotModified,
     PeerIdInvalid,
     QueryIdInvalid,
-    RandomIdDuplicate,
     UserIsBlocked,
 )
-from pyrogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
+from pyrogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 import info
 from database.connections_mdb import (
@@ -52,87 +51,16 @@ MESSAGE_EMOJI_PLANE = '<tg-emoji emoji-id="5875465628285931233">✈️</tg-emoji
 MESSAGE_EMOJI_LINK = '<tg-emoji emoji-id="5877465816030515018">🔗</tg-emoji> Link'
 
 STOPWORDS = [
-    "send",
-    "snd",
-    "give",
-    "gib",
-    "pls",
-    "plz",
-    "please",
-    "need",
-    "want",
-    "upload",
-    "uplod",
-    "drop",
-    "share",
-    "find",
-    "search",
-    "provide",
-    "post",
-    "movie",
-    "movies",
-    "film",
-    "films",
-    "cinema",
-    "cinemas",
-    "full",
-    "fullmovie",
-    "download",
-    "downlod",
-    "link",
-    "links",
-    "file",
-    "files",
-    "print",
-    "audio",
-    "video",
-    "ott",
-    "hd",
-    "hq",
-    "bluray",
-    "rip",
-    "watch",
-    "online",
-    "bro",
-    "bhai",
-    "anna",
-    "boss",
-    "admin",
-    "sir",
-    "madam",
-    "brodie",
-    "dude",
-    "macha",
-    "machha",
-    "guru",
-    "chinnu",
-    "brother",
-    "beku",
-    "bekithu",
-    "bekittu",
-    "bekagide",
-    "kodi",
-    "kodro",
-    "kalsi",
-    "kalsro",
-    "kalisi",
-    "haki",
-    "haku",
-    "hakro",
-    "ideya",
-    "irboda",
-    "bidi",
-    "madu",
-    "yaradru",
-    "chitra",
-    "chithra",
-    "chalanachitra",
-    "chalanachithra",
-    "kannadadalli",
-    "sandalwood",
-    "kr_picture",
-    "kannada_filmy_group",
-    "telegram",
+    "send", "snd", "give", "gib", "pls", "plz", "please", "need", "want", "upload",
+    "uplod", "drop", "share", "find", "search", "provide", "post", "movie", "movies",
+    "film", "films", "cinema", "cinemas", "full", "fullmovie", "download", "downlod",
+    "link", "links", "file", "files", "print", "audio", "video", "ott", "hd", "hq",
+    "bluray", "rip", "watch", "online", "bro", "bhai", "anna", "boss", "admin", "sir",
+    "madam", "brodie", "dude", "macha", "machha", "guru", "chinnu", "brother", "beku",
+    "bekithu", "bekittu", "bekagide", "kodi", "kodro", "kalsi", "kalsro", "kalisi",
+    "haki", "haku", "hakro", "ideya", "irboda", "bidi", "madu", "yaradru", "chitra",
+    "chithra", "chalanachitra", "chalanachithra", "kannadadalli", "sandalwood",
+    "kr_picture", "kannada_filmy_group", "telegram",
 ]
 
 
@@ -232,7 +160,8 @@ async def advantage_spell_chok(client, msg, search_query):
                 pass
 
     movielist += [
-        re.sub(r"(\-|\(|\)|_)", "", i, flags=re.IGNORECASE).strip() for i in gs_parsed
+        re.sub(r"(\-|\(|\)|_)", "", i, flags=re.IGNORECASE).strip()
+        for i in gs_parsed
     ]
     movielist = list(dict.fromkeys([m for m in movielist if m]))
 
@@ -283,7 +212,6 @@ async def advantage_spell_chok(client, msg, search_query):
 
 
 def build_keyboard(btn_str: str):
-    """Safely converts stored string buttons back to InlineKeyboardButtons mapping ButtonStyle Enums."""
     if not btn_str or btn_str in ["[]", "None", "False", ""]:
         return None
     try:
@@ -294,15 +222,18 @@ def build_keyboard(btn_str: str):
             for b in row:
                 if isinstance(b, dict):
                     b_copy = b.copy()
-                    if "style" in b_copy:
-                        style_val = b_copy["style"]
-                        if style_val == 1:
-                            b_copy["style"] = ButtonStyle.PRIMARY
-                        elif style_val == 3:
-                            b_copy["style"] = ButtonStyle.SUCCESS
-                        elif style_val == 4:
-                            b_copy["style"] = ButtonStyle.DANGER
-                    btn_row.append(InlineKeyboardButton(**b_copy))
+                    style_val = b_copy.pop("style", None)
+                    style_map = {
+                        1: ButtonStyle.PRIMARY,
+                        3: ButtonStyle.SUCCESS,
+                        4: ButtonStyle.DANGER,
+                    }
+                    btn_obj = InlineKeyboardButton(**b_copy)
+                    if style_val in style_map:
+                        btn_obj.style = style_map[style_val]
+                    elif isinstance(style_val, ButtonStyle):
+                        btn_obj.style = style_val
+                    btn_row.append(btn_obj)
                 else:
                     btn_row.append(b)
             button_layout.append(btn_row)
@@ -314,7 +245,7 @@ def build_keyboard(btn_str: str):
 
 async def manual_filters(client, message, text=False):
     group_id = message.chat.id
-    name = text or message.text
+    name = text or message.text or message.caption or ""
     reply_id = message.reply_to_message.id if message.reply_to_message else message.id
     keywords = await get_filters(group_id)
     if not keywords:
@@ -332,17 +263,30 @@ async def manual_filters(client, message, text=False):
                 InlineKeyboardMarkup(button_layout) if button_layout else None
             )
 
-            try:
-                fileid_str = str(fileid).strip()
-                if not fileid or fileid_str in ["None", "[]", "", "False"]:
+            sent_msg = None
+            fileid_str = str(fileid).strip()
+
+            if not fileid or fileid_str in ["None", "[]", "", "False"]:
+                try:
                     sent_msg = await client.send_message(
                         message.chat.id,
-                        reply_text,
+                        reply_text or "",
                         disable_web_page_preview=True,
                         reply_markup=reply_markup,
                         reply_to_message_id=reply_id,
                     )
-                else:
+                except Exception:
+                    try:
+                        sent_msg = await client.send_message(
+                            message.chat.id,
+                            reply_text or "",
+                            disable_web_page_preview=True,
+                            reply_markup=reply_markup,
+                        )
+                    except Exception as e:
+                        logger.error(f"Error sending text filter: {e}")
+            else:
+                try:
                     sent_msg = await client.send_cached_media(
                         message.chat.id,
                         fileid,
@@ -350,43 +294,31 @@ async def manual_filters(client, message, text=False):
                         reply_markup=reply_markup,
                         reply_to_message_id=reply_id,
                     )
-
-                if sent_msg:
-                    delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
-                    if delete_timer > 0:
-                        asyncio.create_task(
-                            silent_auto_delete(sent_msg, delete_timer, message)
-                        )
-
-            except FloodWait as e:
-                await asyncio.sleep(e.value)
-                try:
-                    if not fileid or fileid_str in ["None", "[]", "", "False"]:
-                        sent_msg = await client.send_message(
-                            message.chat.id,
-                            reply_text,
-                            disable_web_page_preview=True,
-                            reply_markup=reply_markup,
-                            reply_to_message_id=reply_id,
-                        )
-                    else:
+                except Exception:
+                    try:
                         sent_msg = await client.send_cached_media(
                             message.chat.id,
                             fileid,
                             caption=reply_text or "",
                             reply_markup=reply_markup,
-                            reply_to_message_id=reply_id,
                         )
-                    if sent_msg:
-                        delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
-                        if delete_timer > 0:
-                            asyncio.create_task(
-                                silent_auto_delete(sent_msg, delete_timer, message)
+                    except Exception:
+                        try:
+                            sent_msg = await client.send_photo(
+                                message.chat.id,
+                                photo=fileid,
+                                caption=reply_text or "",
+                                reply_markup=reply_markup,
                             )
-                except Exception as e2:
-                    logger.exception(f"manual_filter retry error: {e2}")
-            except Exception as e:
-                logger.exception(e)
+                        except Exception as e:
+                            logger.error(f"Error sending cached media: {e}")
+
+            if sent_msg:
+                delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
+                if delete_timer > 0:
+                    asyncio.create_task(
+                        silent_auto_delete(sent_msg, delete_timer, message)
+                    )
             return True
     return False
 
@@ -577,6 +509,104 @@ async def give_filter(client, message):
             logger.error(f"Auto filter error: {e}")
 
 
+# ============================================================
+# 📄 CHANNELS & LEAVE CHANNEL COMMANDS (15 PER PAGE)
+# ============================================================
+async def get_channels_page(client: Client, page: int = 1):
+    raw_chats = await db.get_all_chats()
+    if hasattr(raw_chats, "__aiter__"):
+        all_chats = [c async for c in raw_chats]
+    elif isinstance(raw_chats, list):
+        all_chats = raw_chats
+    else:
+        all_chats = list(raw_chats)
+
+    total_chats = len(all_chats)
+    page_size = 15
+    total_pages = max(1, math.ceil(total_chats / page_size))
+    page = max(1, min(page, total_pages))
+
+    start_idx = (page - 1) * page_size
+    end_idx = start_idx + page_size
+    current_chats = all_chats[start_idx:end_idx]
+
+    text = f"📑 <b>All Connected Channels & Groups</b> (Page {page}/{total_pages})\n\n"
+    for i, chat in enumerate(current_chats, start=start_idx + 1):
+        chat_id = chat.get("id") or chat.get("chat_id")
+        title = chat.get("title") or chat.get("name") or "Unknown"
+        username = chat.get("username")
+
+        if username:
+            link = f"https://t.me/{username}"
+        elif str(chat_id).startswith("-100"):
+            clean_id = str(chat_id)[4:]
+            link = f"https://t.me/c/{clean_id}/1"
+        else:
+            link = "Private"
+
+        text += f"<b>{i}. {title}</b>\n🔗 Link: {link}\n🆔 ID: <code>{chat_id}</code>\n\n"
+
+    buttons = []
+    nav_row = []
+    if page > 1:
+        nav_row.append(
+            InlineKeyboardButton("⬅️ Previous", callback_data=f"channels_page#{page - 1}")
+        )
+    if page < total_pages:
+        nav_row.append(
+            InlineKeyboardButton("Next ➡️", callback_data=f"channels_page#{page + 1}")
+        )
+
+    if nav_row:
+        buttons.append(nav_row)
+    buttons.append([InlineKeyboardButton("🔐 Close", callback_data="close_data")])
+
+    return text, InlineKeyboardMarkup(buttons)
+
+
+@Client.on_message(filters.command("channels"))
+async def list_all_channels_cmd(client: Client, message: Message):
+    user_id = message.from_user.id if message.from_user else 0
+    if str(user_id) not in [str(a) for a in info.ADMINS]:
+        return await message.reply_text("❌ This command is restricted to Bot Admins only.")
+
+    text, reply_markup = await get_channels_page(client, page=1)
+    await message.reply_text(text, reply_markup=reply_markup, disable_web_page_preview=True)
+
+
+@Client.on_message(filters.command(["leavechannel", "leave"]))
+async def leave_channel_cmd(client: Client, message: Message):
+    user_id = message.from_user.id if message.from_user else 0
+    if str(user_id) not in [str(a) for a in info.ADMINS]:
+        return await message.reply_text("❌ This command is restricted to Bot Admins only.")
+
+    if len(message.command) < 2:
+        return await message.reply_text(
+            "⚙️ <b>Usage:</b> `/leavechannel <channel_id>`\n\n<b>Example:</b> `/leavechannel -1001234567890`"
+        )
+
+    target_chat_id = message.command[1].strip()
+    try:
+        chat_id_int = int(target_chat_id)
+    except ValueError:
+        return await message.reply_text("❌ Invalid Channel ID format. Must be an integer like `-100...`")
+
+    try:
+        chat = await client.get_chat(chat_id_int)
+        chat_title = chat.title or "Unknown"
+        await client.leave_chat(chat_id_int)
+        if hasattr(db, "delete_chat"):
+            await db.delete_chat(chat_id_int)
+        await message.reply_text(
+            f"✅ <b>Successfully left:</b>\n\n<b>Name:</b> {chat_title}\n<b>ID:</b> <code>{chat_id_int}</code>"
+        )
+    except Exception as e:
+        await message.reply_text(f"❌ <b>Failed to leave channel:</b>\n<code>{e}</code>")
+
+
+# ============================================================
+# 📄 PAGINATION HANDLER
+# ============================================================
 @Client.on_callback_query(filters.regex(r"^next"))
 async def next_page(bot, query):
     if getattr(info, "REPAIR_MODE", False):
@@ -747,7 +777,7 @@ async def next_page(bot, query):
 
 @Client.on_callback_query(
     filters.regex(
-        r"^(close_data|delallconfirm|delallcancel|groupcb.*|connectcb.*|disconnect.*|deletecb.*|backcb|alertmessage.*|file.*|checksub.*|pages|start|help|about|helps_.*|stats|rfrsh)$"
+        r"^(close_data|channels_page#.*|delallconfirm|delallcancel|groupcb.*|connectcb.*|disconnect.*|deletecb.*|backcb|alertmessage.*|file.*|checksub.*|pages|start|help|about|helps_.*|stats|rfrsh)$"
     )
 )
 async def cb_handler(client: Client, query: CallbackQuery):
@@ -761,6 +791,18 @@ async def cb_handler(client: Client, query: CallbackQuery):
     try:
         if query.data == "close_data":
             await query.message.delete()
+
+        elif query.data.startswith("channels_page#"):
+            page_num = int(query.data.split("#")[1])
+            text, reply_markup = await get_channels_page(client, page=page_num)
+            try:
+                await query.message.edit_text(
+                    text=text, reply_markup=reply_markup, disable_web_page_preview=True
+                )
+            except MessageNotModified:
+                pass
+            await query.answer()
+
         elif query.data == "delallconfirm":
             userid = query.from_user.id
             chat_type = query.message.chat.type
@@ -1303,14 +1345,15 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     reply_markup=InlineKeyboardMarkup(buttons),
                     parse_mode=enums.ParseMode.HTML,
                 )
-            except Exception:
+            except Exception as err:
+                logger.error(f"HTML error rendering {query.data}: {err}")
                 clean_text = re.sub(
                     r"</?(b|i|u|s|code|pre|a|blockquote)[^>]*>", "", text
                 )
                 await query.message.edit_text(
                     text=clean_text,
                     reply_markup=InlineKeyboardMarkup(buttons),
-                    parse_mode=enums.ParseMode.DISABLED,
+                    parse_mode=None,
                 )
 
         elif query.data in ["stats", "rfrsh"]:
