@@ -1,8 +1,8 @@
 import base64
 import json
-import logging
 import os
 import re
+from logging import getLogger, INFO
 
 from pyrogram import Client, enums, filters
 from pyrogram.errors.exceptions.bad_request_400 import (
@@ -15,8 +15,8 @@ from database.ia_filterdb import unpack_new_file_id
 from info import ADMINS, FILE_STORE_CHANNEL, LOG_CHANNEL, PUBLIC_FILE_STORE
 from utils import temp
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger = getLogger(__name__)
+logger.setLevel(INFO)
 
 
 async def allowed(_, __, message):
@@ -108,7 +108,6 @@ async def gen_link_batch(bot, message):
 
     outlist = []
 
-    # file store without db channel
     og_msg = 0
     tot = 0
     async for msg in bot.iter_messages(f_chat_id, l_msg_id, f_msg_id):
@@ -116,7 +115,6 @@ async def gen_link_batch(bot, message):
         if msg.empty or msg.service:
             continue
         if not msg.media:
-            # only media messages supported.
             continue
         try:
             file_type = msg.media
@@ -135,7 +133,7 @@ async def gen_link_batch(bot, message):
 
                 og_msg += 1
                 outlist.append(file)
-        except:
+        except Exception:
             pass
         if not og_msg % 20:
             try:
@@ -147,7 +145,7 @@ async def gen_link_batch(bot, message):
                         sts="Saving Messages",
                     )
                 )
-            except:
+            except Exception:
                 pass
     with open(f"batchmode_{message.from_user.id}.json", "w+") as out:
         json.dump(outlist, out)
