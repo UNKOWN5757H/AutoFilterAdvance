@@ -1,18 +1,20 @@
 import asyncio
-import logging
 import re
 import urllib.parse
 import warnings
 from datetime import datetime
 from difflib import SequenceMatcher
 from io import BytesIO
+from logging import getLogger, ERROR
 
 import aiohttp
 from PIL import Image
 
 from info import IMAGE_FETCH, MAX_LIST_ELM, TMDB_API_KEY
 
-logger = logging.getLogger(__name__)
+logger = getLogger(__name__)
+logger.setLevel(ERROR)
+
 LONG_IMDB_DESCRIPTION = False
 
 Image.MAX_IMAGE_PIXELS = None
@@ -87,17 +89,14 @@ def _list_to_str_tmdb(data_list, limit=10, key=None):
 
 
 def _sanitize_and_extract(query: str):
-    """Clean query string by removing release tags, brackets, and extracting year."""
     q = str(query).strip()
     year = None
 
-    # Extract 4-digit year
     year_match = re.search(r"\b(19\d{2}|20\d{2})\b", q)
     if year_match:
         year = int(year_match.group(1))
         q = q.replace(year_match.group(1), "")
 
-    # Clean brackets, quality tags, languages, and extra symbols
     q = re.sub(
         r"(?i)\b(hdrip|web-dl|webrip|bluray|brrip|dvdrip|dvdscr|tsrip|camrip|hdtc|hevc|x264|x265|1080p|720p|480p|2160p|4k|hindi|kannada|telugu|tamil|malayalam|english|movie|series|season\s*\d+|ep\s*\d+)\b",
         "",
@@ -171,7 +170,6 @@ async def _search_media_id(query: str, api_key=None):
             continue
 
     if not multi_results and year:
-        # Fallback without year constraint if search returned empty
         try:
             params = {
                 "query": clean_title,
@@ -368,7 +366,6 @@ async def _fetch_tmdb_data(query: str, api_key=None):
 
 
 async def get_movie_details(query, bulk=False, id=False, file=None):
-    """Fallback search function for legacy IMDb callers."""
     try:
         data = await _fetch_tmdb_data(str(query), api_key=TMDB_API_KEY or None)
         if data:
@@ -381,7 +378,6 @@ async def get_movie_details(query, bulk=False, id=False, file=None):
 
 
 async def get_movie_detailsx(query, id=False, file=None):
-    """Main TMDB detail fetcher used by /post and message handlers."""
     q = str(query).strip()
     try:
         data = await _fetch_tmdb_data(q, api_key=TMDB_API_KEY or None)
