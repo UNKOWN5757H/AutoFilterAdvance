@@ -1,5 +1,5 @@
 import asyncio
-from logging import ERROR, getLogger
+from logging import getLogger, ERROR
 
 from pyrogram import Client, enums, filters
 from pyrogram.enums import ButtonStyle
@@ -86,8 +86,11 @@ async def get_invite_link(bot: Client, chat_id: str) -> str:
         info.FSUB_CHANNELS[chat_id]["link"] = invite.invite_link
         info.FSUB_CHANNELS[chat_id]["title"] = chat.title
         return invite.invite_link
+    except ChatAdminRequired:
+        logger.warning(f"ForceSub: Bot lacks 'Invite Users' permission in {chat_id}.")
+        return ""
     except Exception as e:
-        logger.error(f"Failed to fetch invite link for {chat_id}: {e}")
+        logger.warning(f"Failed to fetch invite link for {chat_id}: {e}")
         return ""
 
 
@@ -104,8 +107,7 @@ async def check_user_in_channel(bot: Client, channel_id: int, user_id: int) -> b
         ]
     except UserNotParticipant:
         return False
-    except Exception as e:
-        logger.debug(f"FSub check error for channel {channel_id}: {e}")
+    except Exception:
         return False
 
 
@@ -181,8 +183,7 @@ async def ForceSub(
 
         return False
 
-    except Exception as e:
-        logger.exception(f"[ForceSub Error] {e}")
+    except Exception:
         return True
 
 
@@ -233,10 +234,13 @@ async def refresh_fsub_callback(bot: Client, query: CallbackQuery):
                     caption="🎉 **Thank you for joining! Here is your file:**",
                 )
             except Exception:
-                await bot.send_message(
-                    chat_id=user_id,
-                    text="✅ **Verification complete!**\n\n⚠️ *The original file link expired. Please go back to the main group and click the file link again to get your movie!*",
-                )
+                try:
+                    await bot.send_message(
+                        chat_id=user_id,
+                        text="✅ **Verification complete!**\n\n⚠️ *The original file link expired. Please go back to the main group and click the file link again to get your movie!*",
+                    )
+                except Exception:
+                    pass
 
 
 # ============================================================
