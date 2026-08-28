@@ -1,5 +1,5 @@
 import asyncio
-from logging import getLogger, ERROR
+from logging import ERROR, getLogger
 
 import aiohttp
 from pyrogram import Client, filters
@@ -21,7 +21,9 @@ def is_bot_owner(user_id: int) -> bool:
     admin_list = [int(a) for a in ADMINS if str(a).isdigit()]
     return user_id in admin_list
 
+
 HTTP_SESSION = None
+
 
 async def get_http_session():
     global HTTP_SESSION
