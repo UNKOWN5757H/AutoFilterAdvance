@@ -1,7 +1,7 @@
 import asyncio
-import logging
 import re
 import time
+from logging import getLogger, INFO
 
 from pyrogram import Client, enums, filters
 from pyrogram.errors import (
@@ -20,7 +20,6 @@ from info import ADMINS
 from info import INDEX_REQ_CHANNEL as LOG_CHANNEL
 from utils import temp
 
-# Safely import channel lists from info.py and ensure they are parsed as lists
 AUTO_INDEX_CHANNELS = []
 try:
     from info import CHANNELS
@@ -42,17 +41,13 @@ try:
 except ImportError:
     pass
 
-# Remove duplicates
 AUTO_INDEX_CHANNELS = list(set(AUTO_INDEX_CHANNELS))
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger = getLogger(__name__)
+logger.setLevel(INFO)
 lock = asyncio.Lock()
 
 
-# ============================================================
-# ⚡ THE AUTO-INDEX FEATURE (Listens for NEW messages)
-# ============================================================
 @Client.on_message(
     filters.channel
     & (filters.document | filters.video | filters.audio)
@@ -60,9 +55,6 @@ lock = asyncio.Lock()
     group=-4,
 )
 async def auto_index_new_files(bot: Client, message):
-    """
-    Listens for any NEW files posted to your channels and instantly indexes them.
-    """
     if AUTO_INDEX_CHANNELS and message.chat.id not in AUTO_INDEX_CHANNELS:
         return
 
@@ -82,9 +74,6 @@ async def auto_index_new_files(bot: Client, message):
         logger.error(f"Auto-index failed for {message.chat.title}: {e}")
 
 
-# ============================================================
-# ⚙️ MANUAL INDEXING (Commands & Callbacks)
-# ============================================================
 @Client.on_callback_query(filters.regex(r"^index"))
 async def index_files(bot, query):
     if query.data.startswith("index_cancel"):
@@ -149,7 +138,6 @@ async def index_files(bot, query):
 
 
 async def process_index_request(bot, message, chat_id, last_msg_id):
-    """Helper function to validate and process all manual indexing requests."""
     try:
         chat_obj = await bot.get_chat(chat_id)
         chat_id = chat_obj.id
@@ -174,7 +162,6 @@ async def process_index_request(bot, message, chat_id, last_msg_id):
             "Make sure that I am an admin in the channel (if the channel is private)."
         )
 
-    # --- AUTOMATIC SKIP PROMPT FOR ADMINS ---
     if message.from_user.id in ADMINS:
         ask_msg = await message.reply(
             "**Indexing Initiated!**\n\nHow many messages do you want to **skip**? (Send `0` for no skip)\n\n*(You have 60 seconds to reply)*",
@@ -231,7 +218,6 @@ async def process_index_request(bot, message, chat_id, last_msg_id):
             reply_markup=InlineKeyboardMarkup(buttons),
         )
 
-    # --- IF NON-ADMIN FORWARDS A LINK/MESSAGE ---
     if chat_obj.username:
         link = f"https://t.me/{chat_obj.username}"
     else:
@@ -337,9 +323,6 @@ async def send_for_index(bot, message):
     await process_index_request(bot, message, chat_id, last_msg_id)
 
 
-# ============================================================
-# 🔢 SKIP COMMANDS
-# ============================================================
 @Client.on_message(filters.command("setskip") & filters.user(ADMINS))
 async def set_skip_number(bot, message):
     if len(message.command) > 1:
@@ -369,9 +352,6 @@ async def delete_skip_number(bot, message):
     await message.reply("Successfully reset the SKIP number to `0`.")
 
 
-# ============================================================
-# 💾 DATABASE SAVING FUNCTION
-# ============================================================
 async def index_files_to_db(lst_msg_id, chat, msg, bot):
     total_files = 0
     duplicate = 0
