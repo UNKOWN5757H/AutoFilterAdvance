@@ -1,16 +1,16 @@
-import logging
+from logging import getLogger, ERROR
 
 from pyrogram import Client, filters
 from pyrogram.types import Message
 
 import info
 
-logger = logging.getLogger(__name__)
+logger = getLogger(__name__)
+logger.setLevel(ERROR)
 
 # ============================================================
 # ⚙️ Initialize Runtime States for Captions
 # ============================================================
-# Ensures variables exist in info.py to prevent runtime errors
 if not hasattr(info, "CUSTOM_FILE_CAPTION"):
     info.CUSTOM_FILE_CAPTION = None
 
@@ -26,14 +26,12 @@ async def set_custom_caption(bot: Client, message: Message):
     """
     Sets or disables the global custom file caption.
     """
-    # Check if user wants to turn it off
     if len(message.command) > 1 and message.command[1].lower() == "off":
         info.CUSTOM_FILE_CAPTION = None
         return await message.reply_text(
             "✅ **Custom File Caption has been DISABLED.**\nFiles will now use their original database captions."
         )
 
-    # Require a replied message to set the caption
     if not message.reply_to_message:
         return await message.reply_text(
             "⚙️ **Usage:**\n"
@@ -47,8 +45,6 @@ async def set_custom_caption(bot: Client, message: Message):
         )
 
     replied = message.reply_to_message
-
-    # Extract text with markdown formatting preserved (if available)
     raw_text = None
     if replied.text:
         raw_text = replied.text.markdown
@@ -75,14 +71,12 @@ async def set_caption_plus(bot: Client, message: Message):
     """
     Sets or disables an additional caption appended to the end of files.
     """
-    # Check if user wants to turn it off
     if len(message.command) > 1 and message.command[1].lower() == "off":
         info.CAPTION_PLUS = None
         return await message.reply_text(
             "✅ **Additional Caption (Caption Plus) has been DISABLED.**"
         )
 
-    # Require a replied message to set the additional caption
     if not message.reply_to_message:
         return await message.reply_text(
             "⚙️ **Usage:**\n"
@@ -93,8 +87,6 @@ async def set_caption_plus(bot: Client, message: Message):
         )
 
     replied = message.reply_to_message
-
-    # Extract text with markdown formatting preserved
     raw_text = None
     if replied.text:
         raw_text = replied.text.markdown
