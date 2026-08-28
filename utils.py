@@ -3,8 +3,8 @@ import os
 import re
 import urllib.parse
 from datetime import datetime
+from logging import INFO, getLogger
 from typing import List, Union
-from logging import getLogger, INFO
 
 import aiohttp
 import requests
@@ -88,9 +88,28 @@ def parse_ultra_advanced_query(text):
     )
 
     stopwords = [
-        "movie", "full", "watch", "online", "download", "print", "hq", "dubbed",
-        "subtitles", "subs", "part", "audio", "video", "kr_picture", "sandalwood",
-        "exclusive", "official", "team", "kannada_filmy_group", "telegram", "join", "link",
+        "movie",
+        "full",
+        "watch",
+        "online",
+        "download",
+        "print",
+        "hq",
+        "dubbed",
+        "subtitles",
+        "subs",
+        "part",
+        "audio",
+        "video",
+        "kr_picture",
+        "sandalwood",
+        "exclusive",
+        "official",
+        "team",
+        "kannada_filmy_group",
+        "telegram",
+        "join",
+        "link",
     ]
     to_remove = stopwords + qualities + years + languages
     for word in to_remove:
