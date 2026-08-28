@@ -2,7 +2,7 @@ import asyncio
 import os
 import time
 from datetime import datetime
-from logging import getLogger, ERROR
+from logging import ERROR, getLogger
 
 from bson.json_util import dumps, loads
 from motor.motor_asyncio import AsyncIOMotorClient
