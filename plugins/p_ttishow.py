@@ -125,7 +125,7 @@ async def disable_chat(bot, message):
             reply_markup=InlineKeyboardMarkup(btn),
         )
         await bot.leave_chat(chat_id)
-    except Exception as e:
+    except Exception:
         pass
 
 
