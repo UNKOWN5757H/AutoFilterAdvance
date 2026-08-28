@@ -10,7 +10,7 @@ from logging import getLogger
 
 from pyrogram import Client, enums, filters
 from pyrogram.enums import ButtonStyle
-from pyrogram.errors import ChatAdminRequired, FloodWait, UserIsBlocked, PeerIdInvalid
+from pyrogram.errors import ChatAdminRequired, FloodWait, PeerIdInvalid, UserIsBlocked
 from pyrogram.types import (
     CallbackQuery,
     InlineKeyboardButton,
@@ -94,19 +94,31 @@ def get_start_buttons(user_id):
 @Client.on_message(filters.command("start") & filters.incoming)
 async def start(client: Client, message: Message):
     if getattr(info, "REPAIR_MODE", False):
-        if not message.from_user or str(message.from_user.id) not in [str(a) for a in info.ADMINS]:
-            return await message.reply_text("🛠️ **Bot is currently under maintenance!**")
+        if not message.from_user or str(message.from_user.id) not in [
+            str(a) for a in info.ADMINS
+        ]:
+            return await message.reply_text(
+                "🛠️ **Bot is currently under maintenance!**"
+            )
     if message.from_user and await plugin_db.is_banned(message.from_user.id):
-        return await message.reply_text("🚫 **You have been banned from using this bot.**")
+        return await message.reply_text(
+            "🚫 **You have been banned from using this bot.**"
+        )
 
     bot_uname = temp.U_NAME or "my_bot"
     b_name = temp.B_NAME or "MovieBot"
 
     if message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
-        reply_markup = get_start_buttons(message.from_user.id if message.from_user else 0)
+        reply_markup = get_start_buttons(
+            message.from_user.id if message.from_user else 0
+        )
         await message.reply(
             script.START_TXT.format(
-                mention=(message.from_user.mention if message.from_user else message.chat.title),
+                mention=(
+                    message.from_user.mention
+                    if message.from_user
+                    else message.chat.title
+                ),
                 uname=bot_uname,
                 bname=b_name,
                 plane_emoji=MESSAGE_EMOJI_PLANE,
@@ -121,7 +133,9 @@ async def start(client: Client, message: Message):
             try:
                 await client.send_message(
                     LOG_CHANNEL,
-                    script.LOG_TEXT_G.format(message.chat.title, message.chat.id, total, "Unknown"),
+                    script.LOG_TEXT_G.format(
+                        message.chat.title, message.chat.id, total, "Unknown"
+                    ),
                 )
             except Exception:
                 pass
@@ -133,7 +147,9 @@ async def start(client: Client, message: Message):
         try:
             await client.send_message(
                 LOG_CHANNEL,
-                script.LOG_TEXT_P.format(message.from_user.id, message.from_user.mention),
+                script.LOG_TEXT_P.format(
+                    message.from_user.id, message.from_user.mention
+                ),
             )
         except Exception:
             pass
@@ -150,9 +166,18 @@ async def start(client: Client, message: Message):
         )
         try:
             if photo_to_send:
-                await message.reply_photo(photo=photo_to_send, caption=caption, reply_markup=reply_markup, parse_mode=enums.ParseMode.HTML)
+                await message.reply_photo(
+                    photo=photo_to_send,
+                    caption=caption,
+                    reply_markup=reply_markup,
+                    parse_mode=enums.ParseMode.HTML,
+                )
             else:
-                await message.reply_text(text=caption, reply_markup=reply_markup, parse_mode=enums.ParseMode.HTML)
+                await message.reply_text(
+                    text=caption,
+                    reply_markup=reply_markup,
+                    parse_mode=enums.ParseMode.HTML,
+                )
         except (UserIsBlocked, PeerIdInvalid):
             pass
         return
@@ -171,9 +196,18 @@ async def start(client: Client, message: Message):
         )
         try:
             if photo_to_send:
-                await message.reply_photo(photo=photo_to_send, caption=caption, reply_markup=reply_markup, parse_mode=enums.ParseMode.HTML)
+                await message.reply_photo(
+                    photo=photo_to_send,
+                    caption=caption,
+                    reply_markup=reply_markup,
+                    parse_mode=enums.ParseMode.HTML,
+                )
             else:
-                await message.reply_text(text=caption, reply_markup=reply_markup, parse_mode=enums.ParseMode.HTML)
+                await message.reply_text(
+                    text=caption,
+                    reply_markup=reply_markup,
+                    parse_mode=enums.ParseMode.HTML,
+                )
         except (UserIsBlocked, PeerIdInvalid):
             pass
         return
@@ -195,10 +229,26 @@ async def start(client: Client, message: Message):
         return await message.reply("⚠️ No such file exists.")
 
     files = files_[0]
-    title = str(files.get("file_name", "Unknown") if isinstance(files, dict) else getattr(files, "file_name", "Unknown"))
-    size_raw = int(files.get("file_size", 0) if isinstance(files, dict) else getattr(files, "file_size", 0))
-    f_caption = str(files.get("caption", "") if isinstance(files, dict) else getattr(files, "caption", ""))
-    db_file_id = files.get("full_file_id", files.get("file_id", file_id)) if isinstance(files, dict) else getattr(files, "full_file_id", getattr(files, "file_id", file_id))
+    title = str(
+        files.get("file_name", "Unknown")
+        if isinstance(files, dict)
+        else getattr(files, "file_name", "Unknown")
+    )
+    size_raw = int(
+        files.get("file_size", 0)
+        if isinstance(files, dict)
+        else getattr(files, "file_size", 0)
+    )
+    f_caption = str(
+        files.get("caption", "")
+        if isinstance(files, dict)
+        else getattr(files, "caption", "")
+    )
+    db_file_id = (
+        files.get("full_file_id", files.get("file_id", file_id))
+        if isinstance(files, dict)
+        else getattr(files, "full_file_id", getattr(files, "file_id", file_id))
+    )
     size = get_size(size_raw)
 
     if CUSTOM_FILE_CAPTION:
@@ -221,15 +271,29 @@ async def start(client: Client, message: Message):
             chat_id=message.from_user.id,
             file_id=db_file_id,
             caption=f_caption,
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton(text="🎥 ಕನ್ನಡ ಹೊಸ ಮೂವೀಗಳು 🎥", url="https://t.me/Sandalwood_kannada_moviesz", icon_custom_emoji_id=5258503720928288433, style=ButtonStyle.SUCCESS)]
-            ]),
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            text="🎥 ಕನ್ನಡ ಹೊಸ ಮೂವೀಗಳು 🎥",
+                            url="https://t.me/Sandalwood_kannada_moviesz",
+                            icon_custom_emoji_id=5258503720928288433,
+                            style=ButtonStyle.SUCCESS,
+                        )
+                    ]
+                ]
+            ),
             protect_content=True if kk in ["filep", "checksubp"] else False,
         )
     except FloodWait as e:
         await asyncio.sleep(e.value + 1)
         try:
-            msg = await client.send_cached_media(chat_id=message.from_user.id, file_id=db_file_id, caption=f_caption, protect_content=True if kk in ["filep", "checksubp"] else False)
+            msg = await client.send_cached_media(
+                chat_id=message.from_user.id,
+                file_id=db_file_id,
+                caption=f_caption,
+                protect_content=True if kk in ["filep", "checksubp"] else False,
+            )
         except Exception as err:
             return await message.reply(f"⚠️ **Error:**\n`{err}`")
     except UserIsBlocked:
@@ -238,7 +302,10 @@ async def start(client: Client, message: Message):
         return await message.reply(f"⚠️ **Error sending file:**\n`{e}`")
 
     try:
-        k = await msg.reply("<b>📢 <u>Please Note</u>\n \n✅ The above file will be autodeleted in 30mins.\n \nTᴇᴀᴍ: @KR_Picture</b>", quote=True)
+        k = await msg.reply(
+            "<b>📢 <u>Please Note</u>\n \n✅ The above file will be autodeleted in 30mins.\n \nTᴇᴀᴍ: @KR_Picture</b>",
+            quote=True,
+        )
         delete_timer = getattr(info, "FILE_AUTO_DELETE", 1800)
         if delete_timer > 0:
             asyncio.create_task(delete_after_delay(msg, k, delete_timer))
@@ -250,7 +317,9 @@ async def delete_after_delay(msg, warning_msg, delay):
     await asyncio.sleep(delay)
     try:
         await msg.delete()
-        await warning_msg.edit_text("<b>Yᴏᴜʀ Vɪᴅᴇᴏ / Fɪʟᴇ ɪꜱ Sᴜᴄᴄᴇꜱꜱꜰᴜʟʟʏ Dᴇʟᴇᴛᴇᴅ !!. Tᴇᴀᴍ: @KR_Picture</b>")
+        await warning_msg.edit_text(
+            "<b>Yᴏᴜʀ Vɪᴅᴇᴏ / Fɪʟᴇ ɪꜱ Sᴜᴄᴄᴇꜱꜱꜰᴜʟʟʏ Dᴇʟᴇᴛᴇᴅ !!. Tᴇᴀᴍ: @KR_Picture</b>"
+        )
     except Exception:
         pass
 
@@ -287,14 +356,22 @@ async def get_channels_page(client: Client, page: int = 1):
         else:
             link = "Private"
 
-        text += f"<b>{i}. {title}</b>\n🔗 Link: {link}\n🆔 ID: <code>{chat_id}</code>\n\n"
+        text += (
+            f"<b>{i}. {title}</b>\n🔗 Link: {link}\n🆔 ID: <code>{chat_id}</code>\n\n"
+        )
 
     buttons = []
     nav_row = []
     if page > 1:
-        nav_row.append(InlineKeyboardButton("⬅️ Previous", callback_data=f"channels_page#{page - 1}"))
+        nav_row.append(
+            InlineKeyboardButton(
+                "⬅️ Previous", callback_data=f"channels_page#{page - 1}"
+            )
+        )
     if page < total_pages:
-        nav_row.append(InlineKeyboardButton("Next ➡️", callback_data=f"channels_page#{page + 1}"))
+        nav_row.append(
+            InlineKeyboardButton("Next ➡️", callback_data=f"channels_page#{page + 1}")
+        )
 
     if nav_row:
         buttons.append(nav_row)
@@ -305,13 +382,19 @@ async def get_channels_page(client: Client, page: int = 1):
 @Client.on_message(filters.command(["channels", "channel"]) & filters.user(ADMIN_USERS))
 async def list_all_channels_cmd(client: Client, message: Message):
     text, reply_markup = await get_channels_page(client, page=1)
-    await message.reply_text(text, reply_markup=reply_markup, disable_web_page_preview=True)
+    await message.reply_text(
+        text, reply_markup=reply_markup, disable_web_page_preview=True
+    )
 
 
-@Client.on_message(filters.command(["leavechannel", "leave"]) & filters.user(ADMIN_USERS))
+@Client.on_message(
+    filters.command(["leavechannel", "leave"]) & filters.user(ADMIN_USERS)
+)
 async def leave_channel_cmd(client: Client, message: Message):
     if len(message.command) < 2:
-        return await message.reply_text("⚙️ <b>Usage:</b> `/leavechannel <channel_id>`\n\n<b>Example:</b> `/leavechannel -1001234567890`")
+        return await message.reply_text(
+            "⚙️ <b>Usage:</b> `/leavechannel <channel_id>`\n\n<b>Example:</b> `/leavechannel -1001234567890`"
+        )
     target_chat_id = message.command[1].strip()
     try:
         chat_id_int = int(target_chat_id)
@@ -324,9 +407,13 @@ async def leave_channel_cmd(client: Client, message: Message):
         await client.leave_chat(chat_id_int)
         if hasattr(db, "delete_chat"):
             await db.delete_chat(chat_id_int)
-        await message.reply_text(f"✅ <b>Successfully left:</b>\n\n<b>Name:</b> {chat_title}\n<b>ID:</b> <code>{chat_id_int}</code>")
+        await message.reply_text(
+            f"✅ <b>Successfully left:</b>\n\n<b>Name:</b> {chat_title}\n<b>ID:</b> <code>{chat_id_int}</code>"
+        )
     except Exception as e:
-        await message.reply_text(f"❌ <b>Failed to leave channel:</b>\n<code>{e}</code>")
+        await message.reply_text(
+            f"❌ <b>Failed to leave channel:</b>\n<code>{e}</code>"
+        )
 
 
 @Client.on_message(filters.command("settings"))
@@ -367,16 +454,34 @@ async def settings(client: Client, message: Message):
 
     buttons = [
         [
-            InlineKeyboardButton(f"Buttons: {btn_text}", callback_data=f"setgs#button#{settings_dict.get('button', False)}#{grp_id}"),
-            InlineKeyboardButton(f"Bot PM: {botpm_text}", callback_data=f"setgs#botpm#{settings_dict.get('botpm', False)}#{grp_id}"),
+            InlineKeyboardButton(
+                f"Buttons: {btn_text}",
+                callback_data=f"setgs#button#{settings_dict.get('button', False)}#{grp_id}",
+            ),
+            InlineKeyboardButton(
+                f"Bot PM: {botpm_text}",
+                callback_data=f"setgs#botpm#{settings_dict.get('botpm', False)}#{grp_id}",
+            ),
         ],
         [
-            InlineKeyboardButton(f"File Secure: {file_secure_text}", callback_data=f"setgs#file_secure#{settings_dict.get('file_secure', False)}#{grp_id}"),
-            InlineKeyboardButton(f"IMDB: {imdb_text}", callback_data=f"setgs#imdb#{settings_dict.get('imdb', False)}#{grp_id}"),
+            InlineKeyboardButton(
+                f"File Secure: {file_secure_text}",
+                callback_data=f"setgs#file_secure#{settings_dict.get('file_secure', False)}#{grp_id}",
+            ),
+            InlineKeyboardButton(
+                f"IMDB: {imdb_text}",
+                callback_data=f"setgs#imdb#{settings_dict.get('imdb', False)}#{grp_id}",
+            ),
         ],
         [
-            InlineKeyboardButton(f"Spell Check: {spell_check_text}", callback_data=f"setgs#spell_check#{settings_dict.get('spell_check', False)}#{grp_id}"),
-            InlineKeyboardButton(f"Welcome: {welcome_text}", callback_data=f"setgs#welcome#{settings_dict.get('welcome', False)}#{grp_id}"),
+            InlineKeyboardButton(
+                f"Spell Check: {spell_check_text}",
+                callback_data=f"setgs#spell_check#{settings_dict.get('spell_check', False)}#{grp_id}",
+            ),
+            InlineKeyboardButton(
+                f"Welcome: {welcome_text}",
+                callback_data=f"setgs#welcome#{settings_dict.get('welcome', False)}#{grp_id}",
+            ),
         ],
         [InlineKeyboardButton("🗑 Close", callback_data="close_data")],
     ]
@@ -408,16 +513,34 @@ async def settings_callback(client: Client, query: CallbackQuery):
 
         buttons = [
             [
-                InlineKeyboardButton(f"Buttons: {btn_text}", callback_data=f"setgs#button#{settings_dict.get('button', False)}#{grp_id}"),
-                InlineKeyboardButton(f"Bot PM: {botpm_text}", callback_data=f"setgs#botpm#{settings_dict.get('botpm', False)}#{grp_id}"),
+                InlineKeyboardButton(
+                    f"Buttons: {btn_text}",
+                    callback_data=f"setgs#button#{settings_dict.get('button', False)}#{grp_id}",
+                ),
+                InlineKeyboardButton(
+                    f"Bot PM: {botpm_text}",
+                    callback_data=f"setgs#botpm#{settings_dict.get('botpm', False)}#{grp_id}",
+                ),
             ],
             [
-                InlineKeyboardButton(f"File Secure: {file_secure_text}", callback_data=f"setgs#file_secure#{settings_dict.get('file_secure', False)}#{grp_id}"),
-                InlineKeyboardButton(f"IMDB: {imdb_text}", callback_data=f"setgs#imdb#{settings_dict.get('imdb', False)}#{grp_id}"),
+                InlineKeyboardButton(
+                    f"File Secure: {file_secure_text}",
+                    callback_data=f"setgs#file_secure#{settings_dict.get('file_secure', False)}#{grp_id}",
+                ),
+                InlineKeyboardButton(
+                    f"IMDB: {imdb_text}",
+                    callback_data=f"setgs#imdb#{settings_dict.get('imdb', False)}#{grp_id}",
+                ),
             ],
             [
-                InlineKeyboardButton(f"Spell Check: {spell_check_text}", callback_data=f"setgs#spell_check#{settings_dict.get('spell_check', False)}#{grp_id}"),
-                InlineKeyboardButton(f"Welcome: {welcome_text}", callback_data=f"setgs#welcome#{settings_dict.get('welcome', False)}#{grp_id}"),
+                InlineKeyboardButton(
+                    f"Spell Check: {spell_check_text}",
+                    callback_data=f"setgs#spell_check#{settings_dict.get('spell_check', False)}#{grp_id}",
+                ),
+                InlineKeyboardButton(
+                    f"Welcome: {welcome_text}",
+                    callback_data=f"setgs#welcome#{settings_dict.get('welcome', False)}#{grp_id}",
+                ),
             ],
             [InlineKeyboardButton("🗑 Close", callback_data="close_data")],
         ]
