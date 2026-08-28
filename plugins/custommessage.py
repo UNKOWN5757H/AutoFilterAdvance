@@ -1,4 +1,4 @@
-from logging import getLogger, ERROR
+from logging import ERROR, getLogger
 
 from pyrogram import Client, filters
 from pyrogram.types import Message
@@ -91,29 +91,36 @@ async def process_image_setting(message: Message, var_name: str, setting_name: s
 async def set_info_msg(bot: Client, message: Message):
     await process_text_setting(message, "INFO_MSG", "Info Message")
 
+
 @Client.on_message(filters.command("infoimg") & filters.user(info.ADMINS))
 async def set_info_img(bot: Client, message: Message):
     await process_image_setting(message, "INFO_IMG", "Info Image")
+
 
 @Client.on_message(filters.command("delmsg") & filters.user(info.ADMINS))
 async def set_del_msg(bot: Client, message: Message):
     await process_text_setting(message, "DEL_MSG", "Delete Message")
 
+
 @Client.on_message(filters.command("delimg") & filters.user(info.ADMINS))
 async def set_del_img(bot: Client, message: Message):
     await process_image_setting(message, "DEL_IMG", "Delete Image")
+
 
 @Client.on_message(filters.command("notfoundmsg") & filters.user(info.ADMINS))
 async def set_notfound_msg(bot: Client, message: Message):
     await process_text_setting(message, "NOT_FOUND_MSG", "File Not Found Message")
 
+
 @Client.on_message(filters.command("notfoundimg") & filters.user(info.ADMINS))
 async def set_notfound_img(bot: Client, message: Message):
     await process_image_setting(message, "NOT_FOUND_IMG", "File Not Found Image")
 
+
 @Client.on_message(filters.command("fsubmsg") & filters.user(info.ADMINS))
 async def set_fsub_msg(bot: Client, message: Message):
     await process_text_setting(message, "FSUB_MSG", "Force Subscribe Message")
+
 
 @Client.on_message(filters.command("fsubimg") & filters.user(info.ADMINS))
 async def set_fsub_img(bot: Client, message: Message):
