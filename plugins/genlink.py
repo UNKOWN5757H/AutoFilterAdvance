@@ -2,7 +2,7 @@ import base64
 import json
 import os
 import re
-from logging import INFO, getLogger
+from logging import getLogger, INFO
 
 from pyrogram import Client, enums, filters
 from pyrogram.errors.exceptions.bad_request_400 import (
@@ -63,7 +63,7 @@ async def gen_link_batch(bot, message):
         )
     cmd, first, last = links
     regex = re.compile(
-        "(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$"
+        r"(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$"
     )
     match = regex.match(first)
     if not match:
