@@ -1,4 +1,4 @@
-from logging import getLogger, ERROR
+from logging import ERROR, getLogger
 
 from pyrogram import Client, filters
 from pyrogram.types import Message
@@ -8,6 +8,7 @@ from database.plugin_dbs import plugin_db as _plugin_db
 
 logger = getLogger(__name__)
 logger.setLevel(ERROR)
+
 
 @Client.on_message(filters.command("ban") & filters.user(info.ADMINS))
 async def ban_user_cmd(bot: Client, message: Message):
