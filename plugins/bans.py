@@ -1,14 +1,13 @@
-from logging import ERROR, getLogger
+from logging import getLogger, ERROR
 
 from pyrogram import Client, filters
 from pyrogram.types import Message
 
 import info
-from database.plugin_dbs import plugin_db
+from database.plugin_dbs import plugin_db as _plugin_db
 
 logger = getLogger(__name__)
 logger.setLevel(ERROR)
-
 
 @Client.on_message(filters.command("ban") & filters.user(info.ADMINS))
 async def ban_user_cmd(bot: Client, message: Message):
@@ -25,7 +24,7 @@ async def ban_user_cmd(bot: Client, message: Message):
         if user_id == bot.me.id:
             return await message.reply_text("❌ **I cannot ban myself!**")
 
-        await plugin_db.ban_user(user_id)
+        await _plugin_db.ban_user(user_id)
         await message.reply_text(
             f"🚫 **User `{user_id}` has been successfully BANNED.**\nThey can no longer use this bot."
         )
@@ -46,13 +45,13 @@ async def unban_user_cmd(bot: Client, message: Message):
     try:
         user_id = int(message.command[1])
 
-        is_banned = await plugin_db.is_banned(user_id)
+        is_banned = await _plugin_db.is_banned(user_id)
         if not is_banned:
             return await message.reply_text(
                 f"⚠️ **User `{user_id}` is not currently banned.**"
             )
 
-        await plugin_db.unban_user(user_id)
+        await _plugin_db.unban_user(user_id)
         await message.reply_text(
             f"✅ **User `{user_id}` has been successfully UNBANNED.**\nThey can now use the bot again."
         )
@@ -68,7 +67,7 @@ async def unban_user_cmd(bot: Client, message: Message):
 @Client.on_message(filters.command("bannedusers") & filters.user(info.ADMINS))
 async def check_banned_users(bot: Client, message: Message):
     try:
-        count = await plugin_db.get_ban_count()
+        count = await _plugin_db.get_ban_count()
         await message.reply_text(f"📊 **Total Banned Users:** `{count}`")
     except Exception as e:
         await message.reply_text(f"❌ **Error:** `{e}`")
