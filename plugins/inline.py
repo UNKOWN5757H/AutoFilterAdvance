@@ -1,4 +1,4 @@
-import logging
+from logging import getLogger, ERROR
 
 from pyrogram import Client, emoji, filters
 from pyrogram.errors.exceptions.bad_request_400 import QueryIdInvalid
@@ -13,7 +13,9 @@ from database.ia_filterdb import get_search_results
 from info import AUTH_CHANNEL, AUTH_USERS, CACHE_TIME, CUSTOM_FILE_CAPTION, REQ_CHANNEL
 from utils import get_size, is_subscribed, temp
 
-logger = logging.getLogger(__name__)
+logger = getLogger(__name__)
+logger.setLevel(ERROR)
+
 cache_time = 0 if AUTH_USERS or AUTH_CHANNEL else CACHE_TIME
 
 
@@ -104,7 +106,7 @@ async def answer(bot, query: InlineQuery):
         except QueryIdInvalid:
             pass
         except Exception as e:
-            logging.exception(str(e))
+            logger.exception(str(e))
     else:
         switch_pm_text = f"{emoji.CROSS_MARK} No results"
         if string:
