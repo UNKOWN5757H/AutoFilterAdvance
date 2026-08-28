@@ -1,7 +1,7 @@
 import asyncio
-import logging
 import time
 import traceback
+from logging import getLogger, ERROR
 
 from pyrogram import Client, StopPropagation, enums, filters
 from pyrogram.errors import MessageNotModified
@@ -16,11 +16,11 @@ import info
 from database.connections_mdb import active_connection
 from database.plugin_dbs import plugin_db
 
-logger = logging.getLogger(__name__)
+logger = getLogger(__name__)
+logger.setLevel(ERROR)
 
 
 async def is_admin(bot: Client, chat_id: int, user_id: int) -> bool:
-    """Safely checks if a user is a bot admin or a chat admin using Pyrogram V2 Enums."""
     try:
         if str(user_id) in [str(a) for a in getattr(info, "ADMINS", [])]:
             return True
@@ -38,7 +38,6 @@ async def is_admin(bot: Client, chat_id: int, user_id: int) -> bool:
 
 
 async def get_target_group(bot: Client, message: Message, require_admin: bool = True):
-    """Resolves target group ID and verifies admin permissions."""
     if not message.from_user:
         return None, False
 
@@ -64,9 +63,6 @@ async def get_target_group(bot: Client, message: Message, require_admin: bool = 
     return grp_id, True
 
 
-# ============================================================
-# ⚙️ MAIN ADMIN COMMANDS (Set & Target)
-# ============================================================
 @Client.on_message(filters.command("setforceadd") & (filters.group | filters.private))
 async def set_force_add(bot: Client, message: Message):
     try:
@@ -189,9 +185,6 @@ async def get_force_add(bot: Client, message: Message):
         logger.error(f"Error in getforceadd: {e}")
 
 
-# ============================================================
-# 🏆 LEADERBOARDS & RESETS
-# ============================================================
 async def generate_leaderboard(bot, message, grp_id, title, time_limit_seconds):
     try:
         top_10 = await plugin_db.get_fa_top_adds(grp_id, time_limit_seconds)
@@ -271,9 +264,6 @@ async def reset_all_adds(bot: Client, message: Message):
         logger.error(f"Error in resetadd: {e}")
 
 
-# ============================================================
-# 🧑‍💻 USER COMMAND: Check their own progress
-# ============================================================
 @Client.on_message(filters.command("myadds") & (filters.group | filters.private))
 async def my_adds(bot: Client, message: Message):
     try:
@@ -298,9 +288,6 @@ async def my_adds(bot: Client, message: Message):
         logger.error(f"Error in myadds command: {e}")
 
 
-# ============================================================
-# 📥 TRACKER & ENFORCER (Combined Core Logic)
-# ============================================================
 @Client.on_message(filters.new_chat_members & filters.group)
 async def track_added_members(bot: Client, message: Message):
     try:
@@ -436,9 +423,6 @@ async def enforce_force_add(bot: Client, message: Message):
             asyncio.create_task(delete_warning(warn_msg))
 
 
-# ============================================================
-# 🖱️ BUTTON CLICK HANDLER (Pop-up Stats Alert)
-# ============================================================
 @Client.on_callback_query(filters.regex("^forceadd_check$"))
 async def check_adds_button(bot: Client, query):
     try:
