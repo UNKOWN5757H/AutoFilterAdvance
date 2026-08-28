@@ -1,11 +1,11 @@
 import ast
 import asyncio
 import re
-from logging import getLogger, ERROR
+from logging import ERROR, getLogger
 
 from pyrogram import Client, enums, filters
 from pyrogram.enums import ButtonStyle
-from pyrogram.errors import Forbidden, FloodWait, UserIsBlocked, PeerIdInvalid
+from pyrogram.errors import FloodWait, Forbidden, PeerIdInvalid, UserIsBlocked
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 import info
@@ -129,7 +129,9 @@ async def add_filter_cmd(client: Client, message: Message):
     if not ok:
         return
     if not message.reply_to_message:
-        return await message.reply_text("⚠️ **Reply to a message to set it as a filter.**")
+        return await message.reply_text(
+            "⚠️ **Reply to a message to set it as a filter.**"
+        )
     if len(message.command) < 2:
         return await message.reply_text("⚙️ **Usage:** `/filter <keyword>`")
 
@@ -153,7 +155,9 @@ async def add_filter_cmd(client: Client, message: Message):
         fileid = replied.sticker.file_id
 
     await add_filter(grp_id, keyword, text, btn, "[]", fileid)
-    await message.reply_text(f"✅ **Filter successfully added!**\n\n**Keyword:** `{keyword}`")
+    await message.reply_text(
+        f"✅ **Filter successfully added!**\n\n**Keyword:** `{keyword}`"
+    )
 
 
 @Client.on_message(filters.command("addfilter") & (filters.group | filters.private))
@@ -162,7 +166,9 @@ async def add_premade_filter_cmd(client: Client, message: Message):
     if not ok:
         return
     if not message.reply_to_message:
-        return await message.reply_text("⚠️ **Reply to a message containing inline buttons.**")
+        return await message.reply_text(
+            "⚠️ **Reply to a message containing inline buttons.**"
+        )
     if len(message.command) < 2:
         return await message.reply_text("⚙️ **Usage:** `/addfilter <keyword>`")
 
@@ -202,7 +208,9 @@ async def add_premade_filter_cmd(client: Client, message: Message):
         fileid = replied.sticker.file_id
 
     await add_filter(grp_id, keyword, text, btn_str, "[]", fileid)
-    await message.reply_text(f"✅ **Filter with buttons added!**\n\n**Keyword:** `{keyword}`")
+    await message.reply_text(
+        f"✅ **Filter with buttons added!**\n\n**Keyword:** `{keyword}`"
+    )
 
 
 @Client.on_message(filters.command("filterimage") & (filters.group | filters.private))
@@ -211,7 +219,9 @@ async def edit_filter_image_cmd(client: Client, message: Message):
     if not ok:
         return
     if not message.reply_to_message or not message.reply_to_message.media:
-        return await message.reply_text("⚠️ **Reply to a photo, video, or document to set the new image.**")
+        return await message.reply_text(
+            "⚠️ **Reply to a photo, video, or document to set the new image.**"
+        )
     if len(message.command) < 2:
         return await message.reply_text("⚙️ **Usage:** `/filterimage <keyword>`")
 
@@ -240,18 +250,25 @@ async def edit_filter_image_cmd(client: Client, message: Message):
         return await message.reply_text("❌ Could not extract valid media.")
 
     await add_filter(grp_id, keyword, reply_text, btn, alert, fileid)
-    await message.reply_text(f"✅ **Filter image updated!**\n\n**Keyword:** `{keyword}`")
+    await message.reply_text(
+        f"✅ **Filter image updated!**\n\n**Keyword:** `{keyword}`"
+    )
 
 
-@Client.on_message(filters.command(["editfiltercolur", "editfiltercolour"]) & (filters.group | filters.private))
+@Client.on_message(
+    filters.command(["editfiltercolur", "editfiltercolour"])
+    & (filters.group | filters.private)
+)
 async def edit_filter_colour_cmd(client: Client, message: Message):
     grp_id, ok = await get_target_group(client, message)
     if not ok:
         return
     args = message.command
     if len(args) < 4:
-        return await message.reply_text("❌ **Usage:** `/editfiltercolur <keyword> <button_number> <colour>`\n\n**Example:** `/editfiltercolur Kantara 1 green`\n**Colours:** `green`, `red`, `blue`")
-    
+        return await message.reply_text(
+            "❌ **Usage:** `/editfiltercolur <keyword> <button_number> <colour>`\n\n**Example:** `/editfiltercolur Kantara 1 green`\n**Colours:** `green`, `red`, `blue`"
+        )
+
     try:
         btn_num = int(args[-2])
         color_str = args[-1].lower()
@@ -261,7 +278,9 @@ async def edit_filter_colour_cmd(client: Client, message: Message):
 
     color_map = {"green": 3, "red": 4, "blue": 1}
     if color_str not in color_map:
-        return await message.reply_text("❌ Invalid colour. Choose from: `green`, `red`, `blue`.")
+        return await message.reply_text(
+            "❌ Invalid colour. Choose from: `green`, `red`, `blue`."
+        )
 
     reply_text, btn, alert, fileid = await find_filter(grp_id, keyword)
     if not reply_text and (not fileid or fileid == "None"):
@@ -286,10 +305,14 @@ async def edit_filter_colour_cmd(client: Client, message: Message):
             break
 
     if not found:
-        return await message.reply_text(f"❌ Button {btn_num} not found. Filter has {count} buttons.")
+        return await message.reply_text(
+            f"❌ Button {btn_num} not found. Filter has {count} buttons."
+        )
 
     await add_filter(grp_id, keyword, reply_text, str(button_data), alert, fileid)
-    await message.reply_text(f"✅ Filter `{keyword}` Button {btn_num} colour changed to {color_str.title()}!")
+    await message.reply_text(
+        f"✅ Filter `{keyword}` Button {btn_num} colour changed to {color_str.title()}!"
+    )
 
 
 @Client.on_message(filters.command("delfilter") & (filters.group | filters.private))
@@ -316,27 +339,60 @@ async def list_filters_cmd(client: Client, message: Message):
     await message.reply_text(text)
 
 
-async def send_filter_media(client, chat_id, fileid, reply_text, reply_markup, reply_id):
+async def send_filter_media(
+    client, chat_id, fileid, reply_text, reply_markup, reply_id
+):
     """Brute force media sender to avoid cache fails"""
     try:
-        return await client.send_cached_media(chat_id, fileid, caption=reply_text, reply_markup=reply_markup, reply_to_message_id=reply_id)
+        return await client.send_cached_media(
+            chat_id,
+            fileid,
+            caption=reply_text,
+            reply_markup=reply_markup,
+            reply_to_message_id=reply_id,
+        )
     except FloodWait as e:
         await asyncio.sleep(e.value + 1)
-        return await send_filter_media(client, chat_id, fileid, reply_text, reply_markup, reply_id)
+        return await send_filter_media(
+            client, chat_id, fileid, reply_text, reply_markup, reply_id
+        )
     except (UserIsBlocked, PeerIdInvalid):
         return None
     except Exception:
         try:
-            return await client.send_photo(chat_id, photo=fileid, caption=reply_text, reply_markup=reply_markup, reply_to_message_id=reply_id)
+            return await client.send_photo(
+                chat_id,
+                photo=fileid,
+                caption=reply_text,
+                reply_markup=reply_markup,
+                reply_to_message_id=reply_id,
+            )
         except Exception:
             try:
-                return await client.send_document(chat_id, document=fileid, caption=reply_text, reply_markup=reply_markup, reply_to_message_id=reply_id)
+                return await client.send_document(
+                    chat_id,
+                    document=fileid,
+                    caption=reply_text,
+                    reply_markup=reply_markup,
+                    reply_to_message_id=reply_id,
+                )
             except Exception:
                 try:
-                    return await client.send_video(chat_id, video=fileid, caption=reply_text, reply_markup=reply_markup, reply_to_message_id=reply_id)
+                    return await client.send_video(
+                        chat_id,
+                        video=fileid,
+                        caption=reply_text,
+                        reply_markup=reply_markup,
+                        reply_to_message_id=reply_id,
+                    )
                 except Exception:
                     try:
-                        return await client.send_message(chat_id, text=reply_text, reply_markup=reply_markup, reply_to_message_id=reply_id)
+                        return await client.send_message(
+                            chat_id,
+                            text=reply_text,
+                            reply_markup=reply_markup,
+                            reply_to_message_id=reply_id,
+                        )
                     except Exception as err:
                         logger.error(f"Media filter failed entirely: {err}")
                         return None
@@ -345,10 +401,18 @@ async def send_filter_media(client, chat_id, fileid, reply_text, reply_markup, r
 async def safe_send_text_filter(client, chat_id, text, reply_markup, reply_id):
     """Safe text sender with FloodWait"""
     try:
-        return await client.send_message(chat_id, text, disable_web_page_preview=True, reply_markup=reply_markup, reply_to_message_id=reply_id)
+        return await client.send_message(
+            chat_id,
+            text,
+            disable_web_page_preview=True,
+            reply_markup=reply_markup,
+            reply_to_message_id=reply_id,
+        )
     except FloodWait as e:
         await asyncio.sleep(e.value + 1)
-        return await safe_send_text_filter(client, chat_id, text, reply_markup, reply_id)
+        return await safe_send_text_filter(
+            client, chat_id, text, reply_markup, reply_id
+        )
     except (UserIsBlocked, PeerIdInvalid):
         return None
     except Exception as e:
@@ -358,7 +422,10 @@ async def safe_send_text_filter(client, chat_id, text, reply_markup, reply_id):
 
 async def manual_filters(client: Client, message: Message, text=False):
     if getattr(info, "REPAIR_MODE", False):
-        if not message.from_user or (message.from_user.id not in info.ADMINS and str(message.from_user.id) not in info.ADMINS):
+        if not message.from_user or (
+            message.from_user.id not in info.ADMINS
+            and str(message.from_user.id) not in info.ADMINS
+        ):
             return False
 
     group_id = message.chat.id
@@ -381,18 +448,31 @@ async def manual_filters(client: Client, message: Message, text=False):
                 reply_text = reply_text.replace("\\n", "\n").replace("\\t", "\t")
 
             button_layout = build_keyboard(btn)
-            reply_markup = InlineKeyboardMarkup(button_layout) if button_layout else None
+            reply_markup = (
+                InlineKeyboardMarkup(button_layout) if button_layout else None
+            )
             sent_msg = None
             fileid_str = str(fileid).strip()
 
             if not fileid or fileid_str in ["None", "[]", "", "False"]:
-                sent_msg = await safe_send_text_filter(client, message.chat.id, reply_text or "", reply_markup, reply_id)
+                sent_msg = await safe_send_text_filter(
+                    client, message.chat.id, reply_text or "", reply_markup, reply_id
+                )
             else:
-                sent_msg = await send_filter_media(client, message.chat.id, fileid, reply_text or "", reply_markup, reply_id)
+                sent_msg = await send_filter_media(
+                    client,
+                    message.chat.id,
+                    fileid,
+                    reply_text or "",
+                    reply_markup,
+                    reply_id,
+                )
 
             if sent_msg:
                 delete_timer = getattr(info, "BUTTON_AUTO_DELETE", 1800)
                 if delete_timer > 0:
-                    asyncio.create_task(delete_message_after_delay(sent_msg, delete_timer))
+                    asyncio.create_task(
+                        delete_message_after_delay(sent_msg, delete_timer)
+                    )
             return True
     return False
