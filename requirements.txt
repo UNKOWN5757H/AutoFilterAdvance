@@ -17,9 +17,9 @@ cinemagoer==2023.5.1
 Pillow
 
 # --- HTTP Clients & Scraping ---
-aiohttp==3.14.3
-requests==2.33.0
-beautifulsoup4==4.12.3
+aiohttp
+requests
+beautifulsoup4
 
 # --- Search / Typo Tolerance ---
 thefuzz
