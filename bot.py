@@ -3,9 +3,9 @@ import glob
 import os
 import signal
 import sys
-from typing import AsyncGenerator, Union
-from logging import getLogger, INFO, ERROR, basicConfig
+from logging import ERROR, INFO, basicConfig, getLogger
 from logging.config import fileConfig
+from typing import AsyncGenerator, Union
 
 # ===================================================================
 # 🚀 THE ULTIMATE PYROGRAM + MONGODB CRASH FIX (Monkey Patch)
@@ -15,15 +15,19 @@ from logging.config import fileConfig
 # completely fixing the crash regardless of how your plugins are imported!
 try:
     import motor.core
+
     for cls in [motor.core.AgnosticDatabase, motor.core.AgnosticCollection]:
         orig_getattr = getattr(cls, "__getattr__", None)
         if orig_getattr:
+
             def make_getattr(orig):
                 def custom_getattr(self, name):
                     if name == "handlers":
                         raise AttributeError("Pyrogram scanner bypass")
                     return orig(self, name)
+
                 return custom_getattr
+
             cls.__getattr__ = make_getattr(orig_getattr)
 except Exception as e:
     print(f"Motor patch failed: {e}")
@@ -108,7 +112,9 @@ class Bot(Client):
         temp.B_NAME = me.first_name
         self.username = f"@{me.username}"
 
-        logger.info(f"{me.first_name} with Pyrogram v{__version__} (Layer {layer}) started on {me.username}.")
+        logger.info(
+            f"{me.first_name} with Pyrogram v{__version__} (Layer {layer}) started on {me.username}."
+        )
         logger.info(LOG_STR)
 
         if os.path.exists("restart.txt"):
@@ -130,13 +136,17 @@ class Bot(Client):
         await super().stop(*args, **kwargs)
         logger.info("Bot stopped. Bye.")
 
-    async def iter_messages(self, chat_id: Union[int, str], limit: int, offset: int = 0) -> AsyncGenerator[types.Message, None]:
+    async def iter_messages(
+        self, chat_id: Union[int, str], limit: int, offset: int = 0
+    ) -> AsyncGenerator[types.Message, None]:
         current = offset
         while True:
             new_diff = min(200, limit - current)
             if new_diff <= 0:
                 return
-            messages = await self.get_messages(chat_id, list(range(current, current + new_diff + 1)))
+            messages = await self.get_messages(
+                chat_id, list(range(current, current + new_diff + 1))
+            )
             for message in messages:
                 if not getattr(message, "empty", False):
                     yield message
@@ -157,7 +167,14 @@ async def delete_media_task(message: Message, delay: int):
 
 @app.on_message(
     filters.private
-    & (filters.document | filters.video | filters.audio | filters.photo | filters.voice | filters.video_note),
+    & (
+        filters.document
+        | filters.video
+        | filters.audio
+        | filters.photo
+        | filters.voice
+        | filters.video_note
+    ),
     group=2,
 )
 async def auto_delete_user_media_pm(client: Client, message: Message):
@@ -198,7 +215,9 @@ async def start_services():
 
 
 def force_shutdown(signum, frame):
-    logger.info("🛑 Received shutdown signal from Koyeb. Killing old instance immediately!")
+    logger.info(
+        "🛑 Received shutdown signal from Koyeb. Killing old instance immediately!"
+    )
     sys.exit(0)
 
 
@@ -212,7 +231,7 @@ if __name__ == "__main__":
         except RuntimeError:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            
+
         loop.run_until_complete(start_services())
     except (KeyboardInterrupt, SystemExit):
         logger.info("Process interrupted. Shutting down...")
