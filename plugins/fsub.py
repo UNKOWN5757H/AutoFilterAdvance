@@ -1,5 +1,5 @@
 import asyncio
-import logging
+from logging import getLogger, ERROR
 
 from pyrogram import Client, enums, filters
 from pyrogram.enums import ButtonStyle
@@ -19,7 +19,8 @@ from pyrogram.types import (
 import info
 from database.plugin_dbs import plugin_db
 
-logger = logging.getLogger(__name__)
+logger = getLogger(__name__)
+logger.setLevel(ERROR)
 
 # ============================================================
 # 🗄️ FSub Database & Dynamic State Variables
@@ -75,10 +76,11 @@ async def get_invite_link(bot: Client, chat_id: str) -> str:
         return channel_data["link"]
 
     try:
-        chat = await bot.get_chat(int(chat_id))
+        chat_id_int = int(str(chat_id).strip())
+        chat = await bot.get_chat(chat_id_int)
         is_req = channel_data.get("type") == "req"
         invite = await bot.create_chat_invite_link(
-            int(chat_id), creates_join_request=is_req
+            chat_id_int, creates_join_request=is_req
         )
 
         info.FSUB_CHANNELS[chat_id]["link"] = invite.invite_link
@@ -103,7 +105,6 @@ async def check_user_in_channel(bot: Client, channel_id: int, user_id: int) -> b
     except UserNotParticipant:
         return False
     except Exception as e:
-        # Reduced error severity to debug to avoid console spam
         logger.debug(f"FSub check error for channel {channel_id}: {e}")
         return False
 
@@ -224,7 +225,6 @@ async def refresh_fsub_callback(bot: Client, query: CallbackQuery):
 
         await query.answer("✅ Subscriptions verified!", show_alert=False)
 
-        # Automatically send media directly if file_id is present
         if file_id and file_id != "0":
             try:
                 await bot.send_cached_media(
@@ -233,8 +233,6 @@ async def refresh_fsub_callback(bot: Client, query: CallbackQuery):
                     caption="🎉 **Thank you for joining! Here is your file:**",
                 )
             except Exception:
-                # ⚡ FIXED: Silently catch MEDIA_EMPTY errors and send a fallback text
-                # This prevents the scary red logs from spamming your console!
                 await bot.send_message(
                     chat_id=user_id,
                     text="✅ **Verification complete!**\n\n⚠️ *The original file link expired. Please go back to the main group and click the file link again to get your movie!*",
@@ -305,7 +303,6 @@ async def add_dynamic_fsub(bot: Client, message: Message):
             f"🎯 **Target:** `{chat.title}`\n\nDo you want this to be a **Join Request** channel?\n\nReply with `y` for Yes, or `n` for No (Normal invite)."
         )
 
-        # ⚡ FIXED: Added user_id parameter so the bot only listens to the admin who triggered the command
         resp = await bot.listen(
             chat_id=message.chat.id, user_id=message.from_user.id, timeout=120
         )
@@ -500,7 +497,6 @@ async def clear_fsub_users(bot: Client, message: Message):
             "⚠️ Are you sure you want to clear all FSub users from the database? Reply with 'y' to confirm."
         )
 
-        # ⚡ FIXED: Added user_id parameter here too to prevent accidental triggers by other users
         resp = await bot.listen(
             chat_id=message.chat.id, user_id=message.from_user.id, timeout=120
         )
