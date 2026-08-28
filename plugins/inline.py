@@ -1,4 +1,4 @@
-from logging import getLogger, ERROR
+from logging import ERROR, getLogger
 
 from pyrogram import Client, emoji, filters
 from pyrogram.errors.exceptions.bad_request_400 import QueryIdInvalid
