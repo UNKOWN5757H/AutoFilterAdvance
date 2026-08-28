@@ -5,7 +5,7 @@ import warnings
 from datetime import datetime
 from difflib import SequenceMatcher
 from io import BytesIO
-from logging import getLogger, ERROR
+from logging import ERROR, getLogger
 
 import aiohttp
 from PIL import Image
