@@ -11,9 +11,9 @@ from typing import AsyncGenerator, Union
 import motor.motor_asyncio
 import pymongo
 
-# Pyrogram looks for a "handlers" attribute to find bot commands. 
-# By forcefully setting this to an empty list on the database classes, 
-# Pyrogram sees 0 commands and safely moves on, bypassing the database 
+# Pyrogram looks for a "handlers" attribute to find bot commands.
+# By forcefully setting this to an empty list on the database classes,
+# Pyrogram sees 0 commands and safely moves on, bypassing the database
 # entirely without triggering PyMongo integer errors or Python type errors.
 motor.motor_asyncio.AsyncIOMotorClient.handlers = []
 motor.motor_asyncio.AsyncIOMotorDatabase.handlers = []
@@ -24,7 +24,7 @@ pymongo.database.Database.handlers = []
 pymongo.collection.Collection.handlers = []
 # ===================================================================
 
-from logging import getLogger, INFO, ERROR, basicConfig
+from logging import ERROR, INFO, basicConfig, getLogger
 from logging.config import fileConfig
 
 import pyromod
@@ -114,7 +114,9 @@ class Bot(Client):
         temp.B_NAME = me.first_name
         self.username = f"@{me.username}"
 
-        logger.info(f"{me.first_name} with Pyrogram v{__version__} (Layer {layer}) started on {me.username}.")
+        logger.info(
+            f"{me.first_name} with Pyrogram v{__version__} (Layer {layer}) started on {me.username}."
+        )
         logger.info(LOG_STR)
 
         # 3. RESTART SUCCESS HANDLER
@@ -137,13 +139,17 @@ class Bot(Client):
         await super().stop(*args, **kwargs)
         logger.info("Bot stopped. Bye.")
 
-    async def iter_messages(self, chat_id: Union[int, str], limit: int, offset: int = 0) -> AsyncGenerator[types.Message, None]:
+    async def iter_messages(
+        self, chat_id: Union[int, str], limit: int, offset: int = 0
+    ) -> AsyncGenerator[types.Message, None]:
         current = offset
         while True:
             new_diff = min(200, limit - current)
             if new_diff <= 0:
                 return
-            messages = await self.get_messages(chat_id, list(range(current, current + new_diff + 1)))
+            messages = await self.get_messages(
+                chat_id, list(range(current, current + new_diff + 1))
+            )
             for message in messages:
                 if not getattr(message, "empty", False):
                     yield message
@@ -167,7 +173,14 @@ async def delete_media_task(message: Message, delay: int):
 
 @app.on_message(
     filters.private
-    & (filters.document | filters.video | filters.audio | filters.photo | filters.voice | filters.video_note),
+    & (
+        filters.document
+        | filters.video
+        | filters.audio
+        | filters.photo
+        | filters.voice
+        | filters.video_note
+    ),
     group=2,
 )
 async def auto_delete_user_media_pm(client: Client, message: Message):
@@ -214,7 +227,9 @@ async def start_services():
 # 🚀 LAUNCH SEQUENCE
 # ============================================================
 def force_shutdown(signum, frame):
-    logger.info("🛑 Received shutdown signal from Koyeb. Killing old instance immediately!")
+    logger.info(
+        "🛑 Received shutdown signal from Koyeb. Killing old instance immediately!"
+    )
     sys.exit(0)
 
 
@@ -228,7 +243,7 @@ if __name__ == "__main__":
         except RuntimeError:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            
+
         loop.run_until_complete(start_services())
     except (KeyboardInterrupt, SystemExit):
         logger.info("Process interrupted. Shutting down...")
