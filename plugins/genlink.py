@@ -2,7 +2,7 @@ import base64
 import json
 import os
 import re
-from logging import getLogger, INFO
+from logging import INFO, getLogger
 
 from pyrogram import Client, enums, filters
 from pyrogram.errors.exceptions.bad_request_400 import (
