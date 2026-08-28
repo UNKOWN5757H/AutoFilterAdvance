@@ -1,4 +1,4 @@
-from logging import ERROR, getLogger
+from logging import getLogger, ERROR
 
 from pyrogram import Client, emoji, filters
 from pyrogram.errors.exceptions.bad_request_400 import QueryIdInvalid
@@ -15,7 +15,6 @@ from utils import get_size, is_subscribed, temp
 
 logger = getLogger(__name__)
 logger.setLevel(ERROR)
-
 cache_time = 0 if AUTH_USERS or AUTH_CHANNEL else CACHE_TIME
 
 
