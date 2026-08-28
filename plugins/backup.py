@@ -1,8 +1,8 @@
 import asyncio
-import logging
 import os
 import time
 from datetime import datetime
+from logging import getLogger, ERROR
 
 from bson.json_util import dumps, loads
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -11,7 +11,8 @@ from pyrogram.types import Message
 
 import info
 
-logger = logging.getLogger(__name__)
+logger = getLogger(__name__)
+logger.setLevel(ERROR)
 
 # ============================================================
 # 🗄️ Database Connection
@@ -34,7 +35,6 @@ scheduler_running = False
 async def admin_check(_, __, message: Message):
     if not message.from_user:
         return False
-    # Safely checks against both integers and strings
     return (
         message.from_user.id in info.ADMINS or str(message.from_user.id) in info.ADMINS
     )
@@ -47,8 +47,6 @@ async def auto_backup_task(bot: Client):
     """Background task to automatically backup DB every 24 hours to the primary Admin."""
     global last_backup_time, next_backup_time, scheduler_running
     scheduler_running = True
-
-    # Send automated backups to the first admin in the list
     target_admin_id = info.ADMINS[0] if getattr(info, "ADMINS", None) else None
 
     while True:
@@ -132,7 +130,6 @@ async def db_restore_cmd(bot: Client, message: Message):
 
     try:
         file_path = await message.reply_to_message.download()
-
         await status_msg.edit_text("⏳ **Restoring database...**")
 
         with open(file_path, "r", encoding="utf-8") as f:
@@ -143,7 +140,6 @@ async def db_restore_cmd(bot: Client, message: Message):
 
         for coll_name, docs in backup_data.items():
             if docs:
-                # Clear existing collection and insert the backup data
                 await BOT_DB[coll_name].delete_many({})
                 await BOT_DB[coll_name].insert_many(docs)
                 restored_colls += 1
@@ -196,7 +192,6 @@ async def db_stats_cmd(bot: Client, message: Message):
 @Client.on_message(filters.command("dbschedule") & admin_filter)
 async def db_schedule_cmd(bot: Client, message: Message):
     if not scheduler_running:
-        # Start the background task if it hasn't been started yet
         asyncio.create_task(auto_backup_task(bot))
         return await message.reply_text(
             "✅ **Auto-backup scheduler initiated!**\nThe first automated backup will run in 24 hours."
