@@ -7,7 +7,7 @@ class script(object):
 ○ 𝗖𝗿𝗲𝗮𝘁𝗼𝗿 : <a href="https://t.me/SandalwoodSupportBot">Sandalwood Support</a>
 ○ 𝗟𝗶𝗯𝗿𝗮𝗿𝘆 : 𝙿𝚈𝚁𝙾𝙶𝚁𝙰𝙼
 ○ 𝗟𝗮𝗻𝗴𝘂𝗮𝗴𝗲 : 𝙿𝚈𝚃𝙷𝙾𝙽 𝟹.10
-○ 𝗗𝗮𝘁𝗮𝗕𝗮𝘀𝗲 : 𝙼𝙾𝙽𝙶𝙾 𝙳𝙱
+○ 𝗗𝗮𝘁𝗮𝗕𝗮𝘀𝗲 : 𝙼𝙾𝙽𝙶𝙾 𝙳𝗕
 ○ 𝗕𝘂𝗶𝗹𝗱 𝗩𝗲𝗿𝘀𝗶𝗼𝗻 : V2.0 [ 𝙱𝙴𝚃𝙰 ]</b>"""
 
     PRVCY_TXT = """<b>Hey {mention} ⚓\n\n➡️ Your Request Has Been Deleted To Safeguard Your Privacy!\n\n➡️ Thank You For Using @KR_PICTURE</b>"""
@@ -112,26 +112,26 @@ You can just forward the message from database channel for starting indexing, no
 ‣ /dbstats - Get database stats
 ‣ /dbschedule - Get scheduled backup status</b>"""
 
-    POSTHAND_TXT = """<b><blockquote>📝 POST HANDLER COMMAND REFERENCE</blockquote>
+    POSTHAND_TXT = """<b>📝 POST HANDLER GUIDE
 
-<b>[ CREATION & EDITING ]</b>
-‣ <code>/post [Movie]</code> - Create post via TMDB
-‣ <code>/editpost [Link]</code> - Import & edit post
+[ CREATE / EDIT ]
+‣ /post [Movie] - TMDB post
+‣ /editpost [Link] - Edit channel post
 
-<b>[ TEXT FORMATTING ]</b>
-<i>(Send <code>blank</code> to remove any field)</i>
-‣ <code>/edittitle [Title]</code> - Update Title
-‣ <code>/edityear [Year]</code> - Update Year
-‣ <code>/editlangs [Langs]</code> - Update Languages
-‣ <code>/editresolutions [Res]</code> - Update Qualities
-‣ <code>/editgenres [Genres]</code> - Update Genres
-‣ <code>/editotts [Platforms]</code> - Update OTT
+[ FORMATTING ] 
+*(Send 'blank' to remove field)*
+‣ /edittitle [Title]
+‣ /edityear [Year]
+‣ /editlangs [Langs]
+‣ /editresolutions [Qualities]
+‣ /editgenres [Genres]
+‣ /editotts [OTTs]
 
-<b>[ BUTTONS & IMAGES ]</b>
-‣ <code>/editbuttoncolour [No.] [Color]</code> - Set color (green/red/blue)
-‣ <code>/editdirect [URL]</code> - Update direct search URL
-‣ <code>/editimage</code> - Change Telegraph preview image
-‣ <code>/editnormalimage</code> - Set native Telegram photo</b>"""
+[ BUTTONS / IMAGES ]
+‣ /editbuttoncolour [No] [Color] - green/red/blue
+‣ /editdirect [URL] - Direct link
+‣ /editimage - Preview image
+‣ /editnormalimage - Native photo</b>"""
 
     STATUS_TXT = """<b>★ 𝚃𝙾𝚃𝙰𝙻 𝙵𝙸𝙻𝙴𝚂:</b> <code>{}</code>
 <b>★ 𝚃𝙾𝚃𝙰𝙻 𝚄𝚂𝙴𝚁𝚂:</b> <code>{}</code>
