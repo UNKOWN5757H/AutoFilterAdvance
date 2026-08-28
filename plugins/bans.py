@@ -1,19 +1,15 @@
-import logging
+from logging import getLogger, ERROR
 
 from pyrogram import Client, filters
 from pyrogram.types import Message
 
 import info
-
-# ⚡ FIXED: Uses the centralized plugin_db instead of local variables
 from database.plugin_dbs import plugin_db
 
-logger = logging.getLogger(__name__)
+logger = getLogger(__name__)
+logger.setLevel(ERROR)
 
 
-# ============================================================
-# 🚫 1. Ban User
-# ============================================================
 @Client.on_message(filters.command("ban") & filters.user(info.ADMINS))
 async def ban_user_cmd(bot: Client, message: Message):
     if len(message.command) < 2:
@@ -22,7 +18,6 @@ async def ban_user_cmd(bot: Client, message: Message):
     try:
         user_id = int(message.command[1])
 
-        # Prevent banning other admins or the bot itself
         if user_id in info.ADMINS:
             return await message.reply_text(
                 "❌ **You cannot ban a bot administrator!**"
@@ -43,9 +38,6 @@ async def ban_user_cmd(bot: Client, message: Message):
         await message.reply_text(f"❌ **Error:** `{e}`")
 
 
-# ============================================================
-# ✅ 2. Unban User
-# ============================================================
 @Client.on_message(filters.command("unban") & filters.user(info.ADMINS))
 async def unban_user_cmd(bot: Client, message: Message):
     if len(message.command) < 2:
@@ -73,9 +65,6 @@ async def unban_user_cmd(bot: Client, message: Message):
         await message.reply_text(f"❌ **Error:** `{e}`")
 
 
-# ============================================================
-# 📊 3. Check Banned Users (Bonus)
-# ============================================================
 @Client.on_message(filters.command("bannedusers") & filters.user(info.ADMINS))
 async def check_banned_users(bot: Client, message: Message):
     try:
