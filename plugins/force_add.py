@@ -1,7 +1,7 @@
 import asyncio
 import time
 import traceback
-from logging import getLogger, ERROR
+from logging import ERROR, getLogger
 
 from pyrogram import Client, StopPropagation, enums, filters
 from pyrogram.errors import MessageNotModified
