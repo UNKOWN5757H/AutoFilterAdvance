@@ -9,7 +9,6 @@ from info import ADMINS, REQ_CHANNEL
 
 logger = getLogger(__name__)
 
-# Safely handle REQ_CHANNEL parsing for the Pyrogram filter.
 try:
     req_chat = (
         int(REQ_CHANNEL) if str(REQ_CHANNEL).strip("-").isdigit() else REQ_CHANNEL
@@ -19,9 +18,6 @@ except Exception:
     req_filter = filters.chat([])
 
 
-# ============================================================
-# 📥 HANDLE NEW JOIN REQUESTS
-# ============================================================
 @Client.on_chat_join_request(req_filter)
 async def join_reqs_handler(bot: Client, join_req: ChatJoinRequest):
     """
@@ -45,14 +41,10 @@ async def join_reqs_handler(bot: Client, join_req: ChatJoinRequest):
         logger.exception(f"❌ Failed to log join request for {user.id}: {e}")
 
 
-# ============================================================
-# 📊 /totalrequests — Show total join requests count
-# ============================================================
 @Client.on_message(
     filters.command("totalrequests") & filters.private & filters.user(ADMINS)
 )
 async def total_requests(bot: Client, message):
-    """Show total stored join requests."""
     if not db.isActive():
         return await message.reply_text(
             "⚠️ Join request tracking is not active (DB inactive)."
@@ -66,14 +58,10 @@ async def total_requests(bot: Client, message):
         await message.reply_text(f"⚠️ Error: <code>{e}</code>")
 
 
-# ============================================================
-# 🧹 /purgerequests — Delete all join requests
-# ============================================================
 @Client.on_message(
     filters.command("purgerequests") & filters.private & filters.user(ADMINS)
 )
 async def purge_requests(bot: Client, message):
-    """Deletes all join request records."""
     if not db.isActive():
         return await message.reply_text(
             "⚠️ Join request tracking is not active (DB inactive)."
