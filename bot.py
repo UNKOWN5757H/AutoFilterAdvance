@@ -3,9 +3,31 @@ import glob
 import os
 import signal
 import sys
-from logging import ERROR, INFO, basicConfig, getLogger
-from logging.config import fileConfig
 from typing import AsyncGenerator, Union
+from logging import getLogger, INFO, ERROR, basicConfig
+from logging.config import fileConfig
+
+# ===================================================================
+# 🚀 THE ULTIMATE PYROGRAM + MONGODB CRASH FIX (Monkey Patch)
+# ===================================================================
+# Pyrogram's scanner crashes when it blindly hits a MongoDB collection.
+# This intercepts the database to permanently hide it from the scanner,
+# completely fixing the crash regardless of how your plugins are imported!
+try:
+    import motor.core
+    for cls in [motor.core.AgnosticDatabase, motor.core.AgnosticCollection]:
+        orig_getattr = getattr(cls, "__getattr__", None)
+        if orig_getattr:
+            def make_getattr(orig):
+                def custom_getattr(self, name):
+                    if name == "handlers":
+                        raise AttributeError("Pyrogram scanner bypass")
+                    return orig(self, name)
+                return custom_getattr
+            cls.__getattr__ = make_getattr(orig_getattr)
+except Exception as e:
+    print(f"Motor patch failed: {e}")
+# ===================================================================
 
 import pyromod
 from aiohttp import web
@@ -13,10 +35,9 @@ from pyrogram import Client, __version__, filters, idle, types
 from pyrogram.raw.all import layer
 from pyrogram.types import Message
 
-# ⚡ FIXED: Aliased Media to _Media to hide it from Pyrogram
-from database.ia_filterdb import Media as _Media
-from database.plugin_dbs import plugin_db as _plugin_db
-from database.users_chats_db import db as _db
+from database.ia_filterdb import Media
+from database.plugin_dbs import plugin_db
+from database.users_chats_db import db as old_db
 from info import API_HASH, API_ID, BOT_TOKEN, LOG_STR, PORT, SESSION
 from utils import temp
 
@@ -53,15 +74,15 @@ class Bot(Client):
         b_users = []
         b_chats = []
         try:
-            async for chat in _db.grp.find({"chat_status.is_disabled": True}):
+            async for chat in old_db.grp.find({"chat_status.is_disabled": True}):
                 if chat.get("id"):
                     b_chats.append(chat["id"])
 
-            async for user in _plugin_db.ban_col.find({}):
+            async for user in plugin_db.ban_col.find({}):
                 if user.get("_id"):
                     b_users.append(user["_id"])
 
-            async for user in _db.col.find({"ban_status.is_banned": True}):
+            async for user in old_db.col.find({"ban_status.is_banned": True}):
                 u_id = user.get("id")
                 if u_id and u_id not in b_users:
                     b_users.append(u_id)
@@ -72,12 +93,12 @@ class Bot(Client):
         temp.BANNED_CHATS = b_chats
 
         try:
-            await _Media.collection.drop_index("file_name_text")
+            await Media.collection.drop_index("file_name_text")
         except Exception:
             pass
 
         try:
-            await _Media.ensure_indexes()
+            await Media.ensure_indexes()
         except Exception as e:
             logger.error(f"Error ensuring DB indexes: {e}")
 
@@ -87,9 +108,7 @@ class Bot(Client):
         temp.B_NAME = me.first_name
         self.username = f"@{me.username}"
 
-        logger.info(
-            f"{me.first_name} with Pyrogram v{__version__} (Layer {layer}) started on {me.username}."
-        )
+        logger.info(f"{me.first_name} with Pyrogram v{__version__} (Layer {layer}) started on {me.username}.")
         logger.info(LOG_STR)
 
         if os.path.exists("restart.txt"):
@@ -111,17 +130,13 @@ class Bot(Client):
         await super().stop(*args, **kwargs)
         logger.info("Bot stopped. Bye.")
 
-    async def iter_messages(
-        self, chat_id: Union[int, str], limit: int, offset: int = 0
-    ) -> AsyncGenerator[types.Message, None]:
+    async def iter_messages(self, chat_id: Union[int, str], limit: int, offset: int = 0) -> AsyncGenerator[types.Message, None]:
         current = offset
         while True:
             new_diff = min(200, limit - current)
             if new_diff <= 0:
                 return
-            messages = await self.get_messages(
-                chat_id, list(range(current, current + new_diff + 1))
-            )
+            messages = await self.get_messages(chat_id, list(range(current, current + new_diff + 1)))
             for message in messages:
                 if not getattr(message, "empty", False):
                     yield message
@@ -142,14 +157,7 @@ async def delete_media_task(message: Message, delay: int):
 
 @app.on_message(
     filters.private
-    & (
-        filters.document
-        | filters.video
-        | filters.audio
-        | filters.photo
-        | filters.voice
-        | filters.video_note
-    ),
+    & (filters.document | filters.video | filters.audio | filters.photo | filters.voice | filters.video_note),
     group=2,
 )
 async def auto_delete_user_media_pm(client: Client, message: Message):
@@ -190,9 +198,7 @@ async def start_services():
 
 
 def force_shutdown(signum, frame):
-    logger.info(
-        "🛑 Received shutdown signal from Koyeb. Killing old instance immediately!"
-    )
+    logger.info("🛑 Received shutdown signal from Koyeb. Killing old instance immediately!")
     sys.exit(0)
 
 
@@ -206,7 +212,7 @@ if __name__ == "__main__":
         except RuntimeError:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-
+            
         loop.run_until_complete(start_services())
     except (KeyboardInterrupt, SystemExit):
         logger.info("Process interrupted. Shutting down...")
