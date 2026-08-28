@@ -1,5 +1,5 @@
 import asyncio
-from logging import ERROR, getLogger
+from logging import getLogger, ERROR
 
 import aiohttp
 from pyrogram import Client, filters
@@ -21,9 +21,7 @@ def is_bot_owner(user_id: int) -> bool:
     admin_list = [int(a) for a in ADMINS if str(a).isdigit()]
     return user_id in admin_list
 
-
 HTTP_SESSION = None
-
 
 async def get_http_session():
     global HTTP_SESSION
@@ -33,7 +31,6 @@ async def get_http_session():
 
 
 async def send_reaction_background(chat_id: int, message_id: int):
-    """Silently fires the reaction through a shared connection pool."""
     if not BOT_TOKEN:
         return
 
