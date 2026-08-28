@@ -1,10 +1,10 @@
 import asyncio
-import logging
 import os
 import re
 import urllib.parse
 from datetime import datetime
 from typing import List, Union
+from logging import getLogger, INFO
 
 import aiohttp
 import requests
@@ -30,8 +30,8 @@ from info import (
     TMDB_API_KEY,
 )
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger = getLogger(__name__)
+logger.setLevel(INFO)
 
 BTN_URL_REGEX = re.compile(
     r"(\[([^\[]+?)\]\((buttonurl|buttonalert):(?:/{0,2})(.+?)(:same)?\))"
@@ -55,8 +55,6 @@ class temp(object):
 
 
 class TMDBWrapper(dict):
-    """Wrapper class so object dot-notation (e.g. movie.movieID) works seamlessly."""
-
     def __getattr__(self, name):
         return self.get(name)
 
@@ -90,28 +88,9 @@ def parse_ultra_advanced_query(text):
     )
 
     stopwords = [
-        "movie",
-        "full",
-        "watch",
-        "online",
-        "download",
-        "print",
-        "hq",
-        "dubbed",
-        "subtitles",
-        "subs",
-        "part",
-        "audio",
-        "video",
-        "kr_picture",
-        "sandalwood",
-        "exclusive",
-        "official",
-        "team",
-        "kannada_filmy_group",
-        "telegram",
-        "join",
-        "link",
+        "movie", "full", "watch", "online", "download", "print", "hq", "dubbed",
+        "subtitles", "subs", "part", "audio", "video", "kr_picture", "sandalwood",
+        "exclusive", "official", "team", "kannada_filmy_group", "telegram", "join", "link",
     ]
     to_remove = stopwords + qualities + years + languages
     for word in to_remove:
@@ -151,9 +130,6 @@ async def is_subscribed(bot, query):
         return False
 
 
-# ============================================================
-# 🎬 TMDB API POWERED MOVIE / POSTER FETCHER
-# ============================================================
 async def get_poster(query, bulk=False, id=False, file=None):
     if not TMDB_API_KEY:
         logger.error("TMDB_API_KEY is missing in info.py!")
@@ -322,7 +298,6 @@ async def get_poster(query, bulk=False, id=False, file=None):
                     if not movies:
                         return None
 
-                    # If not bulk, recursively fetch full details for top result
                     top_id = movies[0]["movieID"]
                     return await get_poster(top_id, id=True)
 
@@ -403,7 +378,6 @@ def split_list(l, n):
 
 
 def get_file_id(msg: Message):
-    """Safely returns tuple (file_id, file_ref, media_type) to prevent unpacking crashes."""
     if not msg or not msg.media:
         return None, None, None
     media_type = getattr(msg.media, "value", str(msg.media))
@@ -418,7 +392,6 @@ def get_file_id(msg: Message):
 
 
 async def extract_user(message: Message, text: str = None):
-    """Async user extractor returning Pyrogram User object for /info command."""
     client = message._client
     if message.reply_to_message and message.reply_to_message.from_user:
         return message.reply_to_message.from_user
