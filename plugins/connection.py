@@ -1,7 +1,6 @@
-from logging import ERROR, getLogger
+from logging import getLogger, ERROR
 
 from pyrogram import Client, enums, filters
-from pyrogram.errors import PeerIdInvalid, UserIsBlocked
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from database.connections_mdb import (
@@ -28,9 +27,11 @@ async def addconnection(client, message):
     if chat_type == enums.ChatType.PRIVATE:
         try:
             cmd, group_id = message.text.split(" ", 1)
-        except:
+        except Exception:
             await message.reply_text(
-                "<b>Enter in correct format!</b>\n\n<code>/connect groupid</code>\n\n<i>Get your Group id by adding this bot to your group and use  <code>/id</code></i>",
+                "<b>Enter in correct format!</b>\n\n"
+                "<code>/connect groupid</code>\n\n"
+                "<i>Get your Group id by adding this bot to your group and use  <code>/id</code></i>",
                 quote=True,
             )
             return
@@ -56,7 +57,7 @@ async def addconnection(client, message):
             quote=True,
         )
         return
-
+        
     try:
         st = await client.get_chat_member(group_id, "me")
         if st.status == enums.ChatMemberStatus.ADMINISTRATOR:
@@ -71,14 +72,11 @@ async def addconnection(client, message):
                     parse_mode=enums.ParseMode.MARKDOWN,
                 )
                 if chat_type in ["group", "supergroup"]:
-                    try:
-                        await client.send_message(
-                            userid,
-                            f"Connected to **{title}** !",
-                            parse_mode=enums.ParseMode.MARKDOWN,
-                        )
-                    except (UserIsBlocked, PeerIdInvalid):
-                        pass
+                    await client.send_message(
+                        userid,
+                        f"Connected to **{title}** !",
+                        parse_mode=enums.ParseMode.MARKDOWN,
+                    )
             else:
                 await message.reply_text(
                     "You're already connected to this chat!", quote=True
@@ -152,7 +150,7 @@ async def connections(client, message):
                     )
                 ]
             )
-        except:
+        except Exception:
             pass
     if buttons:
         await message.reply_text(
