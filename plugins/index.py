@@ -1,7 +1,7 @@
 import asyncio
 import re
 import time
-from logging import INFO, getLogger
+from logging import getLogger, INFO
 
 from pyrogram import Client, enums, filters
 from pyrogram.errors import (
