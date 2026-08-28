@@ -1,6 +1,5 @@
-import asyncio
 import re
-from logging import ERROR, getLogger
+from logging import getLogger, ERROR
 
 from pyrogram import Client, filters
 from pyrogram.types import Message
@@ -28,7 +27,6 @@ async def admin_check(_, __, message: Message):
         message.from_user.id in info.ADMINS or str(message.from_user.id) in info.ADMINS
     )
 
-
 admin_filter = filters.create(admin_check)
 
 
@@ -38,6 +36,7 @@ async def delete_single_file(bot: Client, message: Message):
         if len(message.command) == 2:
             file_id = message.command[1].strip()
             status_msg = await message.reply_text("🧹 **Deleting file from DB...**")
+
             result = await Media.collection.delete_one({"_id": file_id})
             if result.deleted_count:
                 return await status_msg.edit_text(
@@ -120,13 +119,15 @@ async def delete_multiple_files(bot: Client, message: Message):
 async def set_autodelete_timer(bot: Client, message: Message):
     if len(message.command) < 2:
         return await message.reply_text(
-            f"⚙️ **Usage:** `/autodelete [seconds]`\n\n⏱ **Current File Auto-Delete:** `{info.FILE_AUTO_DELETE}` seconds."
+            f"⚙️ **Usage:** `/autodelete [seconds]`\n\n"
+            f"⏱ **Current File Auto-Delete:** `{info.FILE_AUTO_DELETE}` seconds."
         )
 
     try:
         seconds = int(message.command[1])
         if seconds < 0:
             raise ValueError
+
         info.FILE_AUTO_DELETE = seconds
 
         if seconds == 0:
@@ -148,13 +149,15 @@ async def set_autodelete_timer(bot: Client, message: Message):
 async def set_buttondel_timer(bot: Client, message: Message):
     if len(message.command) < 2:
         return await message.reply_text(
-            f"⚙️ **Usage:** `/buttondel [seconds]`\n\n⏱ **Current Button Auto-Delete:** `{info.BUTTON_AUTO_DELETE}` seconds."
+            f"⚙️ **Usage:** `/buttondel [seconds]`\n\n"
+            f"⏱ **Current Button Auto-Delete:** `{info.BUTTON_AUTO_DELETE}` seconds."
         )
 
     try:
         seconds = int(message.command[1])
         if seconds < 0:
             raise ValueError
+
         info.BUTTON_AUTO_DELETE = seconds
 
         if seconds == 0:
