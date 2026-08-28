@@ -1,6 +1,6 @@
-import logging
 import os
 from datetime import datetime
+from logging import getLogger, ERROR
 
 from pyrogram import Client, enums, filters
 from pyrogram.errors import (
@@ -14,8 +14,8 @@ from pyrogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMa
 from info import IMDB_TEMPLATE
 from utils import extract_user, get_file_id, get_poster
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.ERROR)
+logger = getLogger(__name__)
+logger.setLevel(ERROR)
 
 
 class SafeDict(dict):
@@ -25,9 +25,6 @@ class SafeDict(dict):
         return "{" + key + "}"
 
 
-# ============================================================
-# 🔹 /id — Show User, Chat & File IDs
-# ============================================================
 @Client.on_message(filters.command("id"))
 async def show_id(client: Client, message):
     chat_type = message.chat.type
@@ -61,19 +58,14 @@ async def show_id(client: Client, message):
         await message.reply_text(text, quote=True)
 
 
-# ============================================================
-# 👀 /info — Get User Details
-# ============================================================
 @Client.on_message(filters.command("info"))
 async def who_is(client: Client, message):
     status = await message.reply_text("🔍 Fetching user info...", quote=True)
 
     try:
         user = None
-        # 1. Check if replying to a user
         if message.reply_to_message and message.reply_to_message.from_user:
             user = message.reply_to_message.from_user
-        # 2. Check if a username or ID was provided
         elif len(message.command) > 1:
             target = message.text.split(None, 1)[1]
             try:
@@ -81,7 +73,6 @@ async def who_is(client: Client, message):
             except Exception:
                 pass
 
-        # 3. Fallback to the command sender
         if not user:
             user = message.from_user
 
@@ -97,7 +88,6 @@ async def who_is(client: Client, message):
             f"<b>🔗 User Link:</b> <a href='tg://user?id={user.id}'>Click Here</a>\n"
         )
 
-        # Joined Date (if in same group)
         if message.chat.type in (
             enums.ChatType.SUPERGROUP,
             enums.ChatType.CHANNEL,
@@ -114,7 +104,6 @@ async def who_is(client: Client, message):
         buttons = [[InlineKeyboardButton("🔐 Close", callback_data="close_data")]]
         markup = InlineKeyboardMarkup(buttons)
 
-        # ⚡ IMPROVEMENT: Send via file_id instead of blocking the thread to download the photo
         if user.photo:
             try:
                 await message.reply_photo(
@@ -140,9 +129,6 @@ async def who_is(client: Client, message):
         await status.edit("❌ An error occurred while fetching user data.")
 
 
-# ============================================================
-# 🎬 /imdb or /search — Movie Search
-# ============================================================
 @Client.on_message(filters.command(["imdb", "search"]))
 async def imdb_search(client: Client, message):
     if len(message.command) < 2:
@@ -159,9 +145,7 @@ async def imdb_search(client: Client, message):
             return await wait_msg.edit("❌ No results found on IMDb.")
 
         buttons = []
-        # Cap at 10 results to prevent Telegram's BUTTON_DATA_INVALID / MESSAGE_TOO_LONG crash
         for movie in movies[:10]:
-            # Safely extract ID, Title, and Year whether it's an Object or a Dictionary
             m_id = (
                 getattr(movie, "movieID", None)
                 or (movie.get("movieID") if isinstance(movie, dict) else None)
@@ -192,9 +176,6 @@ async def imdb_search(client: Client, message):
         return await wait_msg.edit(f"⚠️ IMDb search error: `{e}`")
 
 
-# ============================================================
-# 📩 IMDb Callback — Show Movie Details
-# ============================================================
 @Client.on_callback_query(filters.regex("^imdb"))
 async def imdb_callback(client: Client, query: CallbackQuery):
     try:
@@ -206,11 +187,9 @@ async def imdb_callback(client: Client, query: CallbackQuery):
         if not imdb:
             return await query.message.edit("❌ No IMDb results found.")
 
-        # Safe dictionary fallback
         url = imdb.get("url", f"https://www.imdb.com/title/tt{movie_id}/")
         buttons = [[InlineKeyboardButton(f"{imdb.get('title', 'IMDb Link')}", url=url)]]
 
-        # ⚡ IMPROVEMENT: Safe mapping avoids KeyErrors if a variable is missing
         format_args = SafeDict(
             query=imdb.get("title", "N/A"),
             title=imdb.get("title", "N/A"),
@@ -252,7 +231,6 @@ async def imdb_callback(client: Client, query: CallbackQuery):
                     reply_markup=InlineKeyboardMarkup(buttons),
                 )
             except (MediaEmpty, PhotoInvalidDimensions, WebpageMediaEmpty):
-                # Fallback to resized poster URL
                 poster = imdb["poster"].replace(".jpg", "._V1_UX360.jpg")
                 await query.message.reply_photo(
                     photo=poster,
