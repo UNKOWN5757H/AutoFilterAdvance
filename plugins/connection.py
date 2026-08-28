@@ -1,4 +1,4 @@
-from logging import getLogger, ERROR
+from logging import ERROR, getLogger
 
 from pyrogram import Client, enums, filters
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
@@ -57,7 +57,7 @@ async def addconnection(client, message):
             quote=True,
         )
         return
-        
+
     try:
         st = await client.get_chat_member(group_id, "me")
         if st.status == enums.ChatMemberStatus.ADMINISTRATOR:
