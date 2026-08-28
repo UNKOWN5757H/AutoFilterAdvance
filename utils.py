@@ -3,8 +3,8 @@ import os
 import re
 import urllib.parse
 from datetime import datetime
-from logging import INFO, getLogger
 from typing import List, Union
+from logging import getLogger, INFO
 
 import aiohttp
 import requests
@@ -19,8 +19,9 @@ from pyrogram.errors import (
 )
 from pyrogram.types import InlineKeyboardButton, Message
 
-from database.join_reqs import join_reqs as db2
-from database.users_chats_db import db
+# ⚡ FIXED: Aliased to prevent scanner crashes
+from database.join_reqs import join_reqs as _db2
+from database.users_chats_db import db as _db
 from info import (
     ADMINS,
     AUTH_CHANNEL,
@@ -55,6 +56,7 @@ class temp(object):
 
 
 class TMDBWrapper(dict):
+    """Wrapper class so object dot-notation works seamlessly."""
     def __getattr__(self, name):
         return self.get(name)
 
@@ -88,28 +90,9 @@ def parse_ultra_advanced_query(text):
     )
 
     stopwords = [
-        "movie",
-        "full",
-        "watch",
-        "online",
-        "download",
-        "print",
-        "hq",
-        "dubbed",
-        "subtitles",
-        "subs",
-        "part",
-        "audio",
-        "video",
-        "kr_picture",
-        "sandalwood",
-        "exclusive",
-        "official",
-        "team",
-        "kannada_filmy_group",
-        "telegram",
-        "join",
-        "link",
+        "movie", "full", "watch", "online", "download", "print", "hq", "dubbed",
+        "subtitles", "subs", "part", "audio", "video", "kr_picture", "sandalwood",
+        "exclusive", "official", "team", "kannada_filmy_group", "telegram", "join", "link",
     ]
     to_remove = stopwords + qualities + years + languages
     for word in to_remove:
@@ -132,7 +115,7 @@ async def is_subscribed(bot, query):
         return True
     if not AUTH_CHANNEL and not REQ_CHANNEL:
         return True
-    if db2.isActive() and await db2.get_user(user_id):
+    if _db2.isActive() and await _db2.get_user(user_id):
         return True
     if not AUTH_CHANNEL:
         return True
@@ -333,12 +316,12 @@ async def broadcast_messages(user_id, message):
         await asyncio.sleep(e.value)
         return await broadcast_messages(user_id, message)
     except InputUserDeactivated:
-        await db.delete_user(int(user_id))
+        await _db.delete_user(int(user_id))
         return False, "Deleted"
     except UserIsBlocked:
         return False, "Blocked"
     except PeerIdInvalid:
-        await db.delete_user(int(user_id))
+        await _db.delete_user(int(user_id))
         return False, "Error"
     except Exception:
         return False, "Error"
@@ -369,7 +352,7 @@ async def search_gagala(text):
 async def get_settings(group_id):
     settings = temp.SETTINGS.get(group_id)
     if not settings:
-        settings = await db.get_settings(group_id)
+        settings = await _db.get_settings(group_id)
         temp.SETTINGS[group_id] = settings
     return settings
 
@@ -378,7 +361,7 @@ async def save_group_settings(group_id, key, value):
     current = await get_settings(group_id)
     current[key] = value
     temp.SETTINGS[group_id] = current
-    await db.update_settings(group_id, current)
+    await _db.update_settings(group_id, current)
 
 
 def get_size(size):
