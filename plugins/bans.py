@@ -1,4 +1,4 @@
-from logging import getLogger, ERROR
+from logging import ERROR, getLogger
 
 from pyrogram import Client, filters
 from pyrogram.types import Message
