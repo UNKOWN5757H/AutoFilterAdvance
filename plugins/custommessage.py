@@ -1,16 +1,16 @@
-import logging
+from logging import getLogger, ERROR
 
 from pyrogram import Client, filters
 from pyrogram.types import Message
 
 import info
 
-logger = logging.getLogger(__name__)
+logger = getLogger(__name__)
+logger.setLevel(ERROR)
 
 # ============================================================
 # ⚙️ Initialize Runtime States for Custom Messages & Images
 # ============================================================
-# Setting defaults to None so they fallback to your hardcoded defaults if not set
 configs = [
     "INFO_MSG",
     "INFO_IMG",
@@ -27,9 +27,6 @@ for conf in configs:
         setattr(info, conf, None)
 
 
-# ============================================================
-# 🛠️ Helper Functions to Process Settings
-# ============================================================
 async def process_text_setting(message: Message, var_name: str, setting_name: str):
     """Helper to process message extraction for custom texts."""
     if len(message.command) > 1 and message.command[1].lower() == "off":
@@ -84,59 +81,39 @@ async def process_image_setting(message: Message, var_name: str, setting_name: s
     photo_id = replied.photo.file_id
     setattr(info, var_name, photo_id)
 
-    # Send confirmation with the new image
     await message.reply_photo(
         photo=photo_id,
         caption=f"✅ **{setting_name} successfully updated to this image!**",
     )
 
 
-# ============================================================
-# ℹ️ 1. Info Message & Image
-# ============================================================
 @Client.on_message(filters.command("infomsg") & filters.user(info.ADMINS))
 async def set_info_msg(bot: Client, message: Message):
     await process_text_setting(message, "INFO_MSG", "Info Message")
-
 
 @Client.on_message(filters.command("infoimg") & filters.user(info.ADMINS))
 async def set_info_img(bot: Client, message: Message):
     await process_image_setting(message, "INFO_IMG", "Info Image")
 
-
-# ============================================================
-# 🗑 2. Delete Message & Image
-# ============================================================
 @Client.on_message(filters.command("delmsg") & filters.user(info.ADMINS))
 async def set_del_msg(bot: Client, message: Message):
     await process_text_setting(message, "DEL_MSG", "Delete Message")
-
 
 @Client.on_message(filters.command("delimg") & filters.user(info.ADMINS))
 async def set_del_img(bot: Client, message: Message):
     await process_image_setting(message, "DEL_IMG", "Delete Image")
 
-
-# ============================================================
-# 🚫 3. File Not Found Message & Image
-# ============================================================
 @Client.on_message(filters.command("notfoundmsg") & filters.user(info.ADMINS))
 async def set_notfound_msg(bot: Client, message: Message):
     await process_text_setting(message, "NOT_FOUND_MSG", "File Not Found Message")
-
 
 @Client.on_message(filters.command("notfoundimg") & filters.user(info.ADMINS))
 async def set_notfound_img(bot: Client, message: Message):
     await process_image_setting(message, "NOT_FOUND_IMG", "File Not Found Image")
 
-
-# ============================================================
-# 🔐 4. Force Subscribe Message & Image
-# ============================================================
 @Client.on_message(filters.command("fsubmsg") & filters.user(info.ADMINS))
 async def set_fsub_msg(bot: Client, message: Message):
     await process_text_setting(message, "FSUB_MSG", "Force Subscribe Message")
-
 
 @Client.on_message(filters.command("fsubimg") & filters.user(info.ADMINS))
 async def set_fsub_img(bot: Client, message: Message):
