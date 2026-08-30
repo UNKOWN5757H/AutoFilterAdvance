@@ -1,11 +1,17 @@
 import asyncio
 import datetime
 import time
-from logging import getLogger, ERROR
+from logging import ERROR, getLogger
 
 from motor.motor_asyncio import AsyncIOMotorClient
 from pyrogram import Client, filters
-from pyrogram.errors import ChatWriteForbidden, FloodWait, InputUserDeactivated, PeerIdInvalid, UserIsBlocked
+from pyrogram.errors import (
+    ChatWriteForbidden,
+    FloodWait,
+    InputUserDeactivated,
+    PeerIdInvalid,
+    UserIsBlocked,
+)
 
 import info
 from database.users_chats_db import db as _db
@@ -35,20 +41,22 @@ async def bcast_cleaner_worker(bot: Client):
             # Find messages due for deletion
             cursor = _broadcast_col.find({"delete_at": {"$lte": now}})
             docs = await cursor.to_list(length=100)
-            
+
             for doc in docs:
                 try:
-                    await bot.delete_messages(chat_id=doc["chat_id"], message_ids=doc["message_id"])
+                    await bot.delete_messages(
+                        chat_id=doc["chat_id"], message_ids=doc["message_id"]
+                    )
                 except Exception:
-                    pass # Ignore if chat is deleted, user blocked bot, or message already gone
-                
+                    pass  # Ignore if chat is deleted, user blocked bot, or message already gone
+
                 # Remove task from DB once processed
                 await _broadcast_col.delete_one({"_id": doc["_id"]})
-                
+
         except Exception as e:
             logger.error(f"Broadcast cleaner error: {e}")
-        
-        await asyncio.sleep(60) # Check the database every 60 seconds
+
+        await asyncio.sleep(60)  # Check the database every 60 seconds
 
 
 @Client.on_message(group=-100)
@@ -63,17 +71,21 @@ async def init_worker(bot: Client, message):
 # ============================================================
 # 📤 BROADCAST SENDER ENGINE
 # ============================================================
-async def send_and_schedule_delete(bot: Client, chat_id: int, message, is_group: bool = False):
+async def send_and_schedule_delete(
+    bot: Client, chat_id: int, message, is_group: bool = False
+):
     try:
         sent_msg = await message.copy(chat_id=chat_id)
-        
+
         # ⚡ Save task to MongoDB so it survives server restarts!
-        await _broadcast_col.insert_one({
-            "chat_id": chat_id,
-            "message_id": sent_msg.id,
-            "delete_at": time.time() + DELETE_DELAY
-        })
-        
+        await _broadcast_col.insert_one(
+            {
+                "chat_id": chat_id,
+                "message_id": sent_msg.id,
+                "delete_at": time.time() + DELETE_DELAY,
+            }
+        )
+
         return 200, None
     except FloodWait as e:
         await asyncio.sleep(e.value + 1)
@@ -95,7 +107,9 @@ async def send_and_schedule_delete(bot: Client, chat_id: int, message, is_group:
 async def user_broadcast(bot: Client, message):
     b_msg = message.reply_to_message
     if not b_msg:
-        return await message.reply_text("⚠️ **Reply to the message you want to broadcast.**")
+        return await message.reply_text(
+            "⚠️ **Reply to the message you want to broadcast.**"
+        )
 
     users = await _db.get_all_users()
     total_users = len(users)
@@ -103,7 +117,9 @@ async def user_broadcast(bot: Client, message):
     if total_users == 0:
         return await message.reply_text("⚠️ **No users found in the database.**")
 
-    status_msg = await message.reply_text(f"🚀 **Broadcasting to {total_users} users...**")
+    status_msg = await message.reply_text(
+        f"🚀 **Broadcasting to {total_users} users...**"
+    )
     start_time = time.time()
     done = success = blocked = failed = 0
 
@@ -151,11 +167,15 @@ async def user_broadcast(bot: Client, message):
 # ============================================================
 # 🏘️ GROUP BROADCAST
 # ============================================================
-@Client.on_message(filters.command("group_broadcast") & filters.user(ADMINS) & filters.reply)
+@Client.on_message(
+    filters.command("group_broadcast") & filters.user(ADMINS) & filters.reply
+)
 async def group_broadcast(bot: Client, message):
     b_msg = message.reply_to_message
     if not b_msg:
-        return await message.reply_text("⚠️ **Reply to the message you want to broadcast.**")
+        return await message.reply_text(
+            "⚠️ **Reply to the message you want to broadcast.**"
+        )
 
     chats = await _db.get_all_chats()
     total_chats = len(chats)
@@ -163,13 +183,17 @@ async def group_broadcast(bot: Client, message):
     if total_chats == 0:
         return await message.reply_text("⚠️ **No groups found in the database.**")
 
-    status_msg = await message.reply_text(f"🚀 **Broadcasting to {total_chats} groups/chats...**")
+    status_msg = await message.reply_text(
+        f"🚀 **Broadcasting to {total_chats} groups/chats...**"
+    )
     start_time = time.time()
     done = success = left = failed = 0
 
     for chat in chats:
         chat_id = int(chat["id"])
-        status, reason = await send_and_schedule_delete(bot, chat_id, b_msg, is_group=True)
+        status, reason = await send_and_schedule_delete(
+            bot, chat_id, b_msg, is_group=True
+        )
 
         if status == 200:
             success += 1
