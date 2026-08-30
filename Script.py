@@ -1,144 +1,229 @@
 class script(object):
-    START_TXT = """<b>Hey {mention} bro 🥂,\nI'm {bname}, the Moviebot! \n\nJoin our gang — We've got Movies hotter than your ex's new filing 😊🎬</b>"""
+    # ==========================================
+    # 🏠 MAIN MENUS
+    # ==========================================
+    START_TXT = """<b>Hᴇʏ {mention} 👋🏻\n\nI ᴀᴍ {bname} 🤖\n\nA ᴘᴏᴡᴇʀꜰᴜʟ ᴀᴜᴛᴏ-ꜰɪʟᴛᴇʀ ʙᴏᴛ ᴛᴏ ꜱᴇᴀʀᴄʜ ᴍᴏᴠɪᴇꜱ ᴀɴᴅ ꜱᴇʀɪᴇꜱ ɪɴꜱᴛᴀɴᴛʟʏ!\n\nSᴇɴᴅ ᴍᴇ ᴀɴʏ ᴍᴏᴠɪᴇ ɴᴀᴍᴇ, ᴀɴᴅ I ᴡɪʟʟ ᴘʀᴏᴠɪᴅᴇ ᴛʜᴇ ꜰɪʟᴇꜱ.</b>"""
 
-    HELP_TXT = """<b>You can find the bot commands here.\n\n‣ /help - Show this help message</b>\n\n<blockquote><b>Tap on corresponding modules to get the commands of that module.</b></blockquote>"""
+    HELP_TXT = """<b>Hᴇʏ {mention} 👋🏻\n\nCʜᴏᴏꜱᴇ ᴛʜᴇ ᴄᴀᴛᴇɢᴏʀʏ ʙᴇʟᴏᴡ ᴛᴏ ꜱᴇᴇ ᴀʟʟ ᴀᴠᴀɪʟᴀʙʟᴇ ᴄᴏᴍᴍᴀɴᴅꜱ ᴀɴᴅ ꜰᴇᴀᴛᴜʀᴇꜱ!</b>"""
 
-    ABOUT_TXT = """<b>○ 𝗠𝘆 𝗡𝗮𝗺𝗲 : {bname}
-○ 𝗖𝗿𝗲𝗮𝘁𝗼𝗿 : <a href="https://t.me/SandalwoodSupportBot">Sandalwood Support</a>
-○ 𝗟𝗶𝗯𝗿𝗮𝗿𝘆 : 𝙿𝚈𝚁𝙾𝙶𝚁𝙰𝙼
-○ 𝗟𝗮𝗻𝗴𝘂𝗮𝗴𝗲 : 𝙿𝚈𝚃𝙷𝙾𝙽 𝟹.10
-○ 𝗗𝗮𝘁𝗮𝗕𝗮𝘀𝗲 : 𝙼𝙾𝙽𝙶𝙾 𝙳𝗕
-○ 𝗕𝘂𝗶𝗹𝗱 𝗩𝗲𝗿𝘀𝗶𝗼𝗻 : V2.0 [ 𝙱𝙴𝚃𝙰 ]</b>"""
+    ABOUT_TXT = """<b>🤖 Nᴀᴍᴇ:</b> {bname}\n<b>👨‍💻 Dᴇᴠᴇʟᴏᴘᴇʀ:</b> <a href='https://t.me/KR_Picture'>KR Pɪᴄᴛᴜʀᴇ</a>\n<b>📺 Cʜᴀɴɴᴇʟ:</b> <a href='https://t.me/sandalwood_kannada_moviesz'>Sᴀɴᴅᴀʟᴡᴏᴏᴅ</a>\n<b>💬 Sᴜᴘᴘᴏʀᴛ:</b> <a href='https://t.me/Kannada_Filmy_Group'>Kᴀɴɴᴀᴅᴀ Fɪʟᴍʏ Gʀᴏᴜᴘ</a>"""
 
-    PRVCY_TXT = """<b>Hey {mention} ⚓\n\n➡️ Your Request Has Been Deleted To Safeguard Your Privacy!\n\n➡️ Thank You For Using @KR_PICTURE</b>"""
+    STATUS_TXT = """<b>📊 Bᴏᴛ Dᴀᴛᴀʙᴀsᴇ Sᴛᴀᴛᴜs</b>\n\n<b>📁 Tᴏᴛᴀʟ Fɪʟᴇs:</b> <code>{}</code>\n<b>👤 Tᴏᴛᴀʟ Usᴇʀs:</b> <code>{}</code>\n<b>🏘 Tᴏᴛᴀʟ Cʜᴀᴛs:</b> <code>{}</code>\n<b>💾 Usᴇᴅ Sᴛᴏʀᴀɢᴇ:</b> <code>{}</code>\n<b>💿 Fʀᴇᴇ Sᴛᴏʀᴀɢᴇ:</b> <code>{}</code>"""
 
-    SOURCE_TXT = """<b>Source Code Of This Bot is Private 😊</b>"""
+    LOG_TEXT_G = """<b>#Nᴇᴡ_Gʀᴏᴜᴘ</b>\n\n<b>Group Name:</b> <code>{}</code>\n<b>Group ID:</b> <code>{}</code>\n<b>Members:</b> <code>{}</code>\n<b>Added By:</b> {}"""
+    
+    LOG_TEXT_P = """<b>#Nᴇᴡ_Usᴇʀ</b>\n\n<b>User ID:</b> <code>{}</code>\n<b>Profile:</b> {}"""
 
-    BANS_TXT = """<blockquote><b>User Management\nBan or unban users to control access to the bot.</b></blockquote>\n
-<b>‣ /ban - Ban a user from bot - /ban user_id
-‣ /unban - Unban a user from bot - /unban user_id
-‣ /bannedusers - Check Banned Users List</b>"""
+    # ==========================================
+    # 📝 FORMATTING GUIDE (Used in Help)
+    # ==========================================
+    FORMAT_GUIDE = """
+<b>💡 Tᴇxᴛ Fᴏʀᴍᴀᴛᴛɪɴɢ Gᴜɪᴅᴇ:</b>
+<i>Supports Markdown and HTML!</i>
+• <code>**Bold**</code> ➔ **Bold**
+• <code>__Italic__</code> ➔ __Italic__
+• <code>~~Strike~~</code> ➔ ~~Strike~~
+• <code>--Underline--</code> ➔ --Underline--
+• <code>||Spoiler||</code> ➔ ||Spoiler||
+• <code>`Mono`</code> ➔ `Mono`
+• <code>> Quote</code> ➔ > Quote
+• <code>[Link Text](http://url.com)</code> ➔ [Link Text](http://url.com)
+"""
 
-    CUSTOMMESSAGES_TXT = """<blockquote><b>Custom Messages & Images\nConfigure custom messages and images for various actions, such as file info, file deletion, file not found, or force subscription prompts.</b></blockquote>\n
-<b>‣ /infomsg - Set info message before sending file
-‣ /infoimg - Set info image before sending file
-‣ /delmsg - Set delete message after sending file (File auto delete needs to be enabled)
-‣ /delimg - Set delete image after sending file
-‣ /notfoundmsg - Set message to send when file not found
-‣ /notfoundimg - Set image to send when file not found
-‣ /fsubmsg - Set force subscribe message
-‣ /fsubimg - Set force subscribe image\n
-*(Reply to a message/image with the command to set it, or use `off` to remove)*</b>"""
+    # ==========================================
+    # 👋 WELCOME SETTINGS
+    # ==========================================
+    WELCOME_TXT = f"""<b>👋 Wᴇʟᴄᴏᴍᴇ Mᴇssᴀɢᴇs (Gʀᴏᴜᴘ Aᴅᴍɪɴs)</b>
 
-    CUSTOMCAPTION_TXT = """<blockquote><b>File Caption Management\nManage or customize captions for files, including additional captions, to enhance file presentation.</b></blockquote>\n
-<b>‣ /customcaption - Set custom caption for files (Reply to message to set, or `/customcaption off` to disable)
-‣ /captionplus - Set additional caption for files along with main caption (Reply to message to set, or `/captionplus off` to disable)</b>"""
+• <code>/enablewelcome</code> - Turn ON welcome messages.
+• <code>/disablewelcome</code> - Turn OFF welcome messages.
+• <code>/setwelcometxt &lt;text&gt;</code> - Set custom text.
+<i>Variables: {{mention}}, {{title}}, {{count}}</i>
+• <code>/setwelcomeimg</code> - Reply to an image to set it.
+• <code>/setwelcome</code> - Reply to an image with a caption to set both!
+• <code>/delwelcome</code> - Delete custom welcome settings.
+{FORMAT_GUIDE}"""
 
-    DELETE_TXT = """<blockquote><b>File/Auto Deletion Management\nDelete files from the database or configure auto-delete settings for files and button messages in groups.</b></blockquote>\n
-<b>‣ /delete - Reply to a file to delete it from database
-‣ /delmulti - Delete multiple files from database with name - /delmulti name
-‣ /autodelete - Set file auto delete time in seconds
-‣ /buttondel - Set button message in groups auto delete time in seconds</b>"""
+    # ==========================================
+    # 🖼️ IMAGE SETTINGS
+    # ==========================================
+    IMAGES_TXT = """<b>🖼️ Gʟᴏʙᴀʟ Iᴍᴀɢᴇs (Bᴏᴛ Aᴅᴍɪɴ)</b>
 
-    FORCESUB_TXT = """<blockquote><b>Force Subscription Management\nSet, manage, or clear force subscribe channels.</b></blockquote>\n
-<b>‣ /setfsubcount - Set maximum Fsub chat count for queue
-‣ /setfsub - Set force subscribe channel - /setfsub channel_id
-‣ /rmfsub - Remove force subscribe channel - /rmfsub channel_id
-‣ /rmallfsub - Remove all force subscribe channels
-‣ /getallfsub - Get all force subscribe channel details
-‣ /getactivefsub - Get active force subscribe channels
-‣ /getpendingfsub - Get pending force subscribe channels which is in queue
-‣ /activatefsub - Activate pending force subscribe channel - /activatefsub channel_id
-‣ /deactivatefsub - Deactivate force subscribe channel - /deactivatefsub channel_id
-‣ /updatefsubtarget - Update force subscribe channel target - /updatefsubtarget channel_id target
-‣ /checkfsubusers - Check force subscribe users count
-‣ /clearfsubusers - Clear all force subscribe users from db</b>"""
+<b>Aᴜᴛᴏ-Fɪʟᴛᴇʀ Iᴍᴀɢᴇ</b>
+• <code>/setautoimg</code> - Reply to an image to set a global default filter image.
+• <code>/remautoimg</code> - Remove global default image.
 
-    FILTERS_TXT = """<blockquote><b>Filter Management\nAdd, delete, or view filters to customize responses based on keywords.</b></blockquote>\n
-<b>‣ /filter - Add a text filter (Reply `/filter keyword` to a message)
-‣ /addfilter - Add a text filter from pre-made buttons
-‣ /filterimage - Update only image for a filter (Reply to image with `/filterimage keyword`)
-‣ /editfiltercolur - Change button colour - `/editfiltercolur keyword 1 green`
-‣ /delfilter - Delete a text filter - /delfilter filter
-‣ /listfilters - List all filters currently added in the bot\n\nSupports text/photo/video/animation/sticker</b>"""
+<b>Fɪʟᴇ Nᴏᴛ Fᴏᴜɴᴅ Iᴍᴀɢᴇ</b>
+• <code>/setfilenotfoundimg</code> - Reply to image to set FNF image.
+• <code>/remfilenotfoundimg</code> - Remove FNF image.
+• <code>/defaultfilenotfoundimg</code> - Reset to repo default.
 
-    INDEX_TXT = """<blockquote><b>Database Indexing\nIndex a database channel by forwarding messages or using links. Supports private channels if the bot is an admin.</b></blockquote>\n
-<b>‣ /index - Start indexing a database channel
-You can just forward the message from database channel for starting indexing, no need to use the /index command.
-‣ /indexlink - Start indexing a database channel using link</b>"""
+<b>Fᴏʀᴄᴇ Sᴜʙsᴄʀɪʙᴇ Iᴍᴀɢᴇ</b>
+• <code>/setfsubimg</code> - Reply to an image to set it as the Force Subscribe alert photo!"""
 
-    PROMOTIONS_TXT = """<blockquote><b>Manage Promotional Links\nEasily add, delete, or view promotional links displayed between search results.</b></blockquote>\n
-<b>‣ /addpromo - Set promotional links between results - /addpromo "Button Text" URL
-‣ /delpromo - Delete promotional links between results - /delpromo URL
-‣ /listpromos - List all promotional links currently added in the DB</b>"""
+    # ==========================================
+    # 🔍 SPELL CHECK & NOT FOUND
+    # ==========================================
+    SPELLCHECK_TXT = """<b>🔍 Sᴘᴇʟʟ Cʜᴇᴄᴋ & Nᴏᴛ Fᴏᴜɴᴅ</b>
 
-    SETTINGS_TXT = """<blockquote><b>Bot Settings Management</b></blockquote>\n
-<b>‣ /repairmode - Enable or disable repair mode - If on, bot will not send any files
-‣ /adminsettings - Get current admin settings</b>"""
+<b>Sᴘᴇʟʟ Cʜᴇᴄᴋ & Sᴇᴀʀᴄʜ (Gʀᴏᴜᴘ Aᴅᴍɪɴs)</b>
+• <code>/enablespellcheck</code> - Turn ON spelling suggestions.
+• <code>/disablespellcheck</code> - Turn OFF spelling suggestions.
 
-    UTILITIES_TXT = """<blockquote><b>Utility Commands\nAccess bot logs, server stats, restart the bot, get user and file counts, send broadcasts, and more.</b></blockquote>\n
-<b>‣ /channels - List all connected groups and channels (15 per page)
-‣ /leavechannel - Leave a channel or group by ID
-‣ /logs - Get logs as a file
-‣ /server - Get server stats
-‣ /restart - Restart the bot
-‣ /stats - Get bot user stats
-‣ /broadcast - Reply to a message to send that to all bot users
-‣ /total - Get count of total files in DB
-‣ /clearfiles - Clear all files from DB
-‣ /clearusers - Clear all users from DB
-‣ /clearfsubusers - Clear all force subscribe users from db</b>"""
+<b>Sᴛᴏᴘᴡᴏʀᴅs & Nᴏᴛ Fᴏᴜɴᴅ Tᴇxᴛ (Bᴏᴛ Aᴅᴍɪɴ)</b>
+• <code>/addstopwords &lt;words&gt;</code> - Add words the bot should ignore (comma separated).
+• <code>/setnotfoundtext &lt;text&gt;</code> - Set FNF text.
+• <code>/remnotfoundtext</code> - Remove FNF text.
+• <code>/defaultnotfoundtext</code> - Reset to repo default text."""
 
-    CONNECTIONS_TXT = """<blockquote><b>𝗖𝗼𝗺𝗺𝗮𝗻𝗱𝘀 𝗮𝗻𝗱 𝗨𝘀𝗮𝗴𝗲\nUsed to connect bot to PM for managing filters, avoiding spamming in groups.</b></blockquote>\n
-<b>‣ /connect  - Connect a particular chat to your PM
-‣ /disconnect  - Disconnect from a chat
-‣ /connections - List all your connections</b>"""
+    # ==========================================
+    # 📝 FILTERS (Auto & Manual)
+    # ==========================================
+    FILTERS_TXT = f"""<b>📝 Mᴀɴᴜᴀʟ Fɪʟᴛᴇʀs</b>
 
-    FORCEADD_TXT = """<blockquote><b>ForceAdd Management</b></blockquote>\n
-<b>‣ /setforceadd - Set a Force Add channel for the group.
-‣ /remforceadd - Remove the current Force Add channel.
-‣ /getforceadd - View the configured Force Add channel.
-‣ /topaddall - Show the all-time top inviters leaderboard.
-‣ /topadd24 - Show the top inviters in the last 24 hours.
-‣ /topadd7 - Show the top inviters from the last 7 days.
-‣ /resetadddaily - Reset today's add statistics.
-‣ /resetadd - Reset all Force Add statistics.
-‣ /myadds - Check your personal add count and ranking.</b>"""
+• <code>/add &lt;keyword&gt;</code> - Reply to a file/text to create a filter.
+• <code>/del &lt;keyword&gt;</code> - Delete a filter.
+• <code>/delall</code> - Delete all filters in a chat.
+• <code>/viewfilters</code> - See all active filters.
+{FORMAT_GUIDE}"""
 
-    BACKUP_TXT = """<blockquote><b>Database Backup Management\nManage database backups, including scheduled backups and manual backups.</b></blockquote>\n
-<b>These commands are only available for the ADMINS of the bot.</b>\n
-<b>‣ /dbbackup - Backup the database
-‣ /dbrestore - Restore the database
-‣ /dbstats - Get database stats
-‣ /dbschedule - Get scheduled backup status</b>"""
+    # ==========================================
+    # 📱 FORCE SUBSCRIBE
+    # ==========================================
+    FORCESUB_TXT = """<b>📱 Fᴏʀᴄᴇ Sᴜʙsᴄʀɪʙᴇ Sᴇᴛᴛɪɴɢs</b>
 
-    POSTHAND_TXT = """<b>📝 POST HANDLER GUIDE
+<b>🔗 Cʜᴀɴɴᴇʟ Mᴀɴᴀɢᴇᴍᴇɴᴛ</b>
+• <code>/setfsub &lt;channel_id&gt;</code> - Add a dynamic FSub channel.
+• <code>/rmfsub &lt;channel_id&gt;</code> - Remove an FSub channel.
+• <code>/rmallfsub</code> - Clear all FSub channels.
+• <code>/setfsubcount &lt;num&gt;</code> - Limit active required channels.
 
-[ CREATE / EDIT ]
-‣ /post [Movie] - TMDB post
-‣ /editpost [Link] - Edit channel post
+<b>⚙️ Cᴏɴᴛʀᴏʟs</b>
+• <code>/enablefsub</code> / <code>/disablefsub</code> - Toggle global FSub.
+• <code>/getallfsub</code> - View FSub channel queue.
+• <code>/clearfsubusers</code> - Reset all verified FSub users."""
 
-[ FORMATTING ] 
-*(Send 'blank' to remove field)*
-‣ /edittitle [Title]
-‣ /edityear [Year]
-‣ /editlangs [Langs]
-‣ /editresolutions [Qualities]
-‣ /editgenres [Genres]
-‣ /editotts [OTTs]
+    # ==========================================
+    # 👥 FORCE ADD
+    # ==========================================
+    FORCEADD_TXT = """<b>👥 Fᴏʀᴄᴇ Aᴅᴅ Mᴇᴍʙᴇʀs</b>
 
-[ BUTTONS / IMAGES ]
-‣ /editbuttoncolour [No] [Color] - green/red/blue
-‣ /editdirect [URL] - Direct link
-‣ /editimage - Preview image
-‣ /editnormalimage - Native photo</b>"""
+Force users to add members to your group before they can send messages!
 
-    STATUS_TXT = """<b>★ 𝚃𝙾𝚃𝙰𝙻 𝙵𝙸𝙻𝙴𝚂:</b> <code>{}</code>
-<b>★ 𝚃𝙾𝚃𝙰𝙻 𝚄𝚂𝙴𝚁𝚂:</b> <code>{}</code>
-<b>★ 𝚃𝙾𝚃𝙰𝙻 𝙲𝙷𝙰𝚃𝚂:</b> <code>{}</code>
-<b>★ 𝚄𝚂𝙴𝙳 𝚂𝚃𝙾𝚁𝙰𝙶𝙴:</b> <code>{}</code> <b>𝙼𝚒𝙱</b>
-<b>★ 𝙵𝚁𝙴𝙴 𝚂𝚃𝙾𝚁𝙰𝙶𝙴:</b> <code>{}</code> <b>𝙼𝚒𝙱</b>"""
+<b>⚙️ Sᴇᴛᴜᴘ</b>
+• <code>/setforceadd &lt;num&gt;</code> - Set how many members a user must add.
+• <code>/remforceadd</code> - Disable the requirement.
+• <code>/getforceadd</code> - View current requirements.
 
-    LOG_TEXT_G = """#NewGroup\nGroup = {}(<code>{}</code>)\nTotal Members = <code>{}</code>\nAdded By - {}"""
-    LOG_TEXT_P = """#NewUser\nID - <code>{}</code>\nName - {}"""
-    DICS_TXT = """<b><code>ᴛʜɪꜱ ɪꜱ ᴀɴ ᴏᴘᴇɴ ꜱᴏᴜʀᴄᴇ ᴘʀᴏᴊᴇᴄᴛ.</code></b>"""
+<b>📊 Lᴇᴀᴅᴇʀʙᴏᴀʀᴅs</b>
+• <code>/myadds</code> - Check your current added count.
+• <code>/topaddall</code> - All-time top adders.
+• <code>/topadd24</code> - Top adders in last 24h.
+• <code>/topadd7</code> - Top adders in last 7 days.
+• <code>/resetadddaily</code> - Reset 24h/7d leaderboards.
+• <code>/resetadd</code> - Nuke all scores back to 0."""
+
+    # ==========================================
+    # 🗑️ DELETE COMMANDS
+    # ==========================================
+    DELETE_TXT = """<b>🗑️ Dᴇʟᴇᴛᴇ Sᴇᴛᴛɪɴɢs</b>
+
+<b>⏱ Aᴜᴛᴏ Dᴇʟᴇᴛɪᴏɴ (Bᴏᴛ Aᴅᴍɪɴ)</b>
+• <code>/autodelete &lt;seconds&gt;</code> - Time before PM files are deleted (Default: 1800s). Set 0 to disable.
+• <code>/buttondel &lt;seconds&gt;</code> - Time before inline search buttons in groups are deleted. Set 0 to disable.
+
+<b>🧹 Mᴀɴᴜᴀʟ Dᴇʟᴇᴛɪᴏɴ (Bᴏᴛ Aᴅᴍɪɴ)</b>
+• <code>/delete &lt;file_id&gt;</code> - Delete specific file from DB.
+• <code>/delete</code> (reply to file) - Delete replied file.
+• <code>/delmulti &lt;keyword&gt;</code> - Mass delete files matching keyword."""
+
+    # ==========================================
+    # 🚫 BANS & RESTRICTIONS
+    # ==========================================
+    BANS_TXT = """<b>🚫 Bᴀɴs & Rᴇsᴛʀɪᴄᴛɪᴏɴs (Bᴏᴛ Aᴅᴍɪɴ)</b>
+
+• <code>/ban &lt;user_id&gt;</code> - Ban a user globally.
+• <code>/unban &lt;user_id&gt;</code> - Unban a user.
+• <code>/bannedusers</code> - View count of banned users.
+• <code>/leave &lt;group_id&gt;</code> - Force bot to leave a chat.
+• <code>/disable &lt;group_id&gt;</code> - Blacklist a group.
+• <code>/enable &lt;group_id&gt;</code> - Whitelist a group."""
+
+    # ==========================================
+    # 📝 CUSTOM CAPTION
+    # ==========================================
+    CUSTOMCAPTION_TXT = """<b>📝 Cᴜsᴛᴏᴍ Cᴀᴘᴛɪᴏɴs</b>
+
+You can customize file captions by editing your Environment Variables.
+
+<b>Vᴀʀɪᴀʙʟᴇs:</b>
+• <code>{file_name}</code> - Name of the file
+• <code>{file_size}</code> - Size of the file
+• <code>{file_caption}</code> - Original caption"""
+
+    # ==========================================
+    # 📚 INDEXING (File Save)
+    # ==========================================
+    INDEX_TXT = """<b>📚 Iɴᴅᴇxɪɴɢ (Bᴏᴛ Aᴅᴍɪɴ)</b>
+
+• <code>/index</code> (reply to file/msg) - Save single file to DB.
+• <code>/batch</code> - Index entire channel in bulk.
+• <code>/link</code> - Get shareable link for a file.
+• <code>/total</code> - Count total indexed files.
+• <code>/clearfiles</code> - ⚠️ Nuke entire file database!"""
+
+    # ==========================================
+    # 📢 PROMOTIONS & BROADCAST
+    # ==========================================
+    PROMOTIONS_TXT = """<b>📢 Pʀᴏᴍᴏᴛɪᴏɴs & Bʀᴏᴀᴅᴄᴀsᴛ (Bᴏᴛ Aᴅᴍɪɴ)</b>
+
+<b>💬 Bʀᴏᴀᴅᴄᴀsᴛɪɴɢ (Aᴜᴛᴏ-ᴅᴇʟᴇᴛᴇs ɪɴ 24ʜ)</b>
+• <code>/broadcast</code> (reply to msg) - Send to all users.
+• <code>/group_broadcast</code> (reply to msg) - Send to all groups.
+
+<b>🔗 Iɴʟɪɴᴇ Pʀᴏᴍᴏs</b>
+• <code>/addpromo "Text" &lt;Link&gt;</code> - Add inline promo button to search results.
+• <code>/delpromo &lt;Link&gt;</code> - Remove promo button.
+• <code>/listpromos</code> - View all active promos."""
+
+    # ==========================================
+    # ⚙️ SETTINGS & CONNECTIONS
+    # ==========================================
+    SETTINGS_TXT = """<b>⚙️ Gʀᴏᴜᴘ Sᴇᴛᴛɪɴɢs</b>
+
+• <code>/settings</code> - Open interactive settings menu for the current group.
+• Configure Buttons, Bot PM, Spell Check, and Welcome modes.
+
+<b>🌐 Cᴏɴɴᴇᴄᴛɪᴏɴs</b>
+• <code>/connect &lt;group_id&gt;</code> - Link PM to group.
+• <code>/disconnect &lt;group_id&gt;</code> - Unlink PM.
+• <code>/connections</code> - View active connections."""
+    
+    CONNECTIONS_TXT = SETTINGS_TXT
+
+    # ==========================================
+    # 📊 UTILITIES & BACKUP
+    # ==========================================
+    UTILITIES_TXT = """<b>📊 Uᴛɪʟɪᴛɪᴇs & Sᴇʀᴠᴇʀ (Bᴏᴛ Aᴅᴍɪɴ)</b>
+
+• <code>/stats</code> - Database statistics.
+• <code>/server</code> - CPU, RAM, and Disk usage.
+• <code>/restart</code> - Restart bot process safely.
+• <code>/logs</code> - Download full system log file.
+• <code>/cleanusers</code> - Ping all users to purge deleted accounts.
+• <code>/clearusers</code> - ⚠️ Nuke user database!"""
+
+    BACKUP_TXT = """<b>💾 MᴏɴɢᴏDB Bᴀᴄᴋᴜᴘ (Bᴏᴛ Aᴅᴍɪɴ)</b>
+
+• <code>/dbbackup</code> - Generate full JSON backup of your database.
+• <code>/dbrestore</code> (reply to .json file) - Restore database from file.
+• <code>/dbstats</code> - Detailed MongoDB specs.
+• <code>/dbschedule</code> - Start 24h automated backup cron job."""
+
+    POSTHAND_TXT = """<b>📝 Pᴏsᴛ Hᴀɴᴅʟᴇ (Bᴏᴛ Aᴅᴍɪɴ)</b>
+
+• <code>/channels</code> - Interactive menu of all connected channels/groups.
+• <code>/leavechannel &lt;id&gt;</code> - Force leave and scrub a channel from DB.
+• <code>/exportusers</code> - Download .txt list of all users.
+• <code>/exportgroups</code> - Download .txt list of all groups.
+• <code>/exportchannels</code> - Download .txt list of all channels."""
