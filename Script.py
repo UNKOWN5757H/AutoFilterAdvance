@@ -11,8 +11,10 @@ class script(object):
     STATUS_TXT = """<b>📊 Bᴏᴛ Dᴀᴛᴀʙᴀsᴇ Sᴛᴀᴛᴜs</b>\n\n<b>📁 Tᴏᴛᴀʟ Fɪʟᴇs:</b> <code>{}</code>\n<b>👤 Tᴏᴛᴀʟ Usᴇʀs:</b> <code>{}</code>\n<b>🏘 Tᴏᴛᴀʟ Cʜᴀᴛs:</b> <code>{}</code>\n<b>💾 Usᴇᴅ Sᴛᴏʀᴀɢᴇ:</b> <code>{}</code>\n<b>💿 Fʀᴇᴇ Sᴛᴏʀᴀɢᴇ:</b> <code>{}</code>"""
 
     LOG_TEXT_G = """<b>#Nᴇᴡ_Gʀᴏᴜᴘ</b>\n\n<b>Group Name:</b> <code>{}</code>\n<b>Group ID:</b> <code>{}</code>\n<b>Members:</b> <code>{}</code>\n<b>Added By:</b> {}"""
-    
-    LOG_TEXT_P = """<b>#Nᴇᴡ_Usᴇʀ</b>\n\n<b>User ID:</b> <code>{}</code>\n<b>Profile:</b> {}"""
+
+    LOG_TEXT_P = (
+        """<b>#Nᴇᴡ_Usᴇʀ</b>\n\n<b>User ID:</b> <code>{}</code>\n<b>Profile:</b> {}"""
+    )
 
     # ==========================================
     # 📝 FORMATTING GUIDE (Used in Help)
@@ -198,7 +200,7 @@ You can customize file captions by editing your Environment Variables.
 • <code>/connect &lt;group_id&gt;</code> - Link PM to group.
 • <code>/disconnect &lt;group_id&gt;</code> - Unlink PM.
 • <code>/connections</code> - View active connections."""
-    
+
     CONNECTIONS_TXT = SETTINGS_TXT
 
     # ==========================================
