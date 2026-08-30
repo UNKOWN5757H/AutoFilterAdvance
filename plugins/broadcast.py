@@ -1,42 +1,79 @@
 import asyncio
 import datetime
 import time
-from logging import ERROR, getLogger
+from logging import getLogger, ERROR
 
+from motor.motor_asyncio import AsyncIOMotorClient
 from pyrogram import Client, filters
-from pyrogram.errors import (
-    ChatWriteForbidden,
-    FloodWait,
-    InputUserDeactivated,
-    PeerIdInvalid,
-    UserIsBlocked,
-)
+from pyrogram.errors import ChatWriteForbidden, FloodWait, InputUserDeactivated, PeerIdInvalid, UserIsBlocked
 
+import info
 from database.users_chats_db import db as _db
 from info import ADMINS
 
 logger = getLogger(__name__)
 logger.setLevel(ERROR)
 
-DELETE_DELAY = 72 * 3600
+# ⚡ Initialize a dedicated MongoDB collection for persistent deletion tasks
+_DB_CLIENT = AsyncIOMotorClient(info.DATABASE_URI)
+_BOT_DB = _DB_CLIENT[info.DATABASE_NAME]
+_broadcast_col = _BOT_DB["broadcast_tasks"]
+
+# 24 hours in seconds
+DELETE_DELAY = 24 * 3600
+worker_started = False
 
 
-async def auto_delete_message(bot: Client, chat_id: int, message_id: int, delay: int):
-    await asyncio.sleep(delay)
-    try:
-        await bot.delete_messages(chat_id=chat_id, message_ids=message_id)
-    except Exception:
-        pass
+# ============================================================
+# 🕰️ PERSISTENT BACKGROUND WORKER
+# ============================================================
+async def bcast_cleaner_worker(bot: Client):
+    """Background worker that permanently checks DB for expired broadcast messages to delete."""
+    while True:
+        try:
+            now = time.time()
+            # Find messages due for deletion
+            cursor = _broadcast_col.find({"delete_at": {"$lte": now}})
+            docs = await cursor.to_list(length=100)
+            
+            for doc in docs:
+                try:
+                    await bot.delete_messages(chat_id=doc["chat_id"], message_ids=doc["message_id"])
+                except Exception:
+                    pass # Ignore if chat is deleted, user blocked bot, or message already gone
+                
+                # Remove task from DB once processed
+                await _broadcast_col.delete_one({"_id": doc["_id"]})
+                
+        except Exception as e:
+            logger.error(f"Broadcast cleaner error: {e}")
+        
+        await asyncio.sleep(60) # Check the database every 60 seconds
 
 
-async def send_and_schedule_delete(
-    bot: Client, chat_id: int, message, is_group: bool = False
-):
+@Client.on_message(group=-100)
+async def init_worker(bot: Client, message):
+    """Hidden hook to start the background worker once upon receiving any message."""
+    global worker_started
+    if not worker_started:
+        worker_started = True
+        asyncio.create_task(bcast_cleaner_worker(bot))
+
+
+# ============================================================
+# 📤 BROADCAST SENDER ENGINE
+# ============================================================
+async def send_and_schedule_delete(bot: Client, chat_id: int, message, is_group: bool = False):
     try:
         sent_msg = await message.copy(chat_id=chat_id)
-        asyncio.create_task(
-            auto_delete_message(bot, chat_id, sent_msg.id, DELETE_DELAY)
-        )
+        
+        # ⚡ Save task to MongoDB so it survives server restarts!
+        await _broadcast_col.insert_one({
+            "chat_id": chat_id,
+            "message_id": sent_msg.id,
+            "delete_at": time.time() + DELETE_DELAY
+        })
+        
         return 200, None
     except FloodWait as e:
         await asyncio.sleep(e.value + 1)
@@ -51,13 +88,14 @@ async def send_and_schedule_delete(
         return 500, "Error"
 
 
+# ============================================================
+# 👤 USER BROADCAST
+# ============================================================
 @Client.on_message(filters.command("broadcast") & filters.user(ADMINS) & filters.reply)
 async def user_broadcast(bot: Client, message):
     b_msg = message.reply_to_message
     if not b_msg:
-        return await message.reply_text(
-            "⚠️ **Reply to the message you want to broadcast.**"
-        )
+        return await message.reply_text("⚠️ **Reply to the message you want to broadcast.**")
 
     users = await _db.get_all_users()
     total_users = len(users)
@@ -65,9 +103,7 @@ async def user_broadcast(bot: Client, message):
     if total_users == 0:
         return await message.reply_text("⚠️ **No users found in the database.**")
 
-    status_msg = await message.reply_text(
-        f"🚀 **Broadcasting to {total_users} users...**"
-    )
+    status_msg = await message.reply_text(f"🚀 **Broadcasting to {total_users} users...**")
     start_time = time.time()
     done = success = blocked = failed = 0
 
@@ -87,7 +123,12 @@ async def user_broadcast(bot: Client, message):
         if done % 20 == 0:
             try:
                 await status_msg.edit_text(
-                    f"📢 **Broadcast Progress**\n\n👥 Total Users: {total_users}\n✅ Sent: {success}\n🚫 Blocked/Deleted: {blocked}\n⚠️ Failed: {failed}\n📦 Completed: {done}/{total_users}"
+                    f"📢 **Broadcast Progress**\n\n"
+                    f"👥 Total Users: {total_users}\n"
+                    f"✅ Sent: {success}\n"
+                    f"🚫 Blocked/Deleted: {blocked}\n"
+                    f"⚠️ Failed: {failed}\n"
+                    f"📦 Completed: {done}/{total_users}"
                 )
             except FloodWait as e:
                 await asyncio.sleep(e.value)
@@ -97,19 +138,24 @@ async def user_broadcast(bot: Client, message):
 
     time_taken = datetime.timedelta(seconds=int(time.time() - start_time))
     await status_msg.edit_text(
-        f"✅ **User Broadcast Completed!**\n\n🕒 Duration: `{time_taken}`\n👥 Total Users: {total_users}\n✅ Successful: {success}\n🚫 Blocked/Deleted: {blocked}\n⚠️ Failed: {failed}\n\n⏳ *Messages will be automatically deleted in 72 hours.*"
+        f"✅ **User Broadcast Completed!**\n\n"
+        f"🕒 Duration: `{time_taken}`\n"
+        f"👥 Total Users: {total_users}\n"
+        f"✅ Successful: {success}\n"
+        f"🚫 Blocked/Deleted: {blocked}\n"
+        f"⚠️ Failed: {failed}\n\n"
+        f"⏳ *Messages will be automatically deleted in exactly 24 hours.*"
     )
 
 
-@Client.on_message(
-    filters.command("group_broadcast") & filters.user(ADMINS) & filters.reply
-)
+# ============================================================
+# 🏘️ GROUP BROADCAST
+# ============================================================
+@Client.on_message(filters.command("group_broadcast") & filters.user(ADMINS) & filters.reply)
 async def group_broadcast(bot: Client, message):
     b_msg = message.reply_to_message
     if not b_msg:
-        return await message.reply_text(
-            "⚠️ **Reply to the message you want to broadcast.**"
-        )
+        return await message.reply_text("⚠️ **Reply to the message you want to broadcast.**")
 
     chats = await _db.get_all_chats()
     total_chats = len(chats)
@@ -117,17 +163,13 @@ async def group_broadcast(bot: Client, message):
     if total_chats == 0:
         return await message.reply_text("⚠️ **No groups found in the database.**")
 
-    status_msg = await message.reply_text(
-        f"🚀 **Broadcasting to {total_chats} groups/chats...**"
-    )
+    status_msg = await message.reply_text(f"🚀 **Broadcasting to {total_chats} groups/chats...**")
     start_time = time.time()
     done = success = left = failed = 0
 
     for chat in chats:
         chat_id = int(chat["id"])
-        status, reason = await send_and_schedule_delete(
-            bot, chat_id, b_msg, is_group=True
-        )
+        status, reason = await send_and_schedule_delete(bot, chat_id, b_msg, is_group=True)
 
         if status == 200:
             success += 1
@@ -142,7 +184,12 @@ async def group_broadcast(bot: Client, message):
         if done % 20 == 0:
             try:
                 await status_msg.edit_text(
-                    f"🏘️ **Group Broadcast Progress**\n\n💬 Total Chats: {total_chats}\n✅ Sent: {success}\n🚷 Bot Removed: {left}\n⚠️ Failed: {failed}\n📦 Completed: {done}/{total_chats}"
+                    f"🏘️ **Group Broadcast Progress**\n\n"
+                    f"💬 Total Chats: {total_chats}\n"
+                    f"✅ Sent: {success}\n"
+                    f"🚷 Bot Removed: {left}\n"
+                    f"⚠️ Failed: {failed}\n"
+                    f"📦 Completed: {done}/{total_chats}"
                 )
             except FloodWait as e:
                 await asyncio.sleep(e.value)
@@ -152,5 +199,11 @@ async def group_broadcast(bot: Client, message):
 
     time_taken = datetime.timedelta(seconds=int(time.time() - start_time))
     await status_msg.edit_text(
-        f"✅ **Group Broadcast Completed!**\n\n🕒 Duration: `{time_taken}`\n💬 Total Chats: {total_chats}\n✅ Successful: {success}\n🚷 Bot Removed: {left}\n⚠️ Failed: {failed}\n\n⏳ *Messages will be automatically deleted in 72 hours.*"
+        f"✅ **Group Broadcast Completed!**\n\n"
+        f"🕒 Duration: `{time_taken}`\n"
+        f"💬 Total Chats: {total_chats}\n"
+        f"✅ Successful: {success}\n"
+        f"🚷 Bot Removed: {left}\n"
+        f"⚠️ Failed: {failed}\n\n"
+        f"⏳ *Messages will be automatically deleted in exactly 24 hours.*"
     )
