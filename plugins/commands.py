@@ -11,7 +11,11 @@ from logging import ERROR, getLogger
 from pyrogram import Client, enums, filters
 from pyrogram.enums import ButtonStyle
 from pyrogram.errors import (
-    ChatAdminRequired, FloodWait, PeerIdInvalid, UserIsBlocked, MessageNotModified
+    ChatAdminRequired,
+    FloodWait,
+    MessageNotModified,
+    PeerIdInvalid,
+    UserIsBlocked,
 )
 from pyrogram.types import (
     CallbackQuery,
@@ -94,6 +98,7 @@ def get_start_buttons(user_id):
     )
     return InlineKeyboardMarkup(buttons)
 
+
 # ⚡ FIXED: Added explicit support for the /help command
 @Client.on_message(filters.command(["start", "help"]) & filters.incoming)
 async def start(client: Client, message: Message):
@@ -113,25 +118,62 @@ async def start(client: Client, message: Message):
     b_name = temp.B_NAME or "MovieBot"
 
     # ⚡ If the user types /help natively, instantly show the help menu
-    is_help_command = (message.command[0] == "help") or (len(message.command) == 2 and message.command[1] == "help")
-    
+    is_help_command = (message.command[0] == "help") or (
+        len(message.command) == 2 and message.command[1] == "help"
+    )
+
     if is_help_command:
         buttons = [
-            [InlineKeyboardButton("👋 Welcome", callback_data="helps_welcome"), InlineKeyboardButton("🖼️ Images", callback_data="helps_images")],
-            [InlineKeyboardButton("🔍 Spell Check", callback_data="helps_spell"), InlineKeyboardButton("📝 Filters", callback_data="helps_filters")],
-            [InlineKeyboardButton("📱 Force Sub", callback_data="helps_forcesub"), InlineKeyboardButton("👥 Force Add", callback_data="helps_forceadd")],
-            [InlineKeyboardButton("🚫 Bans", callback_data="helps_bans"), InlineKeyboardButton("🗑️ Delete", callback_data="helps_delete")],
-            [InlineKeyboardButton("📢 Promotions", callback_data="helps_promotions"), InlineKeyboardButton("📚 Index", callback_data="helps_index")],
-            [InlineKeyboardButton("⚙️ Settings", callback_data="helps_settings"), InlineKeyboardButton("🌐 Connections", callback_data="helps_connections")],
-            [InlineKeyboardButton("📊 Utilities", callback_data="helps_utilities"), InlineKeyboardButton("💬 Custom Messages", callback_data="helps_custommessages")],
-            [InlineKeyboardButton("📝 Post Handle", callback_data="helps_posthand"), InlineKeyboardButton("📝 Custom Captions", callback_data="helps_customcaption")],
+            [
+                InlineKeyboardButton("👋 Welcome", callback_data="helps_welcome"),
+                InlineKeyboardButton("🖼️ Images", callback_data="helps_images"),
+            ],
+            [
+                InlineKeyboardButton("🔍 Spell Check", callback_data="helps_spell"),
+                InlineKeyboardButton("📝 Filters", callback_data="helps_filters"),
+            ],
+            [
+                InlineKeyboardButton("📱 Force Sub", callback_data="helps_forcesub"),
+                InlineKeyboardButton("👥 Force Add", callback_data="helps_forceadd"),
+            ],
+            [
+                InlineKeyboardButton("🚫 Bans", callback_data="helps_bans"),
+                InlineKeyboardButton("🗑️ Delete", callback_data="helps_delete"),
+            ],
+            [
+                InlineKeyboardButton("📢 Promotions", callback_data="helps_promotions"),
+                InlineKeyboardButton("📚 Index", callback_data="helps_index"),
+            ],
+            [
+                InlineKeyboardButton("⚙️ Settings", callback_data="helps_settings"),
+                InlineKeyboardButton(
+                    "🌐 Connections", callback_data="helps_connections"
+                ),
+            ],
+            [
+                InlineKeyboardButton("📊 Utilities", callback_data="helps_utilities"),
+                InlineKeyboardButton(
+                    "💬 Custom Messages", callback_data="helps_custommessages"
+                ),
+            ],
+            [
+                InlineKeyboardButton("📝 Post Handle", callback_data="helps_posthand"),
+                InlineKeyboardButton(
+                    "📝 Custom Captions", callback_data="helps_customcaption"
+                ),
+            ],
             [InlineKeyboardButton("💾 Backup", callback_data="helps_backup")],
-            [InlineKeyboardButton("🔙 Back", callback_data="start"), InlineKeyboardButton("🔐 Cʟᴏsᴇ", callback_data="close_data")],
+            [
+                InlineKeyboardButton("🔙 Back", callback_data="start"),
+                InlineKeyboardButton("🔐 Cʟᴏsᴇ", callback_data="close_data"),
+            ],
         ]
         return await message.reply_text(
-            text=script.HELP_TXT.format(mention=message.from_user.mention if message.from_user else "User"),
+            text=script.HELP_TXT.format(
+                mention=message.from_user.mention if message.from_user else "User"
+            ),
             reply_markup=InlineKeyboardMarkup(buttons),
-            parse_mode=enums.ParseMode.HTML
+            parse_mode=enums.ParseMode.HTML,
         )
 
     if message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
@@ -1180,7 +1222,10 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 "helps_connections": ("CONNECTIONS_TXT", "🌐 Connections Help"),
                 "helps_forceadd": ("FORCEADD_TXT", "👥 Force Add Help"),
                 "helps_posthand": ("POSTHAND_TXT", "📝 Post Handle Help"),
-                "helps_custommessages": ("CUSTOMMESSAGES_TXT", "💬 Custom Messages"), # ⚡ FIXED: Typo here caused broken button
+                "helps_custommessages": (
+                    "CUSTOMMESSAGES_TXT",
+                    "💬 Custom Messages",
+                ),  # ⚡ FIXED: Typo here caused broken button
                 "helps_backup": ("BACKUP_TXT", "💾 Backup Help"),
             }
             target_var, default_text = help_dict.get(
@@ -1195,7 +1240,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     parse_mode=enums.ParseMode.HTML,
                 )
             except MessageNotModified:
-                pass # ⚡ FIXED: Prevent ugly text fallback when clicking the same button twice
+                pass  # ⚡ FIXED: Prevent ugly text fallback when clicking the same button twice
             except Exception:
                 # Safely fallback to raw text if HTML strictly fails due to weird characters in Script
                 clean_text = re.sub(
