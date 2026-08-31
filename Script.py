@@ -205,7 +205,13 @@ You can customize file captions by editing your Environment Variables.
     CONNECTIONS_TXT = """<blockquote><b>𝗖𝗼𝗺𝗺𝗮𝗻𝗱𝘀 𝗮𝗻𝗱 𝗨𝘀𝗮𝗴𝗲\nUsed to connect bot to PM for managing filters, avoiding spamming in groups.</b></blockquote>\n
 <b>‣ /connect  - Connect a particular chat to your PM
 ‣ /disconnect  - Disconnect from a chat
-‣ /connections - List all your connections</b>"""
+‣ /connections - List all your connections
+
+• <code>/channels</code> - Interactive menu of all connected channels/groups.
+• <code>/leavechannel &lt;id&gt;</code> - Force leave and scrub a channel from DB.
+• <code>/exportusers</code> - Download .txt list of all users.
+• <code>/exportgroups</code> - Download .txt list of all groups.
+• <code>/exportchannels</code> - Download .txt list of all channels.</b>"""
 
     # ==========================================
     # 📊 UTILITIES & BACKUP
@@ -252,11 +258,3 @@ You can customize file captions by editing your Environment Variables.
 ‣ /editdirect [URL] - Direct link
 ‣ /editimage - Preview image
 ‣ /editnormalimage - Native photo</b>"""
-
-    POSTHAND_TXT = """<b>📝 Pᴏsᴛ Hᴀɴᴅʟᴇ (Bᴏᴛ Aᴅᴍɪɴ)</b>
-
-• <code>/channels</code> - Interactive menu of all connected channels/groups.
-• <code>/leavechannel &lt;id&gt;</code> - Force leave and scrub a channel from DB.
-• <code>/exportusers</code> - Download .txt list of all users.
-• <code>/exportgroups</code> - Download .txt list of all groups.
-• <code>/exportchannels</code> - Download .txt list of all channels."""
