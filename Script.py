@@ -177,7 +177,7 @@ You can customize file captions by editing your Environment Variables.
 ‣ /delpromo - Delete promotional links between results - /delpromo URL
 ‣ /listpromos - List all promotional links currently added in the DB
 ‣ /broadcast</b>"""
-    
+
     PROMOTIONS_TXT = """<b>📢 Pʀᴏᴍᴏᴛɪᴏɴs & Bʀᴏᴀᴅᴄᴀsᴛ (Bᴏᴛ Aᴅᴍɪɴ)</b>
 
 <b>💬 Bʀᴏᴀᴅᴄᴀsᴛɪɴɢ (Aᴜᴛᴏ-ᴅᴇʟᴇᴛᴇs ɪɴ 24ʜ)</b>
