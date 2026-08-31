@@ -12,9 +12,7 @@ class script(object):
 
     LOG_TEXT_G = """<b>#Nᴇᴡ_Gʀᴏᴜᴘ</b>\n\n<b>Group Name:</b> <code>{}</code>\n<b>Group ID:</b> <code>{}</code>\n<b>Members:</b> <code>{}</code>\n<b>Added By:</b> {}"""
 
-    LOG_TEXT_P = (
-        """<b>#Nᴇᴡ_Usᴇʀ</b>\n\n<b>User ID:</b> <code>{}</code>\n<b>Profile:</b> {}"""
-    )
+    LOG_TEXT_P = """<b>#Nᴇᴡ_Usᴇʀ</b>\n\n<b>User ID:</b> <code>{}</code>\n<b>Profile:</b> {}"""
 
     # ==========================================
     # 📝 FORMATTING GUIDE (Used in Help)
@@ -28,7 +26,7 @@ class script(object):
 • <code>--Underline--</code> ➔ --Underline--
 • <code>||Spoiler||</code> ➔ ||Spoiler||
 • <code>`Mono`</code> ➔ `Mono`
-• <code>> Quote</code> ➔ > Quote
+• <code>&gt; Quote</code> ➔ &gt; Quote
 • <code>[Link Text](http://url.com)</code> ➔ [Link Text](http://url.com)
 """
 
@@ -74,10 +72,10 @@ class script(object):
 
 <b>Sᴛᴏᴘᴡᴏʀᴅs & Nᴏᴛ Fᴏᴜɴᴅ Tᴇxᴛ (Bᴏᴛ Aᴅᴍɪɴ)</b>
 ‣ <code>/addstopwords &lt;words&gt;</code> - Add words the bot should ignore (comma separated).
-‣ /stopwords - Show Stop Words 
-‣ /remstopwords - Remove Stop Word
-‣ /remallstopwords - Remove All Stop Words
-‣ /defaultstopwords - Make Default Words into available in repo
+‣ <code>/stopwords</code> - Show Stop Words 
+‣ <code>/remstopwords</code> - Remove Stop Word
+‣ <code>/remallstopwords</code> - Remove All Stop Words
+‣ <code>/defaultstopwords</code> - Make Default Words into available in repo
 ‣ <code>/setnotfoundtext &lt;text&gt;</code> - Set FNF text.
 ‣ <code>/remnotfoundtext</code> - Remove FNF text.
 ‣ <code>/defaultnotfoundtext</code> - Reset to repo default text."""
@@ -90,7 +88,7 @@ class script(object):
 ‣ /addfilter - Add a text filter from pre-made buttons
 ‣ /filterimage - Update only image for a filter (Reply to image with `/filterimage keyword`)
 ‣ /editfiltercolur - Change button colour - `/editfiltercolur keyword 1 green`
-‣ /delfilter - Delete a text filter - /delfilter filter
+‣ /delfilter - Delete a text filter - `/delfilter filter`
 ‣ /listfilters - List all filters currently added in the bot\n\nSupports text/photo/video/animation/sticker</b>"""
 
     # ==========================================
@@ -100,15 +98,15 @@ class script(object):
 <b>‣ /enablefsub - enable force subscribe 
 ‣ /disablefsub - disable force subscribe 
 ‣ /setfsubcount - Set maximum Fsub chat count for queue
-‣ /setfsub - Set force subscribe channel - /setfsub channel_id
-‣ /rmfsub - Remove force subscribe channel - /rmfsub channel_id
+‣ /setfsub - Set force subscribe channel - `/setfsub channel_id`
+‣ /rmfsub - Remove force subscribe channel - `/rmfsub channel_id`
 ‣ /rmallfsub - Remove all force subscribe channels
 ‣ /getallfsub - Get all force subscribe channel details
 ‣ /getactivefsub - Get active force subscribe channels
 ‣ /getpendingfsub - Get pending force subscribe channels which is in queue
-‣ /activatefsub - Activate pending force subscribe channel - /activatefsub channel_id
-‣ /deactivatefsub - Deactivate force subscribe channel - /deactivatefsub channel_id
-‣ /updatefsubtarget - Update force subscribe channel target - /updatefsubtarget channel_id target
+‣ /activatefsub - Activate pending force subscribe channel - `/activatefsub channel_id`
+‣ /deactivatefsub - Deactivate force subscribe channel - `/deactivatefsub channel_id`
+‣ /updatefsubtarget - Update force subscribe channel target - `/updatefsubtarget channel_id target`
 ‣ /checkfsubusers - Check force subscribe users count
 ‣ /clearfsubusers - Clear all force subscribe users from db</b>"""
 
@@ -131,7 +129,7 @@ class script(object):
     # ==========================================
     DELETE_TXT = """<blockquote><b>File/Auto Deletion Management\nDelete files from the database or configure auto-delete settings for files and button messages in groups.</b></blockquote>\n
 <b>‣ /delete - Reply to a file to delete it from database
-‣ /delmulti - Delete multiple files from database with name - /delmulti name
+‣ /delmulti - Delete multiple files from database with name - `/delmulti name`
 ‣ /autodelete - Set file auto delete time in seconds
 ‣ /buttondel - Set button message in groups auto delete time in seconds</b>"""
 
@@ -139,8 +137,8 @@ class script(object):
     # 🚫 BANS & RESTRICTIONS
     # ==========================================
     BANS_TXT = """<blockquote><b>User Management\nBan or unban users to control access to the bot.</b></blockquote>\n
-<b>‣ /ban - Ban a user from bot - /ban user_id
-‣ /unban - Unban a user from bot - /unban user_id
+<b>‣ /ban - Ban a user from bot - `/ban user_id`
+‣ /unban - Unban a user from bot - `/unban user_id`
 ‣ /bannedusers - Check Banned Users List
 ‣ /leave - Force bot to leave a chat 
 ‣ /enable - whitelist a group 
@@ -160,7 +158,7 @@ You can customize file captions by editing your Environment Variables.
 • <code>{file_size}</code> - Size of the file
 • <code>{file_caption}</code> - Original caption"""
 
-    CUSTOMMESSAGES_TXT = """<blockquote><b>Custom Messages & Images\nConfigure custom messages and images for various actions, such as file info, file deletion, file not found, or force subscription prompts.</b></blockquote>\n
+    CUSTOMMESSAGES_TXT = """<blockquote><b>Custom Messages & Images\nConfigure custom messages and images for various actions.</b></blockquote>\n
 <b>‣ /infomsg - Set info message before sending file
 ‣ /infoimg - Set info image before sending file
 ‣ /delmsg - Set delete message after sending file (File auto delete needs to be enabled)
@@ -185,15 +183,14 @@ You can customize file captions by editing your Environment Variables.
     # ==========================================
     # 📢 PROMOTIONS & BROADCAST
     # ==========================================
-
     PROMOTIONS_TXT = """<blockquote><b>Manage Promotional Links\nEasily add, delete, or view promotional links displayed between search results.</b></blockquote>\n
-<b>‣ /addpromo - Set promotional links between results - /addpromo "Button Text" URL
-‣ /delpromo - Delete promotional links between results - /delpromo URL
+<b>‣ /addpromo - Set promotional links between results - `/addpromo "Button Text" URL`
+‣ /delpromo - Delete promotional links between results - `/delpromo URL`
 ‣ /listpromos - List all promotional links currently added in the DB
 
 💬 Bʀᴏᴀᴅᴄᴀsᴛɪɴɢ (Aᴜᴛᴏ-ᴅᴇʟᴇᴛᴇs ɪɴ 24ʜ)
 ‣ /broadcast - send to all users 
-‣ /group_broadcasr - send to all grous</b>"""
+‣ /group_broadcast - send to all groups</b>"""
 
     # ==========================================
     # ⚙️ SETTINGS & CONNECTIONS
@@ -216,7 +213,6 @@ You can customize file captions by editing your Environment Variables.
     # ==========================================
     # 📊 UTILITIES & BACKUP
     # ==========================================
-
     UTILITIES_TXT = """<blockquote><b>Utility Commands\nAccess bot logs, server stats, restart the bot, get user and file counts, send broadcasts, and more.</b></blockquote>\n
 <b>‣ /channels - List all connected groups and channels (15 per page)
 ‣ /leavechannel - Leave a channel or group by ID
