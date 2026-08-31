@@ -1339,7 +1339,10 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 "helps_connections": ("CONNECTIONS_TXT", "🌐 Connections Help"),
                 "helps_forceadd": ("FORCEADD_TXT", "👥 Force Add Help"),
                 "helps_posthand": ("POSTHAND_TXT", "📝 Post Handle Help"),
-                "helps_custommessages": ("CUSTOMMESSAGES_TXT", "💬 Custom Messages"), # ⚡ FIXED: Typo here caused broken button
+                "helps_custommessages": (
+                    "CUSTOMMESSAGES_TXT",
+                    "💬 Custom Messages",
+                ),  # ⚡ FIXED: Typo here caused broken button
                 "helps_backup": ("BACKUP_TXT", "💾 Backup Help"),
             }
             target_var, default_text = help_dict.get(
@@ -1354,7 +1357,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     parse_mode=enums.ParseMode.HTML,
                 )
             except MessageNotModified:
-                pass # ⚡ FIXED: Prevent ugly text fallback when clicking the same button twice
+                pass  # ⚡ FIXED: Prevent ugly text fallback when clicking the same button twice
             except Exception:
                 # Safely fallback to raw text if HTML strictly fails due to weird characters in Script
                 clean_text = re.sub(
