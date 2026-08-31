@@ -1255,7 +1255,9 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     InlineKeyboardButton("🗑️ Delete", callback_data="helps_delete"),
                 ],
                 [
-                    InlineKeyboardButton("📢 Promotions", callback_data="helps_promotions"),
+                    InlineKeyboardButton(
+                        "📢 Promotions", callback_data="helps_promotions"
+                    ),
                     InlineKeyboardButton("📚 Index", callback_data="helps_index"),
                 ],
                 [
@@ -1268,7 +1270,9 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     InlineKeyboardButton(
                         "📊 Utilities", callback_data="helps_utilities"
                     ),
-                    InlineKeyboardButton("💬 Custom Messages", callback_data="helps_custommessages"),
+                    InlineKeyboardButton(
+                        "💬 Custom Messages", callback_data="helps_custommessages"
+                    ),
                 ],
                 [
                     InlineKeyboardButton(
@@ -1279,7 +1283,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     ),
                 ],
                 [
-                InlineKeyboardButton("💾 Backup", callback_data="helps_backup"),
+                    InlineKeyboardButton("💾 Backup", callback_data="helps_backup"),
                 ],
                 [
                     InlineKeyboardButton("🔙 Back", callback_data="start"),
