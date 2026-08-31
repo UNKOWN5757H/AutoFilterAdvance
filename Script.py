@@ -69,14 +69,18 @@ class script(object):
     SPELLCHECK_TXT = """<b>🔍 Sᴘᴇʟʟ Cʜᴇᴄᴋ & Nᴏᴛ Fᴏᴜɴᴅ</b>
 
 <b>Sᴘᴇʟʟ Cʜᴇᴄᴋ & Sᴇᴀʀᴄʜ (Gʀᴏᴜᴘ Aᴅᴍɪɴs)</b>
-• <code>/enablespellcheck</code> - Turn ON spelling suggestions.
-• <code>/disablespellcheck</code> - Turn OFF spelling suggestions.
+‣ <code>/enablespellcheck</code> - Turn ON spelling suggestions.
+‣ <code>/disablespellcheck</code> - Turn OFF spelling suggestions.
 
 <b>Sᴛᴏᴘᴡᴏʀᴅs & Nᴏᴛ Fᴏᴜɴᴅ Tᴇxᴛ (Bᴏᴛ Aᴅᴍɪɴ)</b>
-• <code>/addstopwords &lt;words&gt;</code> - Add words the bot should ignore (comma separated).
-• <code>/setnotfoundtext &lt;text&gt;</code> - Set FNF text.
-• <code>/remnotfoundtext</code> - Remove FNF text.
-• <code>/defaultnotfoundtext</code> - Reset to repo default text."""
+‣ <code>/addstopwords &lt;words&gt;</code> - Add words the bot should ignore (comma separated).
+‣ /stopwords - Show Stop Words 
+‣ /remstopwords - Remove Stop Word
+‣ /remallstopwords - Remove All Stop Words
+‣ /defaultstopwords - Make Default Words into available in repo
+‣ <code>/setnotfoundtext &lt;text&gt;</code> - Set FNF text.
+‣ <code>/remnotfoundtext</code> - Remove FNF text.
+‣ <code>/defaultnotfoundtext</code> - Reset to repo default text."""
 
     # ==========================================
     # 📝 FILTERS (Auto & Manual)
