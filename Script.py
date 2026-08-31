@@ -81,29 +81,32 @@ class script(object):
     # ==========================================
     # 📝 FILTERS (Auto & Manual)
     # ==========================================
-    FILTERS_TXT = f"""<b>📝 Mᴀɴᴜᴀʟ Fɪʟᴛᴇʀs</b>
-
-• <code>/add &lt;keyword&gt;</code> - Reply to a file/text to create a filter.
-• <code>/del &lt;keyword&gt;</code> - Delete a filter.
-• <code>/delall</code> - Delete all filters in a chat.
-• <code>/viewfilters</code> - See all active filters.
-{FORMAT_GUIDE}"""
+    FILTERS_TXT = """<blockquote><b>Filter Management\nAdd, delete, or view filters to customize responses based on keywords.</b></blockquote>\n
+<b>‣ /filter - Add a text filter (Reply `/filter keyword` to a message)
+‣ /addfilter - Add a text filter from pre-made buttons
+‣ /filterimage - Update only image for a filter (Reply to image with `/filterimage keyword`)
+‣ /editfiltercolur - Change button colour - `/editfiltercolur keyword 1 green`
+‣ /delfilter - Delete a text filter - /delfilter filter
+‣ /listfilters - List all filters currently added in the bot\n\nSupports text/photo/video/animation/sticker</b>"""
 
     # ==========================================
     # 📱 FORCE SUBSCRIBE
     # ==========================================
-    FORCESUB_TXT = """<b>📱 Fᴏʀᴄᴇ Sᴜʙsᴄʀɪʙᴇ Sᴇᴛᴛɪɴɢs</b>
-
-<b>🔗 Cʜᴀɴɴᴇʟ Mᴀɴᴀɢᴇᴍᴇɴᴛ</b>
-• <code>/setfsub &lt;channel_id&gt;</code> - Add a dynamic FSub channel.
-• <code>/rmfsub &lt;channel_id&gt;</code> - Remove an FSub channel.
-• <code>/rmallfsub</code> - Clear all FSub channels.
-• <code>/setfsubcount &lt;num&gt;</code> - Limit active required channels.
-
-<b>⚙️ Cᴏɴᴛʀᴏʟs</b>
-• <code>/enablefsub</code> / <code>/disablefsub</code> - Toggle global FSub.
-• <code>/getallfsub</code> - View FSub channel queue.
-• <code>/clearfsubusers</code> - Reset all verified FSub users."""
+    FORCESUB_TXT = """<blockquote><b>Force Subscription Management\nSet, manage, or clear force subscribe channels.</b></blockquote>\n
+<b>‣ /enablefsub - enable force subscribe 
+‣ /disablefsub - disable force subscribe 
+‣ /setfsubcount - Set maximum Fsub chat count for queue
+‣ /setfsub - Set force subscribe channel - /setfsub channel_id
+‣ /rmfsub - Remove force subscribe channel - /rmfsub channel_id
+‣ /rmallfsub - Remove all force subscribe channels
+‣ /getallfsub - Get all force subscribe channel details
+‣ /getactivefsub - Get active force subscribe channels
+‣ /getpendingfsub - Get pending force subscribe channels which is in queue
+‣ /activatefsub - Activate pending force subscribe channel - /activatefsub channel_id
+‣ /deactivatefsub - Deactivate force subscribe channel - /deactivatefsub channel_id
+‣ /updatefsubtarget - Update force subscribe channel target - /updatefsubtarget channel_id target
+‣ /checkfsubusers - Check force subscribe users count
+‣ /clearfsubusers - Clear all force subscribe users from db</b>"""
 
     # ==========================================
     # 👥 FORCE ADD
@@ -122,33 +125,29 @@ class script(object):
     # ==========================================
     # 🗑️ DELETE COMMANDS
     # ==========================================
-    DELETE_TXT = """<b>🗑️ Dᴇʟᴇᴛᴇ Sᴇᴛᴛɪɴɢs</b>
-
-<b>⏱ Aᴜᴛᴏ Dᴇʟᴇᴛɪᴏɴ (Bᴏᴛ Aᴅᴍɪɴ)</b>
-• <code>/autodelete &lt;seconds&gt;</code> - Time before PM files are deleted (Default: 1800s). Set 0 to disable.
-• <code>/buttondel &lt;seconds&gt;</code> - Time before inline search buttons in groups are deleted. Set 0 to disable.
-
-<b>🧹 Mᴀɴᴜᴀʟ Dᴇʟᴇᴛɪᴏɴ (Bᴏᴛ Aᴅᴍɪɴ)</b>
-• <code>/delete &lt;file_id&gt;</code> - Delete specific file from DB.
-• <code>/delete</code> (reply to file) - Delete replied file.
-• <code>/delmulti &lt;keyword&gt;</code> - Mass delete files matching keyword."""
+    DELETE_TXT = """<blockquote><b>File/Auto Deletion Management\nDelete files from the database or configure auto-delete settings for files and button messages in groups.</b></blockquote>\n
+<b>‣ /delete - Reply to a file to delete it from database
+‣ /delmulti - Delete multiple files from database with name - /delmulti name
+‣ /autodelete - Set file auto delete time in seconds
+‣ /buttondel - Set button message in groups auto delete time in seconds</b>"""
 
     # ==========================================
     # 🚫 BANS & RESTRICTIONS
     # ==========================================
-    BANS_TXT = """<b>🚫 Bᴀɴs & Rᴇsᴛʀɪᴄᴛɪᴏɴs (Bᴏᴛ Aᴅᴍɪɴ)</b>
-
-• <code>/ban &lt;user_id&gt;</code> - Ban a user globally.
-• <code>/unban &lt;user_id&gt;</code> - Unban a user.
-• <code>/bannedusers</code> - View count of banned users.
-• <code>/leave &lt;group_id&gt;</code> - Force bot to leave a chat.
-• <code>/disable &lt;group_id&gt;</code> - Blacklist a group.
-• <code>/enable &lt;group_id&gt;</code> - Whitelist a group."""
+    BANS_TXT = """<blockquote><b>User Management\nBan or unban users to control access to the bot.</b></blockquote>\n
+<b>‣ /ban - Ban a user from bot - /ban user_id
+‣ /unban - Unban a user from bot - /unban user_id
+‣ /bannedusers - Check Banned Users List
+‣ /leave - Force bot to leave a chat 
+‣ /enable - whitelist a group 
+‣ /disable - blacklist a group</b>"""
 
     # ==========================================
     # 📝 CUSTOM CAPTION
     # ==========================================
-    CUSTOMCAPTION_TXT = """<b>📝 Cᴜsᴛᴏᴍ Cᴀᴘᴛɪᴏɴs</b>
+    CUSTOMCAPTION_TXT = """<blockquote><b>File Caption Management\nManage or customize captions for files, including additional captions, to enhance file presentation.</b></blockquote>\n
+<b>‣ /customcaption - Set custom caption for files (Reply to message to set, or `/customcaption off` to disable)
+‣ /captionplus - Set additional caption for files along with main caption (Reply to message to set, or `/captionplus off` to disable)</b>
 
 You can customize file captions by editing your Environment Variables.
 
@@ -156,6 +155,17 @@ You can customize file captions by editing your Environment Variables.
 • <code>{file_name}</code> - Name of the file
 • <code>{file_size}</code> - Size of the file
 • <code>{file_caption}</code> - Original caption"""
+
+    CUSTOMMESSAGES_TXT = """<blockquote><b>Custom Messages & Images\nConfigure custom messages and images for various actions, such as file info, file deletion, file not found, or force subscription prompts.</b></blockquote>\n
+<b>‣ /infomsg - Set info message before sending file
+‣ /infoimg - Set info image before sending file
+‣ /delmsg - Set delete message after sending file (File auto delete needs to be enabled)
+‣ /delimg - Set delete image after sending file
+‣ /notfoundmsg - Set message to send when file not found
+‣ /notfoundimg - Set image to send when file not found
+‣ /fsubmsg - Set force subscribe message
+‣ /fsubimg - Set force subscribe image\n
+*(Reply to a message/image with the command to set it, or use `off` to remove)*</b>"""
 
     # ==========================================
     # 📚 INDEXING (File Save)
@@ -176,18 +186,10 @@ You can customize file captions by editing your Environment Variables.
 <b>‣ /addpromo - Set promotional links between results - /addpromo "Button Text" URL
 ‣ /delpromo - Delete promotional links between results - /delpromo URL
 ‣ /listpromos - List all promotional links currently added in the DB
-‣ /broadcast</b>"""
 
-    PROMOTIONS_TXT = """<b>📢 Pʀᴏᴍᴏᴛɪᴏɴs & Bʀᴏᴀᴅᴄᴀsᴛ (Bᴏᴛ Aᴅᴍɪɴ)</b>
-
-<b>💬 Bʀᴏᴀᴅᴄᴀsᴛɪɴɢ (Aᴜᴛᴏ-ᴅᴇʟᴇᴛᴇs ɪɴ 24ʜ)</b>
-• <code>/broadcast</code> (reply to msg) - Send to all users.
-• <code>/group_broadcast</code> (reply to msg) - Send to all groups.
-
-<b>🔗 Iɴʟɪɴᴇ Pʀᴏᴍᴏs</b>
-• <code>/addpromo "Text" &lt;Link&gt;</code> - Add inline promo button to search results.
-• <code>/delpromo &lt;Link&gt;</code> - Remove promo button.
-• <code>/listpromos</code> - View all active promos."""
+💬 Bʀᴏᴀᴅᴄᴀsᴛɪɴɢ (Aᴜᴛᴏ-ᴅᴇʟᴇᴛᴇs ɪɴ 24ʜ)
+‣ /broadcast - send to all users 
+‣ /group_broadcasr - send to all grous</b>"""
 
     # ==========================================
     # ⚙️ SETTINGS & CONNECTIONS
