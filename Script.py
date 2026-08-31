@@ -108,22 +108,16 @@ class script(object):
     # ==========================================
     # 👥 FORCE ADD
     # ==========================================
-    FORCEADD_TXT = """<b>👥 Fᴏʀᴄᴇ Aᴅᴅ Mᴇᴍʙᴇʀs</b>
-
-Force users to add members to your group before they can send messages!
-
-<b>⚙️ Sᴇᴛᴜᴘ</b>
-• <code>/setforceadd &lt;num&gt;</code> - Set how many members a user must add.
-• <code>/remforceadd</code> - Disable the requirement.
-• <code>/getforceadd</code> - View current requirements.
-
-<b>📊 Lᴇᴀᴅᴇʀʙᴏᴀʀᴅs</b>
-• <code>/myadds</code> - Check your current added count.
-• <code>/topaddall</code> - All-time top adders.
-• <code>/topadd24</code> - Top adders in last 24h.
-• <code>/topadd7</code> - Top adders in last 7 days.
-• <code>/resetadddaily</code> - Reset 24h/7d leaderboards.
-• <code>/resetadd</code> - Nuke all scores back to 0."""
+    FORCEADD_TXT = """<blockquote><b>ForceAdd Management</b></blockquote>\n
+<b>‣ /setforceadd - Set a Force Add channel for the group.
+‣ /remforceadd - Remove the current Force Add channel.
+‣ /getforceadd - View the configured Force Add channel.
+‣ /topaddall - Show the all-time top inviters leaderboard.
+‣ /topadd24 - Show the top inviters in the last 24 hours.
+‣ /topadd7 - Show the top inviters from the last 7 days.
+‣ /resetadddaily - Reset today's add statistics.
+‣ /resetadd - Reset all Force Add statistics.
+‣ /myadds - Check your personal add count and ranking.</b>"""
 
     # ==========================================
     # 🗑️ DELETE COMMANDS
@@ -177,6 +171,13 @@ You can customize file captions by editing your Environment Variables.
     # ==========================================
     # 📢 PROMOTIONS & BROADCAST
     # ==========================================
+
+    PROMOTIONS_TXT = """<blockquote><b>Manage Promotional Links\nEasily add, delete, or view promotional links displayed between search results.</b></blockquote>\n
+<b>‣ /addpromo - Set promotional links between results - /addpromo "Button Text" URL
+‣ /delpromo - Delete promotional links between results - /delpromo URL
+‣ /listpromos - List all promotional links currently added in the DB
+‣ /broadcast</b>"""
+    
     PROMOTIONS_TXT = """<b>📢 Pʀᴏᴍᴏᴛɪᴏɴs & Bʀᴏᴀᴅᴄᴀsᴛ (Bᴏᴛ Aᴅᴍɪɴ)</b>
 
 <b>💬 Bʀᴏᴀᴅᴄᴀsᴛɪɴɢ (Aᴜᴛᴏ-ᴅᴇʟᴇᴛᴇs ɪɴ 24ʜ)</b>
@@ -191,36 +192,60 @@ You can customize file captions by editing your Environment Variables.
     # ==========================================
     # ⚙️ SETTINGS & CONNECTIONS
     # ==========================================
-    SETTINGS_TXT = """<b>⚙️ Gʀᴏᴜᴘ Sᴇᴛᴛɪɴɢs</b>
+    SETTINGS_TXT = """<blockquote><b>Bot Settings Management</b></blockquote>\n
+<b>‣ /repairmode - Enable or disable repair mode - If on, bot will not send any files
+‣ /adminsettings - Get current admin settings</b>"""
 
-• <code>/settings</code> - Open interactive settings menu for the current group.
-• Configure Buttons, Bot PM, Spell Check, and Welcome modes.
-
-<b>🌐 Cᴏɴɴᴇᴄᴛɪᴏɴs</b>
-• <code>/connect &lt;group_id&gt;</code> - Link PM to group.
-• <code>/disconnect &lt;group_id&gt;</code> - Unlink PM.
-• <code>/connections</code> - View active connections."""
-
-    CONNECTIONS_TXT = SETTINGS_TXT
+    CONNECTIONS_TXT = """<blockquote><b>𝗖𝗼𝗺𝗺𝗮𝗻𝗱𝘀 𝗮𝗻𝗱 𝗨𝘀𝗮𝗴𝗲\nUsed to connect bot to PM for managing filters, avoiding spamming in groups.</b></blockquote>\n
+<b>‣ /connect  - Connect a particular chat to your PM
+‣ /disconnect  - Disconnect from a chat
+‣ /connections - List all your connections</b>"""
 
     # ==========================================
     # 📊 UTILITIES & BACKUP
     # ==========================================
-    UTILITIES_TXT = """<b>📊 Uᴛɪʟɪᴛɪᴇs & Sᴇʀᴠᴇʀ (Bᴏᴛ Aᴅᴍɪɴ)</b>
 
-• <code>/stats</code> - Database statistics.
-• <code>/server</code> - CPU, RAM, and Disk usage.
-• <code>/restart</code> - Restart bot process safely.
-• <code>/logs</code> - Download full system log file.
-• <code>/cleanusers</code> - Ping all users to purge deleted accounts.
-• <code>/clearusers</code> - ⚠️ Nuke user database!"""
+    UTILITIES_TXT = """<blockquote><b>Utility Commands\nAccess bot logs, server stats, restart the bot, get user and file counts, send broadcasts, and more.</b></blockquote>\n
+<b>‣ /channels - List all connected groups and channels (15 per page)
+‣ /leavechannel - Leave a channel or group by ID
+‣ /logs - Get logs as a file
+‣ /server - Get server stats
+‣ /restart - Restart the bot
+‣ /stats - Database statistics
+‣ /broadcast - Reply to a message to send that to all bot users
+‣ /total - Get count of total files in DB
+‣ /clearfiles - Clear all files from DB
+‣ /clearusers - Clear all users from DB
+‣ /cleanusers - Ping all users to purge deleted accounts
+‣ /clearfsubusers - Clear all force subscribe users from db</b>"""
 
-    BACKUP_TXT = """<b>💾 MᴏɴɢᴏDB Bᴀᴄᴋᴜᴘ (Bᴏᴛ Aᴅᴍɪɴ)</b>
+    BACKUP_TXT = """<blockquote><b>Database Backup Management\nManage database backups, including scheduled backups and manual backups.</b></blockquote>\n
+<b>These commands are only available for the ADMINS of the bot.</b>\n
+<b>‣ /dbbackup - Generate full JSON backup of your database.
+‣ /dbrestore - (reply to .json file) - Restore database from file.
+‣ /dbstats - Detailed MongoDB specs.
+‣ /dbschedule - Start 24h automated backup cron job.</b>"""
 
-• <code>/dbbackup</code> - Generate full JSON backup of your database.
-• <code>/dbrestore</code> (reply to .json file) - Restore database from file.
-• <code>/dbstats</code> - Detailed MongoDB specs.
-• <code>/dbschedule</code> - Start 24h automated backup cron job."""
+    POSTHAND_TXT = """<b>📝 POST HANDLER GUIDE
+
+[ CREATE / EDIT ]
+‣ /post [Movie] - TMDB post
+‣ /editpost [Link] - Edit channel post
+
+[ FORMATTING ] 
+*(Send 'blank' to remove field)*
+‣ /edittitle [Title]
+‣ /edityear [Year]
+‣ /editlangs [Langs]
+‣ /editresolutions [Qualities]
+‣ /editgenres [Genres]
+‣ /editotts [OTTs]
+
+[ BUTTONS / IMAGES ]
+‣ /editbuttoncolour [No] [Color] - green/red/blue
+‣ /editdirect [URL] - Direct link
+‣ /editimage - Preview image
+‣ /editnormalimage - Native photo</b>"""
 
     POSTHAND_TXT = """<b>📝 Pᴏsᴛ Hᴀɴᴅʟᴇ (Bᴏᴛ Aᴅᴍɪɴ)</b>
 
