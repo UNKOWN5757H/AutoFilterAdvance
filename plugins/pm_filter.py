@@ -1148,7 +1148,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 )
                 k = await client.send_message(
                     chat_id=query.from_user.id,
-                    text="<b>📢 <u>Please Note</u>\n \n✅ The above file will be autodeleted in 30mins to avoid copyright issues.\n \n✅ Please forward this file to your saved messages and start downloading from there.\n \nTᴇᴀᴍ: @KR_Picture</b>",
+                    text="<b>📢 <u>Please Note</u>\n \n✅ The above file will be autodeleted in 30mins.\n \nTᴇᴀᴍ: @KR_Picture</b>",
                 )
             except Exception:
                 return
@@ -1296,8 +1296,10 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     reply_markup=InlineKeyboardMarkup(buttons),
                     parse_mode=enums.ParseMode.HTML,
                 )
-            except Exception:
+            except MessageNotModified:
                 pass
+            except Exception as e:
+                logger.error(f"Help Button Error: {e}")
 
         elif query.data == "about":
             await query.answer()
@@ -1337,7 +1339,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 "helps_connections": ("CONNECTIONS_TXT", "🌐 Connections Help"),
                 "helps_forceadd": ("FORCEADD_TXT", "👥 Force Add Help"),
                 "helps_posthand": ("POSTHAND_TXT", "📝 Post Handle Help"),
-                "helps_customessages": ("CUSTOMMESSAGES_TXT", "💬 Custom Messages"),
+                "helps_custommessages": ("CUSTOMMESSAGES_TXT", "💬 Custom Messages"), # ⚡ FIXED: Typo here caused broken button
                 "helps_backup": ("BACKUP_TXT", "💾 Backup Help"),
             }
             target_var, default_text = help_dict.get(
@@ -1351,7 +1353,10 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     reply_markup=InlineKeyboardMarkup(buttons),
                     parse_mode=enums.ParseMode.HTML,
                 )
+            except MessageNotModified:
+                pass # ⚡ FIXED: Prevent ugly text fallback when clicking the same button twice
             except Exception:
+                # Safely fallback to raw text if HTML strictly fails due to weird characters in Script
                 clean_text = re.sub(
                     r"</?(b|i|u|s|code|pre|a|blockquote)[^>]*>", "", text
                 )
