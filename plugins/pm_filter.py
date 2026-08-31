@@ -1255,28 +1255,31 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     InlineKeyboardButton("🗑️ Delete", callback_data="helps_delete"),
                 ],
                 [
-                    InlineKeyboardButton("📢 Promos", callback_data="helps_promotions"),
+                    InlineKeyboardButton("📢 Promotions", callback_data="helps_promotions"),
                     InlineKeyboardButton("📚 Index", callback_data="helps_index"),
                 ],
                 [
                     InlineKeyboardButton("⚙️ Settings", callback_data="helps_settings"),
                     InlineKeyboardButton(
-                        "🌐 Connect", callback_data="helps_connections"
+                        "🌐 Connections", callback_data="helps_connections"
                     ),
                 ],
                 [
                     InlineKeyboardButton(
                         "📊 Utilities", callback_data="helps_utilities"
                     ),
-                    InlineKeyboardButton("💾 Backup", callback_data="helps_backup"),
+                    InlineKeyboardButton("💬 Custom Messages", callback_data="helps_custommessages"),
                 ],
                 [
                     InlineKeyboardButton(
                         "📝 Post Handle", callback_data="helps_posthand"
                     ),
                     InlineKeyboardButton(
-                        "💬 Captions", callback_data="helps_customcaption"
+                        "📝 Custom Captions", callback_data="helps_customcaption"
                     ),
+                ],
+                [
+                InlineKeyboardButton("💾 Backup", callback_data="helps_backup"),
                 ],
                 [
                     InlineKeyboardButton("🔙 Back", callback_data="start"),
@@ -1330,6 +1333,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 "helps_connections": ("CONNECTIONS_TXT", "🌐 Connections Help"),
                 "helps_forceadd": ("FORCEADD_TXT", "👥 Force Add Help"),
                 "helps_posthand": ("POSTHAND_TXT", "📝 Post Handle Help"),
+                "helps_customessages": ("CUSTOMMESSAGES_TXT", "💬 Custom Messages"),
                 "helps_backup": ("BACKUP_TXT", "💾 Backup Help"),
             }
             target_var, default_text = help_dict.get(
