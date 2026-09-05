@@ -16,6 +16,37 @@ class script(object):
         """<b>#Nᴇᴡ_Usᴇʀ</b>\n\n<b>User ID:</b> <code>{}</code>\n<b>Profile:</b> {}"""
     )
 
+        # ==========================================
+    # 🎨 UI CUSTOMIZATION MENUS
+    # ==========================================
+    UISTART_TXT = """<blockquote><b>🎨 Sᴛᴀʀᴛ Mᴇɴᴜ Cᴜsᴛᴏᴍɪᴢᴀᴛɪᴏɴ</b></blockquote>\n
+<b>‣ /setstarttext</b> - Set custom text
+<b>‣ /defaultstarttext</b> - Revert to default text
+<b>‣ /setstartimage</b> - Set image (reply to photo)
+<b>‣ /remstartimage</b> - Remove custom image
+<b>‣ /addstartbutton</b> - Add a button (e.g. `/addstartbutton "Text" https://link.com`)
+<b>‣ /editstartbuttons</b> - Edit layout & color (e.g. `/editstartbuttons 1 sidebyside green`)
+<b>‣ /remstartbutton</b> - Clear all custom buttons"""
+
+    UIHELP_TXT = """<blockquote><b>🎨 Hᴇʟᴘ Mᴇɴᴜ Cᴜsᴛᴏᴍɪᴢᴀᴛɪᴏɴ</b></blockquote>\n
+<b>‣ /sethelptext</b> - Set custom text
+<b>‣ /defaulthelptext</b> - Revert to default text
+<b>‣ /sethelpimage</b> - Set image (reply to photo)
+<b>‣ /remhelpimage</b> - Remove custom image
+<b>‣ /addhelpbutton</b> - Add a button (e.g. `/addhelpbutton "Text" https://link.com`)
+<b>‣ /edithelpbuttons</b> - Edit layout & color (e.g. `/edithelpbuttons 1 belowside red`)
+<b>‣ /remhelpbutton</b> - Clear all custom buttons"""
+
+    UIABOUT_TXT = """<blockquote><b>🎨 Aʙᴏᴜᴛ Mᴇɴᴜ Cᴜsᴛᴏᴍɪᴢᴀᴛɪᴏɴ</b></blockquote>\n
+<b>‣ /setabouttext</b> - Set custom text
+<b>‣ /defaultabouttext</b> - Revert to default text
+<b>‣ /setaboutimage</b> - Set image (reply to photo)
+<b>‣ /remaboutimage</b> - Remove custom image
+<b>‣ /addaboutbutton</b> - Add a button (e.g. `/addaboutbutton "Text" https://link.com`)
+<b>‣ /editaboutbuttons</b> - Edit layout & color
+<b>‣ /remaboutbutton</b> - Clear all custom buttons"""
+    
+
     # ==========================================
     # 📝 FORMATTING GUIDE (Used in Help)
     # ==========================================
