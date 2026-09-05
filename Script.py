@@ -16,7 +16,7 @@ class script(object):
         """<b>#Nᴇᴡ_Usᴇʀ</b>\n\n<b>User ID:</b> <code>{}</code>\n<b>Profile:</b> {}"""
     )
 
-        # ==========================================
+    # ==========================================
     # 🎨 UI CUSTOMIZATION MENUS
     # ==========================================
     UISTART_TXT = """<blockquote><b>🎨 Sᴛᴀʀᴛ Mᴇɴᴜ Cᴜsᴛᴏᴍɪᴢᴀᴛɪᴏɴ</b></blockquote>\n
@@ -45,7 +45,6 @@ class script(object):
 <b>‣ /addaboutbutton</b> - Add a button (e.g. `/addaboutbutton "Text" https://link.com`)
 <b>‣ /editaboutbuttons</b> - Edit layout & color
 <b>‣ /remaboutbutton</b> - Clear all custom buttons"""
-    
 
     # ==========================================
     # 📝 FORMATTING GUIDE (Used in Help)
