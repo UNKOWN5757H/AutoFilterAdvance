@@ -123,51 +123,53 @@ async def start(client: Client, message: Message):
     )
 
     if is_help_command:
-        buttons = [
-            [
-                InlineKeyboardButton("👋 Welcome", callback_data="helps_welcome"),
-                InlineKeyboardButton("🖼️ Images", callback_data="helps_images"),
-            ],
-            [
-                InlineKeyboardButton("🔍 Spell Check", callback_data="helps_spell"),
-                InlineKeyboardButton("📝 Filters", callback_data="helps_filters"),
-            ],
-            [
-                InlineKeyboardButton("📱 Force Sub", callback_data="helps_forcesub"),
-                InlineKeyboardButton("👥 Force Add", callback_data="helps_forceadd"),
-            ],
-            [
-                InlineKeyboardButton("🚫 Bans", callback_data="helps_bans"),
-                InlineKeyboardButton("🗑️ Delete", callback_data="helps_delete"),
-            ],
-            [
-                InlineKeyboardButton("📢 Promotions", callback_data="helps_promotions"),
-                InlineKeyboardButton("📚 Index", callback_data="helps_index"),
-            ],
-            [
-                InlineKeyboardButton("⚙️ Settings", callback_data="helps_settings"),
-                InlineKeyboardButton(
-                    "🌐 Connections", callback_data="helps_connections"
-                ),
-            ],
-            [
-                InlineKeyboardButton("📊 Utilities", callback_data="helps_utilities"),
-                InlineKeyboardButton(
-                    "💬 Custom Messages", callback_data="helps_custommessages"
-                ),
-            ],
-            [
-                InlineKeyboardButton("📝 Post Handle", callback_data="helps_posthand"),
-                InlineKeyboardButton(
-                    "📝 Custom Captions", callback_data="helps_customcaption"
-                ),
-            ],
-            [InlineKeyboardButton("💾 Backup", callback_data="helps_backup")],
-            [
-                InlineKeyboardButton("🔙 Back", callback_data="start"),
-                InlineKeyboardButton("🔐 Cʟᴏsᴇ", callback_data="close_data"),
-            ],
-        ]
+            buttons = [
+                [
+                    InlineKeyboardButton("🖥️ UI Start", callback_data="helps_uistart"),
+                    InlineKeyboardButton("🖥️ UI Help", callback_data="helps_uihelp"),
+                    InlineKeyboardButton("🖥️ UI About", callback_data="helps_uiabout")
+                ],
+                [
+                    InlineKeyboardButton("👋 Welcome", callback_data="helps_welcome"),
+                    InlineKeyboardButton("🖼️ Images", callback_data="helps_images"),
+                ],
+                [
+                    InlineKeyboardButton("🔍 Spell Check", callback_data="helps_spell"),
+                    InlineKeyboardButton("📝 Filters", callback_data="helps_filters"),
+                ],
+                [
+                    InlineKeyboardButton("📱 Force Sub", callback_data="helps_forcesub"),
+                    InlineKeyboardButton("👥 Force Add", callback_data="helps_forceadd"),
+                ],
+                [
+                    InlineKeyboardButton("🚫 Bans", callback_data="helps_bans"),
+                    InlineKeyboardButton("🗑️ Delete", callback_data="helps_delete"),
+                ],
+                [
+                    InlineKeyboardButton("📢 Promotions", callback_data="helps_promotions"),
+                    InlineKeyboardButton("📚 Index", callback_data="helps_index"),
+                ],
+                [
+                    InlineKeyboardButton("⚙️ Settings", callback_data="helps_settings"),
+                    InlineKeyboardButton("🌐 Connections", callback_data="helps_connections"),
+                ],
+                [
+                    InlineKeyboardButton("📊 Utilities", callback_data="helps_utilities"),
+                    InlineKeyboardButton("💬 Custom Messages", callback_data="helps_custommessages"),
+                ],
+                [
+                    InlineKeyboardButton("📝 Post Handle", callback_data="helps_posthand"),
+                    InlineKeyboardButton("📝 Custom Captions", callback_data="helps_customcaption"),
+                ],
+                [
+                    InlineKeyboardButton("💾 Backup", callback_data="helps_backup"),
+                ],
+                [
+                    InlineKeyboardButton("🔙 Back", callback_data="start"),
+                    InlineKeyboardButton("🔐 Cʟᴏsᴇ", callback_data="close_data"),
+                ],
+            ]
+
         return await message.reply_text(
             text=script.HELP_TXT.format(
                 mention=message.from_user.mention if message.from_user else "User"
@@ -1114,9 +1116,15 @@ async def cb_handler(client: Client, query: CallbackQuery):
         # ============================================
         # ⚡ 18-BUTTON DYNAMIC HELP MENU HANDLER
         # ============================================
-        elif query.data == "help":
+                elif query.data == "help":
             await query.answer()
             buttons = [
+                # ⚡ 3 NEW UI BUTTONS
+                [
+                    InlineKeyboardButton("🖥️ UI Start", callback_data="helps_uistart"),
+                    InlineKeyboardButton("🖥️ UI Help", callback_data="helps_uihelp"),
+                    InlineKeyboardButton("🖥️ UI About", callback_data="helps_uiabout")
+                ],
                 [
                     InlineKeyboardButton("👋 Welcome", callback_data="helps_welcome"),
                     InlineKeyboardButton("🖼️ Images", callback_data="helps_images"),
@@ -1126,44 +1134,28 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     InlineKeyboardButton("📝 Filters", callback_data="helps_filters"),
                 ],
                 [
-                    InlineKeyboardButton(
-                        "📱 Force Sub", callback_data="helps_forcesub"
-                    ),
-                    InlineKeyboardButton(
-                        "👥 Force Add", callback_data="helps_forceadd"
-                    ),
+                    InlineKeyboardButton("📱 Force Sub", callback_data="helps_forcesub"),
+                    InlineKeyboardButton("👥 Force Add", callback_data="helps_forceadd"),
                 ],
                 [
                     InlineKeyboardButton("🚫 Bans", callback_data="helps_bans"),
                     InlineKeyboardButton("🗑️ Delete", callback_data="helps_delete"),
                 ],
                 [
-                    InlineKeyboardButton(
-                        "📢 Promotions", callback_data="helps_promotions"
-                    ),
+                    InlineKeyboardButton("📢 Promotions", callback_data="helps_promotions"),
                     InlineKeyboardButton("📚 Index", callback_data="helps_index"),
                 ],
                 [
                     InlineKeyboardButton("⚙️ Settings", callback_data="helps_settings"),
-                    InlineKeyboardButton(
-                        "🌐 Connections", callback_data="helps_connections"
-                    ),
+                    InlineKeyboardButton("🌐 Connections", callback_data="helps_connections"),
                 ],
                 [
-                    InlineKeyboardButton(
-                        "📊 Utilities", callback_data="helps_utilities"
-                    ),
-                    InlineKeyboardButton(
-                        "💬 Custom Messages", callback_data="helps_custommessages"
-                    ),
+                    InlineKeyboardButton("📊 Utilities", callback_data="helps_utilities"),
+                    InlineKeyboardButton("💬 Custom Messages", callback_data="helps_custommessages"),
                 ],
                 [
-                    InlineKeyboardButton(
-                        "📝 Post Handle", callback_data="helps_posthand"
-                    ),
-                    InlineKeyboardButton(
-                        "📝 Custom Captions", callback_data="helps_customcaption"
-                    ),
+                    InlineKeyboardButton("📝 Post Handle", callback_data="helps_posthand"),
+                    InlineKeyboardButton("📝 Custom Captions", callback_data="helps_customcaption"),
                 ],
                 [
                     InlineKeyboardButton("💾 Backup", callback_data="helps_backup"),
@@ -1173,6 +1165,8 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     InlineKeyboardButton("🔐 Cʟᴏsᴇ", callback_data="close_data"),
                 ],
             ]
+            
+            
             try:
                 await query.message.edit_text(
                     text=script.HELP_TXT.format(mention=query.from_user.mention),
@@ -1207,6 +1201,9 @@ async def cb_handler(client: Client, query: CallbackQuery):
             await query.answer()
             buttons = [[InlineKeyboardButton("🔙 Back", callback_data="help")]]
             help_dict = {
+                "helps_uistart": ("UISTART_TXT", "🎨 UI Start Menu"),
+                "helps_uihelp": ("UIHELP_TXT", "🎨 UI Help Menu"),
+                "helps_uiabout": ("UIABOUT_TXT", "🎨 UI About Menu"),
                 "helps_welcome": ("WELCOME_TXT", "👋 Welcome Help"),
                 "helps_images": ("IMAGES_TXT", "🖼️ Images Help"),
                 "helps_spell": ("SPELLCHECK_TXT", "🔍 Spell Check Help"),
