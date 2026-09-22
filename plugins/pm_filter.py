@@ -141,42 +141,47 @@ def clean_filename(name: str) -> str:
 # ============================================================
 AUTO_DELETE_TASKS = set()
 
+
 def parse_timer(var_name: str, default_time: int = 1800) -> int:
     """Safely extracts time, blocking the 1-second boolean trap and TypeError crashes."""
     try:
         global_switch = getattr(info, "AUTO_DELETE", True)
         if str(global_switch).strip().lower() in ["false", "off", "0"]:
             return 0
-        
+
         val = getattr(info, var_name, default_time)
-        
+
         # Prevent boolean trap (True = 1 second)
         if isinstance(val, bool):
             return default_time if val else 0
-            
+
         parsed_time = int(val)
         if 0 < parsed_time < 10:
             return default_time
-            
+
         return parsed_time
     except Exception:
         return default_time
 
-async def silent_auto_delete(bot_message: Optional[Message], delay: int, user_message: Optional[Message] = None):
+
+async def silent_auto_delete(
+    bot_message: Optional[Message], delay: int, user_message: Optional[Message] = None
+):
     if not bot_message or delay <= 0:
         return
     await asyncio.sleep(delay)
-    
+
     try:
         await bot_message.delete()
     except Exception:
         pass
-        
+
     if user_message:
         try:
             await user_message.delete()
         except Exception:
             pass
+
 
 def schedule_auto_delete(bot_msg, delay, user_msg=None):
     if delay <= 0:
