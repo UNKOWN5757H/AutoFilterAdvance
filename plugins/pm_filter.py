@@ -137,42 +137,48 @@ def clean_filename(name: str) -> str:
 
 
 # ============================================================
-# 🗑️ FAIL-SAFE AUTO DELETERS & GC SHIELD
+# 🗑️ FAIL-SAFE AUTODELETE ENGINE & GC SHIELD
 # ============================================================
 AUTO_DELETE_TASKS = set()
 
-
-def get_auto_delete_timer():
-    """Safely retrieves the timer as an absolute integer, checking multiple environment variable formats."""
+def parse_timer(var_name: str, default_time: int = 1800) -> int:
+    """Safely extracts time, blocking the 1-second boolean trap and TypeError crashes."""
     try:
-        # Check both naming conventions natively
-        val = getattr(info, "AUTO_DELETE", getattr(info, "BUTTON_AUTO_DELETE", 1800))
-        return int(val)
-    except (ValueError, TypeError):
-        return 1800
+        global_switch = getattr(info, "AUTO_DELETE", True)
+        if str(global_switch).strip().lower() in ["false", "off", "0"]:
+            return 0
+        
+        val = getattr(info, var_name, default_time)
+        
+        # Prevent boolean trap (True = 1 second)
+        if isinstance(val, bool):
+            return default_time if val else 0
+            
+        parsed_time = int(val)
+        if 0 < parsed_time < 10:
+            return default_time
+            
+        return parsed_time
+    except Exception:
+        return default_time
 
-
-async def silent_auto_delete(
-    bot_message: Optional[Message], delay: int, user_message: Optional[Message] = None
-):
+async def silent_auto_delete(bot_message: Optional[Message], delay: int, user_message: Optional[Message] = None):
     if not bot_message or delay <= 0:
         return
     await asyncio.sleep(delay)
-
+    
     try:
         await bot_message.delete()
     except Exception:
         pass
-
+        
     if user_message:
         try:
             await user_message.delete()
         except Exception:
             pass
 
-
 def schedule_auto_delete(bot_msg, delay, user_msg=None):
-    """Creates a strong background task reference so Python's Garbage Collector cannot kill the 30-minute wait timer."""
     if delay <= 0:
         return
     task = asyncio.create_task(silent_auto_delete(bot_msg, delay, user_msg))
@@ -251,7 +257,7 @@ async def advantage_spell_chok(client: Client, msg: Message, search_query: str):
             reply_markup=InlineKeyboardMarkup(btn),
             parse_mode=enums.ParseMode.DEFAULT,
         )
-        delete_timer = get_auto_delete_timer()
+        delete_timer = parse_timer("BUTTON_AUTO_DELETE", 1800)
         if delete_timer > 0:
             schedule_auto_delete(k_msg, delete_timer, msg)
     except (Forbidden, UserIsBlocked, PeerIdInvalid, ChatWriteForbidden):
@@ -276,7 +282,7 @@ async def _send_not_found(msg: Message, img: Optional[str], text: str):
             pass
 
     if k_msg:
-        delete_timer = get_auto_delete_timer()
+        delete_timer = parse_timer("BUTTON_AUTO_DELETE", 1800)
         if delete_timer > 0:
             schedule_auto_delete(k_msg, delete_timer, msg)
 
@@ -379,7 +385,7 @@ async def manual_filters(client: Client, message: Message, text: bool = False) -
                 pass
 
             if sent_msg:
-                delete_timer = get_auto_delete_timer()
+                delete_timer = parse_timer("BUTTON_AUTO_DELETE", 1800)
                 if delete_timer > 0:
                     schedule_auto_delete(sent_msg, delete_timer, message)
             return True
@@ -550,7 +556,7 @@ async def auto_filter(client: Client, msg: any, spoll: any = False):
             except Exception:
                 pass
 
-        delete_timer = get_auto_delete_timer()
+        delete_timer = parse_timer("BUTTON_AUTO_DELETE", 1800)
         if delete_timer > 0 and m:
             schedule_auto_delete(m, delete_timer, message)
     except Exception as e:
