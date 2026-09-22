@@ -30,6 +30,7 @@ from logging.config import fileConfig
 import pyromod
 from aiohttp import web
 from pyrogram import Client, __version__, filters, idle, types
+from pyrogram.handlers import MessageHandler
 from pyrogram.raw.all import layer
 from pyrogram.types import Message
 
@@ -156,7 +157,8 @@ class Bot(Client):
                 current += 1
 
 
-app = Bot()
+# ⚡ GLOBAL APP DECLARED AS NONE (Stops Pyrogram V1 __init__ crashes)
+app = None
 
 
 # ============================================================
@@ -170,19 +172,6 @@ async def delete_media_task(message: Message, delay: int):
     except Exception as e:
         logger.error(f"Failed to auto-delete PM media for {message.from_user.id}: {e}")
 
-
-@app.on_message(
-    filters.private
-    & (
-        filters.document
-        | filters.video
-        | filters.audio
-        | filters.photo
-        | filters.voice
-        | filters.video_note
-    ),
-    group=2,
-)
 async def auto_delete_user_media_pm(client: Client, message: Message):
     user = message.from_user
     if not user or message.outgoing:
@@ -198,6 +187,20 @@ async def health_check(request):
 
 
 async def start_services():
+    global app
+    
+    # ⚡ SAFE INITIALIZATION: The Event loop is active now, Pyrogram will boot flawlessly.
+    app = Bot()
+    
+    # Manually bind the PM Media Deleter since app is no longer instantiated at the module level
+    app.add_handler(
+        MessageHandler(
+            auto_delete_user_media_pm,
+            filters.private & (filters.document | filters.video | filters.audio | filters.photo | filters.voice | filters.video_note)
+        ),
+        group=2
+    )
+
     print("🔍 Deleting old session files to create a fresh one...")
     for file in glob.glob("*.session*"):
         try:
@@ -247,3 +250,4 @@ if __name__ == "__main__":
         loop.run_until_complete(start_services())
     except (KeyboardInterrupt, SystemExit):
         logger.info("Process interrupted. Shutting down...")
+```eof
