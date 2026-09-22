@@ -141,6 +141,7 @@ def clean_filename(name: str) -> str:
 # ============================================================
 AUTO_DELETE_TASKS = set()
 
+
 def get_auto_delete_timer():
     """Safely retrieves the timer as an absolute integer, checking multiple environment variable formats."""
     try:
@@ -150,21 +151,25 @@ def get_auto_delete_timer():
     except (ValueError, TypeError):
         return 1800
 
-async def silent_auto_delete(bot_message: Optional[Message], delay: int, user_message: Optional[Message] = None):
+
+async def silent_auto_delete(
+    bot_message: Optional[Message], delay: int, user_message: Optional[Message] = None
+):
     if not bot_message or delay <= 0:
         return
     await asyncio.sleep(delay)
-    
+
     try:
         await bot_message.delete()
     except Exception:
         pass
-        
+
     if user_message:
         try:
             await user_message.delete()
         except Exception:
             pass
+
 
 def schedule_auto_delete(bot_msg, delay, user_msg=None):
     """Creates a strong background task reference so Python's Garbage Collector cannot kill the 30-minute wait timer."""
