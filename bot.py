@@ -76,24 +76,28 @@ class Bot(Client):
     async def start(self, *args, **kwargs):
         await super().start(*args, **kwargs)
 
-        # 1. LOAD BANNED USERS/CHATS
+        # 1. LOAD BANNED USERS/CHATS (With Anti-Hang Timeout)
         b_users = []
         b_chats = []
         try:
-            async for chat in old_db.grp.find({"chat_status.is_disabled": True}):
-                if chat.get("id"):
-                    b_chats.append(chat["id"])
+            async def fetch_bans():
+                async for chat in old_db.grp.find({"chat_status.is_disabled": True}):
+                    if chat.get("id"):
+                        b_chats.append(chat["id"])
 
-            async for user in plugin_db.ban_col.find({}):
-                if user.get("_id"):
-                    b_users.append(user["_id"])
+                async for user in plugin_db.ban_col.find({}):
+                    if user.get("_id"):
+                        b_users.append(user["_id"])
 
-            async for user in old_db.col.find({"ban_status.is_banned": True}):
-                u_id = user.get("id")
-                if u_id and u_id not in b_users:
-                    b_users.append(u_id)
+                async for user in old_db.col.find({"ban_status.is_banned": True}):
+                    u_id = user.get("id")
+                    if u_id and u_id not in b_users:
+                        b_users.append(u_id)
+            
+            # Force the DB to finish within 10 seconds so the bot doesn't get stuck
+            await asyncio.wait_for(fetch_bans(), timeout=10.0)
         except Exception as e:
-            logger.error(f"Error loading bans: {e}")
+            logger.error(f"Failed to load bans (Timeout/Error): {e}")
 
         temp.BANNED_USERS = b_users
         temp.BANNED_CHATS = b_chats
@@ -115,9 +119,7 @@ class Bot(Client):
         temp.B_NAME = me.first_name
         self.username = f"@{me.username}"
 
-        logger.info(
-            f"{me.first_name} with Pyrogram v{__version__} (Layer {layer}) started on {me.username}."
-        )
+        logger.info(f"{me.first_name} with Pyrogram v{__version__} (Layer {layer}) started on {me.username}.")
         logger.info(LOG_STR)
 
         # 3. RESTART SUCCESS HANDLER
@@ -157,13 +159,15 @@ class Bot(Client):
                 current += 1
 
 
-# ⚡ GLOBAL APP DECLARED AS NONE (Stops Pyrogram V1 __init__ crashes)
-app = None
+# ⚡ GLOBAL APP INITIALIZED PROPERLY (Prevents Plugin Loading Crash)
+app = Bot()
 
 
 # ============================================================
 # 🗑️ AUTO DELETE PM MEDIA (30-MINUTES, MEMORY SAFE)
 # ============================================================
+AUTO_DELETE_TASKS = set()
+
 async def delete_media_task(message: Message, delay: int):
     await asyncio.sleep(delay)
     try:
@@ -172,12 +176,15 @@ async def delete_media_task(message: Message, delay: int):
     except Exception as e:
         logger.error(f"Failed to auto-delete PM media for {message.from_user.id}: {e}")
 
-
+@app.on_message(filters.private & (filters.document | filters.video | filters.audio | filters.photo | filters.voice | filters.video_note), group=2)
 async def auto_delete_user_media_pm(client: Client, message: Message):
     user = message.from_user
     if not user or message.outgoing:
         return
-    asyncio.create_task(delete_media_task(message, delay=1800))
+    # Shield task to prevent Garbage Collector from killing it
+    task = asyncio.create_task(delete_media_task(message, delay=1800))
+    AUTO_DELETE_TASKS.add(task)
+    task.add_done_callback(AUTO_DELETE_TASKS.discard)
 
 
 # ============================================================
@@ -188,28 +195,6 @@ async def health_check(request):
 
 
 async def start_services():
-    global app
-
-    # ⚡ SAFE INITIALIZATION: The Event loop is active now, Pyrogram will boot flawlessly.
-    app = Bot()
-
-    # Manually bind the PM Media Deleter since app is no longer instantiated at the module level
-    app.add_handler(
-        MessageHandler(
-            auto_delete_user_media_pm,
-            filters.private
-            & (
-                filters.document
-                | filters.video
-                | filters.audio
-                | filters.photo
-                | filters.voice
-                | filters.video_note
-            ),
-        ),
-        group=2,
-    )
-
     print("🔍 Deleting old session files to create a fresh one...")
     for file in glob.glob("*.session*"):
         try:
@@ -239,9 +224,7 @@ async def start_services():
 # 🚀 LAUNCH SEQUENCE
 # ============================================================
 def force_shutdown(signum, frame):
-    logger.info(
-        "🛑 Received shutdown signal from Koyeb. Killing old instance immediately!"
-    )
+    logger.info("🛑 Received shutdown signal from Koyeb. Killing old instance immediately!")
     sys.exit(0)
 
 
@@ -259,3 +242,4 @@ if __name__ == "__main__":
         loop.run_until_complete(start_services())
     except (KeyboardInterrupt, SystemExit):
         logger.info("Process interrupted. Shutting down...")
+```eof
