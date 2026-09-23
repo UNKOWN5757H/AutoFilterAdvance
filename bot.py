@@ -12,6 +12,7 @@ from typing import AsyncGenerator, Union
 # This intercepts the fatal Python 3.11 / Pyrogram async crash and neutralizes it.
 _orig_run = asyncio.base_events.BaseEventLoop.run_until_complete
 
+
 def _safe_run(self, future):
     if future is None:
         return None
@@ -21,6 +22,7 @@ def _safe_run(self, future):
         if "awaitable" in str(e) or "coroutine" in str(e):
             return None
         raise
+
 
 asyncio.base_events.BaseEventLoop.run_until_complete = _safe_run
 
@@ -101,6 +103,7 @@ class Bot(Client):
         b_users = []
         b_chats = []
         try:
+
             async def fetch_bans():
                 async for chat in old_db.grp.find({"chat_status.is_disabled": True}):
                     if chat.get("id"):
@@ -114,7 +117,7 @@ class Bot(Client):
                     u_id = user.get("id")
                     if u_id and u_id not in b_users:
                         b_users.append(u_id)
-            
+
             # Anti-Hang DB Shield
             await asyncio.wait_for(fetch_bans(), timeout=10.0)
         except Exception as e:
@@ -140,7 +143,9 @@ class Bot(Client):
         temp.B_NAME = me.first_name
         self.username = f"@{me.username}"
 
-        logger.info(f"{me.first_name} with Pyrogram v{__version__} (Layer {layer}) started on {me.username}.")
+        logger.info(
+            f"{me.first_name} with Pyrogram v{__version__} (Layer {layer}) started on {me.username}."
+        )
         logger.info(LOG_STR)
 
         # 3. RESTART SUCCESS HANDLER
@@ -189,6 +194,7 @@ app = Bot()
 # ============================================================
 AUTO_DELETE_TASKS = set()
 
+
 async def delete_media_task(message: Message, delay: int):
     await asyncio.sleep(delay)
     try:
@@ -197,7 +203,19 @@ async def delete_media_task(message: Message, delay: int):
     except Exception as e:
         logger.error(f"Failed to auto-delete PM media for {message.from_user.id}: {e}")
 
-@app.on_message(filters.private & (filters.document | filters.video | filters.audio | filters.photo | filters.voice | filters.video_note), group=2)
+
+@app.on_message(
+    filters.private
+    & (
+        filters.document
+        | filters.video
+        | filters.audio
+        | filters.photo
+        | filters.voice
+        | filters.video_note
+    ),
+    group=2,
+)
 async def auto_delete_user_media_pm(client: Client, message: Message):
     user = message.from_user
     if not user or message.outgoing:
@@ -245,7 +263,9 @@ async def start_services():
 # 🚀 LAUNCH SEQUENCE
 # ============================================================
 def force_shutdown(signum, frame):
-    logger.info("🛑 Received shutdown signal from Koyeb. Killing old instance immediately!")
+    logger.info(
+        "🛑 Received shutdown signal from Koyeb. Killing old instance immediately!"
+    )
     sys.exit(0)
 
 
