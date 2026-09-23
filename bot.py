@@ -172,6 +172,7 @@ async def delete_media_task(message: Message, delay: int):
     except Exception as e:
         logger.error(f"Failed to auto-delete PM media for {message.from_user.id}: {e}")
 
+
 async def auto_delete_user_media_pm(client: Client, message: Message):
     user = message.from_user
     if not user or message.outgoing:
@@ -188,17 +189,25 @@ async def health_check(request):
 
 async def start_services():
     global app
-    
+
     # ⚡ SAFE INITIALIZATION: The Event loop is active now, Pyrogram will boot flawlessly.
     app = Bot()
-    
+
     # Manually bind the PM Media Deleter since app is no longer instantiated at the module level
     app.add_handler(
         MessageHandler(
             auto_delete_user_media_pm,
-            filters.private & (filters.document | filters.video | filters.audio | filters.photo | filters.voice | filters.video_note)
+            filters.private
+            & (
+                filters.document
+                | filters.video
+                | filters.audio
+                | filters.photo
+                | filters.voice
+                | filters.video_note
+            ),
         ),
-        group=2
+        group=2,
     )
 
     print("🔍 Deleting old session files to create a fresh one...")
