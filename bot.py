@@ -1,36 +1,32 @@
 import asyncio
-import asyncio.base_events
 import glob
 import os
 import signal
 import sys
 from typing import AsyncGenerator, Union
 
-# ===================================================================
-# 🛡️ THE ULTIMATE PYROGRAM STARTUP SHIELD (Fixes TypeError Crash)
-# ===================================================================
-# This intercepts the fatal Python 3.11 / Pyrogram async crash and neutralizes it.
-_orig_run = asyncio.base_events.BaseEventLoop.run_until_complete
-
-
-def _safe_run(self, future):
-    if future is None:
-        return None
-    try:
-        return _orig_run(self, future)
-    except TypeError as e:
-        if "awaitable" in str(e) or "coroutine" in str(e):
-            return None
-        raise
-
-
-asyncio.base_events.BaseEventLoop.run_until_complete = _safe_run
-
+# ⚡ 1. CREATE EVENT LOOP FIRST (Critical for MongoDB)
 try:
     loop = asyncio.get_event_loop()
 except RuntimeError:
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
+
+# ===================================================================
+# 🚀 THE HOLY GRAIL CRASH FIX (Pyromod + Pyrogram V2 Bug)
+# ===================================================================
+# Pyromod accidentally passes "None" to Pyrogram's async wrapper during boot.
+# This patch safely returns "None" instead of violently crashing the server,
+# keeping the bot's Dispatcher 100% active so it can hear commands.
+import pyrogram.sync
+_orig_async_to_sync_wrap = pyrogram.sync.async_to_sync_wrap
+
+def _safe_async_to_sync_wrap(coroutine):
+    if coroutine is None:
+        return None
+    return _orig_async_to_sync_wrap(coroutine)
+
+pyrogram.sync.async_to_sync_wrap = _safe_async_to_sync_wrap
 # ===================================================================
 
 # ===================================================================
@@ -99,11 +95,10 @@ class Bot(Client):
     async def start(self, *args, **kwargs):
         await super().start(*args, **kwargs)
 
-        # 1. LOAD BANNED USERS/CHATS
+        # 1. LOAD BANNED USERS/CHATS (With Timeout Shield)
         b_users = []
         b_chats = []
         try:
-
             async def fetch_bans():
                 async for chat in old_db.grp.find({"chat_status.is_disabled": True}):
                     if chat.get("id"):
@@ -117,8 +112,7 @@ class Bot(Client):
                     u_id = user.get("id")
                     if u_id and u_id not in b_users:
                         b_users.append(u_id)
-
-            # Anti-Hang DB Shield
+            
             await asyncio.wait_for(fetch_bans(), timeout=10.0)
         except Exception as e:
             logger.error(f"Failed to load bans (Timeout/Error): {e}")
@@ -143,9 +137,7 @@ class Bot(Client):
         temp.B_NAME = me.first_name
         self.username = f"@{me.username}"
 
-        logger.info(
-            f"{me.first_name} with Pyrogram v{__version__} (Layer {layer}) started on {me.username}."
-        )
+        logger.info(f"{me.first_name} with Pyrogram v{__version__} (Layer {layer}) started on {me.username}.")
         logger.info(LOG_STR)
 
         # 3. RESTART SUCCESS HANDLER
@@ -185,7 +177,7 @@ class Bot(Client):
                 current += 1
 
 
-# ⚡ GLOBALLY ACCESSIBLE APP (Safe because of the Async Shield at the top)
+# ⚡ GLOBALLY ACCESSIBLE APP
 app = Bot()
 
 
@@ -193,7 +185,6 @@ app = Bot()
 # 🗑️ AUTO DELETE PM MEDIA (30-MINUTES, MEMORY SAFE)
 # ============================================================
 AUTO_DELETE_TASKS = set()
-
 
 async def delete_media_task(message: Message, delay: int):
     await asyncio.sleep(delay)
@@ -203,19 +194,7 @@ async def delete_media_task(message: Message, delay: int):
     except Exception as e:
         logger.error(f"Failed to auto-delete PM media for {message.from_user.id}: {e}")
 
-
-@app.on_message(
-    filters.private
-    & (
-        filters.document
-        | filters.video
-        | filters.audio
-        | filters.photo
-        | filters.voice
-        | filters.video_note
-    ),
-    group=2,
-)
+@app.on_message(filters.private & (filters.document | filters.video | filters.audio | filters.photo | filters.voice | filters.video_note), group=2)
 async def auto_delete_user_media_pm(client: Client, message: Message):
     user = message.from_user
     if not user or message.outgoing:
@@ -263,9 +242,7 @@ async def start_services():
 # 🚀 LAUNCH SEQUENCE
 # ============================================================
 def force_shutdown(signum, frame):
-    logger.info(
-        "🛑 Received shutdown signal from Koyeb. Killing old instance immediately!"
-    )
+    logger.info("🛑 Received shutdown signal from Koyeb. Killing old instance immediately!")
     sys.exit(0)
 
 
