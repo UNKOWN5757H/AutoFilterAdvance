@@ -255,4 +255,3 @@ if __name__ == "__main__":
         loop.run_until_complete(start_services())
     except (KeyboardInterrupt, SystemExit):
         logger.info("Process interrupted. Shutting down...")
-```eof
