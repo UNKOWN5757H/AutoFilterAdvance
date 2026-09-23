@@ -172,6 +172,7 @@ app = Bot()
 # ============================================================
 AUTO_DELETE_TASKS = set()
 
+
 async def delete_media_task(message: Message, delay: int):
     await asyncio.sleep(delay)
     try:
@@ -197,7 +198,7 @@ async def auto_delete_user_media_pm(client: Client, message: Message):
     user = message.from_user
     if not user or message.outgoing:
         return
-        
+
     task = asyncio.create_task(delete_media_task(message, delay=1800))
     AUTO_DELETE_TASKS.add(task)
     task.add_done_callback(AUTO_DELETE_TASKS.discard)
