@@ -5,6 +5,13 @@ import signal
 import sys
 from typing import AsyncGenerator, Union
 
+# ⚡ 1. CREATE EVENT LOOP IMMEDIATELY (Fixes the Pyrogram TypeError Crash)
+try:
+    loop = asyncio.get_event_loop()
+except RuntimeError:
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
 # ===================================================================
 # 🚀 THE ULTIMATE PYROGRAM + MONGODB CRASH FIX (Monkey Patch v3)
 # ===================================================================
@@ -75,29 +82,24 @@ class Bot(Client):
     async def start(self, *args, **kwargs):
         await super().start(*args, **kwargs)
 
-        # 1. LOAD BANNED USERS/CHATS (With Anti-Hang Timeout)
+        # 1. LOAD BANNED USERS/CHATS
         b_users = []
         b_chats = []
         try:
+            async for chat in old_db.grp.find({"chat_status.is_disabled": True}):
+                if chat.get("id"):
+                    b_chats.append(chat["id"])
 
-            async def fetch_bans():
-                async for chat in old_db.grp.find({"chat_status.is_disabled": True}):
-                    if chat.get("id"):
-                        b_chats.append(chat["id"])
+            async for user in plugin_db.ban_col.find({}):
+                if user.get("_id"):
+                    b_users.append(user["_id"])
 
-                async for user in plugin_db.ban_col.find({}):
-                    if user.get("_id"):
-                        b_users.append(user["_id"])
-
-                async for user in old_db.col.find({"ban_status.is_banned": True}):
-                    u_id = user.get("id")
-                    if u_id and u_id not in b_users:
-                        b_users.append(u_id)
-
-            # Force the DB to finish within 10 seconds so the bot doesn't get stuck
-            await asyncio.wait_for(fetch_bans(), timeout=10.0)
+            async for user in old_db.col.find({"ban_status.is_banned": True}):
+                u_id = user.get("id")
+                if u_id and u_id not in b_users:
+                    b_users.append(u_id)
         except Exception as e:
-            logger.error(f"Failed to load bans (Timeout/Error): {e}")
+            logger.error(f"Error loading bans: {e}")
 
         temp.BANNED_USERS = b_users
         temp.BANNED_CHATS = b_chats
@@ -161,15 +163,7 @@ class Bot(Client):
                 current += 1
 
 
-# ============================================================
-# ⚡ SAFE INITIALIZATION (Fixes Pyrogram TypeError)
-# ============================================================
-try:
-    loop = asyncio.get_event_loop()
-except RuntimeError:
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
+# ⚡ 2. APP INITIALIZATION (Now safely wrapped in the active event loop)
 app = Bot()
 
 
@@ -177,7 +171,6 @@ app = Bot()
 # 🗑️ AUTO DELETE PM MEDIA (30-MINUTES, MEMORY SAFE)
 # ============================================================
 AUTO_DELETE_TASKS = set()
-
 
 async def delete_media_task(message: Message, delay: int):
     await asyncio.sleep(delay)
@@ -204,7 +197,7 @@ async def auto_delete_user_media_pm(client: Client, message: Message):
     user = message.from_user
     if not user or message.outgoing:
         return
-    # Shield task to prevent Garbage Collector from killing it
+        
     task = asyncio.create_task(delete_media_task(message, delay=1800))
     AUTO_DELETE_TASKS.add(task)
     task.add_done_callback(AUTO_DELETE_TASKS.discard)
@@ -258,6 +251,8 @@ if __name__ == "__main__":
     signal.signal(signal.SIGINT, force_shutdown)
 
     try:
+        # Loop is already generated safely at the top of the file!
         loop.run_until_complete(start_services())
     except (KeyboardInterrupt, SystemExit):
         logger.info("Process interrupted. Shutting down...")
+```eof
