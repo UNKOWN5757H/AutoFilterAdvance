@@ -66,7 +66,7 @@ class Bot(Client):
             workers=500,
             plugins={"root": "plugins"},
             sleep_threshold=5,
-            in_memory=True  # ⚡ THE SILVER BULLET: Bypasses the SQLite TypeError crash completely!
+            in_memory=True,  # ⚡ THE SILVER BULLET: Bypasses the SQLite TypeError crash completely!
         )
 
     async def start(self, *args, **kwargs):
@@ -75,6 +75,7 @@ class Bot(Client):
         b_users = []
         b_chats = []
         try:
+
             async def fetch_bans():
                 async for chat in old_db.grp.find({"chat_status.is_disabled": True}):
                     if chat.get("id"):
@@ -88,7 +89,7 @@ class Bot(Client):
                     u_id = user.get("id")
                     if u_id and u_id not in b_users:
                         b_users.append(u_id)
-            
+
             # Anti-Hang DB Shield
             await asyncio.wait_for(fetch_bans(), timeout=10.0)
         except Exception as e:
@@ -113,7 +114,9 @@ class Bot(Client):
         temp.B_NAME = me.first_name
         self.username = f"@{me.username}"
 
-        logger.info(f"{me.first_name} with Pyrogram v{__version__} (Layer {layer}) started on {me.username}.")
+        logger.info(
+            f"{me.first_name} with Pyrogram v{__version__} (Layer {layer}) started on {me.username}."
+        )
         logger.info(LOG_STR)
 
         if os.path.exists("restart.txt"):
@@ -161,6 +164,7 @@ app = Bot()
 # ============================================================
 AUTO_DELETE_TASKS = set()
 
+
 async def delete_media_task(message: Message, delay: int):
     await asyncio.sleep(delay)
     try:
@@ -169,7 +173,19 @@ async def delete_media_task(message: Message, delay: int):
     except Exception as e:
         logger.error(f"Failed to auto-delete PM media for {message.from_user.id}: {e}")
 
-@app.on_message(filters.private & (filters.document | filters.video | filters.audio | filters.photo | filters.voice | filters.video_note), group=2)
+
+@app.on_message(
+    filters.private
+    & (
+        filters.document
+        | filters.video
+        | filters.audio
+        | filters.photo
+        | filters.voice
+        | filters.video_note
+    ),
+    group=2,
+)
 async def auto_delete_user_media_pm(client: Client, message: Message):
     user = message.from_user
     if not user or message.outgoing:
@@ -209,7 +225,9 @@ async def start_services():
 # 🚀 LAUNCH SEQUENCE
 # ============================================================
 def force_shutdown(signum, frame):
-    logger.info("🛑 Received shutdown signal from Koyeb. Killing old instance immediately!")
+    logger.info(
+        "🛑 Received shutdown signal from Koyeb. Killing old instance immediately!"
+    )
     sys.exit(0)
 
 
