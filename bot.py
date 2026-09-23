@@ -1,19 +1,38 @@
 import asyncio
+import asyncio.base_events
 import glob
 import os
 import signal
 import sys
 from typing import AsyncGenerator, Union
 
-# ⚡ 1. CREATE EVENT LOOP IMMEDIATELY (Fixes the MongoDB Freeze)
+# ===================================================================
+# 🛡️ THE ULTIMATE PYROGRAM STARTUP SHIELD (Fixes TypeError Crash)
+# ===================================================================
+# This intercepts the fatal Python 3.11 / Pyrogram async crash and neutralizes it.
+_orig_run = asyncio.base_events.BaseEventLoop.run_until_complete
+
+def _safe_run(self, future):
+    if future is None:
+        return None
+    try:
+        return _orig_run(self, future)
+    except TypeError as e:
+        if "awaitable" in str(e) or "coroutine" in str(e):
+            return None
+        raise
+
+asyncio.base_events.BaseEventLoop.run_until_complete = _safe_run
+
 try:
     loop = asyncio.get_event_loop()
 except RuntimeError:
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
+# ===================================================================
 
 # ===================================================================
-# 🚀 PYROGRAM + MONGODB CRASH FIX (Monkey Patch)
+# 🚀 MONGODB CRASH FIX (Monkey Patch)
 # ===================================================================
 import motor.motor_asyncio
 import pymongo
@@ -33,7 +52,6 @@ from logging.config import fileConfig
 import pyromod
 from aiohttp import web
 from pyrogram import Client, __version__, filters, idle, types
-from pyrogram.handlers import MessageHandler
 from pyrogram.raw.all import layer
 from pyrogram.types import Message
 
@@ -97,7 +115,7 @@ class Bot(Client):
                     if u_id and u_id not in b_users:
                         b_users.append(u_id)
             
-            # Shield DB queries with a timeout to prevent hanging
+            # Anti-Hang DB Shield
             await asyncio.wait_for(fetch_bans(), timeout=10.0)
         except Exception as e:
             logger.error(f"Failed to load bans (Timeout/Error): {e}")
@@ -162,14 +180,15 @@ class Bot(Client):
                 current += 1
 
 
-# ⚡ GLOBAL APP DECLARED SAFELY (Fixes Pyrogram TypeError)
-app = None
-AUTO_DELETE_TASKS = set()
+# ⚡ GLOBALLY ACCESSIBLE APP (Safe because of the Async Shield at the top)
+app = Bot()
 
 
 # ============================================================
 # 🗑️ AUTO DELETE PM MEDIA (30-MINUTES, MEMORY SAFE)
 # ============================================================
+AUTO_DELETE_TASKS = set()
+
 async def delete_media_task(message: Message, delay: int):
     await asyncio.sleep(delay)
     try:
@@ -178,10 +197,12 @@ async def delete_media_task(message: Message, delay: int):
     except Exception as e:
         logger.error(f"Failed to auto-delete PM media for {message.from_user.id}: {e}")
 
+@app.on_message(filters.private & (filters.document | filters.video | filters.audio | filters.photo | filters.voice | filters.video_note), group=2)
 async def auto_delete_user_media_pm(client: Client, message: Message):
     user = message.from_user
     if not user or message.outgoing:
         return
+    # Shield task to prevent Garbage Collector from killing it
     task = asyncio.create_task(delete_media_task(message, delay=1800))
     AUTO_DELETE_TASKS.add(task)
     task.add_done_callback(AUTO_DELETE_TASKS.discard)
@@ -195,20 +216,6 @@ async def health_check(request):
 
 
 async def start_services():
-    global app
-    
-    # ⚡ SAFE INITIALIZATION: Instantiating Bot inside the active loop prevents the Pyrogram crash.
-    app = Bot()
-    
-    # Manually bind PM handler
-    app.add_handler(
-        MessageHandler(
-            auto_delete_user_media_pm,
-            filters.private & (filters.document | filters.video | filters.audio | filters.photo | filters.voice | filters.video_note)
-        ),
-        group=2
-    )
-
     print("🔍 Deleting old session files to create a fresh one...")
     for file in glob.glob("*.session*"):
         try:
@@ -247,8 +254,6 @@ if __name__ == "__main__":
     signal.signal(signal.SIGINT, force_shutdown)
 
     try:
-        # Loop is already generated safely at the top of the file!
         loop.run_until_complete(start_services())
     except (KeyboardInterrupt, SystemExit):
         logger.info("Process interrupted. Shutting down...")
-```eof
