@@ -17,8 +17,10 @@
 ./plugins/channel.py
 ./plugins/commands.py
 ./plugins/connection.py
+./plugins/custom_settings.py
 ./plugins/custommessage.py
 ./plugins/delete.py
+./plugins/editable.py
 ./plugins/filters.py
 ./plugins/force_add.py
 ./plugins/fsub.py
