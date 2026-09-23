@@ -30,7 +30,6 @@ from logging.config import fileConfig
 import pyromod
 from aiohttp import web
 from pyrogram import Client, __version__, filters, idle, types
-from pyrogram.handlers import MessageHandler
 from pyrogram.raw.all import layer
 from pyrogram.types import Message
 
@@ -159,7 +158,15 @@ class Bot(Client):
                 current += 1
 
 
-# ⚡ GLOBAL APP INITIALIZED PROPERLY (Prevents Plugin Loading Crash)
+# ============================================================
+# ⚡ SAFE INITIALIZATION (Fixes Pyrogram TypeError)
+# ============================================================
+try:
+    loop = asyncio.get_event_loop()
+except RuntimeError:
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
 app = Bot()
 
 
@@ -233,13 +240,6 @@ if __name__ == "__main__":
     signal.signal(signal.SIGINT, force_shutdown)
 
     try:
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
         loop.run_until_complete(start_services())
     except (KeyboardInterrupt, SystemExit):
         logger.info("Process interrupted. Shutting down...")
-```eof
