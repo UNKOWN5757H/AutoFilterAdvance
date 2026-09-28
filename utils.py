@@ -537,6 +537,7 @@ def get_readable_time(seconds):
             result.append(f"{int(p_val)}{p_name}")
     return " ".join(result)
 
+
 # ============================================================
 # ⚡ UNIVERSAL PARSER ENGINE: FORMATTING & BUTTONS
 # ============================================================
@@ -554,7 +555,7 @@ def parse_text_and_markup(raw_text, static_keyboard=None):
     dynamic_keyboard = []
 
     # Regex matches [Text | URL] or [Text | URL | Color]
-    button_pattern = re.compile(r'\[([^\[\]\|]+)\|([^\[\]\|]+)(?:\|([^\[\]\|]+))?\]')
+    button_pattern = re.compile(r"\[([^\[\]\|]+)\|([^\[\]\|]+)(?:\|([^\[\]\|]+))?\]")
 
     for line in lines:
         matches = button_pattern.findall(line)
@@ -564,33 +565,35 @@ def parse_text_and_markup(raw_text, static_keyboard=None):
                 btn_text = match[0].strip()
                 btn_url = match[1].strip()
                 color_str = match[2].strip().lower() if match[2] else "blue"
-                
+
                 style_map = {
                     "blue": enums.ButtonStyle.PRIMARY,
                     "green": enums.ButtonStyle.SUCCESS,
                     "red": enums.ButtonStyle.DANGER,
-                    "gray": enums.ButtonStyle.SECONDARY
+                    "gray": enums.ButtonStyle.SECONDARY,
                 }
                 btn_style = style_map.get(color_str, enums.ButtonStyle.PRIMARY)
-                
-                row.append(InlineKeyboardButton(text=btn_text, url=btn_url, style=btn_style))
-            
+
+                row.append(
+                    InlineKeyboardButton(text=btn_text, url=btn_url, style=btn_style)
+                )
+
             if row:
                 dynamic_keyboard.append(row)
-            
+
             # Strip the button code from the visible text
-            clean_line = button_pattern.sub('', line).strip()
+            clean_line = button_pattern.sub("", line).strip()
             if clean_line:
                 parsed_lines.append(clean_line)
         else:
             parsed_lines.append(line)
 
     final_text = "\n".join(parsed_lines)
-    
+
     # Merge dynamic buttons with any existing static menus
-    if static_keyboard and hasattr(static_keyboard, 'inline_keyboard'):
+    if static_keyboard and hasattr(static_keyboard, "inline_keyboard"):
         dynamic_keyboard.extend(static_keyboard.inline_keyboard)
-        
+
     reply_markup = InlineKeyboardMarkup(dynamic_keyboard) if dynamic_keyboard else None
-    
+
     return final_text, reply_markup
