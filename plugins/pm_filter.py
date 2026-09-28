@@ -140,42 +140,49 @@ def clean_filename(name: str) -> str:
 # ============================================================
 AUTO_DELETE_TASKS = set()
 
+
 def get_auto_delete_timer() -> int:
     """Safely extracts time, supporting AUTO_DELETE_TIME from config."""
     try:
         global_switch = getattr(info, "AUTO_DELETE", True)
         if str(global_switch).strip().lower() in ["false", "off", "0"]:
             return 0
-            
+
         # Hook into AUTO_DELETE_TIME dynamically
-        val = getattr(info, "AUTO_DELETE_TIME", getattr(info, "BUTTON_AUTO_DELETE", global_switch))
-        
+        val = getattr(
+            info, "AUTO_DELETE_TIME", getattr(info, "BUTTON_AUTO_DELETE", global_switch)
+        )
+
         if isinstance(val, bool):
             return 1800 if val else 0
-            
+
         parsed = int(val)
         if 0 < parsed < 10:
             return 1800
-            
+
         return parsed
     except Exception:
         return 1800
 
-async def silent_auto_delete(bot_message: Optional[Message], delay: int, user_message: Optional[Message] = None):
+
+async def silent_auto_delete(
+    bot_message: Optional[Message], delay: int, user_message: Optional[Message] = None
+):
     if not bot_message or delay <= 0:
         return
     await asyncio.sleep(delay)
-    
+
     try:
         await bot_message.delete()
     except Exception:
         pass
-        
+
     if user_message:
         try:
             await user_message.delete()
         except Exception:
             pass
+
 
 def schedule_auto_delete(bot_msg, delay, user_msg=None):
     if delay <= 0:
