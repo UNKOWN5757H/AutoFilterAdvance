@@ -114,7 +114,6 @@ def sanitize_search_query(text: str) -> str:
     q = re.sub(r"\b(19\d{2}|20\d{2})\b", "", q)
     q = re.sub(r"[\[\]\(\)\{\}\-_.:|/#+*~`$@^&!?;,<=>\\]", " ", q)
 
-    # ⚡ Fetch dynamic stopwords
     active_stops = get_stopwords()
     if active_stops:
         pattern = (
@@ -137,51 +136,46 @@ def clean_filename(name: str) -> str:
 
 
 # ============================================================
-# 🗑️ FAIL-SAFE AUTODELETE ENGINE & GC SHIELD
+# 🗑️ FAIL-SAFE AUTO DELETERS & GC SHIELD
 # ============================================================
 AUTO_DELETE_TASKS = set()
 
-
-def parse_timer(var_name: str, default_time: int = 1800) -> int:
-    """Safely extracts time, blocking the 1-second boolean trap and TypeError crashes."""
+def get_auto_delete_timer() -> int:
+    """Safely extracts time, supporting AUTO_DELETE_TIME from config."""
     try:
         global_switch = getattr(info, "AUTO_DELETE", True)
         if str(global_switch).strip().lower() in ["false", "off", "0"]:
             return 0
-
-        val = getattr(info, var_name, default_time)
-
-        # Prevent boolean trap (True = 1 second)
+            
+        # Hook into AUTO_DELETE_TIME dynamically
+        val = getattr(info, "AUTO_DELETE_TIME", getattr(info, "BUTTON_AUTO_DELETE", global_switch))
+        
         if isinstance(val, bool):
-            return default_time if val else 0
-
-        parsed_time = int(val)
-        if 0 < parsed_time < 10:
-            return default_time
-
-        return parsed_time
+            return 1800 if val else 0
+            
+        parsed = int(val)
+        if 0 < parsed < 10:
+            return 1800
+            
+        return parsed
     except Exception:
-        return default_time
+        return 1800
 
-
-async def silent_auto_delete(
-    bot_message: Optional[Message], delay: int, user_message: Optional[Message] = None
-):
+async def silent_auto_delete(bot_message: Optional[Message], delay: int, user_message: Optional[Message] = None):
     if not bot_message or delay <= 0:
         return
     await asyncio.sleep(delay)
-
+    
     try:
         await bot_message.delete()
     except Exception:
         pass
-
+        
     if user_message:
         try:
             await user_message.delete()
         except Exception:
             pass
-
 
 def schedule_auto_delete(bot_msg, delay, user_msg=None):
     if delay <= 0:
@@ -262,7 +256,7 @@ async def advantage_spell_chok(client: Client, msg: Message, search_query: str):
             reply_markup=InlineKeyboardMarkup(btn),
             parse_mode=enums.ParseMode.DEFAULT,
         )
-        delete_timer = parse_timer("BUTTON_AUTO_DELETE", 1800)
+        delete_timer = get_auto_delete_timer()
         if delete_timer > 0:
             schedule_auto_delete(k_msg, delete_timer, msg)
     except (Forbidden, UserIsBlocked, PeerIdInvalid, ChatWriteForbidden):
@@ -287,7 +281,7 @@ async def _send_not_found(msg: Message, img: Optional[str], text: str):
             pass
 
     if k_msg:
-        delete_timer = parse_timer("BUTTON_AUTO_DELETE", 1800)
+        delete_timer = get_auto_delete_timer()
         if delete_timer > 0:
             schedule_auto_delete(k_msg, delete_timer, msg)
 
@@ -390,7 +384,7 @@ async def manual_filters(client: Client, message: Message, text: bool = False) -
                 pass
 
             if sent_msg:
-                delete_timer = parse_timer("BUTTON_AUTO_DELETE", 1800)
+                delete_timer = get_auto_delete_timer()
                 if delete_timer > 0:
                     schedule_auto_delete(sent_msg, delete_timer, message)
             return True
@@ -510,7 +504,8 @@ async def auto_filter(client: Client, msg: any, spoll: any = False):
         )
 
         if offset:
-            key = f"{message.chat.id}_{message.id}"
+            # ⚡ FIX: Changed underscore (_) to a hyphen (-) so the Next button doesn't break string splitting
+            key = f"{message.chat.id}-{message.id}"
             BUTTONS_CACHE.set(key, search)
             req = message.from_user.id if message.from_user else 0
             btn.append(
@@ -561,7 +556,7 @@ async def auto_filter(client: Client, msg: any, spoll: any = False):
             except Exception:
                 pass
 
-        delete_timer = parse_timer("BUTTON_AUTO_DELETE", 1800)
+        delete_timer = get_auto_delete_timer()
         if delete_timer > 0 and m:
             schedule_auto_delete(m, delete_timer, message)
     except Exception as e:
@@ -642,6 +637,7 @@ async def pagination_and_spell_handler(bot: Client, query: CallbackQuery):
 
     # Pagination logic
     try:
+        # ⚡ The magic happens here: it splits exactly into 4 pieces because we removed the extra underscore.
         _, req, key, offset_str = query.data.split("_", 3)
     except ValueError:
         return await query.answer("Invalid button data!", show_alert=True)
