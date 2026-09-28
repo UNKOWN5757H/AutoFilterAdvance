@@ -17,7 +17,7 @@ from pyrogram.errors import (
     UserIsBlocked,
     UserNotParticipant,
 )
-from pyrogram.types import InlineKeyboardButton, Message
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 # ⚡ FIXED: Aliased to prevent scanner crashes
 from database.join_reqs import join_reqs as _db2
@@ -366,7 +366,7 @@ def _fetch_gagala(text):
 
 
 async def search_gagala(text):
-    return await asyncio.to_thread(_fetch_gagala, text)
+    return await asyncio.tothread(_fetch_gagala, text)
 
 
 async def get_settings(group_id):
@@ -536,3 +536,61 @@ def get_readable_time(seconds):
             p_val, seconds = divmod(seconds, p_seconds)
             result.append(f"{int(p_val)}{p_name}")
     return " ".join(result)
+
+# ============================================================
+# ⚡ UNIVERSAL PARSER ENGINE: FORMATTING & BUTTONS
+# ============================================================
+def parse_text_and_markup(raw_text, static_keyboard=None):
+    """
+    Universally parses Markdown/HTML and builds dynamic colored buttons.
+    Syntax: [Button Text | URL | color]
+    Colors: blue, green, red, gray
+    """
+    if not raw_text:
+        return "", static_keyboard
+
+    lines = raw_text.split("\n")
+    parsed_lines = []
+    dynamic_keyboard = []
+
+    # Regex matches [Text | URL] or [Text | URL | Color]
+    button_pattern = re.compile(r'\[([^\[\]\|]+)\|([^\[\]\|]+)(?:\|([^\[\]\|]+))?\]')
+
+    for line in lines:
+        matches = button_pattern.findall(line)
+        if matches:
+            row = []
+            for match in matches:
+                btn_text = match[0].strip()
+                btn_url = match[1].strip()
+                color_str = match[2].strip().lower() if match[2] else "blue"
+                
+                style_map = {
+                    "blue": enums.ButtonStyle.PRIMARY,
+                    "green": enums.ButtonStyle.SUCCESS,
+                    "red": enums.ButtonStyle.DANGER,
+                    "gray": enums.ButtonStyle.SECONDARY
+                }
+                btn_style = style_map.get(color_str, enums.ButtonStyle.PRIMARY)
+                
+                row.append(InlineKeyboardButton(text=btn_text, url=btn_url, style=btn_style))
+            
+            if row:
+                dynamic_keyboard.append(row)
+            
+            # Strip the button code from the visible text
+            clean_line = button_pattern.sub('', line).strip()
+            if clean_line:
+                parsed_lines.append(clean_line)
+        else:
+            parsed_lines.append(line)
+
+    final_text = "\n".join(parsed_lines)
+    
+    # Merge dynamic buttons with any existing static menus
+    if static_keyboard and hasattr(static_keyboard, 'inline_keyboard'):
+        dynamic_keyboard.extend(static_keyboard.inline_keyboard)
+        
+    reply_markup = InlineKeyboardMarkup(dynamic_keyboard) if dynamic_keyboard else None
+    
+    return final_text, reply_markup
