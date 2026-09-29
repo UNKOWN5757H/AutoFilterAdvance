@@ -573,7 +573,7 @@ async def start(client: Client, message: Message):
         try:
             k = await client.send_message(
                 chat_id=message.from_user.id,
-                text="<b>📢 Please Note\n\n✅ The above file will be autodeleted in short time to avoid copyright issues.\n\n✅ Please forward this file to your saved messages and start downloading from there.\n\nTᴇᴀᴍ: @KR_Picture</b>",
+                text="<b>📢 Please Note\n\n✅ The above file will be autodeleted in 30 Minutes to avoid copyright issues.\n\n✅ Please forward this file to your saved messages and start downloading from there.\n\nTᴇᴀᴍ: @KR_Picture</b>",
                 reply_to_message_id=msg.id,
                 parse_mode=enums.ParseMode.HTML,
             )
@@ -1127,7 +1127,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     )
                     k = await client.send_message(
                         chat_id=query.from_user.id,
-                        text="<b>📢 Please Note\n\n✅ The above file will be autodeleted in short time to avoid copyright issues.\n\n✅ Please forward this file to your saved messages and start downloading from there.\n\nTᴇᴀᴍ: @KR_Picture</b>",
+                        text="<b>📢 Please Note\n\n✅ The above file will be autodeleted in 30 Minutes to avoid copyright issues.\n\n✅ Please forward this file to your saved messages and start downloading from there.\n\nTᴇᴀᴍ: @KR_Picture</b>",
                         reply_to_message_id=m.id,
                         parse_mode=enums.ParseMode.HTML,
                     )
@@ -1224,7 +1224,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 try:
                     k = await client.send_message(
                         chat_id=query.from_user.id,
-                        text="<b>📢 Please Note\n\n✅ The above file will be autodeleted in short time to avoid copyright issues.\n\n✅ Please forward this file to your saved messages and start downloading from there.\n\nTᴇᴀᴍ: @KR_Picture</b>",
+                        text="<b>📢 Please Note\n\n✅ The above file will be autodeleted in 30 Minutes to avoid copyright issues.\n\n✅ Please forward this file to your saved messages and start downloading from there.\n\nTᴇᴀᴍ: @KR_Picture</b>",
                         reply_to_message_id=m.id,
                         parse_mode=enums.ParseMode.HTML,
                     )
