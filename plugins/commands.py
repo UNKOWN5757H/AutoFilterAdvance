@@ -165,66 +165,160 @@ async def get_start_keyboard(user_id):
     ui = await get_ui()
     static_buttons = [
         [
-            InlineKeyboardButton("✈️ Gʀᴏᴜᴘ 1", url="https://t.me/Sandalwood_Kannada_Group", icon_custom_emoji_id=5258096772776991776, style=ButtonStyle.PRIMARY),
-            InlineKeyboardButton("✈️ Gʀᴏᴜᴘ 2", url="http://t.me/Kannada_Filmy_Group", icon_custom_emoji_id=5258096772776991776, style=ButtonStyle.PRIMARY),
-            InlineKeyboardButton("✈️ Gʀᴏᴜᴘ 3", url="https://t.me/+GLsPkRgLGGszMzY1", icon_custom_emoji_id=5258096772776991776, style=ButtonStyle.PRIMARY),
+            InlineKeyboardButton(
+                "✈️ Gʀᴏᴜᴘ 1",
+                url="https://t.me/Sandalwood_Kannada_Group",
+                icon_custom_emoji_id=5258096772776991776,
+                style=ButtonStyle.PRIMARY,
+            ),
+            InlineKeyboardButton(
+                "✈️ Gʀᴏᴜᴘ 2",
+                url="http://t.me/Kannada_Filmy_Group",
+                icon_custom_emoji_id=5258096772776991776,
+                style=ButtonStyle.PRIMARY,
+            ),
+            InlineKeyboardButton(
+                "✈️ Gʀᴏᴜᴘ 3",
+                url="https://t.me/+GLsPkRgLGGszMzY1",
+                icon_custom_emoji_id=5258096772776991776,
+                style=ButtonStyle.PRIMARY,
+            ),
         ]
     ]
     if str(user_id) in [str(a) for a in ADMINS]:
-        static_buttons.append([
-            InlineKeyboardButton("ℹ️ 𝙷𝚎𝚕𝚙", callback_data="help", style=ButtonStyle.SECONDARY),
-            InlineKeyboardButton("😊 𝙰𝚋𝚘𝚞𝚝", callback_data="about", style=ButtonStyle.SECONDARY)
-        ])
+        static_buttons.append(
+            [
+                InlineKeyboardButton(
+                    "ℹ️ 𝙷𝚎𝚕𝚙", callback_data="help", style=ButtonStyle.SECONDARY
+                ),
+                InlineKeyboardButton(
+                    "😊 𝙰𝚋𝚘𝚞𝚝", callback_data="about", style=ButtonStyle.SECONDARY
+                ),
+            ]
+        )
 
-    static_buttons.append([
-        InlineKeyboardButton("🔗 Nᴇᴡ Rᴇʟᴇᴀꜱᴇꜱ & Oᴛᴛ Uᴘᴅᴀᴛᴇꜱ", url="https://t.me/sandalwood_kannada_moviesz", icon_custom_emoji_id=5258503720928288433, style=ButtonStyle.SUCCESS)
-    ])
+    static_buttons.append(
+        [
+            InlineKeyboardButton(
+                "🔗 Nᴇᴡ Rᴇʟᴇᴀꜱᴇꜱ & Oᴛᴛ Uᴘᴅᴀᴛᴇꜱ",
+                url="https://t.me/sandalwood_kannada_moviesz",
+                icon_custom_emoji_id=5258503720928288433,
+                style=ButtonStyle.SUCCESS,
+            )
+        ]
+    )
     return build_dynamic_keyboard(ui.get("start_buttons", []), static_buttons)
 
 
 async def get_help_keyboard():
     static_buttons = [
         [
-            InlineKeyboardButton("🖥️ UI Start", callback_data="helps_uistart", style=ButtonStyle.PRIMARY),
-            InlineKeyboardButton("🖥️ UI Help", callback_data="helps_uihelp", style=ButtonStyle.PRIMARY),
-            InlineKeyboardButton("🖥️ UI About", callback_data="helps_uiabout", style=ButtonStyle.PRIMARY),
+            InlineKeyboardButton(
+                "🖥️ UI Start", callback_data="helps_uistart", style=ButtonStyle.PRIMARY
+            ),
+            InlineKeyboardButton(
+                "🖥️ UI Help", callback_data="helps_uihelp", style=ButtonStyle.PRIMARY
+            ),
+            InlineKeyboardButton(
+                "🖥️ UI About", callback_data="helps_uiabout", style=ButtonStyle.PRIMARY
+            ),
         ],
         [
-            InlineKeyboardButton("👋 Welcome", callback_data="helps_welcome", style=ButtonStyle.SECONDARY),
-            InlineKeyboardButton("🖼️ Images", callback_data="helps_images", style=ButtonStyle.SECONDARY),
+            InlineKeyboardButton(
+                "👋 Welcome", callback_data="helps_welcome", style=ButtonStyle.SECONDARY
+            ),
+            InlineKeyboardButton(
+                "🖼️ Images", callback_data="helps_images", style=ButtonStyle.SECONDARY
+            ),
         ],
         [
-            InlineKeyboardButton("🔍 Spell Check", callback_data="helps_spell", style=ButtonStyle.SECONDARY),
-            InlineKeyboardButton("📝 Filters", callback_data="helps_filters", style=ButtonStyle.SECONDARY),
+            InlineKeyboardButton(
+                "🔍 Spell Check",
+                callback_data="helps_spell",
+                style=ButtonStyle.SECONDARY,
+            ),
+            InlineKeyboardButton(
+                "📝 Filters", callback_data="helps_filters", style=ButtonStyle.SECONDARY
+            ),
         ],
         [
-            InlineKeyboardButton("📱 Force Sub", callback_data="helps_forcesub", style=ButtonStyle.SECONDARY),
-            InlineKeyboardButton("👥 Force Add", callback_data="helps_forceadd", style=ButtonStyle.SECONDARY),
+            InlineKeyboardButton(
+                "📱 Force Sub",
+                callback_data="helps_forcesub",
+                style=ButtonStyle.SECONDARY,
+            ),
+            InlineKeyboardButton(
+                "👥 Force Add",
+                callback_data="helps_forceadd",
+                style=ButtonStyle.SECONDARY,
+            ),
         ],
         [
-            InlineKeyboardButton("🚫 Bans", callback_data="helps_bans", style=ButtonStyle.SECONDARY),
-            InlineKeyboardButton("🗑️ Delete", callback_data="helps_delete", style=ButtonStyle.SECONDARY),
+            InlineKeyboardButton(
+                "🚫 Bans", callback_data="helps_bans", style=ButtonStyle.SECONDARY
+            ),
+            InlineKeyboardButton(
+                "🗑️ Delete", callback_data="helps_delete", style=ButtonStyle.SECONDARY
+            ),
         ],
         [
-            InlineKeyboardButton("📢 Promotions", callback_data="helps_promotions", style=ButtonStyle.SECONDARY),
-            InlineKeyboardButton("📚 Index", callback_data="helps_index", style=ButtonStyle.SECONDARY),
+            InlineKeyboardButton(
+                "📢 Promotions",
+                callback_data="helps_promotions",
+                style=ButtonStyle.SECONDARY,
+            ),
+            InlineKeyboardButton(
+                "📚 Index", callback_data="helps_index", style=ButtonStyle.SECONDARY
+            ),
         ],
         [
-            InlineKeyboardButton("⚙️ Settings", callback_data="helps_settings", style=ButtonStyle.SECONDARY),
-            InlineKeyboardButton("🌐 Connections", callback_data="helps_connections", style=ButtonStyle.SECONDARY),
+            InlineKeyboardButton(
+                "⚙️ Settings",
+                callback_data="helps_settings",
+                style=ButtonStyle.SECONDARY,
+            ),
+            InlineKeyboardButton(
+                "🌐 Connections",
+                callback_data="helps_connections",
+                style=ButtonStyle.SECONDARY,
+            ),
         ],
         [
-            InlineKeyboardButton("📊 Utilities", callback_data="helps_utilities", style=ButtonStyle.SECONDARY),
-            InlineKeyboardButton("💬 Custom Messages", callback_data="helps_custommessages", style=ButtonStyle.SECONDARY),
+            InlineKeyboardButton(
+                "📊 Utilities",
+                callback_data="helps_utilities",
+                style=ButtonStyle.SECONDARY,
+            ),
+            InlineKeyboardButton(
+                "💬 Custom Messages",
+                callback_data="helps_custommessages",
+                style=ButtonStyle.SECONDARY,
+            ),
         ],
         [
-            InlineKeyboardButton("📝 Post Handle", callback_data="helps_posthand", style=ButtonStyle.SECONDARY),
-            InlineKeyboardButton("📝 Custom Captions", callback_data="helps_customcaption", style=ButtonStyle.SECONDARY),
+            InlineKeyboardButton(
+                "📝 Post Handle",
+                callback_data="helps_posthand",
+                style=ButtonStyle.SECONDARY,
+            ),
+            InlineKeyboardButton(
+                "📝 Custom Captions",
+                callback_data="helps_customcaption",
+                style=ButtonStyle.SECONDARY,
+            ),
         ],
-        [InlineKeyboardButton("💾 Backup", callback_data="helps_backup", style=ButtonStyle.SUCCESS)],
         [
-            InlineKeyboardButton("🔙 Back", callback_data="start", style=ButtonStyle.PRIMARY),
-            InlineKeyboardButton("🔐 Cʟᴏsᴇ", callback_data="close_data", style=ButtonStyle.DANGER),
+            InlineKeyboardButton(
+                "💾 Backup", callback_data="helps_backup", style=ButtonStyle.SUCCESS
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "🔙 Back", callback_data="start", style=ButtonStyle.PRIMARY
+            ),
+            InlineKeyboardButton(
+                "🔐 Cʟᴏsᴇ", callback_data="close_data", style=ButtonStyle.DANGER
+            ),
         ],
     ]
     return InlineKeyboardMarkup(static_buttons)
@@ -233,10 +327,18 @@ async def get_help_keyboard():
 async def get_about_keyboard():
     return InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton("Sᴛᴀᴛᴜs ​", callback_data="stats", style=ButtonStyle.PRIMARY)],
             [
-                InlineKeyboardButton("🏘 Hᴏᴍᴇ", callback_data="start", style=ButtonStyle.SUCCESS),
-                InlineKeyboardButton("🔐 Cʟᴏsᴇ", callback_data="close_data", style=ButtonStyle.DANGER),
+                InlineKeyboardButton(
+                    "Sᴛᴀᴛᴜs ​", callback_data="stats", style=ButtonStyle.PRIMARY
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "🏘 Hᴏᴍᴇ", callback_data="start", style=ButtonStyle.SUCCESS
+                ),
+                InlineKeyboardButton(
+                    "🔐 Cʟᴏsᴇ", callback_data="close_data", style=ButtonStyle.DANGER
+                ),
             ],
         ]
     )
@@ -469,7 +571,10 @@ async def start(client: Client, message: Message):
             [
                 [
                     InlineKeyboardButton(
-                        text="🎥 ಕನ್ನಡ ಹೊಸ ಮೂವೀಗಳು 🎥", url="https://t.me/Sandalwood_kannada_moviesz", icon_custom_emoji_id=5258503720928288433, style=ButtonStyle.SUCCESS,
+                        text="🎥 ಕನ್ನಡ ಹೊಸ ಮೂವೀಗಳು 🎥",
+                        url="https://t.me/Sandalwood_kannada_moviesz",
+                        icon_custom_emoji_id=5258503720928288433,
+                        style=ButtonStyle.SUCCESS,
                     )
                 ]
             ]
@@ -575,16 +680,28 @@ async def get_channels_page(client: Client, page: int = 1):
     if page > 1:
         nav_row.append(
             InlineKeyboardButton(
-                "⬅️ Previous", callback_data=f"channels_page#{page - 1}", style=ButtonStyle.PRIMARY
+                "⬅️ Previous",
+                callback_data=f"channels_page#{page - 1}",
+                style=ButtonStyle.PRIMARY,
             )
         )
     if page < total_pages:
         nav_row.append(
-            InlineKeyboardButton("Next ➡️", callback_data=f"channels_page#{page + 1}", style=ButtonStyle.PRIMARY)
+            InlineKeyboardButton(
+                "Next ➡️",
+                callback_data=f"channels_page#{page + 1}",
+                style=ButtonStyle.PRIMARY,
+            )
         )
     if nav_row:
         buttons.append(nav_row)
-    buttons.append([InlineKeyboardButton("🔐 Close", callback_data="close_data", style=ButtonStyle.DANGER)])
+    buttons.append(
+        [
+            InlineKeyboardButton(
+                "🔐 Close", callback_data="close_data", style=ButtonStyle.DANGER
+            )
+        ]
+    )
     return text, InlineKeyboardMarkup(buttons)
 
 
@@ -679,39 +796,43 @@ async def settings(client: Client, message: Message):
             InlineKeyboardButton(
                 f"Buttons: {btn_text}",
                 callback_data=f"setgs#button#{settings_dict.get('button', False)}#{grp_id}",
-                style=ButtonStyle.PRIMARY
+                style=ButtonStyle.PRIMARY,
             ),
             InlineKeyboardButton(
                 f"Bot PM: {botpm_text}",
                 callback_data=f"setgs#botpm#{settings_dict.get('botpm', False)}#{grp_id}",
-                style=ButtonStyle.PRIMARY
+                style=ButtonStyle.PRIMARY,
             ),
         ],
         [
             InlineKeyboardButton(
                 f"File Secure: {file_secure_text}",
                 callback_data=f"setgs#file_secure#{settings_dict.get('file_secure', False)}#{grp_id}",
-                style=ButtonStyle.PRIMARY
+                style=ButtonStyle.PRIMARY,
             ),
             InlineKeyboardButton(
                 f"IMDB: {imdb_text}",
                 callback_data=f"setgs#imdb#{settings_dict.get('imdb', False)}#{grp_id}",
-                style=ButtonStyle.PRIMARY
+                style=ButtonStyle.PRIMARY,
             ),
         ],
         [
             InlineKeyboardButton(
                 f"Spell Check: {spell_check_text}",
                 callback_data=f"setgs#spell_check#{settings_dict.get('spell_check', False)}#{grp_id}",
-                style=ButtonStyle.PRIMARY
+                style=ButtonStyle.PRIMARY,
             ),
             InlineKeyboardButton(
                 f"Welcome: {welcome_text}",
                 callback_data=f"setgs#welcome#{settings_dict.get('welcome', False)}#{grp_id}",
-                style=ButtonStyle.PRIMARY
+                style=ButtonStyle.PRIMARY,
             ),
         ],
-        [InlineKeyboardButton("🗑 Close", callback_data="close_data", style=ButtonStyle.DANGER)],
+        [
+            InlineKeyboardButton(
+                "🗑 Close", callback_data="close_data", style=ButtonStyle.DANGER
+            )
+        ],
     ]
     await message.reply_text(
         f"⚙️ <b>Settings for {title}</b>\n\nChoose the options below to configure your group's behavior.",
@@ -742,39 +863,43 @@ async def settings_callback(client: Client, query: CallbackQuery):
                 InlineKeyboardButton(
                     f"Buttons: {btn_text}",
                     callback_data=f"setgs#button#{settings_dict.get('button', False)}#{grp_id}",
-                    style=ButtonStyle.PRIMARY
+                    style=ButtonStyle.PRIMARY,
                 ),
                 InlineKeyboardButton(
                     f"Bot PM: {botpm_text}",
                     callback_data=f"setgs#botpm#{settings_dict.get('botpm', False)}#{grp_id}",
-                    style=ButtonStyle.PRIMARY
+                    style=ButtonStyle.PRIMARY,
                 ),
             ],
             [
                 InlineKeyboardButton(
                     f"File Secure: {file_secure_text}",
                     callback_data=f"setgs#file_secure#{settings_dict.get('file_secure', False)}#{grp_id}",
-                    style=ButtonStyle.PRIMARY
+                    style=ButtonStyle.PRIMARY,
                 ),
                 InlineKeyboardButton(
                     f"IMDB: {imdb_text}",
                     callback_data=f"setgs#imdb#{settings_dict.get('imdb', False)}#{grp_id}",
-                    style=ButtonStyle.PRIMARY
+                    style=ButtonStyle.PRIMARY,
                 ),
             ],
             [
                 InlineKeyboardButton(
                     f"Spell Check: {spell_check_text}",
                     callback_data=f"setgs#spell_check#{settings_dict.get('spell_check', False)}#{grp_id}",
-                    style=ButtonStyle.PRIMARY
+                    style=ButtonStyle.PRIMARY,
                 ),
                 InlineKeyboardButton(
                     f"Welcome: {welcome_text}",
                     callback_data=f"setgs#welcome#{settings_dict.get('welcome', False)}#{grp_id}",
-                    style=ButtonStyle.PRIMARY
+                    style=ButtonStyle.PRIMARY,
                 ),
             ],
-            [InlineKeyboardButton("🗑 Close", callback_data="close_data", style=ButtonStyle.DANGER)],
+            [
+                InlineKeyboardButton(
+                    "🗑 Close", callback_data="close_data", style=ButtonStyle.DANGER
+                )
+            ],
         ]
         await query.message.edit_text(
             f"⚙️ <b>Settings for {title}</b>\n\nChoose the options below to configure your group's behavior.",
@@ -866,13 +991,21 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 [
                     [
                         InlineKeyboardButton(
-                            f"{stat}", callback_data=f"{cb}:{group_id}", style=ButtonStyle.PRIMARY
+                            f"{stat}",
+                            callback_data=f"{cb}:{group_id}",
+                            style=ButtonStyle.PRIMARY,
                         ),
                         InlineKeyboardButton(
-                            "DELETE", callback_data=f"deletecb:{group_id}", style=ButtonStyle.DANGER
+                            "DELETE",
+                            callback_data=f"deletecb:{group_id}",
+                            style=ButtonStyle.DANGER,
                         ),
                     ],
-                    [InlineKeyboardButton("BACK", callback_data="backcb", style=ButtonStyle.SECONDARY)],
+                    [
+                        InlineKeyboardButton(
+                            "BACK", callback_data="backcb", style=ButtonStyle.SECONDARY
+                        )
+                    ],
                 ]
             )
             try:
@@ -939,7 +1072,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                             InlineKeyboardButton(
                                 text=f"{ttl.title}{act}",
                                 callback_data=f"groupcb:{groupid}:{act}",
-                                style=ButtonStyle.PRIMARY
+                                style=ButtonStyle.PRIMARY,
                             )
                         ]
                     )
@@ -1204,7 +1337,13 @@ async def cb_handler(client: Client, query: CallbackQuery):
 
         elif query.data.startswith("helps_"):
             await query.answer()
-            buttons = [[InlineKeyboardButton("🔙 Back", callback_data="help", style=ButtonStyle.PRIMARY)]]
+            buttons = [
+                [
+                    InlineKeyboardButton(
+                        "🔙 Back", callback_data="help", style=ButtonStyle.PRIMARY
+                    )
+                ]
+            ]
             help_dict = {
                 "helps_uistart": ("UISTART_TXT", "🎨 UI Start Menu"),
                 "helps_uihelp": ("UIHELP_TXT", "🎨 UI Help Menu"),
@@ -1257,8 +1396,12 @@ async def cb_handler(client: Client, query: CallbackQuery):
             await query.answer()
             buttons = [
                 [
-                    InlineKeyboardButton("⇌ Bᴀᴄᴋ ⇌", callback_data="about", style=ButtonStyle.PRIMARY),
-                    InlineKeyboardButton("♻️", callback_data="rfrsh", style=ButtonStyle.SUCCESS),
+                    InlineKeyboardButton(
+                        "⇌ Bᴀᴄᴋ ⇌", callback_data="about", style=ButtonStyle.PRIMARY
+                    ),
+                    InlineKeyboardButton(
+                        "♻️", callback_data="rfrsh", style=ButtonStyle.SUCCESS
+                    ),
                 ]
             ]
             total = await _Media.count_documents()
