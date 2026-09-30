@@ -110,7 +110,7 @@ async def silent_auto_delete(
             if getattr(warning_message.from_user, "is_bot", False):
                 await warning_message.edit_text(
                     "<b>Hey 👋\n\nYour Request Has Been Deleted 👍\n\nIF YOU WANT THAT FILE, REQUEST AGAIN ❤️\n\nTᴇᴀᴍ: @KR_Picture</b>",
-                    parse_mode=enums.ParseMode.DEFAULT,
+                    parse_mode=enums.ParseMode.HTML,
                 )
             else:
                 await warning_message.delete()
@@ -165,94 +165,66 @@ async def get_start_keyboard(user_id):
     ui = await get_ui()
     static_buttons = [
         [
-            InlineKeyboardButton(
-                "✈️ Gʀᴏᴜᴘ 1",
-                url="https://t.me/Sandalwood_Kannada_Group",
-                icon_custom_emoji_id=5258096772776991776,
-                style=ButtonStyle.PRIMARY,
-            ),
-            InlineKeyboardButton(
-                "✈️ Gʀᴏᴜᴘ 2",
-                url="http://t.me/Kannada_Filmy_Group",
-                icon_custom_emoji_id=5258096772776991776,
-                style=ButtonStyle.PRIMARY,
-            ),
-            InlineKeyboardButton(
-                "✈️ Gʀᴏᴜᴘ 3",
-                url="https://t.me/+GLsPkRgLGGszMzY1",
-                icon_custom_emoji_id=5258096772776991776,
-                style=ButtonStyle.PRIMARY,
-            ),
+            InlineKeyboardButton("✈️ Gʀᴏᴜᴘ 1", url="https://t.me/Sandalwood_Kannada_Group", icon_custom_emoji_id=5258096772776991776, style=ButtonStyle.PRIMARY),
+            InlineKeyboardButton("✈️ Gʀᴏᴜᴘ 2", url="http://t.me/Kannada_Filmy_Group", icon_custom_emoji_id=5258096772776991776, style=ButtonStyle.PRIMARY),
+            InlineKeyboardButton("✈️ Gʀᴏᴜᴘ 3", url="https://t.me/+GLsPkRgLGGszMzY1", icon_custom_emoji_id=5258096772776991776, style=ButtonStyle.PRIMARY),
         ]
     ]
     if str(user_id) in [str(a) for a in ADMINS]:
-        static_buttons.append(
-            [
-                InlineKeyboardButton("ℹ️ 𝙷𝚎𝚕𝚙", callback_data="help"),
-                InlineKeyboardButton("😊 𝙰𝚋𝚘𝚞𝚝", callback_data="about"),
-            ]
-        )
+        static_buttons.append([
+            InlineKeyboardButton("ℹ️ 𝙷𝚎𝚕𝚙", callback_data="help", style=ButtonStyle.SECONDARY),
+            InlineKeyboardButton("😊 𝙰𝚋𝚘𝚞𝚝", callback_data="about", style=ButtonStyle.SECONDARY)
+        ])
 
-    static_buttons.append(
-        [
-            InlineKeyboardButton(
-                "🔗 Nᴇᴡ Rᴇʟᴇᴀꜱᴇꜱ & Oᴛᴛ Uᴘᴅᴀᴛᴇꜱ",
-                url="https://t.me/sandalwood_kannada_moviesz",
-                icon_custom_emoji_id=5258503720928288433,
-                style=ButtonStyle.SUCCESS,
-            )
-        ]
-    )
+    static_buttons.append([
+        InlineKeyboardButton("🔗 Nᴇᴡ Rᴇʟᴇᴀꜱᴇꜱ & Oᴛᴛ Uᴘᴅᴀᴛᴇꜱ", url="https://t.me/sandalwood_kannada_moviesz", icon_custom_emoji_id=5258503720928288433, style=ButtonStyle.SUCCESS)
+    ])
     return build_dynamic_keyboard(ui.get("start_buttons", []), static_buttons)
 
 
 async def get_help_keyboard():
     static_buttons = [
         [
-            InlineKeyboardButton("🖥️ UI Start", callback_data="helps_uistart"),
-            InlineKeyboardButton("🖥️ UI Help", callback_data="helps_uihelp"),
-            InlineKeyboardButton("🖥️ UI About", callback_data="helps_uiabout"),
+            InlineKeyboardButton("🖥️ UI Start", callback_data="helps_uistart", style=ButtonStyle.PRIMARY),
+            InlineKeyboardButton("🖥️ UI Help", callback_data="helps_uihelp", style=ButtonStyle.PRIMARY),
+            InlineKeyboardButton("🖥️ UI About", callback_data="helps_uiabout", style=ButtonStyle.PRIMARY),
         ],
         [
-            InlineKeyboardButton("👋 Welcome", callback_data="helps_welcome"),
-            InlineKeyboardButton("🖼️ Images", callback_data="helps_images"),
+            InlineKeyboardButton("👋 Welcome", callback_data="helps_welcome", style=ButtonStyle.SECONDARY),
+            InlineKeyboardButton("🖼️ Images", callback_data="helps_images", style=ButtonStyle.SECONDARY),
         ],
         [
-            InlineKeyboardButton("🔍 Spell Check", callback_data="helps_spell"),
-            InlineKeyboardButton("📝 Filters", callback_data="helps_filters"),
+            InlineKeyboardButton("🔍 Spell Check", callback_data="helps_spell", style=ButtonStyle.SECONDARY),
+            InlineKeyboardButton("📝 Filters", callback_data="helps_filters", style=ButtonStyle.SECONDARY),
         ],
         [
-            InlineKeyboardButton("📱 Force Sub", callback_data="helps_forcesub"),
-            InlineKeyboardButton("👥 Force Add", callback_data="helps_forceadd"),
+            InlineKeyboardButton("📱 Force Sub", callback_data="helps_forcesub", style=ButtonStyle.SECONDARY),
+            InlineKeyboardButton("👥 Force Add", callback_data="helps_forceadd", style=ButtonStyle.SECONDARY),
         ],
         [
-            InlineKeyboardButton("🚫 Bans", callback_data="helps_bans"),
-            InlineKeyboardButton("🗑️ Delete", callback_data="helps_delete"),
+            InlineKeyboardButton("🚫 Bans", callback_data="helps_bans", style=ButtonStyle.SECONDARY),
+            InlineKeyboardButton("🗑️ Delete", callback_data="helps_delete", style=ButtonStyle.SECONDARY),
         ],
         [
-            InlineKeyboardButton("📢 Promotions", callback_data="helps_promotions"),
-            InlineKeyboardButton("📚 Index", callback_data="helps_index"),
+            InlineKeyboardButton("📢 Promotions", callback_data="helps_promotions", style=ButtonStyle.SECONDARY),
+            InlineKeyboardButton("📚 Index", callback_data="helps_index", style=ButtonStyle.SECONDARY),
         ],
         [
-            InlineKeyboardButton("⚙️ Settings", callback_data="helps_settings"),
-            InlineKeyboardButton("🌐 Connections", callback_data="helps_connections"),
+            InlineKeyboardButton("⚙️ Settings", callback_data="helps_settings", style=ButtonStyle.SECONDARY),
+            InlineKeyboardButton("🌐 Connections", callback_data="helps_connections", style=ButtonStyle.SECONDARY),
         ],
         [
-            InlineKeyboardButton("📊 Utilities", callback_data="helps_utilities"),
-            InlineKeyboardButton(
-                "💬 Custom Messages", callback_data="helps_custommessages"
-            ),
+            InlineKeyboardButton("📊 Utilities", callback_data="helps_utilities", style=ButtonStyle.SECONDARY),
+            InlineKeyboardButton("💬 Custom Messages", callback_data="helps_custommessages", style=ButtonStyle.SECONDARY),
         ],
         [
-            InlineKeyboardButton("📝 Post Handle", callback_data="helps_posthand"),
-            InlineKeyboardButton(
-                "📝 Custom Captions", callback_data="helps_customcaption"
-            ),
+            InlineKeyboardButton("📝 Post Handle", callback_data="helps_posthand", style=ButtonStyle.SECONDARY),
+            InlineKeyboardButton("📝 Custom Captions", callback_data="helps_customcaption", style=ButtonStyle.SECONDARY),
         ],
-        [InlineKeyboardButton("💾 Backup", callback_data="helps_backup")],
+        [InlineKeyboardButton("💾 Backup", callback_data="helps_backup", style=ButtonStyle.SUCCESS)],
         [
-            InlineKeyboardButton("🔙 Back", callback_data="start"),
-            InlineKeyboardButton("🔐 Cʟᴏsᴇ", callback_data="close_data"),
+            InlineKeyboardButton("🔙 Back", callback_data="start", style=ButtonStyle.PRIMARY),
+            InlineKeyboardButton("🔐 Cʟᴏsᴇ", callback_data="close_data", style=ButtonStyle.DANGER),
         ],
     ]
     return InlineKeyboardMarkup(static_buttons)
@@ -261,10 +233,10 @@ async def get_help_keyboard():
 async def get_about_keyboard():
     return InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton("Sᴛᴀᴛᴜs ​", callback_data="stats")],
+            [InlineKeyboardButton("Sᴛᴀᴛᴜs ​", callback_data="stats", style=ButtonStyle.PRIMARY)],
             [
-                InlineKeyboardButton("🏘 Hᴏᴍᴇ", callback_data="start"),
-                InlineKeyboardButton("🔐 Cʟᴏsᴇ", callback_data="close_data"),
+                InlineKeyboardButton("🏘 Hᴏᴍᴇ", callback_data="start", style=ButtonStyle.SUCCESS),
+                InlineKeyboardButton("🔐 Cʟᴏsᴇ", callback_data="close_data", style=ButtonStyle.DANGER),
             ],
         ]
     )
@@ -277,7 +249,7 @@ async def transition_ui_message(client, msg_obj, text, keyboard, img=None):
                 await msg_obj.edit_caption(
                     caption=text,
                     reply_markup=keyboard,
-                    parse_mode=enums.ParseMode.DEFAULT,
+                    parse_mode=enums.ParseMode.HTML,
                 )
             else:
                 await msg_obj.delete()
@@ -286,7 +258,7 @@ async def transition_ui_message(client, msg_obj, text, keyboard, img=None):
                     photo=img,
                     caption=text,
                     reply_markup=keyboard,
-                    parse_mode=enums.ParseMode.DEFAULT,
+                    parse_mode=enums.ParseMode.HTML,
                 )
         else:
             if msg_obj.photo or msg_obj.video or msg_obj.document:
@@ -295,11 +267,11 @@ async def transition_ui_message(client, msg_obj, text, keyboard, img=None):
                     chat_id=msg_obj.chat.id,
                     text=text,
                     reply_markup=keyboard,
-                    parse_mode=enums.ParseMode.DEFAULT,
+                    parse_mode=enums.ParseMode.HTML,
                 )
             else:
                 await msg_obj.edit_text(
-                    text=text, reply_markup=keyboard, parse_mode=enums.ParseMode.DEFAULT
+                    text=text, reply_markup=keyboard, parse_mode=enums.ParseMode.HTML
                 )
     except MessageNotModified:
         pass
@@ -315,7 +287,7 @@ async def start(client: Client, message: Message):
         ]:
             return await message.reply_text(
                 "🛠️ <b>Bot is currently under maintenance!</b>",
-                parse_mode=enums.ParseMode.DEFAULT,
+                parse_mode=enums.ParseMode.HTML,
             )
     if message.from_user and await _plugin_db.is_banned(message.from_user.id):
         return
@@ -344,13 +316,13 @@ async def start(client: Client, message: Message):
                 photo=img,
                 caption=final_text,
                 reply_markup=final_keyboard,
-                parse_mode=enums.ParseMode.DEFAULT,
+                parse_mode=enums.ParseMode.HTML,
             )
         else:
             return await message.reply_text(
                 text=final_text,
                 reply_markup=final_keyboard,
-                parse_mode=enums.ParseMode.DEFAULT,
+                parse_mode=enums.ParseMode.HTML,
             )
 
     if message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
@@ -370,7 +342,7 @@ async def start(client: Client, message: Message):
         )
 
         await message.reply(
-            final_text, reply_markup=final_keyboard, parse_mode=enums.ParseMode.DEFAULT
+            final_text, reply_markup=final_keyboard, parse_mode=enums.ParseMode.HTML
         )
         await asyncio.sleep(2)
         if not await _db.get_chat(message.chat.id):
@@ -420,13 +392,13 @@ async def start(client: Client, message: Message):
                     photo=photo_to_send,
                     caption=final_text,
                     reply_markup=final_keyboard,
-                    parse_mode=enums.ParseMode.DEFAULT,
+                    parse_mode=enums.ParseMode.HTML,
                 )
             else:
                 await message.reply_text(
                     text=final_text,
                     reply_markup=final_keyboard,
-                    parse_mode=enums.ParseMode.DEFAULT,
+                    parse_mode=enums.ParseMode.HTML,
                 )
         except (UserIsBlocked, PeerIdInvalid):
             pass
@@ -450,7 +422,7 @@ async def start(client: Client, message: Message):
     files_ = await get_file_details(file_id)
     if not files_:
         return await message.reply_text(
-            "⚠️ No such file exists.", parse_mode=enums.ParseMode.DEFAULT
+            "⚠️ No such file exists.", parse_mode=enums.ParseMode.HTML
         )
 
     files = files_[0]
@@ -497,10 +469,7 @@ async def start(client: Client, message: Message):
             [
                 [
                     InlineKeyboardButton(
-                        text="🎥 ಕನ್ನಡ ಹೊಸ ಮೂವೀಗಳು 🎥",
-                        url="https://t.me/Sandalwood_kannada_moviesz",
-                        icon_custom_emoji_id=5258503720928288433,
-                        style=ButtonStyle.SUCCESS,
+                        text="🎥 ಕನ್ನಡ ಹೊಸ ಮೂವೀಗಳು 🎥", url="https://t.me/Sandalwood_kannada_moviesz", icon_custom_emoji_id=5258503720928288433, style=ButtonStyle.SUCCESS,
                     )
                 ]
             ]
@@ -515,7 +484,7 @@ async def start(client: Client, message: Message):
             caption=final_caption,
             reply_markup=final_keyboard,
             protect_content=True if kk in ["filep", "checksubp"] else False,
-            parse_mode=enums.ParseMode.DEFAULT,
+            parse_mode=enums.ParseMode.HTML,
         )
     except FloodWait as e:
         await asyncio.sleep(e.value + 1)
@@ -525,19 +494,19 @@ async def start(client: Client, message: Message):
                 file_id=db_file_id,
                 caption=final_caption,
                 protect_content=True if kk in ["filep", "checksubp"] else False,
-                parse_mode=enums.ParseMode.DEFAULT,
+                parse_mode=enums.ParseMode.HTML,
             )
         except Exception as err:
             return await message.reply_text(
                 f"⚠️ <b>Error:</b>\n<code>{err}</code>",
-                parse_mode=enums.ParseMode.DEFAULT,
+                parse_mode=enums.ParseMode.HTML,
             )
     except UserIsBlocked:
         return
     except Exception as e:
         return await message.reply_text(
             f"⚠️ <b>Error sending file:</b>\n<code>{e}</code>",
-            parse_mode=enums.ParseMode.DEFAULT,
+            parse_mode=enums.ParseMode.HTML,
         )
 
     if msg:
@@ -546,7 +515,7 @@ async def start(client: Client, message: Message):
                 chat_id=message.from_user.id,
                 text="<b>📢 Please Note\n\n✅ The above file will be autodeleted in 30 Minutes to avoid copyright issues.\n\n✅ Please forward this file to your saved messages and start downloading from there.\n\nTᴇᴀᴍ: @KR_Picture</b>",
                 reply_to_message_id=msg.id,
-                parse_mode=enums.ParseMode.DEFAULT,
+                parse_mode=enums.ParseMode.HTML,
             )
             delete_timer = parse_timer("FILE_AUTO_DELETE", 1800)
             if delete_timer > 0:
@@ -606,16 +575,16 @@ async def get_channels_page(client: Client, page: int = 1):
     if page > 1:
         nav_row.append(
             InlineKeyboardButton(
-                "⬅️ Previous", callback_data=f"channels_page#{page - 1}"
+                "⬅️ Previous", callback_data=f"channels_page#{page - 1}", style=ButtonStyle.PRIMARY
             )
         )
     if page < total_pages:
         nav_row.append(
-            InlineKeyboardButton("Next ➡️", callback_data=f"channels_page#{page + 1}")
+            InlineKeyboardButton("Next ➡️", callback_data=f"channels_page#{page + 1}", style=ButtonStyle.PRIMARY)
         )
     if nav_row:
         buttons.append(nav_row)
-    buttons.append([InlineKeyboardButton("🔐 Close", callback_data="close_data")])
+    buttons.append([InlineKeyboardButton("🔐 Close", callback_data="close_data", style=ButtonStyle.DANGER)])
     return text, InlineKeyboardMarkup(buttons)
 
 
@@ -627,7 +596,7 @@ async def list_all_channels_cmd(client: Client, message: Message):
         text,
         reply_markup=reply_markup,
         disable_web_page_preview=True,
-        parse_mode=enums.ParseMode.DEFAULT,
+        parse_mode=enums.ParseMode.HTML,
     )
 
 
@@ -638,7 +607,7 @@ async def leave_channel_cmd(client: Client, message: Message):
     if len(message.command) < 2:
         return await message.reply_text(
             "⚙️ <b>Usage:</b> <code>/leavechannel &lt;channel_id&gt;</code>",
-            parse_mode=enums.ParseMode.DEFAULT,
+            parse_mode=enums.ParseMode.HTML,
         )
     target_chat_id = message.command[1].strip()
     try:
@@ -670,7 +639,7 @@ async def leave_channel_cmd(client: Client, message: Message):
         db_status = f"❌ DB Remove Error: {e}"
     await message.reply_text(
         f"🎯 <b>Operation Complete:</b>\n\n<b>Name:</b> {chat_title}\n<b>ID:</b> <code>{chat_id_int}</code>\n\n<b>Telegram Status:</b> {tg_status}\n<b>Database Status:</b> {db_status}",
-        parse_mode=enums.ParseMode.DEFAULT,
+        parse_mode=enums.ParseMode.HTML,
     )
 
 
@@ -710,38 +679,44 @@ async def settings(client: Client, message: Message):
             InlineKeyboardButton(
                 f"Buttons: {btn_text}",
                 callback_data=f"setgs#button#{settings_dict.get('button', False)}#{grp_id}",
+                style=ButtonStyle.PRIMARY
             ),
             InlineKeyboardButton(
                 f"Bot PM: {botpm_text}",
                 callback_data=f"setgs#botpm#{settings_dict.get('botpm', False)}#{grp_id}",
+                style=ButtonStyle.PRIMARY
             ),
         ],
         [
             InlineKeyboardButton(
                 f"File Secure: {file_secure_text}",
                 callback_data=f"setgs#file_secure#{settings_dict.get('file_secure', False)}#{grp_id}",
+                style=ButtonStyle.PRIMARY
             ),
             InlineKeyboardButton(
                 f"IMDB: {imdb_text}",
                 callback_data=f"setgs#imdb#{settings_dict.get('imdb', False)}#{grp_id}",
+                style=ButtonStyle.PRIMARY
             ),
         ],
         [
             InlineKeyboardButton(
                 f"Spell Check: {spell_check_text}",
                 callback_data=f"setgs#spell_check#{settings_dict.get('spell_check', False)}#{grp_id}",
+                style=ButtonStyle.PRIMARY
             ),
             InlineKeyboardButton(
                 f"Welcome: {welcome_text}",
                 callback_data=f"setgs#welcome#{settings_dict.get('welcome', False)}#{grp_id}",
+                style=ButtonStyle.PRIMARY
             ),
         ],
-        [InlineKeyboardButton("🗑 Close", callback_data="close_data")],
+        [InlineKeyboardButton("🗑 Close", callback_data="close_data", style=ButtonStyle.DANGER)],
     ]
     await message.reply_text(
         f"⚙️ <b>Settings for {title}</b>\n\nChoose the options below to configure your group's behavior.",
         reply_markup=InlineKeyboardMarkup(buttons),
-        parse_mode=enums.ParseMode.DEFAULT,
+        parse_mode=enums.ParseMode.HTML,
     )
 
 
@@ -767,38 +742,44 @@ async def settings_callback(client: Client, query: CallbackQuery):
                 InlineKeyboardButton(
                     f"Buttons: {btn_text}",
                     callback_data=f"setgs#button#{settings_dict.get('button', False)}#{grp_id}",
+                    style=ButtonStyle.PRIMARY
                 ),
                 InlineKeyboardButton(
                     f"Bot PM: {botpm_text}",
                     callback_data=f"setgs#botpm#{settings_dict.get('botpm', False)}#{grp_id}",
+                    style=ButtonStyle.PRIMARY
                 ),
             ],
             [
                 InlineKeyboardButton(
                     f"File Secure: {file_secure_text}",
                     callback_data=f"setgs#file_secure#{settings_dict.get('file_secure', False)}#{grp_id}",
+                    style=ButtonStyle.PRIMARY
                 ),
                 InlineKeyboardButton(
                     f"IMDB: {imdb_text}",
                     callback_data=f"setgs#imdb#{settings_dict.get('imdb', False)}#{grp_id}",
+                    style=ButtonStyle.PRIMARY
                 ),
             ],
             [
                 InlineKeyboardButton(
                     f"Spell Check: {spell_check_text}",
                     callback_data=f"setgs#spell_check#{settings_dict.get('spell_check', False)}#{grp_id}",
+                    style=ButtonStyle.PRIMARY
                 ),
                 InlineKeyboardButton(
                     f"Welcome: {welcome_text}",
                     callback_data=f"setgs#welcome#{settings_dict.get('welcome', False)}#{grp_id}",
+                    style=ButtonStyle.PRIMARY
                 ),
             ],
-            [InlineKeyboardButton("🗑 Close", callback_data="close_data")],
+            [InlineKeyboardButton("🗑 Close", callback_data="close_data", style=ButtonStyle.DANGER)],
         ]
         await query.message.edit_text(
             f"⚙️ <b>Settings for {title}</b>\n\nChoose the options below to configure your group's behavior.",
             reply_markup=InlineKeyboardMarkup(buttons),
-            parse_mode=enums.ParseMode.DEFAULT,
+            parse_mode=enums.ParseMode.HTML,
         )
         await query.answer("Settings Updated! ✅")
     except Exception:
@@ -829,7 +810,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     text=text,
                     reply_markup=reply_markup,
                     disable_web_page_preview=True,
-                    parse_mode=enums.ParseMode.DEFAULT,
+                    parse_mode=enums.ParseMode.HTML,
                 )
             except Exception:
                 pass
@@ -885,20 +866,20 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 [
                     [
                         InlineKeyboardButton(
-                            f"{stat}", callback_data=f"{cb}:{group_id}"
+                            f"{stat}", callback_data=f"{cb}:{group_id}", style=ButtonStyle.PRIMARY
                         ),
                         InlineKeyboardButton(
-                            "DELETE", callback_data=f"deletecb:{group_id}"
+                            "DELETE", callback_data=f"deletecb:{group_id}", style=ButtonStyle.DANGER
                         ),
                     ],
-                    [InlineKeyboardButton("BACK", callback_data="backcb")],
+                    [InlineKeyboardButton("BACK", callback_data="backcb", style=ButtonStyle.SECONDARY)],
                 ]
             )
             try:
                 await query.message.edit_text(
                     f"Group Name : <b>{hr.title}</b>\nGroup ID : <code>{group_id}</code>",
                     reply_markup=keyboard,
-                    parse_mode=enums.ParseMode.DEFAULT,
+                    parse_mode=enums.ParseMode.HTML,
                 )
             except Exception:
                 pass
@@ -911,7 +892,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 try:
                     await query.message.edit_text(
                         f"Connected to <b>{hr.title}</b>",
-                        parse_mode=enums.ParseMode.DEFAULT,
+                        parse_mode=enums.ParseMode.HTML,
                     )
                 except Exception:
                     pass
@@ -924,7 +905,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 try:
                     await query.message.edit_text(
                         f"Disconnected from <b>{hr.title}</b>",
-                        parse_mode=enums.ParseMode.DEFAULT,
+                        parse_mode=enums.ParseMode.HTML,
                     )
                 except Exception:
                     pass
@@ -937,7 +918,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 try:
                     await query.message.edit_text(
                         "Successfully deleted connection",
-                        parse_mode=enums.ParseMode.DEFAULT,
+                        parse_mode=enums.ParseMode.HTML,
                     )
                 except Exception:
                     pass
@@ -958,6 +939,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                             InlineKeyboardButton(
                                 text=f"{ttl.title}{act}",
                                 callback_data=f"groupcb:{groupid}:{act}",
+                                style=ButtonStyle.PRIMARY
                             )
                         ]
                     )
@@ -968,7 +950,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     await query.message.edit_text(
                         "Your connected group details ;\n\n",
                         reply_markup=InlineKeyboardMarkup(buttons),
-                        parse_mode=enums.ParseMode.DEFAULT,
+                        parse_mode=enums.ParseMode.HTML,
                     )
                 except Exception:
                     pass
@@ -1053,13 +1035,13 @@ async def cb_handler(client: Client, query: CallbackQuery):
                         caption=final_caption,
                         reply_markup=final_keyboard,
                         protect_content=True if ident == "filep" else False,
-                        parse_mode=enums.ParseMode.DEFAULT,
+                        parse_mode=enums.ParseMode.HTML,
                     )
                     k = await client.send_message(
                         chat_id=query.from_user.id,
                         text="<b>📢 Please Note\n\n✅ The above file will be autodeleted in 30 Minutes to avoid copyright issues.\n\n✅ Please forward this file to your saved messages and start downloading from there.\n\nTᴇᴀᴍ: @KR_Picture</b>",
                         reply_to_message_id=m.id,
-                        parse_mode=enums.ParseMode.DEFAULT,
+                        parse_mode=enums.ParseMode.HTML,
                     )
                     await query.answer(
                         "Check PM, I have sent the files!", show_alert=True
@@ -1132,7 +1114,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     caption=final_caption,
                     reply_markup=final_keyboard,
                     protect_content=True if ident == "checksubp" else False,
-                    parse_mode=enums.ParseMode.DEFAULT,
+                    parse_mode=enums.ParseMode.HTML,
                 )
             except FloodWait as e:
                 await asyncio.sleep(e.value + 1)
@@ -1143,7 +1125,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                         caption=final_caption,
                         reply_markup=final_keyboard,
                         protect_content=True if ident == "checksubp" else False,
-                        parse_mode=enums.ParseMode.DEFAULT,
+                        parse_mode=enums.ParseMode.HTML,
                     )
                 except Exception:
                     pass
@@ -1156,7 +1138,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                         chat_id=query.from_user.id,
                         text="<b>📢 Please Note\n\n✅ The above file will be autodeleted in 30 Minutes to avoid copyright issues.\n\n✅ Please forward this file to your saved messages and start downloading from there.\n\nTᴇᴀᴍ: @KR_Picture</b>",
                         reply_to_message_id=m.id,
-                        parse_mode=enums.ParseMode.DEFAULT,
+                        parse_mode=enums.ParseMode.HTML,
                     )
                     delete_timer = parse_timer("FILE_AUTO_DELETE", 1800)
                     if delete_timer > 0:
@@ -1222,7 +1204,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
 
         elif query.data.startswith("helps_"):
             await query.answer()
-            buttons = [[InlineKeyboardButton("🔙 Back", callback_data="help")]]
+            buttons = [[InlineKeyboardButton("🔙 Back", callback_data="help", style=ButtonStyle.PRIMARY)]]
             help_dict = {
                 "helps_uistart": ("UISTART_TXT", "🎨 UI Start Menu"),
                 "helps_uihelp": ("UIHELP_TXT", "🎨 UI Help Menu"),
@@ -1254,7 +1236,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 await query.message.edit_text(
                     text=text,
                     reply_markup=InlineKeyboardMarkup(buttons),
-                    parse_mode=enums.ParseMode.DEFAULT,
+                    parse_mode=enums.ParseMode.HTML,
                 )
             except MessageNotModified:
                 pass
@@ -1275,8 +1257,8 @@ async def cb_handler(client: Client, query: CallbackQuery):
             await query.answer()
             buttons = [
                 [
-                    InlineKeyboardButton("⇌ Bᴀᴄᴋ ⇌", callback_data="about"),
-                    InlineKeyboardButton("♻️", callback_data="rfrsh"),
+                    InlineKeyboardButton("⇌ Bᴀᴄᴋ ⇌", callback_data="about", style=ButtonStyle.PRIMARY),
+                    InlineKeyboardButton("♻️", callback_data="rfrsh", style=ButtonStyle.SUCCESS),
                 ]
             ]
             total = await _Media.count_documents()
@@ -1290,7 +1272,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                         total, users, chats, get_size(monsize), get_size(free)
                     ),
                     reply_markup=InlineKeyboardMarkup(buttons),
-                    parse_mode=enums.ParseMode.DEFAULT,
+                    parse_mode=enums.ParseMode.HTML,
                 )
             except Exception:
                 pass
