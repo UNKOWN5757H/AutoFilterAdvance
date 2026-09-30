@@ -25,9 +25,13 @@ _DB_CLIENT = AsyncIOMotorClient(info.DATABASE_URI)
 _BOT_DB = _DB_CLIENT[info.DATABASE_NAME]
 _broadcast_col = _BOT_DB["broadcast_tasks"]
 
-# 24 hours in seconds
-DELETE_DELAY = 24 * 3600
+# ⚡ Dynamic Broadcast Timer: Add BROADCAST_DELETE_TIME in your info.py (in seconds)
+# Defaults to 24 hours if not specified.
+DELETE_DELAY = getattr(info, "BROADCAST_DELETE_TIME", 24 * 3600)
+
+# ⚡ Python Garbage Collector Shield (Prevents the worker from being killed)
 worker_started = False
+_WORKER_TASK = None
 
 
 # ============================================================
@@ -62,10 +66,11 @@ async def bcast_cleaner_worker(bot: Client):
 @Client.on_message(group=-100)
 async def init_worker(bot: Client, message):
     """Hidden hook to start the background worker once upon receiving any message."""
-    global worker_started
+    global worker_started, _WORKER_TASK
     if not worker_started:
         worker_started = True
-        asyncio.create_task(bcast_cleaner_worker(bot))
+        # Strong reference to prevent Garbage Collector from killing the task
+        _WORKER_TASK = asyncio.create_task(bcast_cleaner_worker(bot))
 
 
 # ============================================================
@@ -153,6 +158,12 @@ async def user_broadcast(bot: Client, message):
         await asyncio.sleep(0.5)
 
     time_taken = datetime.timedelta(seconds=int(time.time() - start_time))
+    
+    # Calculate display string for the success message
+    hours = DELETE_DELAY // 3600
+    minutes = (DELETE_DELAY % 3600) // 60
+    time_str = f"{hours} hours" if hours > 0 else f"{minutes} minutes"
+
     await status_msg.edit_text(
         f"✅ **User Broadcast Completed!**\n\n"
         f"🕒 Duration: `{time_taken}`\n"
@@ -160,7 +171,7 @@ async def user_broadcast(bot: Client, message):
         f"✅ Successful: {success}\n"
         f"🚫 Blocked/Deleted: {blocked}\n"
         f"⚠️ Failed: {failed}\n\n"
-        f"⏳ *Messages will be automatically deleted in exactly 24 hours.*"
+        f"⏳ *Messages will be automatically deleted in exactly {time_str}.*"
     )
 
 
@@ -222,6 +233,11 @@ async def group_broadcast(bot: Client, message):
         await asyncio.sleep(0.8)
 
     time_taken = datetime.timedelta(seconds=int(time.time() - start_time))
+    
+    hours = DELETE_DELAY // 3600
+    minutes = (DELETE_DELAY % 3600) // 60
+    time_str = f"{hours} hours" if hours > 0 else f"{minutes} minutes"
+
     await status_msg.edit_text(
         f"✅ **Group Broadcast Completed!**\n\n"
         f"🕒 Duration: `{time_taken}`\n"
@@ -229,5 +245,5 @@ async def group_broadcast(bot: Client, message):
         f"✅ Successful: {success}\n"
         f"🚷 Bot Removed: {left}\n"
         f"⚠️ Failed: {failed}\n\n"
-        f"⏳ *Messages will be automatically deleted in exactly 24 hours.*"
+        f"⏳ *Messages will be automatically deleted in exactly {time_str}.*"
     )
