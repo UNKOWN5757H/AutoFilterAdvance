@@ -160,24 +160,49 @@ def build_dynamic_keyboard(custom_buttons, static_buttons):
     keyboard.extend(static_buttons)
     return InlineKeyboardMarkup(keyboard)
 
+
 async def get_start_keyboard(user_id):
     ui = await get_ui()
     static_buttons = [
         [
-            InlineKeyboardButton("✈️ Gʀᴏᴜᴘ 1", url="https://t.me/Sandalwood_Kannada_Group", icon_custom_emoji_id=5258096772776991776, style=ButtonStyle.PRIMARY),
-            InlineKeyboardButton("✈️ Gʀᴏᴜᴘ 2", url="http://t.me/Kannada_Filmy_Group", icon_custom_emoji_id=5258096772776991776, style=ButtonStyle.PRIMARY),
-            InlineKeyboardButton("✈️ Gʀᴏᴜᴘ 3", url="https://t.me/+GLsPkRgLGGszMzY1", icon_custom_emoji_id=5258096772776991776, style=ButtonStyle.PRIMARY),
+            InlineKeyboardButton(
+                "✈️ Gʀᴏᴜᴘ 1",
+                url="https://t.me/Sandalwood_Kannada_Group",
+                icon_custom_emoji_id=5258096772776991776,
+                style=ButtonStyle.PRIMARY,
+            ),
+            InlineKeyboardButton(
+                "✈️ Gʀᴏᴜᴘ 2",
+                url="http://t.me/Kannada_Filmy_Group",
+                icon_custom_emoji_id=5258096772776991776,
+                style=ButtonStyle.PRIMARY,
+            ),
+            InlineKeyboardButton(
+                "✈️ Gʀᴏᴜᴘ 3",
+                url="https://t.me/+GLsPkRgLGGszMzY1",
+                icon_custom_emoji_id=5258096772776991776,
+                style=ButtonStyle.PRIMARY,
+            ),
         ]
     ]
     if str(user_id) in [str(a) for a in ADMINS]:
-        static_buttons.append([
-            InlineKeyboardButton("ℹ️ 𝙷𝚎𝚕𝚙", callback_data="help"),
-            InlineKeyboardButton("😊 𝙰𝚋𝚘𝚞𝚝", callback_data="about")
-        ])
+        static_buttons.append(
+            [
+                InlineKeyboardButton("ℹ️ 𝙷𝚎𝚕𝚙", callback_data="help"),
+                InlineKeyboardButton("😊 𝙰𝚋𝚘𝚞𝚝", callback_data="about"),
+            ]
+        )
 
-    static_buttons.append([
-        InlineKeyboardButton("🔗 Nᴇᴡ Rᴇʟᴇᴀꜱᴇꜱ & Oᴛᴛ Uᴘᴅᴀᴛᴇꜱ", url="https://t.me/sandalwood_kannada_moviesz", icon_custom_emoji_id=5258503720928288433, style=ButtonStyle.SUCCESS)
-    ])
+    static_buttons.append(
+        [
+            InlineKeyboardButton(
+                "🔗 Nᴇᴡ Rᴇʟᴇᴀꜱᴇꜱ & Oᴛᴛ Uᴘᴅᴀᴛᴇꜱ",
+                url="https://t.me/sandalwood_kannada_moviesz",
+                icon_custom_emoji_id=5258503720928288433,
+                style=ButtonStyle.SUCCESS,
+            )
+        ]
+    )
     return build_dynamic_keyboard(ui.get("start_buttons", []), static_buttons)
 
 
@@ -472,7 +497,10 @@ async def start(client: Client, message: Message):
             [
                 [
                     InlineKeyboardButton(
-                        text="🎥 ಕನ್ನಡ ಹೊಸ ಮೂವೀಗಳು 🎥", url="https://t.me/Sandalwood_kannada_moviesz", icon_custom_emoji_id=5258503720928288433, style=ButtonStyle.SUCCESS,
+                        text="🎥 ಕನ್ನಡ ಹೊಸ ಮೂವೀಗಳು 🎥",
+                        url="https://t.me/Sandalwood_kannada_moviesz",
+                        icon_custom_emoji_id=5258503720928288433,
+                        style=ButtonStyle.SUCCESS,
                     )
                 ]
             ]
