@@ -158,7 +158,7 @@ async def user_broadcast(bot: Client, message):
         await asyncio.sleep(0.5)
 
     time_taken = datetime.timedelta(seconds=int(time.time() - start_time))
-    
+
     # Calculate display string for the success message
     hours = DELETE_DELAY // 3600
     minutes = (DELETE_DELAY % 3600) // 60
@@ -233,7 +233,7 @@ async def group_broadcast(bot: Client, message):
         await asyncio.sleep(0.8)
 
     time_taken = datetime.timedelta(seconds=int(time.time() - start_time))
-    
+
     hours = DELETE_DELAY // 3600
     minutes = (DELETE_DELAY % 3600) // 60
     time_str = f"{hours} hours" if hours > 0 else f"{minutes} minutes"
