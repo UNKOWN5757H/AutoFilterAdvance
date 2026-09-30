@@ -23,8 +23,15 @@ CACHE_TIME = int(environ.get("CACHE_TIME", 300))
 USE_CAPTION_FILTER = bool(environ.get("USE_CAPTION_FILTER", False))
 PICS = (environ.get("PICS", "https://iili.io/COHUHil.jpg")).split()
 
+# ⚡ GLOBAL AUTO-DELETE SETTINGS (in seconds)
+# How long until Auto-Filter files are deleted in PM
 FILE_AUTO_DELETE = int(environ.get("FILE_AUTO_DELETE", 1800))
+# How long until manual buttons/filters are deleted
 BUTTON_AUTO_DELETE = int(environ.get("BUTTON_AUTO_DELETE", 1800))
+# Universal auto-delete fallback
+AUTO_DELETE_TIME = int(environ.get("AUTO_DELETE_TIME", 1800))
+# How long until Broadcast messages are permanently deleted (Default: 24 Hours)
+BROADCAST_DELETE_TIME = int(environ.get("BROADCAST_DELETE_TIME", 86400))
 
 REPAIR_MODE = is_enabled(environ.get("REPAIR_MODE", "False"), False)
 
@@ -96,7 +103,7 @@ FSUB_IMG = environ.get("FSUB_IMG", None)
 
 IMDB_TEMPLATE = environ.get(
     "IMDB_TEMPLATE",
-    "<b>Query: {query}</b> \n‌‌‌‌IMDb Data:\n\n🏷 Title: <a href={url}>{title}</a>\n🎭 Genres: {genres}\n📆 Year: <a href={url}/releaseinfo>{year}</a>\n🌟 Rating: <a href={url}/ratings>{rating}</a> / 10",
+    "<b>Query: {query}</b> \nIMDb Data:\n\n🏷 Title: <a href={url}>{title}</a>\n🎭 Genres: {genres}\n📆 Year: <a href={url}/releaseinfo>{year}</a>\n🌟 Rating: <a href={url}/ratings>{rating}</a> / 10",
 )
 LONG_IMDB_DESCRIPTION = is_enabled(environ.get("LONG_IMDB_DESCRIPTION", "False"), False)
 SPELL_CHECK_REPLY = is_enabled(environ.get("SPELL_CHECK_REPLY", "True"), True)
