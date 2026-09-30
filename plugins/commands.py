@@ -11,6 +11,7 @@ from logging import ERROR, getLogger
 from typing import Optional
 
 from pyrogram import Client, enums, filters
+from pyrogram.enums import ButtonStyle
 from pyrogram.errors import (
     ChatAdminRequired,
     FloodWait,
@@ -125,32 +126,59 @@ def schedule_auto_delete(bot_msg, delay, warning_msg=None):
     task.add_done_callback(AUTO_DELETE_TASKS.discard)
 
 
+# ============================================================
+# 🎨 DYNAMIC UI BUILDER ENGINE
+# ============================================================
+def build_dynamic_keyboard(custom_buttons, static_buttons):
+    keyboard = []
+    row = []
+
+    for btn in custom_buttons:
+        style_map = {
+            "blue": ButtonStyle.PRIMARY,
+            "green": ButtonStyle.SUCCESS,
+            "red": ButtonStyle.DANGER,
+            "gray": ButtonStyle.SECONDARY,
+        }
+        style = style_map.get(btn.get("color", "blue"), ButtonStyle.PRIMARY)
+        ibtn = InlineKeyboardButton(text=btn["text"], url=btn["url"], style=style)
+
+        if btn.get("layout") == "sidebyside":
+            row.append(ibtn)
+            if len(row) == 2:
+                keyboard.append(row)
+                row = []
+        else:
+            if row:
+                keyboard.append(row)
+                row = []
+            keyboard.append([ibtn])
+
+    if row:
+        keyboard.append(row)
+
+    keyboard.extend(static_buttons)
+    return InlineKeyboardMarkup(keyboard)
+
 async def get_start_keyboard(user_id):
+    ui = await get_ui()
     static_buttons = [
         [
-            InlineKeyboardButton(
-                "✈️ Gʀᴏᴜᴘ 1", url="https://t.me/Sandalwood_Kannada_Group"
-            ),
-            InlineKeyboardButton("✈️ Gʀᴏᴜᴘ 2", url="http://t.me/Kannada_Filmy_Group"),
-            InlineKeyboardButton("✈️ Gʀᴏᴜᴘ 3", url="https://t.me/+GLsPkRgLGGszMzY1"),
+            InlineKeyboardButton("✈️ Gʀᴏᴜᴘ 1", url="https://t.me/Sandalwood_Kannada_Group", icon_custom_emoji_id=5258096772776991776, style=ButtonStyle.PRIMARY),
+            InlineKeyboardButton("✈️ Gʀᴏᴜᴘ 2", url="http://t.me/Kannada_Filmy_Group", icon_custom_emoji_id=5258096772776991776, style=ButtonStyle.PRIMARY),
+            InlineKeyboardButton("✈️ Gʀᴏᴜᴘ 3", url="https://t.me/+GLsPkRgLGGszMzY1", icon_custom_emoji_id=5258096772776991776, style=ButtonStyle.PRIMARY),
         ]
     ]
     if str(user_id) in [str(a) for a in ADMINS]:
-        static_buttons.append(
-            [
-                InlineKeyboardButton("ℹ️ 𝙷𝚎𝚕𝚙", callback_data="help"),
-                InlineKeyboardButton("😊 𝙰𝚋𝚘𝚞𝚝", callback_data="about"),
-            ]
-        )
-    static_buttons.append(
-        [
-            InlineKeyboardButton(
-                "🔗 Nᴇᴡ Rᴇʟᴇᴀꜱᴇꜱ & Oᴛᴛ Uᴘᴅᴀᴛᴇꜱ",
-                url="https://t.me/sandalwood_kannada_moviesz",
-            )
-        ]
-    )
-    return InlineKeyboardMarkup(static_buttons)
+        static_buttons.append([
+            InlineKeyboardButton("ℹ️ 𝙷𝚎𝚕𝚙", callback_data="help"),
+            InlineKeyboardButton("😊 𝙰𝚋𝚘𝚞𝚝", callback_data="about")
+        ])
+
+    static_buttons.append([
+        InlineKeyboardButton("🔗 Nᴇᴡ Rᴇʟᴇᴀꜱᴇꜱ & Oᴛᴛ Uᴘᴅᴀᴛᴇꜱ", url="https://t.me/sandalwood_kannada_moviesz", icon_custom_emoji_id=5258503720928288433, style=ButtonStyle.SUCCESS)
+    ])
+    return build_dynamic_keyboard(ui.get("start_buttons", []), static_buttons)
 
 
 async def get_help_keyboard():
@@ -444,8 +472,7 @@ async def start(client: Client, message: Message):
             [
                 [
                     InlineKeyboardButton(
-                        text="🎥 ಕನ್ನಡ ಹೊಸ ಮೂವೀಗಳು 🎥",
-                        url="https://t.me/Sandalwood_kannada_moviesz",
+                        text="🎥 ಕನ್ನಡ ಹೊಸ ಮೂವೀಗಳು 🎥", url="https://t.me/Sandalwood_kannada_moviesz", icon_custom_emoji_id=5258503720928288433, style=ButtonStyle.SUCCESS,
                     )
                 ]
             ]
