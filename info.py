@@ -3,7 +3,6 @@ from os import environ
 
 id_pattern = re.compile(r"^.\d+$")
 
-
 def is_enabled(value, default):
     if value.lower() in ["true", "yes", "1", "enable", "y"]:
         return True
@@ -11,7 +10,6 @@ def is_enabled(value, default):
         return False
     else:
         return default
-
 
 SESSION = environ.get("SESSION", "VersionQ")
 API_ID = int(environ.get("API_ID", "2468192"))
@@ -24,13 +22,9 @@ USE_CAPTION_FILTER = bool(environ.get("USE_CAPTION_FILTER", False))
 PICS = (environ.get("PICS", "https://iili.io/COHUHil.jpg")).split()
 
 # ⚡ GLOBAL AUTO-DELETE SETTINGS (in seconds)
-# How long until Auto-Filter files are deleted in PM
 FILE_AUTO_DELETE = int(environ.get("FILE_AUTO_DELETE", 1800))
-# How long until manual buttons/filters are deleted
 BUTTON_AUTO_DELETE = int(environ.get("BUTTON_AUTO_DELETE", 1800))
-# Universal auto-delete fallback
 AUTO_DELETE_TIME = int(environ.get("AUTO_DELETE_TIME", 1800))
-# How long until Broadcast messages are permanently deleted (Default: 24 Hours)
 BROADCAST_DELETE_TIME = int(environ.get("BROADCAST_DELETE_TIME", 86400))
 
 REPAIR_MODE = is_enabled(environ.get("REPAIR_MODE", "False"), False)
@@ -119,7 +113,11 @@ PUBLIC_FILE_STORE = is_enabled((environ.get("PUBLIC_FILE_STORE", "True")), True)
 MOVIE_UPDATE_NOTIFICATION = is_enabled(
     environ.get("MOVIE_UPDATE_NOTIFICATION", "True"), False
 )
+
+# ⚡ DEDICATED CHANNELS
 MOVIE_UPDATE_CHANNEL = int(environ.get("MOVIE_UPDATE_CHANNEL", "-1001923564465"))
+AUTOPOSTCHANNEL = int(environ.get("AUTOPOSTCHANNEL", "-1001923564465")) # Change to your auto-post channel ID
+
 IMAGE_FETCH = is_enabled(environ.get("IMAGE_FETCH", "True"), True)
 LINK_PREVIEW = is_enabled(environ.get("LINK_PREVIEW", "False"), False)
 ABOVE_PREVIEW = is_enabled(environ.get("ABOVE_PREVIEW", "True"), True)
