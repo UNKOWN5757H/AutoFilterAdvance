@@ -215,13 +215,39 @@ You can customize file captions by editing your Environment Variables.
     # ==========================================
     # 📚 INDEXING (File Save)
     # ==========================================
-    INDEX_TXT = """<b>📚 Iɴᴅᴇxɪɴɢ (Bᴏᴛ Aᴅᴍɪɴ)</b>
+    INDEX_TXT = """<b>📚 Indexing
+‣ <code>/index</code> - Save all media to DB
+‣ <code>/indexvideo</code> - Save only videos
+‣ <code>/indexdoc</code> - Save only documents
+‣ <code>/indexaudio</code> - Save only audio
+‣ <code>/resumeindex</code> - Resume stopped indexing
 
-• <code>/index</code> (reply to file/msg) - Save single file to DB.
+⏩ Speed & Skip
+‣ <code>/setskip</code> - Skip first X messages
+‣ <code>/currentskip</code> - View current skip count
+‣ <code>/deleteskip</code> - Reset skip to 0
+‣ <code>/setindexspeed</code> - Set delay between fetches
+
+⚖️ Filters
+‣ <code>/setminsize</code> - Set minimum file size (MB)
+‣ <code>/setblacklist</code> - Add words to ignore
+‣ <code>/remblacklist</code> - Remove ignored word
+‣ <code>/allblacklist</code> - View ignored words
+‣ <code>/setwhitelist</code> - Index ONLY these words
+‣ <code>/remwhitelist</code> - Remove whitelist word
+‣ <code>/allwhitelist</code> - View whitelist words
+
+🛡️ Auto-Backup
+‣ <code>/setbackupchannel</code> - Set private backup chat ID
+‣ <code>/autobackup</code> - Toggle Anti-Copyright shield
+
+🧹 Database Cleanup
+‣ <code>/cleanduplicates</code> - Delete duplicate DB entries
+‣ <code>/cleandeadlinks</code> - Remove broken Telegram links
 • <code>/batch</code> - Index entire channel in bulk.
 • <code>/link</code> - Get shareable link for a file.
 • <code>/total</code> - Count total indexed files.
-• <code>/clearfiles</code> - ⚠️ Nuke entire file database!"""
+• <code>/clearfiles</code> - ⚠️ Nuke entire file database!</b>"""
 
     # ==========================================
     # 📢 PROMOTIONS & BROADCAST
