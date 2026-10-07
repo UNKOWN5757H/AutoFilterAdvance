@@ -320,41 +320,60 @@ Configure what the bot says when someone messages it directly in PM.
 
     AUTOPOST_TXT = """<b>🧬 Auto-Post Engine</b>
 
-<b>Auto-Post Commands (Zero-Click Posting):</b>
-<i>Forward a movie to your database channel, and it automatically posts to your update channel!</i>
-
-• <code>/autopost [on/off]</code> - Toggle Auto-Post engine.
-• <code>/editautopost [text]</code> - Edit main HTML template.
-• <code>/editautoposttitle [text]</code> - Edit {title} formatting.
-• <code>/editautopostyear [text]</code> - Edit {year} formatting.
-• <code>/editautopostlanguages [text]</code> - Edit {LANGUAGES} formatting.
-• <code>/editautopostresolutions [text]</code> - Edit {RESOLUTIONS} formatting.
-• <code>/editautopostgenres [text]</code> - Edit {GENRES} formatting.
-• <code>/editautopostottplatforms [text]</code> - Edit {OTT_PLATFORMS} formatting.
-• <code>/editautopostdirect [text]</code> - Edit Direct Search button text.
-• <code>/setautopostimage [URL/Reply]</code> - Set static image.
-• <code>/remautopostimage</code> - Remove static image (uses TMDB).
-• <code>/setautopoststicker [Reply]</code> - Set sticker below post.
-• <code>/remautopoststicker</code> - Remove sticker.
-• <code>/setautopostbutton [layout]</code> - Customize post buttons."""
+‣ <code>/autopost</code> - Toggle auto-post engine (on/off)
+‣ <code>/addmovieupdatechannel</code> - Add dynamic movie update channel
+‣ <code>/remmovieupdatechannel</code> - Remove movie update channel
+‣ <code>/allmovieupdatechannel</code> - View all movie update channels
+‣ <code>/addautopostchannel</code> - Add dynamic auto-post channel
+‣ <code>/remautopostchannel</code> - Remove auto-post channel
+‣ <code>/allautopostchannel</code> - View all auto-post channels
+‣ <code>/editautopost</code> - Set main caption template
+‣ <code>/setautoposttext</code> - Set main caption template (alias)
+‣ <code>/editautoposttitle</code> - Edit title format
+‣ <code>/editautopostyear</code> - Edit year format
+‣ <code>/editautopostlanguages</code> - Edit languages format
+‣ <code>/editautopostresolutions</code> - Edit resolutions format
+‣ <code>/editautopostgenres</code> - Edit genres format
+‣ <code>/editautopostottplatforms</code> - Edit OTT platforms format
+‣ <code>/editautopostdirect</code> - Edit direct search button text
+‣ <code>/setapbtn1</code> - Set button 1 (Text | URL)
+‣ <code>/setapbtn2</code> - Set button 2 (Text | URL)
+‣ <code>/setapbtn3</code> - Set button 3 (Text | URL)
+‣ <code>/remapbtn1</code> - Remove button 1
+‣ <code>/remapbtn2</code> - Remove button 2
+‣ <code>/remapbtn3</code> - Remove button 3
+‣ <code>/setautopostimage</code> - Set custom/global poster image
+‣ <code>/remautopostimage</code> - Revert back to dynamic TMDB posters
+‣ <code>/setautopoststicker</code> - Set sticker sent with post (reply to sticker)
+‣ <code>/remautopoststicker</code> - Remove auto-post sticker</b>"""
 
     POSTHAND_TXT = """<b>📝 POST HANDLER GUIDE
 
-[ CREATE / EDIT ]
-‣ /post [Movie] - TMDB post
-‣ /editpost [Link] - Edit channel post
-
-[ FORMATTING ] 
-*(Send 'blank' to remove field)*
-‣ /edittitle [Title]
-‣ /edityear [Year]
-‣ /editlangs [Langs]
-‣ /editresolutions [Qualities]
-‣ /editgenres [Genres]
-‣ /editotts [OTTs]
-
-[ BUTTONS / IMAGES ]
-‣ /editbuttoncolour [No] [Color] - green/red/blue
-‣ /editdirect [URL] - Direct link
-‣ /editimage - Preview image
-‣ /editnormalimage - Native photo</b>"""
+​‣ <code>/post</code> - Start manual post session with interactive search
+‣ <code>/editpost</code> - Import and edit an existing channel post via link
+‣ <code>/resumepost</code> - Restore lost/interrupted draft from MongoDB
+‣ <code>/hydra</code> - Toggle Hydra Anti-Ban engine (on/off)
+‣ <code>/updatealllinks</code> - Mass update old inline URLs across channel posts
+‣ <code>/editposttitle</code> - Edit movie title in active draft
+‣ <code>/edittitle</code> - Edit movie title (alias)
+‣ <code>/edittittle</code> - Edit movie title (alias)
+‣ <code>/editpostyear</code> - Edit release year in active draft
+‣ <code>/edityear</code> - Edit release year (alias)
+‣ <code>/editpostbutton</code> - Edit custom inline button (Number Text | URL)
+‣ <code>/editpostbuttoncolour</code> - Change button colour (green/red/blue)
+‣ <code>/editbuttoncolour</code> - Change button colour (alias)
+‣ <code>/editpostdirect</code> - Change Direct Search button URL
+‣ <code>/editdirect</code> - Change Direct Search button URL (alias)
+‣ <code>/editpostlangs</code> - Edit languages list in active draft
+‣ <code>/editlangs</code> - Edit languages list (alias)
+‣ <code>/editpostresolutions</code> - Edit resolutions list in active draft
+‣ <code>/editresolutions</code> - Edit resolutions list (alias)
+‣ <code>/editpostgenres</code> - Edit genres list in active draft
+‣ <code>/editgenres</code> - Edit genres list (alias)
+‣ <code>/editpostotts</code> - Edit OTT platforms list in active draft
+‣ <code>/editotts</code> - Edit OTT platforms list (alias)
+‣ <code>/editpostimage</code> - Set preview URL/poster for draft
+‣ <code>/editimage</code> - Set preview URL/poster (alias)
+‣ <code>/editipostmage</code> - Set preview URL/poster (alias)
+‣ <code>/editpostnormalimage</code> - Set normal photo file_id for draft
+‣ <code>/editnormalimage</code> - Set normal photo file_id (alias)  </b>"""
