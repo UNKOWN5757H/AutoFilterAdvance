@@ -24,15 +24,7 @@ except Exception as e:
     logger.error(f"Failed to init ap_db: {e}")
 
 # ⚡ SMART DYNAMIC DEFAULT TEMPLATE
-DEFAULT_TEMPLATE = """{title} {year}
-
-<blockquote>{LANGUAGES}
-{RESOLUTIONS}
-{GENRES}
-{OTT_PLATFORMS}
-<b>📟 : Available In Files.</b>
-
-<b>=========================</b></blockquote>"""
+DEFAULT_TEMPLATE = """✅ <b>{title} {year}</b>\n\n<blockquote><b>🔊 : {LANGUAGES}</b>\n<b>🖥️ : {RESOLUTIONS}</b>\n<b>🎥 : {genres}</b>\n<b>📺 : #{OTT_PLATFORMS}</b>\n<b>📟 : Available In Files.</b>\n\n<b>=========================</b></blockquote>"""
 
 
 async def get_ap_settings():
