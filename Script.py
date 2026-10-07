@@ -121,7 +121,18 @@ class script(object):
 ‣ /filterimage - Update only image for a filter (Reply to image with `/filterimage keyword`)
 ‣ /editfiltercolur - Change button colour - `/editfiltercolur keyword 1 green`
 ‣ /delfilter - Delete a text filter - `/delfilter filter`
-‣ /listfilters - List all filters currently added in the bot\n\nSupports text/photo/video/animation/sticker</b>"""
+‣ /listfilters - List all filters currently added in the bot\n\nSupports text/photo/video/animation/sticker</b>
+
+<blockquote><b>📝 Auto-Filter & Clean Filename</b></blockquote>
+<b>Auto Filter:</b>
+Files in connected channels are searched automatically based on user text.
+<b>📺 Series Aggregator:</b>
+Seasons and Episodes are automatically collapsed into clean "Season X" folders.
+<b>🧼 Clean Filename Settings:</b>
+Control what words are removed from inline button filenames.
+• <code>/setcleanfilename [word1, word2, @channel]</code> - Set words to remove.
+• <code>/defaultcleanfilename</code> - Revert to standard repo default (removes mkv, mp4, sandalwood).
+• <code>/remcleanfilename</code> - Disable clean filename completely."""
 
     # ==========================================
     # 📱 FORCE SUBSCRIBE
@@ -265,6 +276,41 @@ You can customize file captions by editing your Environment Variables.
 ‣ /dbrestore - (reply to .json file) - Restore database from file.
 ‣ /dbstats - Detailed MongoDB specs.
 ‣ /dbschedule - Start 24h automated backup cron job.</b>"""
+
+    # ============================================================
+    # NEW FEATURE TEXTS (AUTO-POST, PM REPLY, CLEAN FILENAME)
+    # ============================================================
+    PMAUTOREPLY_TXT = """<b>💬 PM Auto-Reply Engine</b>
+
+Configure what the bot says when someone messages it directly in PM.
+
+<b>Commands:</b>
+• <code>/setpmtext [text]</code> - Set PM reply text (HTML bold, italics, links supported).
+• <code>/rempmtext</code> - Reset text to default.
+• <code>/setpmimage [URL/Reply]</code> - Set PM image.
+• <code>/rempmimage</code> - Remove PM image.
+• <code>/setpmbutton [Text | URL | Color]</code> - Set colored PM button (green, red, blue).
+• <code>/rempmbutton</code> - Remove PM button."""
+
+    AUTOPOST_TXT = """<b>🧬 Auto-Post Engine</b>
+
+<b>Auto-Post Commands (Zero-Click Posting):</b>
+<i>Forward a movie to your database channel, and it automatically posts to your update channel!</i>
+
+• <code>/autopost [on/off]</code> - Toggle Auto-Post engine.
+• <code>/editautopost [text]</code> - Edit main HTML template.
+• <code>/editautoposttitle [text]</code> - Edit {title} formatting.
+• <code>/editautopostyear [text]</code> - Edit {year} formatting.
+• <code>/editautopostlanguages [text]</code> - Edit {LANGUAGES} formatting.
+• <code>/editautopostresolutions [text]</code> - Edit {RESOLUTIONS} formatting.
+• <code>/editautopostgenres [text]</code> - Edit {GENRES} formatting.
+• <code>/editautopostottplatforms [text]</code> - Edit {OTT_PLATFORMS} formatting.
+• <code>/editautopostdirect [text]</code> - Edit Direct Search button text.
+• <code>/setautopostimage [URL/Reply]</code> - Set static image.
+• <code>/remautopostimage</code> - Remove static image (uses TMDB).
+• <code>/setautopoststicker [Reply]</code> - Set sticker below post.
+• <code>/remautopoststicker</code> - Remove sticker.
+• <code>/setautopostbutton [layout]</code> - Customize post buttons."""
 
     POSTHAND_TXT = """<b>📝 POST HANDLER GUIDE
 
