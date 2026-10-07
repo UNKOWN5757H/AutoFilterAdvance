@@ -23,7 +23,8 @@ from pyrogram.types import (
 
 import info
 from database.ia_filterdb import Media, save_batch
-from info import ADMINS, INDEX_REQ_CHANNEL as LOG_CHANNEL
+from info import ADMINS
+from info import INDEX_REQ_CHANNEL as LOG_CHANNEL
 from utils import get_size, temp
 
 logger = getLogger(__name__)
