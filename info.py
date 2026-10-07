@@ -117,15 +117,16 @@ MOVIE_UPDATE_NOTIFICATION = is_enabled(
 )
 
 # ⚡ DEDICATED CHANNELS
-MOVIE_UPDATE_CHANNEL = int(
-    environ.get(
+MOVIE_UPDATE_CHANNEL = [
+    int(ch) for ch in environ.get(
         "MOVIE_UPDATE_CHANNEL",
-        "-1001923564465 -1002391396205 -1002102723064 -1002032840255 -1002438454087 -1002436948244 -1002459789086 -1002309583611",
-    )
-)
-AUTOPOSTCHANNEL = int(
-    environ.get("AUTOPOSTCHANNEL", "-1001923564465")
-)  # Change to your auto-post channel ID
+        "-1001923564465 -1002391396205 -1002102723064 -1002032840255 -1002438454087 -1002436948244 -1002459789086 -1002309583611"
+    ).split()
+]
+
+AUTOPOSTCHANNEL = [
+    int(ch) for ch in environ.get("AUTOPOSTCHANNEL", "-1001923564465").split()
+]  # Change to your auto-post channel ID
 
 IMAGE_FETCH = is_enabled(environ.get("IMAGE_FETCH", "True"), True)
 LINK_PREVIEW = is_enabled(environ.get("LINK_PREVIEW", "False"), False)
