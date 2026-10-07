@@ -52,6 +52,7 @@ from info import (
     PROTECT_CONTENT,
     REQ_CHANNEL,
 )
+from plugins.custom_settings import get_bot_settings
 from plugins.editable import get_ui
 from plugins.fsub import ForceSub
 from Script import script
@@ -201,7 +202,6 @@ async def get_start_keyboard(user_id):
         ]
     ]
     if str(user_id) in [str(a) for a in ADMINS]:
-        # Normal Standard Buttons for Settings Navigation
         static_buttons.append(
             [
                 create_btn("ℹ️ 𝙷𝚎𝚕𝚙", callback_data="help"),
@@ -222,7 +222,6 @@ async def get_start_keyboard(user_id):
 
 
 async def get_help_keyboard():
-    # Normal Standard Buttons for Help Navigation
     static_buttons = [
         [
             create_btn("🖥️ UI Start", callback_data="helps_uistart"),
@@ -724,30 +723,36 @@ async def settings(client: Client, message: Message):
             create_btn(
                 f"Buttons: {btn_text}",
                 callback_data=f"setgs#button#{settings_dict.get('button', False)}#{grp_id}",
+                style=BTN_PRIMARY
             ),
             create_btn(
                 f"Bot PM: {botpm_text}",
                 callback_data=f"setgs#botpm#{settings_dict.get('botpm', False)}#{grp_id}",
+                style=BTN_PRIMARY
             ),
         ],
         [
             create_btn(
                 f"File Secure: {file_secure_text}",
                 callback_data=f"setgs#file_secure#{settings_dict.get('file_secure', False)}#{grp_id}",
+                style=BTN_PRIMARY
             ),
             create_btn(
                 f"IMDB: {imdb_text}",
                 callback_data=f"setgs#imdb#{settings_dict.get('imdb', False)}#{grp_id}",
+                style=BTN_PRIMARY
             ),
         ],
         [
             create_btn(
                 f"Spell Check: {spell_check_text}",
                 callback_data=f"setgs#spell_check#{settings_dict.get('spell_check', False)}#{grp_id}",
+                style=BTN_PRIMARY
             ),
             create_btn(
                 f"Welcome: {welcome_text}",
                 callback_data=f"setgs#welcome#{settings_dict.get('welcome', False)}#{grp_id}",
+                style=BTN_PRIMARY
             ),
         ],
         [create_btn("🗑 Close", callback_data="close_data", style=BTN_DANGER)],
@@ -781,30 +786,36 @@ async def settings_callback(client: Client, query: CallbackQuery):
                 create_btn(
                     f"Buttons: {btn_text}",
                     callback_data=f"setgs#button#{settings_dict.get('button', False)}#{grp_id}",
+                    style=BTN_PRIMARY
                 ),
                 create_btn(
                     f"Bot PM: {botpm_text}",
                     callback_data=f"setgs#botpm#{settings_dict.get('botpm', False)}#{grp_id}",
+                    style=BTN_PRIMARY
                 ),
             ],
             [
                 create_btn(
                     f"File Secure: {file_secure_text}",
                     callback_data=f"setgs#file_secure#{settings_dict.get('file_secure', False)}#{grp_id}",
+                    style=BTN_PRIMARY
                 ),
                 create_btn(
                     f"IMDB: {imdb_text}",
                     callback_data=f"setgs#imdb#{settings_dict.get('imdb', False)}#{grp_id}",
+                    style=BTN_PRIMARY
                 ),
             ],
             [
                 create_btn(
                     f"Spell Check: {spell_check_text}",
                     callback_data=f"setgs#spell_check#{settings_dict.get('spell_check', False)}#{grp_id}",
+                    style=BTN_PRIMARY
                 ),
                 create_btn(
                     f"Welcome: {welcome_text}",
                     callback_data=f"setgs#welcome#{settings_dict.get('welcome', False)}#{grp_id}",
+                    style=BTN_PRIMARY
                 ),
             ],
             [create_btn("🗑 Close", callback_data="close_data", style=BTN_DANGER)],
@@ -1316,3 +1327,40 @@ async def cb_handler(client: Client, query: CallbackQuery):
 
     except QueryIdInvalid:
         pass
+
+
+# ============================================================
+# 📩 PM AUTO-REPLY ENGINE (DON'T MESSAGE HERE)
+# ============================================================
+@Client.on_message(filters.private & filters.text & filters.incoming)
+async def pm_auto_reply(client: Client, message: Message):
+    # Ignore commands so /start and /help work normally
+    if message.text.startswith("/"):
+        return
+
+    if getattr(info, "REPAIR_MODE", False):
+        if not message.from_user or str(message.from_user.id) not in [str(a) for a in info.ADMINS]:
+            return
+    if message.from_user and await _plugin_db.is_banned(message.from_user.id):
+        return
+
+    b_set = await get_bot_settings()
+    # Uses your Not Found Image or falls back to standard PICS
+    pm_img = b_set.get("not_found_img", getattr(info, "NOT_FOUND_IMG", None))
+
+    text = (
+        "<b>🚫 Don't Message Here, Message Here Only!</b>\n\n"
+        "I do not respond to direct messages in PM. Please join our official group to request and download movies."
+    )
+
+    # ⚡ Added colored button redirecting to your main group
+    buttons = [[create_btn("💬 Message Here Only", url="https://t.me/Sandalwood_Kannada_Group", style=BTN_SUCCESS)]]
+    reply_markup = InlineKeyboardMarkup(buttons)
+
+    try:
+        if pm_img:
+            await message.reply_photo(photo=pm_img, caption=text, reply_markup=reply_markup, parse_mode=enums.ParseMode.HTML)
+        else:
+            await message.reply_text(text=text, reply_markup=reply_markup, parse_mode=enums.ParseMode.HTML)
+    except Exception as e:
+        logger.error(f"PM Reply Error: {e}")
