@@ -98,8 +98,10 @@ try:
 except Exception as e:
     logger.error(f"Failed to init pm_db: {e}")
 
+
 async def get_pm_settings():
-    if pm_db is None: return {}
+    if pm_db is None:
+        return {}
     settings = await pm_db.find_one({"id": "pm_config"})
     if not settings:
         return {
@@ -107,15 +109,18 @@ async def get_pm_settings():
             "image": getattr(info, "NOT_FOUND_IMG", None),
             "button_text": "💬 Message Here Only",
             "button_url": "https://t.me/Sandalwood_Kannada_Group",
-            "button_color": "red"
+            "button_color": "red",
         }
     return settings
+
 
 async def save_pm_settings(key, value):
     if pm_db is not None:
         await pm_db.update_one({"id": "pm_config"}, {"$set": {key: value}}, upsert=True)
 
+
 admin_filter = filters.user(ADMIN_USERS)
+
 
 def create_btn(text, url=None, callback_data=None, style=None):
     kwargs = {"text": text}
@@ -674,9 +679,7 @@ async def list_all_channels_cmd(client: Client, message: Message):
     )
 
 
-@Client.on_message(
-    filters.command(["leavechannel", "leave"]) & admin_filter
-)
+@Client.on_message(filters.command(["leavechannel", "leave"]) & admin_filter)
 async def leave_channel_cmd(client: Client, message: Message):
     if len(message.command) < 2:
         return await message.reply_text(
@@ -753,36 +756,36 @@ async def settings(client: Client, message: Message):
             create_btn(
                 f"Buttons: {btn_text}",
                 callback_data=f"setgs#button#{settings_dict.get('button', False)}#{grp_id}",
-                style=BTN_PRIMARY
+                style=BTN_PRIMARY,
             ),
             create_btn(
                 f"Bot PM: {botpm_text}",
                 callback_data=f"setgs#botpm#{settings_dict.get('botpm', False)}#{grp_id}",
-                style=BTN_PRIMARY
+                style=BTN_PRIMARY,
             ),
         ],
         [
             create_btn(
                 f"File Secure: {file_secure_text}",
                 callback_data=f"setgs#file_secure#{settings_dict.get('file_secure', False)}#{grp_id}",
-                style=BTN_PRIMARY
+                style=BTN_PRIMARY,
             ),
             create_btn(
                 f"IMDB: {imdb_text}",
                 callback_data=f"setgs#imdb#{settings_dict.get('imdb', False)}#{grp_id}",
-                style=BTN_PRIMARY
+                style=BTN_PRIMARY,
             ),
         ],
         [
             create_btn(
                 f"Spell Check: {spell_check_text}",
                 callback_data=f"setgs#spell_check#{settings_dict.get('spell_check', False)}#{grp_id}",
-                style=BTN_PRIMARY
+                style=BTN_PRIMARY,
             ),
             create_btn(
                 f"Welcome: {welcome_text}",
                 callback_data=f"setgs#welcome#{settings_dict.get('welcome', False)}#{grp_id}",
-                style=BTN_PRIMARY
+                style=BTN_PRIMARY,
             ),
         ],
         [create_btn("🗑 Close", callback_data="close_data", style=BTN_DANGER)],
@@ -816,36 +819,36 @@ async def settings_callback(client: Client, query: CallbackQuery):
                 create_btn(
                     f"Buttons: {btn_text}",
                     callback_data=f"setgs#button#{settings_dict.get('button', False)}#{grp_id}",
-                    style=BTN_PRIMARY
+                    style=BTN_PRIMARY,
                 ),
                 create_btn(
                     f"Bot PM: {botpm_text}",
                     callback_data=f"setgs#botpm#{settings_dict.get('botpm', False)}#{grp_id}",
-                    style=BTN_PRIMARY
+                    style=BTN_PRIMARY,
                 ),
             ],
             [
                 create_btn(
                     f"File Secure: {file_secure_text}",
                     callback_data=f"setgs#file_secure#{settings_dict.get('file_secure', False)}#{grp_id}",
-                    style=BTN_PRIMARY
+                    style=BTN_PRIMARY,
                 ),
                 create_btn(
                     f"IMDB: {imdb_text}",
                     callback_data=f"setgs#imdb#{settings_dict.get('imdb', False)}#{grp_id}",
-                    style=BTN_PRIMARY
+                    style=BTN_PRIMARY,
                 ),
             ],
             [
                 create_btn(
                     f"Spell Check: {spell_check_text}",
                     callback_data=f"setgs#spell_check#{settings_dict.get('spell_check', False)}#{grp_id}",
-                    style=BTN_PRIMARY
+                    style=BTN_PRIMARY,
                 ),
                 create_btn(
                     f"Welcome: {welcome_text}",
                     callback_data=f"setgs#welcome#{settings_dict.get('welcome', False)}#{grp_id}",
-                    style=BTN_PRIMARY
+                    style=BTN_PRIMARY,
                 ),
             ],
             [create_btn("🗑 Close", callback_data="close_data", style=BTN_DANGER)],
@@ -1371,17 +1374,27 @@ async def set_pm_text(client: Client, message: Message):
         elif len(message.command) > 1:
             text = message.text.split(None, 1)[1]
         else:
-            return await message.reply_text("Usage: `/setpmtext Your Text Here` (Supports HTML bold, links, etc.) or reply to a text.")
-        
+            return await message.reply_text(
+                "Usage: `/setpmtext Your Text Here` (Supports HTML bold, links, etc.) or reply to a text."
+            )
+
         await save_pm_settings("text", text)
-        await message.reply_text(f"✅ PM Text updated successfully to:\n\n{text}", disable_web_page_preview=True)
+        await message.reply_text(
+            f"✅ PM Text updated successfully to:\n\n{text}",
+            disable_web_page_preview=True,
+        )
     except Exception as e:
         await message.reply_text(f"Error: {e}")
 
+
 @Client.on_message(filters.command("rempmtext") & admin_filter)
 async def rem_pm_text(client: Client, message: Message):
-    await save_pm_settings("text", "<b>🚫 Don't Message Here, Message Here Only!</b>\n\nI do not respond to direct messages in PM. Please join our official group to request and download movies.")
+    await save_pm_settings(
+        "text",
+        "<b>🚫 Don't Message Here, Message Here Only!</b>\n\nI do not respond to direct messages in PM. Please join our official group to request and download movies.",
+    )
     await message.reply_text("✅ PM Text reset to default.")
+
 
 @Client.on_message(filters.command("setpmimage") & admin_filter)
 async def set_pm_image(client: Client, message: Message):
@@ -1389,7 +1402,9 @@ async def set_pm_image(client: Client, message: Message):
         if message.reply_to_message and message.reply_to_message.photo:
             file_id = message.reply_to_message.photo.file_id
             await save_pm_settings("image", file_id)
-            return await message.reply_text("✅ PM Image updated successfully from replied photo!")
+            return await message.reply_text(
+                "✅ PM Image updated successfully from replied photo!"
+            )
         elif len(message.command) > 1:
             url = message.text.split(None, 1)[1]
             await save_pm_settings("image", url)
@@ -1398,34 +1413,43 @@ async def set_pm_image(client: Client, message: Message):
     except Exception as e:
         await message.reply_text(f"Error: {e}")
 
+
 @Client.on_message(filters.command("rempmimage") & admin_filter)
 async def rem_pm_image(client: Client, message: Message):
     await save_pm_settings("image", None)
     await message.reply_text("✅ PM Image removed.")
 
+
 @Client.on_message(filters.command("setpmbutton") & admin_filter)
 async def set_pm_button(client: Client, message: Message):
     try:
         if len(message.command) < 2:
-            return await message.reply_text("Usage: `/setpmbutton Text | URL | Color`\nColors: green, red, blue, normal\nExample: `/setpmbutton Join Here | https://t.me/xyz | green`")
+            return await message.reply_text(
+                "Usage: `/setpmbutton Text | URL | Color`\nColors: green, red, blue, normal\nExample: `/setpmbutton Join Here | https://t.me/xyz | green`"
+            )
         args = message.text.split(None, 1)[1].split("|")
         if len(args) < 2:
-            return await message.reply_text("❌ Invalid format. Use: `Text | URL | Color`")
-        
+            return await message.reply_text(
+                "❌ Invalid format. Use: `Text | URL | Color`"
+            )
+
         btn_text = args[0].strip()
         btn_url = args[1].strip()
         btn_color = args[2].strip().lower() if len(args) > 2 else "normal"
-        
+
         if btn_color not in ["green", "red", "blue", "normal"]:
             btn_color = "normal"
-            
+
         await save_pm_settings("button_text", btn_text)
         await save_pm_settings("button_url", btn_url)
         await save_pm_settings("button_color", btn_color)
-        
-        await message.reply_text(f"✅ PM Button updated!\nText: {btn_text}\nURL: {btn_url}\nColor: {btn_color}")
+
+        await message.reply_text(
+            f"✅ PM Button updated!\nText: {btn_text}\nURL: {btn_url}\nColor: {btn_color}"
+        )
     except Exception as e:
         await message.reply_text(f"Error: {e}")
+
 
 @Client.on_message(filters.command("rempmbutton") & admin_filter)
 async def rem_pm_button(client: Client, message: Message):
@@ -1443,20 +1467,30 @@ async def pm_auto_reply(client: Client, message: Message):
         return
 
     if getattr(info, "REPAIR_MODE", False):
-        if not message.from_user or str(message.from_user.id) not in [str(a) for a in info.ADMINS]:
+        if not message.from_user or str(message.from_user.id) not in [
+            str(a) for a in info.ADMINS
+        ]:
             return
     if message.from_user and await _plugin_db.is_banned(message.from_user.id):
         return
 
     settings = await get_pm_settings()
-    text = settings.get("text", "<b>🚫 Don't Message Here, Message Here Only!</b>\n\nI do not respond to direct messages in PM. Please join our official group to request and download movies.")
+    text = settings.get(
+        "text",
+        "<b>🚫 Don't Message Here, Message Here Only!</b>\n\nI do not respond to direct messages in PM. Please join our official group to request and download movies.",
+    )
     pm_img = settings.get("image", getattr(info, "NOT_FOUND_IMG", None))
 
     btn_text = settings.get("button_text", "💬 Message Here Only")
     btn_url = settings.get("button_url", "https://t.me/Sandalwood_Kannada_Group")
     btn_color_str = settings.get("button_color", "red")
 
-    color_map = {"green": BTN_SUCCESS, "red": BTN_DANGER, "blue": BTN_PRIMARY, "normal": None}
+    color_map = {
+        "green": BTN_SUCCESS,
+        "red": BTN_DANGER,
+        "blue": BTN_PRIMARY,
+        "normal": None,
+    }
     btn_style = color_map.get(btn_color_str, None)
 
     reply_markup = None
@@ -1466,8 +1500,15 @@ async def pm_auto_reply(client: Client, message: Message):
 
     try:
         if pm_img and str(pm_img).lower() != "none":
-            await message.reply_photo(photo=pm_img, caption=text, reply_markup=reply_markup, parse_mode=enums.ParseMode.HTML)
+            await message.reply_photo(
+                photo=pm_img,
+                caption=text,
+                reply_markup=reply_markup,
+                parse_mode=enums.ParseMode.HTML,
+            )
         else:
-            await message.reply_text(text=text, reply_markup=reply_markup, parse_mode=enums.ParseMode.HTML)
+            await message.reply_text(
+                text=text, reply_markup=reply_markup, parse_mode=enums.ParseMode.HTML
+            )
     except Exception as e:
         logger.error(f"PM Reply Error: {e}")
