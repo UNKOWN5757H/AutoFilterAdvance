@@ -723,36 +723,36 @@ async def settings(client: Client, message: Message):
             create_btn(
                 f"Buttons: {btn_text}",
                 callback_data=f"setgs#button#{settings_dict.get('button', False)}#{grp_id}",
-                style=BTN_PRIMARY
+                style=BTN_PRIMARY,
             ),
             create_btn(
                 f"Bot PM: {botpm_text}",
                 callback_data=f"setgs#botpm#{settings_dict.get('botpm', False)}#{grp_id}",
-                style=BTN_PRIMARY
+                style=BTN_PRIMARY,
             ),
         ],
         [
             create_btn(
                 f"File Secure: {file_secure_text}",
                 callback_data=f"setgs#file_secure#{settings_dict.get('file_secure', False)}#{grp_id}",
-                style=BTN_PRIMARY
+                style=BTN_PRIMARY,
             ),
             create_btn(
                 f"IMDB: {imdb_text}",
                 callback_data=f"setgs#imdb#{settings_dict.get('imdb', False)}#{grp_id}",
-                style=BTN_PRIMARY
+                style=BTN_PRIMARY,
             ),
         ],
         [
             create_btn(
                 f"Spell Check: {spell_check_text}",
                 callback_data=f"setgs#spell_check#{settings_dict.get('spell_check', False)}#{grp_id}",
-                style=BTN_PRIMARY
+                style=BTN_PRIMARY,
             ),
             create_btn(
                 f"Welcome: {welcome_text}",
                 callback_data=f"setgs#welcome#{settings_dict.get('welcome', False)}#{grp_id}",
-                style=BTN_PRIMARY
+                style=BTN_PRIMARY,
             ),
         ],
         [create_btn("🗑 Close", callback_data="close_data", style=BTN_DANGER)],
@@ -786,36 +786,36 @@ async def settings_callback(client: Client, query: CallbackQuery):
                 create_btn(
                     f"Buttons: {btn_text}",
                     callback_data=f"setgs#button#{settings_dict.get('button', False)}#{grp_id}",
-                    style=BTN_PRIMARY
+                    style=BTN_PRIMARY,
                 ),
                 create_btn(
                     f"Bot PM: {botpm_text}",
                     callback_data=f"setgs#botpm#{settings_dict.get('botpm', False)}#{grp_id}",
-                    style=BTN_PRIMARY
+                    style=BTN_PRIMARY,
                 ),
             ],
             [
                 create_btn(
                     f"File Secure: {file_secure_text}",
                     callback_data=f"setgs#file_secure#{settings_dict.get('file_secure', False)}#{grp_id}",
-                    style=BTN_PRIMARY
+                    style=BTN_PRIMARY,
                 ),
                 create_btn(
                     f"IMDB: {imdb_text}",
                     callback_data=f"setgs#imdb#{settings_dict.get('imdb', False)}#{grp_id}",
-                    style=BTN_PRIMARY
+                    style=BTN_PRIMARY,
                 ),
             ],
             [
                 create_btn(
                     f"Spell Check: {spell_check_text}",
                     callback_data=f"setgs#spell_check#{settings_dict.get('spell_check', False)}#{grp_id}",
-                    style=BTN_PRIMARY
+                    style=BTN_PRIMARY,
                 ),
                 create_btn(
                     f"Welcome: {welcome_text}",
                     callback_data=f"setgs#welcome#{settings_dict.get('welcome', False)}#{grp_id}",
-                    style=BTN_PRIMARY
+                    style=BTN_PRIMARY,
                 ),
             ],
             [create_btn("🗑 Close", callback_data="close_data", style=BTN_DANGER)],
@@ -1339,7 +1339,9 @@ async def pm_auto_reply(client: Client, message: Message):
         return
 
     if getattr(info, "REPAIR_MODE", False):
-        if not message.from_user or str(message.from_user.id) not in [str(a) for a in info.ADMINS]:
+        if not message.from_user or str(message.from_user.id) not in [
+            str(a) for a in info.ADMINS
+        ]:
             return
     if message.from_user and await _plugin_db.is_banned(message.from_user.id):
         return
@@ -1354,13 +1356,28 @@ async def pm_auto_reply(client: Client, message: Message):
     )
 
     # ⚡ Added colored button redirecting to your main group
-    buttons = [[create_btn("💬 Message Here Only", url="https://t.me/Sandalwood_Kannada_Group", style=BTN_SUCCESS)]]
+    buttons = [
+        [
+            create_btn(
+                "💬 Message Here Only",
+                url="https://t.me/Sandalwood_Kannada_Group",
+                style=BTN_SUCCESS,
+            )
+        ]
+    ]
     reply_markup = InlineKeyboardMarkup(buttons)
 
     try:
         if pm_img:
-            await message.reply_photo(photo=pm_img, caption=text, reply_markup=reply_markup, parse_mode=enums.ParseMode.HTML)
+            await message.reply_photo(
+                photo=pm_img,
+                caption=text,
+                reply_markup=reply_markup,
+                parse_mode=enums.ParseMode.HTML,
+            )
         else:
-            await message.reply_text(text=text, reply_markup=reply_markup, parse_mode=enums.ParseMode.HTML)
+            await message.reply_text(
+                text=text, reply_markup=reply_markup, parse_mode=enums.ParseMode.HTML
+            )
     except Exception as e:
         logger.error(f"PM Reply Error: {e}")
