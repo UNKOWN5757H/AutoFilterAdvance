@@ -3,6 +3,7 @@ from os import environ
 
 id_pattern = re.compile(r"^.\d+$")
 
+
 def is_enabled(value, default):
     if value.lower() in ["true", "yes", "1", "enable", "y"]:
         return True
@@ -10,6 +11,7 @@ def is_enabled(value, default):
         return False
     else:
         return default
+
 
 SESSION = environ.get("SESSION", "VersionQ")
 API_ID = int(environ.get("API_ID", "2468192"))
@@ -116,7 +118,9 @@ MOVIE_UPDATE_NOTIFICATION = is_enabled(
 
 # ⚡ DEDICATED CHANNELS
 MOVIE_UPDATE_CHANNEL = int(environ.get("MOVIE_UPDATE_CHANNEL", "-1001923564465"))
-AUTOPOSTCHANNEL = int(environ.get("AUTOPOSTCHANNEL", "-1001923564465")) # Change to your auto-post channel ID
+AUTOPOSTCHANNEL = int(
+    environ.get("AUTOPOSTCHANNEL", "-1001923564465")
+)  # Change to your auto-post channel ID
 
 IMAGE_FETCH = is_enabled(environ.get("IMAGE_FETCH", "True"), True)
 LINK_PREVIEW = is_enabled(environ.get("LINK_PREVIEW", "False"), False)
