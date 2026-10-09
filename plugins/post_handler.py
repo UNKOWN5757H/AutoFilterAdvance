@@ -75,63 +75,30 @@ TEMPLATES = {
 }
 
 LANGUAGES = [
-    "Kannada",
-    "English",
-    "Gujarati",
-    "Hindi",
-    "Bengali",
-    "Malayalam",
-    "Marathi",
-    "Punjabi",
-    "Tamil",
-    "Telugu",
-    "Urdu",
-    "#NotAvailable",
+    "Kannada", "English", "Gujarati", "Hindi", "Bengali", "Malayalam", 
+    "Marathi", "Punjabi", "Tamil", "Telugu", "Urdu", "Arabic", "French", 
+    "German", "Italian", "Japanese", "Korean", "Mandarin", "Portuguese", 
+    "Russian", "Spanish", "#NotAvailable"
 ]
 RESOLUTIONS = [
-    "480p",
-    "720p",
-    "1080p",
-    "1440p",
-    "2160p",
-    "4k",
-    "BluRay",
-    "BDRip",
-    "WEB-DL",
-    "HDRip",
-    "HEVC",
-    "#NotAvailable",
+    "144p", "240p", "480p", "720p", "1080p", "1440p", "2160p", "4320p", 
+    "BluRay", "BDRip", "WEB-DL", "HDRip", "WEBRip", "HDTVRip", "DVDRip", 
+    "DVDScr", "TSRip", "CAMRip", "HDTC", "HEVC", "#NotAvailable"
 ]
 GENRES = [
-    "Action",
-    "Adventure",
-    "Animation",
-    "Biography",
-    "Comedy",
-    "Crime",
-    "Documentary",
-    "Drama",
-    "Family",
-    "Fantasy",
-    "Horror",
-    "Romance",
-    "Sci-Fi",
-    "Thriller",
-    "#NotAvailable",
+    "Action", "Adventure", "Animation", "Biography", "Comedy", "Crime", 
+    "Documentary", "Drama", "Family", "Fantasy", "History", "Horror", 
+    "Music", "Musical", "Mystery", "Romance", "Sci-Fi", "Sport", "Thriller", 
+    "War", "Western", "Superhero", "Psychological", "Suspense", "Noir", 
+    "Disaster", "Survival", "Teen", "Slice of Life", "Coming of Age", 
+    "Martial Arts", "Political", "Legal", "Medical", "Spy", "Erotic", 
+    "Mythology", "Short", "Experimental", "#NotAvailable"
 ]
 OTT_PLATFORMS = [
-    "Aha",
-    "ALTBalaji",
-    "JioHotstar",
-    "JioCinema",
-    "MXPlayer",
-    "SonyLIV",
-    "SunNXT",
-    "Voot",
-    "Zee5",
-    "AmazonPrime",
-    "Netflix",
-    "NotAvailable",
+    "Aha", "ALTBalaji", "JioHotstar", "ErosNow", "Hoichoi", "JioCinema", 
+    "MXPlayer", "SonyLIV", "SunNXT", "Voot", "Zee5", "AmazonPrime", 
+    "AppleTV+", "Crunchyroll", "Discovery+", "HBO Max", "Hulu", "Netflix", 
+    "Paramount+", "Peacock", "ManoramaMAX", "NotAvailable"
 ]
 
 try:
