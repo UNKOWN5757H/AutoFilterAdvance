@@ -147,11 +147,14 @@ Control what words are removed from inline button filenames.
 ‣ /getallfsub - Get all force subscribe channel details
 ‣ /getactivefsub - Get active force subscribe channels
 ‣ /getpendingfsub - Get pending force subscribe channels which is in queue
-‣ /activatefsub - Activate pending force subscribe channel - `/activatefsub channel_id`
-‣ /deactivatefsub - Deactivate force subscribe channel - `/deactivatefsub channel_id`
-‣ /updatefsubtarget - Update force subscribe channel target - `/updatefsubtarget channel_id target`
+‣ /activatefsub - Activate pending force subscribe channel
+‣ /deactivatefsub - Deactivate force subscribe channel
+‣ /updatefsubtarget - Update force subscribe channel target
 ‣ /checkfsubusers - Check force subscribe users count
-‣ /clearfsubusers - Clear all force subscribe users from db</b>"""
+‣ /clearfsubusers - Clear all force subscribe users from db\n
+🚪 JOIN REQUESTS:
+‣ /totalrequests - Get total pending join requests
+‣ /purgerequests - Purge all join requests from database</b>"""
 
     # ==========================================
     # 👥 FORCE ADD
@@ -174,7 +177,8 @@ Control what words are removed from inline button filenames.
 <b>‣ /delete - Reply to a file to delete it from database
 ‣ /delmulti - Delete multiple files from database with name - `/delmulti name`
 ‣ /autodelete - Set file auto delete time in seconds
-‣ /buttondel - Set button message in groups auto delete time in seconds</b>"""
+‣ /buttondel - Set button message in groups auto delete time in seconds
+‣ /purgeduplicates - Scan DB, keep highest resolution, and delete redundant clones</b>"""
 
     # ==========================================
     # 🚫 BANS & RESTRICTIONS
@@ -237,17 +241,19 @@ You can customize file captions by editing your Environment Variables.
 ‣ <code>/remwhitelist</code> - Remove whitelist word
 ‣ <code>/allwhitelist</code> - View whitelist words
 
-🛡️ Auto-Backup
+🛡️ Auto-Backup & Links
 ‣ <code>/setbackupchannel</code> - Set private backup chat ID
 ‣ <code>/autobackup</code> - Toggle Anti-Copyright shield
+‣ <code>/link</code> - Get shareable link for a file
+‣ <code>/plink</code> - Get protected shareable link
+‣ <code>/batch</code> - Index entire channel in bulk
+‣ <code>/pbatch</code> - Index entire channel in bulk (Protected Content)
 
 🧹 Database Cleanup
-‣ <code>/cleanduplicates</code> - Delete duplicate DB entries
+‣ <code>/purgeduplicates</code> - Scan & Delete duplicate DB entries
 ‣ <code>/cleandeadlinks</code> - Remove broken Telegram links
-• <code>/batch</code> - Index entire channel in bulk.
-• <code>/link</code> - Get shareable link for a file.
-• <code>/total</code> - Count total indexed files.
-• <code>/clearfiles</code> - ⚠️ Nuke entire file database!</b>"""
+‣ <code>/total</code> - Count total indexed files
+‣ <code>/clearfiles</code> - ⚠️ Nuke entire file database!</b>"""
 
     # ==========================================
     # 📢 PROMOTIONS & BROADCAST
@@ -266,7 +272,9 @@ You can customize file captions by editing your Environment Variables.
     # ==========================================
     SETTINGS_TXT = """<blockquote><b>Bot Settings Management</b></blockquote>\n
 <b>‣ /repairmode - Enable or disable repair mode - If on, bot will not send any files
-‣ /adminsettings - Get current admin settings</b>"""
+‣ /adminsettings - Get current admin settings
+‣ /enablereaction - Enable Auto-Heart reactions globally
+‣ /disablereaction - Disable Auto-Heart reactions globally</b>"""
 
     CONNECTIONS_TXT = """<blockquote><b>𝗖𝗼𝗺𝗺𝗮𝗻𝗱𝘀 𝗮𝗻𝗱 𝗨𝘀𝗮𝗴𝗲\nUsed to connect bot to PM for managing filters, avoiding spamming in groups.</b></blockquote>\n
 <b>‣ /connect  - Connect a particular chat to your PM
@@ -289,10 +297,13 @@ You can customize file captions by editing your Environment Variables.
 ‣ /server - Get server stats
 ‣ /restart - Restart the bot
 ‣ /stats - Database statistics
-‣ /analize - Analize Today Results
+‣ /analize - View Live Trending Search Dashboard
+‣ /exportstats - Export full search history data to .txt
+‣ /optimize_db - Optimize Database indexes for speed
 ‣ /broadcast - Reply to a message to send that to all bot users
 ‣ /total - Get count of total files in DB
 ‣ /clearfiles - Clear all files from DB
+‣ /users_list - Get list of users in DB
 ‣ /clearusers - Clear all users from DB
 ‣ /cleanusers - Ping all users to purge deleted accounts
 ‣ /clearfsubusers - Clear all force subscribe users from db</b>"""
