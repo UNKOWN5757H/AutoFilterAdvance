@@ -289,6 +289,7 @@ You can customize file captions by editing your Environment Variables.
 ‣ /server - Get server stats
 ‣ /restart - Restart the bot
 ‣ /stats - Database statistics
+‣ /analize - Analize Today Results
 ‣ /broadcast - Reply to a message to send that to all bot users
 ‣ /total - Get count of total files in DB
 ‣ /clearfiles - Clear all files from DB
