@@ -9,7 +9,12 @@ from pyrogram.errors import (
     UserNotParticipant,
     WebpageMediaEmpty,
 )
-from pyrogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from pyrogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 
 import info
 from utils import extract_user, get_file_id, get_poster
@@ -24,11 +29,15 @@ DEFAULT_IMDB_TEMPLATE = """🎬 **Title:** <a href="{url}">{title}</a> ({year})
 ⏰ **Runtime:** {runtime}
 📜 **Plot:** {plot}"""
 
-IMDB_TEMPLATE = getattr(info, "IMDB_TEMPLATE", DEFAULT_IMDB_TEMPLATE) or DEFAULT_IMDB_TEMPLATE
+IMDB_TEMPLATE = (
+    getattr(info, "IMDB_TEMPLATE", DEFAULT_IMDB_TEMPLATE) or DEFAULT_IMDB_TEMPLATE
+)
+
 
 class SafeDict(dict):
     def __missing__(self, key):
         return "{" + key + "}"
+
 
 @Client.on_message(filters.command("id"))
 async def show_id(client: Client, message: Message):
@@ -60,6 +69,7 @@ async def show_id(client: Client, message: Message):
 
         await message.reply_text(text)
 
+
 @Client.on_message(filters.command("info"))
 async def who_is(client: Client, message: Message):
     status = await message.reply_text("🔍 Fetching user info...")
@@ -89,7 +99,11 @@ async def who_is(client: Client, message: Message):
             f"<b>🔗 User Link:</b> <a href='tg://user?id={user.id}'>Click Here</a>\n"
         )
 
-        if message.chat.type in (enums.ChatType.SUPERGROUP, enums.ChatType.CHANNEL, enums.ChatType.GROUP):
+        if message.chat.type in (
+            enums.ChatType.SUPERGROUP,
+            enums.ChatType.CHANNEL,
+            enums.ChatType.GROUP,
+        ):
             try:
                 member = await client.get_chat_member(message.chat.id, user.id)
                 if member.joined_date:
@@ -97,23 +111,33 @@ async def who_is(client: Client, message: Message):
             except Exception:
                 pass
 
-        markup = InlineKeyboardMarkup([[InlineKeyboardButton("🔐 Close", callback_data="close_data")]])
+        markup = InlineKeyboardMarkup(
+            [[InlineKeyboardButton("🔐 Close", callback_data="close_data")]]
+        )
 
         photo_sent = False
         if user.photo:
             try:
-                await message.reply_photo(photo=user.photo.big_file_id, caption=text, reply_markup=markup, parse_mode=enums.ParseMode.HTML)
+                await message.reply_photo(
+                    photo=user.photo.big_file_id,
+                    caption=text,
+                    reply_markup=markup,
+                    parse_mode=enums.ParseMode.HTML,
+                )
                 photo_sent = True
             except Exception:
                 photo_sent = False
 
         if not photo_sent:
-            await message.reply_text(text, reply_markup=markup, parse_mode=enums.ParseMode.HTML)
+            await message.reply_text(
+                text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
+            )
 
         await status.delete()
     except Exception as e:
         logger.error(f"Info Command Error: {e}")
         await status.edit_text("❌ An error occurred while fetching user data.")
+
 
 @Client.on_message(filters.command(["imdb", "search"]))
 async def imdb_search(client: Client, message: Message):
@@ -130,21 +154,34 @@ async def imdb_search(client: Client, message: Message):
 
         buttons = []
         for movie in movies[:10]:
-            m_id = getattr(movie, "movieID", None) or (movie.get("movieID") if isinstance(movie, dict) else None) or movie.get("id", "")
-            title = getattr(movie, "title", None) or (movie.get("title") if isinstance(movie, dict) else "Unknown")
-            year = getattr(movie, "year", None) or (movie.get("year") if isinstance(movie, dict) else "")
+            m_id = (
+                getattr(movie, "movieID", None)
+                or (movie.get("movieID") if isinstance(movie, dict) else None)
+                or movie.get("id", "")
+            )
+            title = getattr(movie, "title", None) or (
+                movie.get("title") if isinstance(movie, dict) else "Unknown"
+            )
+            year = getattr(movie, "year", None) or (
+                movie.get("year") if isinstance(movie, dict) else ""
+            )
 
             if m_id:
                 btn_text = f"{title} ({year})" if year else title
-                buttons.append([InlineKeyboardButton(btn_text, callback_data=f"imdb#{m_id}")])
+                buttons.append(
+                    [InlineKeyboardButton(btn_text, callback_data=f"imdb#{m_id}")]
+                )
 
         if not buttons:
             return await wait_msg.edit_text("❌ Could not parse IMDb results.")
 
-        await wait_msg.edit_text("🎥 **Here's what I found:**", reply_markup=InlineKeyboardMarkup(buttons))
+        await wait_msg.edit_text(
+            "🎥 **Here's what I found:**", reply_markup=InlineKeyboardMarkup(buttons)
+        )
     except Exception as e:
         logger.exception(e)
         await wait_msg.edit_text(f"⚠️ IMDb search error: `{e}`")
+
 
 @Client.on_callback_query(filters.regex(r"^imdb#"))
 async def imdb_callback(client: Client, query: CallbackQuery):
@@ -160,28 +197,59 @@ async def imdb_callback(client: Client, query: CallbackQuery):
         buttons = [[InlineKeyboardButton(f"{imdb.get('title', 'IMDb Link')}", url=url)]]
 
         format_args = SafeDict(
-            query=imdb.get("title", "N/A"), title=imdb.get("title", "N/A"), votes=imdb.get("votes", "N/A"),
-            aka=imdb.get("aka", "N/A"), seasons=imdb.get("seasons", "N/A"), box_office=imdb.get("box_office", "N/A"),
-            localized_title=imdb.get("localized_title", "N/A"), kind=imdb.get("kind", "N/A"), imdb_id=imdb.get("imdb_id", movie_id),
-            cast=imdb.get("cast", "N/A"), runtime=imdb.get("runtime", "N/A"), countries=imdb.get("countries", "N/A"),
-            certificates=imdb.get("certificates", "N/A"), languages=imdb.get("languages", "N/A"), director=imdb.get("director", "N/A"),
-            writer=imdb.get("writer", "N/A"), producer=imdb.get("producer", "N/A"), composer=imdb.get("composer", "N/A"),
-            cinematographer=imdb.get("cinematographer", "N/A"), music_team=imdb.get("music_team", "N/A"), distributors=imdb.get("distributors", "N/A"),
-            release_date=imdb.get("release_date", "N/A"), year=imdb.get("year", "N/A"), genres=imdb.get("genres", "N/A"),
-            poster=imdb.get("poster", "N/A"), plot=imdb.get("plot", "N/A"), rating=imdb.get("rating", "N/A"), url=url,
+            query=imdb.get("title", "N/A"),
+            title=imdb.get("title", "N/A"),
+            votes=imdb.get("votes", "N/A"),
+            aka=imdb.get("aka", "N/A"),
+            seasons=imdb.get("seasons", "N/A"),
+            box_office=imdb.get("box_office", "N/A"),
+            localized_title=imdb.get("localized_title", "N/A"),
+            kind=imdb.get("kind", "N/A"),
+            imdb_id=imdb.get("imdb_id", movie_id),
+            cast=imdb.get("cast", "N/A"),
+            runtime=imdb.get("runtime", "N/A"),
+            countries=imdb.get("countries", "N/A"),
+            certificates=imdb.get("certificates", "N/A"),
+            languages=imdb.get("languages", "N/A"),
+            director=imdb.get("director", "N/A"),
+            writer=imdb.get("writer", "N/A"),
+            producer=imdb.get("producer", "N/A"),
+            composer=imdb.get("composer", "N/A"),
+            cinematographer=imdb.get("cinematographer", "N/A"),
+            music_team=imdb.get("music_team", "N/A"),
+            distributors=imdb.get("distributors", "N/A"),
+            release_date=imdb.get("release_date", "N/A"),
+            year=imdb.get("year", "N/A"),
+            genres=imdb.get("genres", "N/A"),
+            poster=imdb.get("poster", "N/A"),
+            plot=imdb.get("plot", "N/A"),
+            rating=imdb.get("rating", "N/A"),
+            url=url,
         )
 
         caption = IMDB_TEMPLATE.format_map(format_args)
 
         if imdb.get("poster"):
             try:
-                await query.message.reply_photo(photo=imdb["poster"], caption=caption, reply_markup=InlineKeyboardMarkup(buttons))
+                await query.message.reply_photo(
+                    photo=imdb["poster"],
+                    caption=caption,
+                    reply_markup=InlineKeyboardMarkup(buttons),
+                )
             except (MediaEmpty, PhotoInvalidDimensions, WebpageMediaEmpty):
                 poster = imdb["poster"].replace(".jpg", "._V1_UX360.jpg")
-                await query.message.reply_photo(photo=poster, caption=caption, reply_markup=InlineKeyboardMarkup(buttons))
+                await query.message.reply_photo(
+                    photo=poster,
+                    caption=caption,
+                    reply_markup=InlineKeyboardMarkup(buttons),
+                )
             await query.message.delete()
         else:
-            await query.message.edit_text(caption, reply_markup=InlineKeyboardMarkup(buttons), disable_web_page_preview=False)
+            await query.message.edit_text(
+                caption,
+                reply_markup=InlineKeyboardMarkup(buttons),
+                disable_web_page_preview=False,
+            )
     except Exception as e:
         logger.error(f"IMDb Callback Error: {e}")
         try:
