@@ -31,20 +31,28 @@ MUTED_PROCESSING_LOCK = set()
 # Cache for group admin checks to avoid spamming get_chat_member
 ADMIN_CACHE = {}  # {(chat_id, user_id): (expiry_timestamp, is_admin)}
 
+
 # ============================================================
 # 👑 ADMIN & IMMUNITY PARSERS
 # ============================================================
 def get_bot_admins():
     raw_admins = getattr(info, "ADMINS", [])
     if isinstance(raw_admins, str):
-        return [int(x) for x in raw_admins.replace(",", " ").split() if x.strip().lstrip("-").isdigit()]
+        return [
+            int(x)
+            for x in raw_admins.replace(",", " ").split()
+            if x.strip().lstrip("-").isdigit()
+        ]
     elif isinstance(raw_admins, int):
         return [raw_admins]
     elif isinstance(raw_admins, list):
         return [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
     return []
 
-async def is_exempt(client: Client, chat_id: int, user_id: int, chat_type: enums.ChatType) -> bool:
+
+async def is_exempt(
+    client: Client, chat_id: int, user_id: int, chat_type: enums.ChatType
+) -> bool:
     # 1. Global Bot Admins are always exempt
     if user_id in get_bot_admins():
         return True
@@ -62,11 +70,15 @@ async def is_exempt(client: Client, chat_id: int, user_id: int, chat_type: enums
 
     try:
         member = await client.get_chat_member(chat_id, user_id)
-        is_admin = member.status in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]
+        is_admin = member.status in [
+            enums.ChatMemberStatus.ADMINISTRATOR,
+            enums.ChatMemberStatus.OWNER,
+        ]
         ADMIN_CACHE[cache_key] = (now + 300, is_admin)  # Cache for 5 minutes
         return is_admin
     except Exception:
         return False
+
 
 # ============================================================
 # 🧹 RAM GARBAGE COLLECTOR (PREVENTS KOYEB CONTAINER LEAKS)
@@ -82,7 +94,11 @@ async def memory_cleanup_worker():
             del MUTED_USERS[uid]
 
         # Clean inactive message logs
-        inactive_users = [uid for uid, timestamps in USER_MESSAGE_LOG.items() if not timestamps or (now - timestamps[-1]) > 60]
+        inactive_users = [
+            uid
+            for uid, timestamps in USER_MESSAGE_LOG.items()
+            if not timestamps or (now - timestamps[-1]) > 60
+        ]
         for uid in inactive_users:
             del USER_MESSAGE_LOG[uid]
 
@@ -91,7 +107,9 @@ async def memory_cleanup_worker():
         for k in expired_admin_checks:
             del ADMIN_CACHE[k]
 
+
 _GC_STARTED = False
+
 
 @Client.on_message(group=-150)
 async def init_antiflood_gc(client: Client, message: Message):
@@ -99,6 +117,7 @@ async def init_antiflood_gc(client: Client, message: Message):
     if not _GC_STARTED:
         _GC_STARTED = True
         asyncio.create_task(memory_cleanup_worker())
+
 
 # ============================================================
 # 🛡️ IRONCLAD ANTI-FLOOD LISTENER
@@ -132,7 +151,9 @@ async def ironclad_antiflood_shield(client: Client, message: Message):
 
     # 2. Record message timestamps and clear outside the sliding window
     timestamps = USER_MESSAGE_LOG[user_id]
-    USER_MESSAGE_LOG[user_id] = [t for t in timestamps if now - t <= FLOOD_WINDOW_SECONDS]
+    USER_MESSAGE_LOG[user_id] = [
+        t for t in timestamps if now - t <= FLOOD_WINDOW_SECONDS
+    ]
     USER_MESSAGE_LOG[user_id].append(now)
 
     # 3. Threshold check
@@ -188,6 +209,7 @@ async def ironclad_antiflood_shield(client: Client, message: Message):
 
         MUTED_PROCESSING_LOCK.discard(user_id)
         message.stop_propagation()
+
 
 async def delete_after_delay(msg: Message, delay: int):
     await asyncio.sleep(delay)
