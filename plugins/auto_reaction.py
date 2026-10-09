@@ -1,85 +1,39 @@
 import asyncio
 from logging import ERROR, getLogger
-
-import aiohttp
 from pyrogram import Client, filters
 from pyrogram.types import Message
-
-try:
-    from info import ADMINS, BOT_TOKEN
-except ImportError:
-    ADMINS = []
-    BOT_TOKEN = None
-
+import info
 from database.plugin_dbs import plugin_db as _plugin_db
 
 logger = getLogger(__name__)
 logger.setLevel(ERROR)
 
+def get_admin_list():
+    raw_admins = getattr(info, "ADMINS", [])
+    if isinstance(raw_admins, str): return [int(x) for x in raw_admins.replace(",", " ").split() if x.strip().lstrip("-").isdigit()]
+    elif isinstance(raw_admins, int): return [raw_admins]
+    elif isinstance(raw_admins, list): return [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
+    return []
 
-def is_bot_owner(user_id: int) -> bool:
-    admin_list = [int(a) for a in ADMINS if str(a).isdigit()]
-    return user_id in admin_list
+admin_filter = filters.create(lambda _, __, msg: bool(msg.from_user and msg.from_user.id in get_admin_list()))
 
-
-HTTP_SESSION = None
-
-
-async def get_http_session():
-    global HTTP_SESSION
-    if HTTP_SESSION is None or HTTP_SESSION.closed:
-        HTTP_SESSION = aiohttp.ClientSession()
-    return HTTP_SESSION
-
-
-async def send_reaction_background(chat_id: int, message_id: int):
-    if not BOT_TOKEN:
-        return
-
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/setMessageReaction"
-    payload = {
-        "chat_id": chat_id,
-        "message_id": message_id,
-        "reaction": [{"type": "emoji", "emoji": "❤️"}],
-    }
-
-    try:
-        session = await get_http_session()
-        async with session.post(url, json=payload, timeout=2) as response:
-            pass
-    except Exception:
-        pass
-
-
-@Client.on_message(filters.command("enablereaction"))
+@Client.on_message(filters.command("enablereaction") & admin_filter)
 async def enable_react(bot: Client, message: Message):
-    if not message.from_user or not is_bot_owner(message.from_user.id):
-        return await message.reply_text("❌ **Only Bot ADMINS can use this command.**")
-
     await _plugin_db.set_reaction_status(True)
     await message.reply_text("✅ **Auto-Reaction has been ENABLED globally!**")
 
-
-@Client.on_message(filters.command("disablereaction"))
+@Client.on_message(filters.command("disablereaction") & admin_filter)
 async def disable_react(bot: Client, message: Message):
-    if not message.from_user or not is_bot_owner(message.from_user.id):
-        return await message.reply_text("❌ **Only Bot ADMINS can use this command.**")
-
     await _plugin_db.set_reaction_status(False)
     await message.reply_text("🚫 **Auto-Reaction has been DISABLED globally.**")
-
 
 @Client.on_message((filters.group | filters.channel) & ~filters.bot, group=-5)
 async def auto_react_heart(bot: Client, message: Message):
     is_enabled = await _plugin_db.get_reaction_status()
-    if not is_enabled:
-        return
+    if not is_enabled or (message.from_user and message.from_user.is_bot): return
+    if (message.text or message.caption) and str(message.text or message.caption).startswith("/"): return
 
-    if message.from_user and message.from_user.is_bot:
-        return
-
-    text = message.text or message.caption
-    if text and text.startswith("/"):
-        return
-
-    asyncio.create_task(send_reaction_background(message.chat.id, message.id))
+    try:
+        # ⚡ ZERO-FAIL NATIVE PYROGRAM REACTION
+        await client.send_reaction(chat_id=message.chat.id, message_id=message.id, emoji="❤️")
+    except Exception: pass
