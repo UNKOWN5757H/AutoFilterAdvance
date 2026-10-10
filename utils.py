@@ -577,24 +577,31 @@ def parse_text_and_markup(raw_text, static_keyboard=None):
     reply_markup = InlineKeyboardMarkup(dynamic_keyboard) if dynamic_keyboard else None
     return final_text, reply_markup
 
+
 # ============================================================
 # 👑 GOD-TIER UNIVERSAL ADMIN ENGINE
 # ============================================================
 def get_admin_list():
     raw_admins = getattr(info, "ADMINS", [])
-    if isinstance(raw_admins, str): 
-        return [int(x) for x in raw_admins.replace(",", " ").split() if x.strip().lstrip("-").isdigit()]
-    elif isinstance(raw_admins, int): 
+    if isinstance(raw_admins, str):
+        return [
+            int(x)
+            for x in raw_admins.replace(",", " ").split()
+            if x.strip().lstrip("-").isdigit()
+        ]
+    elif isinstance(raw_admins, int):
         return [raw_admins]
-    elif isinstance(raw_admins, list): 
+    elif isinstance(raw_admins, list):
         return [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
     return []
 
+
 def get_uid(message: Message) -> int:
-    if getattr(message, "from_user", None): 
+    if getattr(message, "from_user", None):
         return message.from_user.id
-    if getattr(message, "sender_chat", None): 
+    if getattr(message, "sender_chat", None):
         return message.sender_chat.id
     return 0
+
 
 admin_filter = filters.create(lambda _, __, msg: bool(get_uid(msg) in get_admin_list()))
