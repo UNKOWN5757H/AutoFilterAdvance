@@ -18,7 +18,9 @@ from database.users_chats_db import db as _db
 logger = getLogger(__name__)
 logger.setLevel(ERROR)
 
-
+# ============================================================
+# ⚡ FOOLPROOF ADMIN PARSER (SUPPORTS ANONYMOUS ADMINS)
+# ============================================================
 def get_admin_list():
     raw_admins = getattr(info, "ADMINS", [])
     if isinstance(raw_admins, str):
@@ -33,9 +35,13 @@ def get_admin_list():
         return [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
     return []
 
+def get_uid(message: Message) -> int:
+    if getattr(message, "from_user", None): return message.from_user.id
+    if getattr(message, "sender_chat", None): return message.sender_chat.id
+    return 0
 
 admin_filter = filters.create(
-    lambda _, __, msg: bool(msg.from_user and msg.from_user.id in get_admin_list())
+    lambda _, __, msg: bool(get_uid(msg) in get_admin_list())
 )
 
 
