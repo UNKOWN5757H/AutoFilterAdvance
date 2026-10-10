@@ -9,7 +9,7 @@ from typing import List, Union
 import aiohttp
 import requests
 from bs4 import BeautifulSoup
-from pyrogram import enums
+from pyrogram import enums, filters
 from pyrogram.errors import (
     FloodWait,
     InputUserDeactivated,
@@ -19,6 +19,7 @@ from pyrogram.errors import (
 )
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
+import info
 from database.join_reqs import join_reqs as _db2
 from database.users_chats_db import db as _db
 from info import (
@@ -111,7 +112,6 @@ def parse_ultra_advanced_query(text):
         "subs",
         "part",
         "audio",
-        "video",
         "kr_picture",
         "sandalwood",
         "exclusive",
@@ -136,7 +136,7 @@ def parse_ultra_advanced_query(text):
 
 async def is_subscribed(bot, query):
     user_id = query.from_user.id
-    if user_id in ADMINS or str(user_id) in [str(a) for a in ADMINS]:
+    if user_id in get_admin_list():
         return True
     if not AUTH_CHANNEL and not REQ_CHANNEL:
         return True
@@ -522,9 +522,6 @@ def get_readable_time(seconds):
     return " ".join(result)
 
 
-# ============================================================
-# ⚡ UNIVERSAL PARSER ENGINE (NORMAL BUTTON FAILSAFE)
-# ============================================================
 def parse_text_and_markup(raw_text, static_keyboard=None):
     if not raw_text:
         return "", static_keyboard
@@ -579,3 +576,25 @@ def parse_text_and_markup(raw_text, static_keyboard=None):
 
     reply_markup = InlineKeyboardMarkup(dynamic_keyboard) if dynamic_keyboard else None
     return final_text, reply_markup
+
+# ============================================================
+# 👑 GOD-TIER UNIVERSAL ADMIN ENGINE
+# ============================================================
+def get_admin_list():
+    raw_admins = getattr(info, "ADMINS", [])
+    if isinstance(raw_admins, str): 
+        return [int(x) for x in raw_admins.replace(",", " ").split() if x.strip().lstrip("-").isdigit()]
+    elif isinstance(raw_admins, int): 
+        return [raw_admins]
+    elif isinstance(raw_admins, list): 
+        return [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
+    return []
+
+def get_uid(message: Message) -> int:
+    if getattr(message, "from_user", None): 
+        return message.from_user.id
+    if getattr(message, "sender_chat", None): 
+        return message.sender_chat.id
+    return 0
+
+admin_filter = filters.create(lambda _, __, msg: bool(get_uid(msg) in get_admin_list()))
