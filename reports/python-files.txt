@@ -9,6 +9,9 @@
 ./database/users_chats_db.py
 ./info.py
 ./plugins/Imdbposter.py
+./plugins/analytics.py
+./plugins/antiflood.py
+./plugins/auto_post.py
 ./plugins/auto_reaction.py
 ./plugins/backup.py
 ./plugins/bans.py
