@@ -42,321 +42,227 @@ DEFAULT_TEMPLATE = """✅ <b>{title} {year}</b>
 
 <b>=========================</b></blockquote>"""
 
-
 async def get_ap_settings():
-    if ap_db is None:
-        return {}
+    if ap_db is None: return {}
     settings = await ap_db.find_one({"id": "ap_config"})
     if not settings:
         return {
-            "enabled": False,
-            "template": DEFAULT_TEMPLATE,
-            "image_mode": "preview",
-            "muc_list": [],
-            "apc_list": [],
+            "enabled": False, "template": DEFAULT_TEMPLATE, "image_mode": "preview",
+            "muc_list": [], "apc_list": [],
         }
     return settings
-
 
 async def save_ap_settings(key, value):
     if ap_db is not None:
         await ap_db.update_one({"id": "ap_config"}, {"$set": {key: value}}, upsert=True)
 
-
 async def is_file_processed(file_unique_id: str) -> bool:
-    if hash_db is None or not file_unique_id:
-        return False
+    if hash_db is None or not file_unique_id: return False
     doc = await hash_db.find_one({"file_unique_id": file_unique_id})
     return bool(doc)
 
-
 async def mark_file_processed(file_unique_id: str):
     if hash_db is not None and file_unique_id:
-        await hash_db.update_one(
-            {"file_unique_id": file_unique_id},
-            {"$set": {"time": time.time()}},
-            upsert=True,
-        )
-
+        await hash_db.update_one({"file_unique_id": file_unique_id}, {"$set": {"time": time.time()}}, upsert=True)
 
 PENDING_AP = {}
 POST_QUEUE = asyncio.Queue()
 _WORKER_STARTED = False
 
-id_pattern = re.compile(r"^.\d+$")
-ADMIN_USERS = [
-    int(admin) if id_pattern.search(str(admin)) else admin
-    for admin in getattr(info, "ADMINS", [])
-]
+# ============================================================
+# ⚡ FOOLPROOF ADMIN PARSER (SUPPORTS ANONYMOUS ADMINS)
+# ============================================================
+def get_admin_list():
+    raw_admins = getattr(info, "ADMINS", [])
+    if isinstance(raw_admins, str): 
+        return [int(x) for x in raw_admins.replace(",", " ").split() if x.strip().lstrip("-").isdigit()]
+    elif isinstance(raw_admins, int): 
+        return [raw_admins]
+    elif isinstance(raw_admins, list): 
+        return [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
+    return []
 
+def get_uid(message: Message) -> int:
+    if message.from_user: return message.from_user.id
+    if message.sender_chat: return message.sender_chat.id
+    return 0
 
-async def admin_check(_, __, message: Message):
-    return bool(message.from_user and message.from_user.id in ADMIN_USERS)
-
-
-admin_filter = filters.create(admin_check)
-
+admin_filter = filters.create(lambda _, __, msg: bool(get_uid(msg) in get_admin_list()))
 _WAITING_REQUESTS = {}
 
-
-@Client.on_message(admin_filter, group=-11)
+@Client.on_message(admin_filter, group=-91)
 async def custom_ap_listener(client: Client, message: Message):
-    key = (message.chat.id, message.from_user.id)
+    key = (message.chat.id, get_uid(message))
     if key in _WAITING_REQUESTS:
         future = _WAITING_REQUESTS.pop(key)
-        if not future.done():
-            future.set_result(message)
+        if not future.done(): future.set_result(message)
         message.stop_propagation()
 
-
-async def native_listen(
-    client: Client, chat_id: int, user_id: int, timeout: int = 300
-) -> Message:
+async def native_listen(client: Client, chat_id: int, user_id: int, timeout: int = 300) -> Message:
     loop = asyncio.get_running_loop()
     future = loop.create_future()
     _WAITING_REQUESTS[(chat_id, user_id)] = future
-    try:
-        return await asyncio.wait_for(future, timeout=timeout)
+    try: return await asyncio.wait_for(future, timeout=timeout)
     except asyncio.TimeoutError:
         _WAITING_REQUESTS.pop((chat_id, user_id), None)
         raise asyncio.TimeoutError
 
-
 try:
     from pyrogram.enums import ButtonStyle
-
     BTN_PRIMARY = getattr(ButtonStyle, "PRIMARY", 1)
     BTN_SUCCESS = getattr(ButtonStyle, "SUCCESS", 3)
     BTN_DANGER = getattr(ButtonStyle, "DANGER", 4)
 except ImportError:
-    BTN_PRIMARY = 1
-    BTN_SUCCESS = 3
-    BTN_DANGER = 4
-
+    BTN_PRIMARY, BTN_SUCCESS, BTN_DANGER = 1, 3, 4
 
 def create_btn(text, url=None, callback_data=None, style=None):
     kwargs = {"text": text}
-    if url:
-        kwargs["url"] = url
-    if callback_data:
-        kwargs["callback_data"] = callback_data
-    if style is not None:
-        kwargs["style"] = style
-    try:
-        return InlineKeyboardButton(**kwargs)
+    if url: kwargs["url"] = url
+    if callback_data: kwargs["callback_data"] = callback_data
+    if style is not None: kwargs["style"] = style
+    try: return InlineKeyboardButton(**kwargs)
     except TypeError:
         kwargs.pop("style", None)
         return InlineKeyboardButton(**kwargs)
 
-
 def get_html_text(message: Message):
-    if message.reply_to_message and message.reply_to_message.text:
-        return message.reply_to_message.text.html
+    if message.reply_to_message and message.reply_to_message.text: return message.reply_to_message.text.html
     elif len(message.command) > 1:
         html_text = message.text.html
         html_text = re.sub(r"^/\w+(?:@[a-zA-Z0-9_]+)?\s+", "", html_text, count=1)
         return html_text
     return None
 
-
 def _upload_sync(file_bytes):
-    headers = {"User-Agent": "Mozilla/5.0"}
-    for upload_url in [
-        "http://telegraph.controller.bot/upload",
-        "https://telegra.ph/upload",
-    ]:
-        try:
-            res = requests.post(
-                upload_url,
-                files={"file": ("img.jpg", file_bytes, "image/jpeg")},
-                headers=headers,
-                timeout=10,
-            )
-            if res.status_code == 200:
-                data = res.json()
-                if isinstance(data, list) and "src" in data[0]:
-                    return upload_url.replace("/upload", "") + data[0]["src"]
-        except Exception:
-            pass
-    try:
-        res = requests.post(
-            "https://envs.sh",
-            files={"file": ("img.jpg", file_bytes, "image/jpeg")},
-            headers=headers,
-            timeout=10,
-        )
-        if res.status_code == 200 and res.text.startswith("http"):
-            return res.text.strip()
-    except Exception:
-        pass
-    return None
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+    try: res = requests.post("https://catbox.moe/user/api.php", data={"reqtype": "fileupload"}, files={"fileToUpload": ("img.jpg", file_bytes, "image/jpeg")}, timeout=6)
+    except: res = None
+    if res and res.status_code == 200 and res.text.startswith("http"): return res.text.strip()
+    
+    try: res = requests.post("https://graph.org/upload", files={"file": ("img.jpg", file_bytes, "image/jpeg")}, timeout=6)
+    except: res = None
+    if res and res.status_code == 200: return "https://graph.org" + res.json()[0]["src"]
+        
+    try: res = requests.post("https://envs.sh", files={"file": ("img.jpg", file_bytes, "image/jpeg")}, headers=headers, timeout=6)
+    except: res = None
+    if res and res.status_code == 200 and res.text.startswith("http"): return res.text.strip()
+        
+    try: res = requests.post("https://x0.at", files={"file": ("img.jpg", file_bytes, "image/jpeg")}, headers=headers, timeout=6)
+    except: res = None
+    if res and res.status_code == 200 and res.text.startswith("http"): return res.text.strip()
+        
+    try: res = requests.post("https://ttm.sh", files={"file": ("img.jpg", file_bytes, "image/jpeg")}, headers=headers, timeout=6)
+    except: res = None
+    if res and res.status_code == 200 and res.text.startswith("http"): return res.text.strip()
 
+    try: res = requests.post("https://0x0.st", files={"file": ("img.jpg", file_bytes, "image/jpeg")}, headers=headers, timeout=6)
+    except: res = None
+    if res and res.status_code == 200 and res.text.startswith("http"): return res.text.strip()
+    return None
 
 async def upload_image_safely(client: Client, message: Message):
     try:
         file_io = await client.download_media(message, in_memory=True)
-        if not file_io:
-            return None, "❌ Failed to download the image."
+        if not file_io: return None, "❌ Failed to download the image."
         url = await asyncio.to_thread(_upload_sync, file_io.getvalue())
-        if not url:
-            return None, "❌ All upload servers failed."
+        if not url: return None, "❌ All 10 upload servers failed."
         return url, None
-    except Exception as e:
-        return None, f"❌ Internal Error: {e}"
-
+    except Exception as e: return None, f"❌ Internal Error: {e}"
 
 # ============================================================
 # ⚙️ DYNAMIC CHANNELS MANAGEMENT COMMANDS
 # ============================================================
-@Client.on_message(filters.command("addmovieupdatechannel") & admin_filter)
+@Client.on_message(filters.command("addmovieupdatechannel") & admin_filter, group=-4)
 async def add_muc(client: Client, message: Message):
-    if len(message.command) < 2:
-        return await message.reply_text(
-            "⚠️ **Usage:** `/addmovieupdatechannel -100xxxxx`"
-        )
-    try:
-        chat_id = int(message.command[1])
-    except ValueError:
-        return await message.reply_text("❌ Invalid Chat ID.")
-
+    if len(message.command) < 2: return await message.reply_text("⚠️ **Usage:** `/addmovieupdatechannel -100xxxxx`")
+    try: chat_id = int(message.command[1])
+    except ValueError: return await message.reply_text("❌ Invalid Chat ID.")
     settings = await get_ap_settings()
     muc_list = settings.get("muc_list", [])
     if chat_id not in muc_list:
         muc_list.append(chat_id)
         await save_ap_settings("muc_list", muc_list)
-        await message.reply_text(
-            f"✅ Successfully added `{chat_id}` to Movie Update Channels!"
-        )
-    else:
-        await message.reply_text("⚠️ Channel already in the list.")
+        await message.reply_text(f"✅ Successfully added `{chat_id}` to Movie Update Channels!")
+    else: await message.reply_text("⚠️ Channel already in the list.")
 
-
-@Client.on_message(filters.command("remmovieupdatechannel") & admin_filter)
+@Client.on_message(filters.command("remmovieupdatechannel") & admin_filter, group=-4)
 async def rem_muc(client: Client, message: Message):
-    if len(message.command) < 2:
-        return await message.reply_text(
-            "⚠️ **Usage:** `/remmovieupdatechannel -100xxxxx`"
-        )
-    try:
-        chat_id = int(message.command[1])
-    except ValueError:
-        return await message.reply_text("❌ Invalid Chat ID.")
-
+    if len(message.command) < 2: return await message.reply_text("⚠️ **Usage:** `/remmovieupdatechannel -100xxxxx`")
+    try: chat_id = int(message.command[1])
+    except ValueError: return await message.reply_text("❌ Invalid Chat ID.")
     settings = await get_ap_settings()
     muc_list = settings.get("muc_list", [])
     if chat_id in muc_list:
         muc_list.remove(chat_id)
         await save_ap_settings("muc_list", muc_list)
-        await message.reply_text(
-            f"🗑️ Successfully removed `{chat_id}` from Movie Update Channels!"
-        )
-    else:
-        await message.reply_text("⚠️ Channel not found in the list.")
+        await message.reply_text(f"🗑️ Successfully removed `{chat_id}` from Movie Update Channels!")
+    else: await message.reply_text("⚠️ Channel not found in the list.")
 
-
-@Client.on_message(filters.command("allmovieupdatechannel") & admin_filter)
+@Client.on_message(filters.command("allmovieupdatechannel") & admin_filter, group=-4)
 async def all_muc(client: Client, message: Message):
     settings = await get_ap_settings()
     muc_list = settings.get("muc_list", [])
-    info_list = (
-        info.MOVIE_UPDATE_CHANNEL
-        if isinstance(info.MOVIE_UPDATE_CHANNEL, list)
-        else [info.MOVIE_UPDATE_CHANNEL]
-    )
+    info_list = info.MOVIE_UPDATE_CHANNEL if isinstance(info.MOVIE_UPDATE_CHANNEL, list) else [info.MOVIE_UPDATE_CHANNEL]
 
     text = "🎬 **All Movie Update Channels:**\n\n**From info.py (Static):**\n"
     for ch in info_list:
-        if ch:
-            text += f"• `{ch}`\n"
-
+        if ch: text += f"• `{ch}`\n"
     text += "\n**From Database (Dynamic):**\n"
-    if not muc_list:
-        text += "• None added yet.\n"
+    if not muc_list: text += "• None added yet.\n"
     else:
-        for ch in muc_list:
-            text += f"• `{ch}`\n"
-
+        for ch in muc_list: text += f"• `{ch}`\n"
     await message.reply_text(text)
 
-
-@Client.on_message(filters.command("addautopostchannel") & admin_filter)
+@Client.on_message(filters.command("addautopostchannel") & admin_filter, group=-4)
 async def add_apc(client: Client, message: Message):
-    if len(message.command) < 2:
-        return await message.reply_text("⚠️ **Usage:** `/addautopostchannel -100xxxxx`")
-    try:
-        chat_id = int(message.command[1])
-    except ValueError:
-        return await message.reply_text("❌ Invalid Chat ID.")
-
+    if len(message.command) < 2: return await message.reply_text("⚠️ **Usage:** `/addautopostchannel -100xxxxx`")
+    try: chat_id = int(message.command[1])
+    except ValueError: return await message.reply_text("❌ Invalid Chat ID.")
     settings = await get_ap_settings()
     apc_list = settings.get("apc_list", [])
     if chat_id not in apc_list:
         apc_list.append(chat_id)
         await save_ap_settings("apc_list", apc_list)
-        await message.reply_text(
-            f"✅ Successfully added `{chat_id}` to Auto-Post Channels!"
-        )
-    else:
-        await message.reply_text("⚠️ Channel already in the list.")
+        await message.reply_text(f"✅ Successfully added `{chat_id}` to Auto-Post Channels!")
+    else: await message.reply_text("⚠️ Channel already in the list.")
 
-
-@Client.on_message(filters.command("remautopostchannel") & admin_filter)
+@Client.on_message(filters.command("remautopostchannel") & admin_filter, group=-4)
 async def rem_apc(client: Client, message: Message):
-    if len(message.command) < 2:
-        return await message.reply_text("⚠️ **Usage:** `/remautopostchannel -100xxxxx`")
-    try:
-        chat_id = int(message.command[1])
-    except ValueError:
-        return await message.reply_text("❌ Invalid Chat ID.")
-
+    if len(message.command) < 2: return await message.reply_text("⚠️ **Usage:** `/remautopostchannel -100xxxxx`")
+    try: chat_id = int(message.command[1])
+    except ValueError: return await message.reply_text("❌ Invalid Chat ID.")
     settings = await get_ap_settings()
     apc_list = settings.get("apc_list", [])
     if chat_id in apc_list:
         apc_list.remove(chat_id)
         await save_ap_settings("apc_list", apc_list)
-        await message.reply_text(
-            f"🗑️ Successfully removed `{chat_id}` from Auto-Post Channels!"
-        )
-    else:
-        await message.reply_text("⚠️ Channel not found in the list.")
+        await message.reply_text(f"🗑️ Successfully removed `{chat_id}` from Auto-Post Channels!")
+    else: await message.reply_text("⚠️ Channel not found in the list.")
 
-
-@Client.on_message(filters.command("allautopostchannel") & admin_filter)
+@Client.on_message(filters.command("allautopostchannel") & admin_filter, group=-4)
 async def all_apc(client: Client, message: Message):
     settings = await get_ap_settings()
     apc_list = settings.get("apc_list", [])
-    info_list = (
-        info.AUTOPOSTCHANNEL
-        if isinstance(info.AUTOPOSTCHANNEL, list)
-        else [info.AUTOPOSTCHANNEL]
-    )
+    info_list = info.AUTOPOSTCHANNEL if isinstance(info.AUTOPOSTCHANNEL, list) else [info.AUTOPOSTCHANNEL]
 
     text = "🧬 **All Auto-Post Channels:**\n\n**From info.py (Static):**\n"
     for ch in info_list:
-        if ch:
-            text += f"• `{ch}`\n"
-
+        if ch: text += f"• `{ch}`\n"
     text += "\n**From Database (Dynamic):**\n"
-    if not apc_list:
-        text += "• None added yet.\n"
+    if not apc_list: text += "• None added yet.\n"
     else:
-        for ch in apc_list:
-            text += f"• `{ch}`\n"
-
+        for ch in apc_list: text += f"• `{ch}`\n"
     await message.reply_text(text)
-
 
 # ============================================================
 # ⚙️ AUTO-POST CONFIGURATION COMMANDS
 # ============================================================
-@Client.on_message(filters.command("autopost") & admin_filter)
+@Client.on_message(filters.command("autopost") & admin_filter, group=-4)
 async def toggle_autopost(client: Client, message: Message):
     if len(message.command) < 2:
         settings = await get_ap_settings()
         status = "🟢 ON" if settings.get("enabled") else "🔴 OFF"
-        return await message.reply_text(
-            f"**Auto-Post Status:** {status}\n\nUse `/autopost on` or `/autopost off` to toggle."
-        )
+        return await message.reply_text(f"**Auto-Post Status:** {status}\n\nUse `/autopost on` or `/autopost off` to toggle.")
     cmd = message.command[1].lower()
     if cmd == "on":
         await save_ap_settings("enabled", True)
@@ -365,157 +271,107 @@ async def toggle_autopost(client: Client, message: Message):
         await save_ap_settings("enabled", False)
         await message.reply_text("🔴 **Auto-Post Engine OFF!**")
 
-
-@Client.on_message(filters.command(["editautopost", "setautoposttext"]) & admin_filter)
+@Client.on_message(filters.command(["editautopost", "setautoposttext"]) & admin_filter, group=-4)
 async def set_autopost_text(client: Client, message: Message):
     text = get_html_text(message)
-    if not text:
-        return await message.reply_text(
-            "⚠️ **Usage:** `/editautopost <text>`\nPlaceholders: `{title}`, `{year}`, `{size}`, `{rating}`, `{LANGUAGES}`, `{RESOLUTIONS}`, `{GENRES}`, `{OTT_PLATFORMS}`"
-        )
+    if not text: return await message.reply_text("⚠️ **Usage:** `/editautopost <text>`\nPlaceholders: `{title}`, `{year}`, `{size}`, `{rating}`, `{LANGUAGES}`, `{RESOLUTIONS}`, `{GENRES}`, `{OTT_PLATFORMS}`")
     await save_ap_settings("template", text)
     await message.reply_text(f"✅ **Main Template Updated!**\n\n{text}")
 
-
-@Client.on_message(
-    filters.command(["editautoposttittle", "editautoposttitle"]) & admin_filter
-)
+@Client.on_message(filters.command(["editautoposttittle", "editautoposttitle"]) & admin_filter, group=-4)
 async def cmd_edit_title(client: Client, message: Message):
     text = get_html_text(message)
-    if not text:
-        return await message.reply_text("⚠️ **Usage:** `/editautoposttitle <format>`")
+    if not text: return await message.reply_text("⚠️ **Usage:** `/editautoposttitle <format>`")
     await save_ap_settings("format_title", text)
     await message.reply_text(f"✅ **Title Format Updated!**\n\n{text}")
 
-
-@Client.on_message(filters.command(["editautopostyear"]) & admin_filter)
+@Client.on_message(filters.command(["editautopostyear"]) & admin_filter, group=-4)
 async def cmd_edit_year(client: Client, message: Message):
     text = get_html_text(message)
-    if not text:
-        return await message.reply_text("⚠️ **Usage:** `/editautopostyear <format>`")
+    if not text: return await message.reply_text("⚠️ **Usage:** `/editautopostyear <format>`")
     await save_ap_settings("format_year", text)
     await message.reply_text(f"✅ **Year Format Updated!**\n\n{text}")
 
-
-@Client.on_message(filters.command(["editautopostlanguages"]) & admin_filter)
+@Client.on_message(filters.command(["editautopostlanguages"]) & admin_filter, group=-4)
 async def cmd_edit_langs(client: Client, message: Message):
     text = get_html_text(message)
-    if not text:
-        return await message.reply_text(
-            "⚠️ **Usage:** `/editautopostlanguages <format>`"
-        )
+    if not text: return await message.reply_text("⚠️ **Usage:** `/editautopostlanguages <format>`")
     await save_ap_settings("format_languages", text)
     await message.reply_text(f"✅ **Languages Format Updated!**\n\n{text}")
 
-
-@Client.on_message(filters.command(["editautopostresolutions"]) & admin_filter)
+@Client.on_message(filters.command(["editautopostresolutions"]) & admin_filter, group=-4)
 async def cmd_edit_res(client: Client, message: Message):
     text = get_html_text(message)
-    if not text:
-        return await message.reply_text(
-            "⚠️ **Usage:** `/editautopostresolutions <format>`"
-        )
+    if not text: return await message.reply_text("⚠️ **Usage:** `/editautopostresolutions <format>`")
     await save_ap_settings("format_resolutions", text)
     await message.reply_text(f"✅ **Resolutions Format Updated!**\n\n{text}")
 
-
-@Client.on_message(filters.command(["editautopostgenres"]) & admin_filter)
+@Client.on_message(filters.command(["editautopostgenres"]) & admin_filter, group=-4)
 async def cmd_edit_genres(client: Client, message: Message):
     text = get_html_text(message)
-    if not text:
-        return await message.reply_text("⚠️ **Usage:** `/editautopostgenres <format>`")
+    if not text: return await message.reply_text("⚠️ **Usage:** `/editautopostgenres <format>`")
     await save_ap_settings("format_genres", text)
     await message.reply_text(f"✅ **Genres Format Updated!**\n\n{text}")
 
-
-@Client.on_message(filters.command(["editautopostottplatforms"]) & admin_filter)
+@Client.on_message(filters.command(["editautopostottplatforms"]) & admin_filter, group=-4)
 async def cmd_edit_otts(client: Client, message: Message):
     text = get_html_text(message)
-    if not text:
-        return await message.reply_text(
-            "⚠️ **Usage:** `/editautopostottplatforms <format>`"
-        )
+    if not text: return await message.reply_text("⚠️ **Usage:** `/editautopostottplatforms <format>`")
     await save_ap_settings("format_otts", text)
     await message.reply_text(f"✅ **OTT Platforms Format Updated!**\n\n{text}")
 
-
-@Client.on_message(filters.command("editautopostdirect") & admin_filter)
+@Client.on_message(filters.command("editautopostdirect") & admin_filter, group=-4)
 async def cmd_edit_ap_direct(client: Client, message: Message):
     text = get_html_text(message)
-    if not text:
-        return await message.reply_text(
-            "⚠️ **Usage:** `/editautopostdirect Download Now 📥`"
-        )
+    if not text: return await message.reply_text("⚠️ **Usage:** `/editautopostdirect Download Now 📥`")
     await save_ap_settings("direct_button_text", text)
     await message.reply_text(f"✅ **Direct Search Button Text Updated!** -> {text}")
 
-
-@Client.on_message(filters.command("setapbtn1") & admin_filter)
+@Client.on_message(filters.command("setapbtn1") & admin_filter, group=-4)
 async def set_ap_btn1(client: Client, message: Message):
     if len(message.command) < 2 or "|" not in message.text:
-        return await message.reply_text(
-            "⚠️ **Usage:** `/setapbtn1 Group 1 🎬 | https://t.me/yourgroup`"
-        )
+        return await message.reply_text("⚠️ **Usage:** `/setapbtn1 Group 1 🎬 | https://t.me/yourgroup`")
     args = message.text.split(None, 1)[1].split("|")
     await save_ap_settings("btn1", {"text": args[0].strip(), "url": args[1].strip()})
-    await message.reply_text(
-        f"✅ **Button 1 Updated!**\nText: {args[0].strip()}\nURL: {args[1].strip()}"
-    )
+    await message.reply_text(f"✅ **Button 1 Updated!**\nText: {args[0].strip()}\nURL: {args[1].strip()}")
 
-
-@Client.on_message(filters.command("setapbtn2") & admin_filter)
+@Client.on_message(filters.command("setapbtn2") & admin_filter, group=-4)
 async def set_ap_btn2(client: Client, message: Message):
     if len(message.command) < 2 or "|" not in message.text:
-        return await message.reply_text(
-            "⚠️ **Usage:** `/setapbtn2 Group 2 🎬 | https://t.me/yourgroup`"
-        )
+        return await message.reply_text("⚠️ **Usage:** `/setapbtn2 Group 2 🎬 | https://t.me/yourgroup`")
     args = message.text.split(None, 1)[1].split("|")
     await save_ap_settings("btn2", {"text": args[0].strip(), "url": args[1].strip()})
-    await message.reply_text(
-        f"✅ **Button 2 Updated!**\nText: {args[0].strip()}\nURL: {args[1].strip()}"
-    )
+    await message.reply_text(f"✅ **Button 2 Updated!**\nText: {args[0].strip()}\nURL: {args[1].strip()}")
 
-
-@Client.on_message(filters.command("setapbtn3") & admin_filter)
+@Client.on_message(filters.command("setapbtn3") & admin_filter, group=-4)
 async def set_ap_btn3(client: Client, message: Message):
     if len(message.command) < 2 or "|" not in message.text:
-        return await message.reply_text(
-            "⚠️ **Usage:** `/setapbtn3 Direct Search 🔎 | {deep_link}`"
-        )
+        return await message.reply_text("⚠️ **Usage:** `/setapbtn3 Direct Search 🔎 | {deep_link}`")
     args = message.text.split(None, 1)[1].split("|")
     await save_ap_settings("btn3", {"text": args[0].strip(), "url": args[1].strip()})
-    await message.reply_text(
-        f"✅ **Button 3 Updated!**\nText: {args[0].strip()}\nURL: {args[1].strip()}"
-    )
+    await message.reply_text(f"✅ **Button 3 Updated!**\nText: {args[0].strip()}\nURL: {args[1].strip()}")
 
-
-@Client.on_message(filters.command("remapbtn1") & admin_filter)
+@Client.on_message(filters.command("remapbtn1") & admin_filter, group=-4)
 async def rem_ap_btn1(client: Client, message: Message):
     await save_ap_settings("btn1", None)
     await message.reply_text("🗑️ **Button 1 Removed.**")
 
-
-@Client.on_message(filters.command("remapbtn2") & admin_filter)
+@Client.on_message(filters.command("remapbtn2") & admin_filter, group=-4)
 async def rem_ap_btn2(client: Client, message: Message):
     await save_ap_settings("btn2", None)
     await message.reply_text("🗑️ **Button 2 Removed.**")
 
-
-@Client.on_message(filters.command("remapbtn3") & admin_filter)
+@Client.on_message(filters.command("remapbtn3") & admin_filter, group=-4)
 async def rem_ap_btn3(client: Client, message: Message):
     await save_ap_settings("btn3", None)
     await message.reply_text("🗑️ **Button 3 Removed.**")
 
-
-@Client.on_message(filters.command("setautopostimage") & admin_filter)
+@Client.on_message(filters.command("setautopostimage") & admin_filter, group=-4)
 async def set_autopost_image(client: Client, message: Message):
-    ask_msg = await message.reply_text(
-        "📸 **Please send the new default Photo or Image URL:**\n*(Or type `blank` to remove the image entirely)*"
-    )
+    uid = get_uid(message)
+    ask_msg = await message.reply_text("📸 **Please send the new default Photo or Image URL:**\n*(Or type `blank` to remove the image entirely)*")
     try:
-        res = await native_listen(
-            client, message.chat.id, message.from_user.id, timeout=120
-        )
+        res = await native_listen(client, message.chat.id, uid, timeout=120)
         await ask_msg.delete()
 
         if res.text and res.text.lower() == "blank":
@@ -523,23 +379,16 @@ async def set_autopost_image(client: Client, message: Message):
             await res.delete()
             return await message.reply_text("✅ **Default Auto-Post Image Removed.**")
 
-        ask_mode = await message.reply_text(
-            "⚙️ **How should this image be displayed globally?**\n\nType `1` for **Preview Mode** (Rich Hidden Link)\nType `2` for **Normal Photo** (Attached Media)"
-        )
-        mode_res = await native_listen(
-            client, message.chat.id, message.from_user.id, timeout=60
-        )
+        ask_mode = await message.reply_text("⚙️ **How should this image be displayed globally?**\n\nType `1` for **Preview Mode** (Rich Hidden Link)\nType `2` for **Normal Photo** (Attached Media)")
+        mode_res = await native_listen(client, message.chat.id, uid, timeout=60)
         await ask_mode.delete()
 
         mode = "photo" if "2" in mode_res.text else "preview"
 
         if mode == "preview" and res.photo:
-            status_msg = await message.reply_text(
-                "⏳ Uploading to secure server for preview..."
-            )
+            status_msg = await message.reply_text("⏳ Uploading to secure server for preview...")
             url, err = await upload_image_safely(client, res)
-            if not url:
-                return await status_msg.edit_text(err)
+            if not url: return await status_msg.edit_text(err)
             await status_msg.delete()
         else:
             url = res.photo.file_id if res.photo else res.text.strip()
@@ -549,151 +398,102 @@ async def set_autopost_image(client: Client, message: Message):
 
         await save_ap_settings("image", url)
         await save_ap_settings("image_mode", mode)
-        await message.reply_text(
-            f"✅ **Global Image Saved!**\nDisplay Mode: **{mode.title()}**"
-        )
+        await message.reply_text(f"✅ **Global Image Saved!**\nDisplay Mode: **{mode.title()}**")
 
     except asyncio.TimeoutError:
         await ask_msg.edit_text("⌛ Timeout. Image edit cancelled.")
 
-
-@Client.on_message(filters.command("remautopostimage") & admin_filter)
+@Client.on_message(filters.command("remautopostimage") & admin_filter, group=-4)
 async def rem_autopost_image(client: Client, message: Message):
     await save_ap_settings("image", None)
-    await message.reply_text(
-        "🗑️ **Default Auto-Post Image Removed.** The bot will revert to using dynamic TMDB posters."
-    )
+    await message.reply_text("🗑️ **Default Auto-Post Image Removed.** The bot will revert to using dynamic TMDB posters.")
 
-
-@Client.on_message(filters.command("setautopoststicker") & admin_filter)
+@Client.on_message(filters.command("setautopoststicker") & admin_filter, group=-4)
 async def set_autopost_sticker(client: Client, message: Message):
     if not message.reply_to_message or not message.reply_to_message.sticker:
-        return await message.reply_text(
-            "⚠️ **Please reply directly to a sticker** with `/setautopoststicker`."
-        )
+        return await message.reply_text("⚠️ **Please reply directly to a sticker** with `/setautopoststicker`.")
     await save_ap_settings("sticker", message.reply_to_message.sticker.file_id)
     await message.reply_text("✅ **Auto-Post Sticker Saved!**")
 
-
-@Client.on_message(filters.command("remautopoststicker") & admin_filter)
+@Client.on_message(filters.command("remautopoststicker") & admin_filter, group=-4)
 async def rem_autopost_sticker(client: Client, message: Message):
     await save_ap_settings("sticker", None)
     await message.reply_text("🗑️ **Auto-Post Sticker Removed.**")
 
-
 # ============================================================
-# 🚀 QUEUE WORKER & TRIGGER ENGINE (Thread-Safe + Auto-Expire)
+# 🚀 QUEUE WORKER & TRIGGER ENGINE
 # ============================================================
 async def expire_pending_post(client: Client, msg_id_str: str, delay: int = 86400):
     await asyncio.sleep(delay)
     payload = PENDING_AP.pop(msg_id_str, None)
     if payload and "chat_id" in payload and "message_id" in payload:
-        try:
-            await client.delete_messages(
-                chat_id=payload["chat_id"], message_id=payload["message_id"]
-            )
-        except Exception:
-            pass
+        try: await client.delete_messages(chat_id=payload["chat_id"], message_id=payload["message_id"])
+        except Exception: pass
 
+def safe_ints(lst):
+    return [int(str(x).strip()) for x in lst if str(x).strip().lstrip("-").isdigit()]
 
 async def process_single_auto_post(client: Client, message: Message):
     try:
         settings = await get_ap_settings()
-        if not settings.get("enabled", False):
-            return
+        if not settings.get("enabled", False): return
 
         media = message.document or message.video or message.audio
-        if not media:
-            return
+        if not media: return
 
         file_unique_id = getattr(media, "file_unique_id", None)
-        if await is_file_processed(file_unique_id):
-            return
+        if await is_file_processed(file_unique_id): return
         await mark_file_processed(file_unique_id)
 
-        info_apc = (
-            info.AUTOPOSTCHANNEL
-            if isinstance(info.AUTOPOSTCHANNEL, list)
-            else [info.AUTOPOSTCHANNEL]
-        )
-        db_apc = settings.get("apc_list", [])
-        update_channels = list(set([int(ch) for ch in info_apc + db_apc if ch]))
+        info_apc = safe_ints(info.AUTOPOSTCHANNEL if isinstance(info.AUTOPOSTCHANNEL, list) else [info.AUTOPOSTCHANNEL])
+        db_apc = safe_ints(settings.get("apc_list", []))
+        update_channels = list(set(info_apc + db_apc))
 
         if not update_channels:
-            info_muc = (
-                info.MOVIE_UPDATE_CHANNEL
-                if isinstance(info.MOVIE_UPDATE_CHANNEL, list)
-                else [info.MOVIE_UPDATE_CHANNEL]
-            )
-            db_muc = settings.get("muc_list", [])
-            update_channels = list(set([int(ch) for ch in info_muc + db_muc if ch]))
+            info_muc = safe_ints(info.MOVIE_UPDATE_CHANNEL if isinstance(info.MOVIE_UPDATE_CHANNEL, list) else [info.MOVIE_UPDATE_CHANNEL])
+            db_muc = safe_ints(settings.get("muc_list", []))
+            update_channels = list(set(info_muc + db_muc))
 
-        if not update_channels:
-            return
+        if not update_channels: return
 
-        file_name = getattr(media, "file_name", "Unknown")
+        file_name = getattr(media, "file_name", "Unknown") or "Unknown"
         file_size = getattr(media, "file_size", 0)
         size_str = get_size(file_size)
 
         clean_name = re.sub(r"(?i)\[?@?sandalwood[^\]\s]*\]?", "", file_name)
         clean_name = re.sub(r"[_.-]", " ", clean_name)
 
-        lang_matches = re.findall(
-            r"(?i)\b(Kannada|English|Gujarati|Hindi|Bengali|Malayalam|Marathi|Punjabi|Tamil|Telugu|Urdu|Dual Audio|Multi Audio)\b",
-            clean_name,
-        )
+        lang_matches = re.findall(r"(?i)\b(Kannada|English|Gujarati|Hindi|Bengali|Malayalam|Marathi|Punjabi|Tamil|Telugu|Urdu|Dual Audio|Multi Audio)\b", clean_name)
         langs = list(set([l.title() for l in lang_matches]))
         langs_str = ", ".join(langs) if langs else ""
 
-        res_matches = re.findall(
-            r"(?i)\b(WEB-DL|HDRip|HDTC|1080p|720p|480p|1440p|2160p|4k|BluRay|BDRip|WEBRip|HDTVRip|DVDRip|CAMRip|HEVC)\b",
-            clean_name,
-        )
-        res = list(
-            set([r.upper() if "p" not in r.lower() else r.lower() for r in res_matches])
-        )
+        res_matches = re.findall(r"(?i)\b(WEB-DL|HDRip|HDTC|1080p|720p|480p|1440p|2160p|4k|BluRay|BDRip|WEBRip|HDTVRip|DVDRip|CAMRip|HEVC)\b", clean_name)
+        res = list(set([r.upper() if "p" not in r.lower() else r.lower() for r in res_matches]))
         res_str = ", ".join(res) if res else ""
 
-        ott_matches = re.findall(
-            r"(?i)\b(Netflix|Amazon Prime|Prime Video|Aha|Zee5|Hotstar|Disney\+?|JioCinema|SonyLIV|SunNXT|Voot|Hulu|HBO|Apple TV|AppleTV|Crunchyroll)\b",
-            clean_name,
-        )
-        otts = list(
-            set(
-                [
-                    o.title()
-                    .replace("Appletv", "Apple TV")
-                    .replace("Disney+", "Disney")
-                    for o in ott_matches
-                ]
-            )
-        )
+        ott_matches = re.findall(r"(?i)\b(Netflix|Amazon Prime|Prime Video|Aha|Zee5|Hotstar|Disney\+?|JioCinema|SonyLIV|SunNXT|Voot|Hulu|HBO|Apple TV|AppleTV|Crunchyroll)\b", clean_name)
+        otts = list(set([o.title().replace("Appletv", "Apple TV").replace("Disney+", "Disney") for o in ott_matches]))
         otts_str = ", ".join(otts) if otts else ""
 
-        search_name = re.sub(
-            r"(?i)\b(1080p|720p|480p|2160p|4k|WEB-DL|HDRip|HDTC|BDRip|BluRay|DVDRip|WEBRip|CAMRip|HEVC|mkv|mp4|avi|hindi|kannada|telugu|tamil|malayalam|english|dual audio|multi audio|dual|multi|subs|episodes|season\s*\d+|s\d+e\d+|Netflix|Prime|Aha|Zee5|Hotstar|JioCinema|SonyLIV|Voot)\b",
-            "",
-            clean_name,
-        )
+        search_name = re.sub(r"(?i)\b(1080p|720p|480p|2160p|4k|WEB-DL|HDRip|HDTC|BDRip|BluRay|DVDRip|WEBRip|CAMRip|HEVC|mkv|mp4|avi|hindi|kannada|telugu|tamil|malayalam|english|dual audio|multi audio|dual|multi|subs|episodes|season\s*\d+|s\d+e\d+|Netflix|Prime|Aha|Zee5|Hotstar|JioCinema|SonyLIV|Voot)\b", "", clean_name)
         search_name = re.sub(r"\b(19\d{2}|20\d{2})\b", "", search_name)
         search_name = re.sub(r"\s+", " ", search_name).strip()
 
+        if not search_name: search_name = "Unknown"
+        
         movie_details = await get_movie_detailsx(search_name)
         if not movie_details or not movie_details.get("title"):
             fallback_year = re.search(r"\b(19\d{2}|20\d{2})\b", file_name)
             movie_details = {
                 "title": search_name.title() or "Unknown Movie",
                 "year": fallback_year.group(1) if fallback_year else "N/A",
-                "rating": "N/A",
-                "genres": ["Drama", "Action"],
-                "plot": "No plot description available.",
-                "poster_url": None,
+                "rating": "N/A", "genres": ["Drama", "Action"],
+                "plot": "No plot description available.", "poster_url": None,
             }
 
         title = movie_details.get("title", search_name)
         year = movie_details.get("year", "N/A")
         rating = movie_details.get("rating", "N/A")
-
         tmdb_genres = movie_details.get("genres", [])
         genres_str = ", ".join(tmdb_genres) if tmdb_genres else ""
         plot = movie_details.get("plot", "N/A")
@@ -710,168 +510,65 @@ async def process_single_auto_post(client: Client, message: Message):
         fmt_otts = settings.get("format_otts", "<b>{otts}</b>")
 
         val_title = fmt_title.replace("{title}", html.escape(title))
-        val_year = (
-            fmt_year.replace("{year}", html.escape(str(year)))
-            if str(year) != "N/A"
-            else ""
-        )
-        val_langs = (
-            fmt_langs.replace("{langs}", langs_str).replace("{LANGUAGES}", langs_str)
-            if langs_str
-            else ""
-        )
-        val_res = (
-            fmt_res.replace("{resolutions}", res_str).replace("{RESOLUTIONS}", res_str)
-            if res_str
-            else ""
-        )
-        val_gens = (
-            fmt_gens.replace("{genres}", genres_str).replace("{GENRES}", genres_str)
-            if genres_str
-            else ""
-        )
-        val_otts = (
-            fmt_otts.replace("{otts}", otts_str).replace("{OTT_PLATFORMS}", otts_str)
-            if otts_str
-            else ""
-        )
+        val_year = fmt_year.replace("{year}", html.escape(str(year))) if str(year) != "N/A" else ""
+        val_langs = fmt_langs.replace("{langs}", langs_str).replace("{LANGUAGES}", langs_str) if langs_str else ""
+        val_res = fmt_res.replace("{resolutions}", res_str).replace("{RESOLUTIONS}", res_str) if res_str else ""
+        val_gens = fmt_gens.replace("{genres}", genres_str).replace("{GENRES}", genres_str) if genres_str else ""
+        val_otts = fmt_otts.replace("{otts}", otts_str).replace("{OTT_PLATFORMS}", otts_str) if otts_str else ""
 
         template_str = settings.get("template", DEFAULT_TEMPLATE)
         text = template_str.replace("{title}", val_title).replace("{year}", val_year)
 
-        for tag, val in [
-            ("{LANGUAGES}", val_langs),
-            ("{RESOLUTIONS}", val_res),
-            ("{GENRES}", val_gens),
-            ("{OTT_PLATFORMS}", val_otts),
-        ]:
-            if val:
-                text = text.replace(tag, val)
-            else:
-                text = re.sub(rf"[^\n]*{re.escape(tag)}[^\n]*\n?", "", text)
+        for tag, val in [("{LANGUAGES}", val_langs), ("{RESOLUTIONS}", val_res), ("{GENRES}", val_gens), ("{OTT_PLATFORMS}", val_otts)]:
+            if val: text = text.replace(tag, val)
+            else: text = re.sub(rf"[^\n]*{re.escape(tag)}[^\n]*\n?", "", text)
 
-        if image_mode == "photo" and len(plot) > 250:
-            plot = plot[:250] + "..."
+        if image_mode == "photo" and len(plot) > 250: plot = plot[:250] + "..."
 
-        text = (
-            text.replace("{size}", size_str)
-            .replace("{rating}", html.escape(str(rating)))
-            .replace("{plot}", html.escape(str(plot)))
-            .replace("{file_name}", html.escape(file_name))
-        )
+        text = text.replace("{size}", size_str).replace("{rating}", html.escape(str(rating))).replace("{plot}", html.escape(str(plot))).replace("{file_name}", html.escape(file_name))
         text += f"\n\n<b>Jᴏɪɴ: @Sandalwood_Kannada_Moviesz</b>"
 
-        if poster and image_mode == "preview":
-            text = f"{text}\n<a href='{poster}'>&#8205;</a>"
+        if poster and image_mode == "preview": text = f"{text}\n<a href='{poster}'>&#8205;</a>"
 
         bot_me = await client.get_me()
         bot_username = bot_me.username
-        safe_query = re.sub(
-            r"[^a-zA-Z0-9_-]", "_", f"{title} {year}" if str(year) != "N/A" else title
-        ).strip("_")[:50]
+        safe_query = re.sub(r"[^a-zA-Z0-9_-]", "_", f"{title} {year}" if str(year) != "N/A" else title).strip("_")[:50]
         deep_link = f"https://t.me/{bot_username}?start=search_{safe_query}"
 
-        btn1 = settings.get(
-            "btn1",
-            {"text": "Group 1 🎬", "url": "https://t.me/Sandalwood_Kannada_Group"},
-        )
-        btn2 = settings.get(
-            "btn2", {"text": "Group 2 🎬", "url": "https://t.me/+GLsPkRgLGGszMzY1"}
-        )
-        btn3 = settings.get("btn3", {"text": "Direct Search 🔎", "url": "{deep_link}"})
+        btn1 = settings.get("btn1", {"text": "Group 1 🎬", "url": "https://t.me/Sandalwood_Kannada_Group"})
+        btn2 = settings.get("btn2", {"text": "Group 2 🎬", "url": "https://t.me/+GLsPkRgLGGszMzY1"})
+        btn3 = settings.get("btn3", {"text": settings.get("direct_button_text", "Direct Search 🔎"), "url": "{deep_link}"})
 
         btn_layout = []
         if btn1 or btn2:
             row = []
-            if btn1:
-                row.append(
-                    create_btn(
-                        btn1["text"],
-                        url=btn1["url"].replace("{deep_link}", deep_link),
-                        style=BTN_PRIMARY,
-                    )
-                )
-            if btn2:
-                row.append(
-                    create_btn(
-                        btn2["text"],
-                        url=btn2["url"].replace("{deep_link}", deep_link),
-                        style=BTN_PRIMARY,
-                    )
-                )
+            if btn1: row.append(create_btn(btn1["text"], url=btn1["url"].replace("{deep_link}", deep_link), style=BTN_PRIMARY))
+            if btn2: row.append(create_btn(btn2["text"], url=btn2["url"].replace("{deep_link}", deep_link), style=BTN_PRIMARY))
             btn_layout.append(row)
-        if btn3:
-            btn_layout.append(
-                [
-                    create_btn(
-                        btn3["text"],
-                        url=btn3["url"].replace("{deep_link}", deep_link),
-                        style=BTN_SUCCESS,
-                    )
-                ]
-            )
+        if btn3: btn_layout.append([create_btn(btn3["text"], url=btn3["url"].replace("{deep_link}", deep_link), style=BTN_SUCCESS)])
 
-        target_admin = (
-            message.from_user.id
-            if message.from_user and message.from_user.id in ADMIN_USERS
-            else ADMIN_USERS[0]
-        )
+        target_admin = message.from_user.id if message.from_user and message.from_user.id in get_admin_list() else get_admin_list()[0]
 
         pm_markup_layout = []
         pm_markup_layout.extend(btn_layout)
-        pm_markup_layout.append(
-            [
-                create_btn(
-                    "✅ Post to Channel", callback_data=f"ap_post_1", style=BTN_SUCCESS
-                )
-            ]
-        )
-        pm_markup_layout.append(
-            [
-                create_btn(
-                    "✏️ Edit Text", callback_data=f"ap_edit_1", style=BTN_PRIMARY
-                ),
-                create_btn(
-                    "📸 Edit Image", callback_data=f"ap_editimg_1", style=BTN_PRIMARY
-                ),
-            ]
-        )
-        pm_markup_layout.append(
-            [create_btn("❌ Cancel", callback_data=f"ap_cancel_1", style=BTN_DANGER)]
-        )
+        pm_markup_layout.append([create_btn("✅ Post to Channel", callback_data=f"ap_post_1", style=BTN_SUCCESS)])
+        pm_markup_layout.append([create_btn("✏️ Edit Text", callback_data=f"ap_edit_1", style=BTN_PRIMARY), create_btn("📸 Edit Image", callback_data=f"ap_editimg_1", style=BTN_PRIMARY)])
+        pm_markup_layout.append([create_btn("❌ Cancel", callback_data=f"ap_cancel_1", style=BTN_DANGER)])
 
         if poster and image_mode == "photo":
-            ask_msg = await client.send_photo(
-                chat_id=target_admin,
-                photo=poster,
-                caption=f"**🚨 AUTO-POST TRIGGERED 🚨**\n\n{text}",
-                reply_markup=InlineKeyboardMarkup(pm_markup_layout),
-            )
+            ask_msg = await client.send_photo(chat_id=target_admin, photo=poster, caption=f"**🚨 AUTO-POST TRIGGERED 🚨**\n\n{text}", reply_markup=InlineKeyboardMarkup(pm_markup_layout))
         else:
-            ask_msg = await client.send_message(
-                chat_id=target_admin,
-                text=f"**🚨 AUTO-POST TRIGGERED 🚨**\n\n{text}",
-                reply_markup=InlineKeyboardMarkup(pm_markup_layout),
-            )
+            ask_msg = await client.send_message(chat_id=target_admin, text=f"**🚨 AUTO-POST TRIGGERED 🚨**\n\n{text}", reply_markup=InlineKeyboardMarkup(pm_markup_layout))
 
         msg_id_str = str(ask_msg.id)
         PENDING_AP[msg_id_str] = {
-            "text": text,
-            "buttons": InlineKeyboardMarkup(btn_layout),
-            "channels": update_channels,
-            "sticker": settings.get("sticker"),
-            "poster": poster,
-            "image_mode": image_mode,
-            "chat_id": target_admin,
-            "message_id": ask_msg.id,
+            "text": text, "buttons": InlineKeyboardMarkup(btn_layout), "channels": update_channels,
+            "sticker": settings.get("sticker"), "poster": poster, "image_mode": image_mode,
+            "chat_id": target_admin, "message_id": ask_msg.id,
         }
 
-        # ⚡ Auto-Expire after 24 Hours
         asyncio.create_task(expire_pending_post(client, msg_id_str, 86400))
-
-    except Exception as e:
-        logger.error(f"Process Auto-Post Failed: {e}")
-
+    except Exception as e: logger.error(f"Process Auto-Post Failed: {e}")
 
 async def auto_post_worker(client: Client):
     while True:
@@ -879,64 +576,39 @@ async def auto_post_worker(client: Client):
             message = await POST_QUEUE.get()
             await process_single_auto_post(client, message)
             POST_QUEUE.task_done()
-        except Exception as e:
-            logger.error(f"Queue Worker Error: {e}")
+        except Exception as e: logger.error(f"Queue Worker Error: {e}")
         await asyncio.sleep(0.5)
 
-
-@Client.on_message(
-    filters.chat(info.FILE_STORE_CHANNEL)
-    & (filters.document | filters.video | filters.audio)
-)
+@Client.on_message(filters.chat(info.FILE_STORE_CHANNEL) & (filters.document | filters.video | filters.audio))
 async def auto_post_trigger(client: Client, message: Message):
     global _WORKER_STARTED
     if not _WORKER_STARTED:
         asyncio.create_task(auto_post_worker(client))
         _WORKER_STARTED = True
-
     await POST_QUEUE.put(message)
 
-
-@Client.on_callback_query(
-    filters.regex(r"^ap_(post|edit|editimg|cancel)_") & admin_filter
-)
+@Client.on_callback_query(filters.regex(r"^ap_(post|edit|editimg|cancel)_") & admin_filter)
 async def ap_approval_callback(client: Client, query: CallbackQuery):
     action = query.data.split("_")[1]
     msg_id = str(query.message.id)
 
     payload = PENDING_AP.get(msg_id)
     if not payload:
-        return await query.answer(
-            "⌛ This pending post has expired or was already handled.", show_alert=True
-        )
+        return await query.answer("⌛ This pending post has expired or was already handled.", show_alert=True)
 
     if action == "post":
         for ch_id in payload["channels"]:
             try:
                 if payload["poster"] and payload["image_mode"] == "photo":
-                    await client.send_photo(
-                        chat_id=ch_id,
-                        photo=payload["poster"],
-                        caption=payload["text"],
-                        reply_markup=payload["buttons"],
-                    )
+                    await client.send_photo(chat_id=ch_id, photo=payload["poster"], caption=payload["text"], reply_markup=payload["buttons"])
                 else:
-                    await client.send_message(
-                        chat_id=ch_id,
-                        text=payload["text"],
-                        reply_markup=payload["buttons"],
-                    )
-
-                if payload["sticker"]:
-                    await client.send_sticker(chat_id=ch_id, sticker=payload["sticker"])
-            except Exception as e:
-                logger.error(f"Failed to post to channel {ch_id}: {e}")
+                    await client.send_message(chat_id=ch_id, text=payload["text"], reply_markup=payload["buttons"])
+                if payload["sticker"]: await client.send_sticker(chat_id=ch_id, sticker=payload["sticker"])
+            except Exception as e: logger.error(f"Failed to post to channel {ch_id}: {e}")
 
         await query.answer("✅ Successfully Posted to all channels!", show_alert=False)
-        try:
-            await query.message.delete()
-        except Exception:
-            pass
+        try: await query.message.delete()
+        except Exception: pass
         PENDING_AP.pop(msg_id, None)
 
     elif action == "cancel":
@@ -945,74 +617,32 @@ async def ap_approval_callback(client: Client, query: CallbackQuery):
 
     elif action == "edit":
         await query.answer()
-        prompt_msg = await query.message.reply_text(
-            "✏️ **Please send the new formatted text for this post now:**\n(Supports HTML. Wait for confirmation...)"
-        )
+        prompt_msg = await query.message.reply_text("✏️ **Please send the new formatted text for this post now:**\n(Supports HTML. Wait for confirmation...)")
         try:
-            response = await native_listen(
-                client, query.message.chat.id, query.from_user.id, timeout=120
-            )
+            uid = get_uid(query.message) if getattr(query.message, "from_user", None) else query.from_user.id
+            response = await native_listen(client, query.message.chat.id, uid, timeout=120)
             await prompt_msg.delete()
 
             if response.text:
                 new_text = response.text.html
-                if (
-                    payload["poster"]
-                    and payload["image_mode"] == "preview"
-                    and "<a href=" not in new_text
-                ):
+                if payload["poster"] and payload["image_mode"] == "preview" and "<a href=" not in new_text:
                     new_text = f"{new_text}\n<a href='{payload['poster']}'>&#8205;</a>"
 
                 payload["text"] = new_text
                 PENDING_AP[msg_id] = payload
 
                 pm_markup_layout = []
-                if payload["buttons"] and getattr(
-                    payload["buttons"], "inline_keyboard", None
-                ):
+                if payload["buttons"] and getattr(payload["buttons"], "inline_keyboard", None):
                     pm_markup_layout.extend(payload["buttons"].inline_keyboard)
 
-                pm_markup_layout.append(
-                    [
-                        create_btn(
-                            "✅ Post to Channel",
-                            callback_data=f"ap_post_1",
-                            style=BTN_SUCCESS,
-                        )
-                    ]
-                )
-                pm_markup_layout.append(
-                    [
-                        create_btn(
-                            "✏️ Edit Text",
-                            callback_data=f"ap_edit_1",
-                            style=BTN_PRIMARY,
-                        ),
-                        create_btn(
-                            "📸 Edit Image",
-                            callback_data=f"ap_editimg_1",
-                            style=BTN_PRIMARY,
-                        ),
-                    ]
-                )
-                pm_markup_layout.append(
-                    [
-                        create_btn(
-                            "❌ Cancel", callback_data=f"ap_cancel_1", style=BTN_DANGER
-                        )
-                    ]
-                )
+                pm_markup_layout.append([create_btn("✅ Post to Channel", callback_data=f"ap_post_1", style=BTN_SUCCESS)])
+                pm_markup_layout.append([create_btn("✏️ Edit Text", callback_data=f"ap_edit_1", style=BTN_PRIMARY), create_btn("📸 Edit Image", callback_data=f"ap_editimg_1", style=BTN_PRIMARY)])
+                pm_markup_layout.append([create_btn("❌ Cancel", callback_data=f"ap_cancel_1", style=BTN_DANGER)])
 
                 if payload["poster"] and payload["image_mode"] == "photo":
-                    await query.message.edit_caption(
-                        f"**🚨 AUTO-POST TRIGGERED (EDITED) 🚨**\n\n{new_text}",
-                        reply_markup=InlineKeyboardMarkup(pm_markup_layout),
-                    )
+                    await query.message.edit_caption(f"**🚨 AUTO-POST TRIGGERED (EDITED) 🚨**\n\n{new_text}", reply_markup=InlineKeyboardMarkup(pm_markup_layout))
                 else:
-                    await query.message.edit_text(
-                        f"**🚨 AUTO-POST TRIGGERED (EDITED) 🚨**\n\n{new_text}",
-                        reply_markup=InlineKeyboardMarkup(pm_markup_layout),
-                    )
+                    await query.message.edit_text(f"**🚨 AUTO-POST TRIGGERED (EDITED) 🚨**\n\n{new_text}", reply_markup=InlineKeyboardMarkup(pm_markup_layout))
 
             await response.delete()
         except asyncio.TimeoutError:
@@ -1020,36 +650,24 @@ async def ap_approval_callback(client: Client, query: CallbackQuery):
 
     elif action == "editimg":
         await query.answer()
-        prompt_msg = await query.message.reply_text(
-            "📸 **Please send the new Photo or Image URL for this specific post:**\n*(Wait for confirmation...)*"
-        )
+        prompt_msg = await query.message.reply_text("📸 **Please send the new Photo or Image URL for this specific post:**\n*(Wait for confirmation...)*")
         try:
-            response = await native_listen(
-                client, query.message.chat.id, query.from_user.id, timeout=120
-            )
+            uid = get_uid(query.message) if getattr(query.message, "from_user", None) else query.from_user.id
+            response = await native_listen(client, query.message.chat.id, uid, timeout=120)
             await prompt_msg.delete()
 
-            ask_mode = await query.message.reply_text(
-                "⚙️ **How should this new image be displayed?**\nType `1` for **Preview Mode** (Hidden Link)\nType `2` for **Normal Photo** (Attached Media)"
-            )
-            mode_res = await native_listen(
-                client, query.message.chat.id, query.from_user.id, timeout=60
-            )
+            ask_mode = await query.message.reply_text("⚙️ **How should this new image be displayed?**\nType `1` for **Preview Mode** (Hidden Link)\nType `2` for **Normal Photo** (Attached Media)")
+            mode_res = await native_listen(client, query.message.chat.id, uid, timeout=60)
             await ask_mode.delete()
             new_mode = "photo" if "2" in mode_res.text else "preview"
 
             if new_mode == "preview" and response.photo:
-                status_msg = await query.message.reply_text(
-                    "⏳ Uploading to secure server..."
-                )
+                status_msg = await query.message.reply_text("⏳ Uploading to secure server...")
                 new_poster, err = await upload_image_safely(client, response)
-                if not new_poster:
-                    return await status_msg.edit_text(err)
+                if not new_poster: return await status_msg.edit_text(err)
                 await status_msg.delete()
             else:
-                new_poster = (
-                    response.photo.file_id if response.photo else response.text.strip()
-                )
+                new_poster = response.photo.file_id if response.photo else response.text.strip()
 
             await response.delete()
             await mode_res.delete()
@@ -1059,71 +677,30 @@ async def ap_approval_callback(client: Client, query: CallbackQuery):
 
             clean_text = re.sub(r"\n<a href='.*?'>&#8205;</a>", "", payload["text"])
 
-            if new_mode == "preview":
-                final_text = f"{clean_text}\n<a href='{new_poster}'>&#8205;</a>"
-            else:
-                final_text = clean_text[:1024]
+            if new_mode == "preview": final_text = f"{clean_text}\n<a href='{new_poster}'>&#8205;</a>"
+            else: final_text = clean_text[:1024]
 
             payload["text"] = final_text
 
             pm_markup_layout = []
-            if payload["buttons"] and getattr(
-                payload["buttons"], "inline_keyboard", None
-            ):
+            if payload["buttons"] and getattr(payload["buttons"], "inline_keyboard", None):
                 pm_markup_layout.extend(payload["buttons"].inline_keyboard)
 
-            pm_markup_layout.append(
-                [
-                    create_btn(
-                        "✅ Post to Channel",
-                        callback_data=f"ap_post_1",
-                        style=BTN_SUCCESS,
-                    )
-                ]
-            )
-            pm_markup_layout.append(
-                [
-                    create_btn(
-                        "✏️ Edit Text", callback_data=f"ap_edit_1", style=BTN_PRIMARY
-                    ),
-                    create_btn(
-                        "📸 Edit Image",
-                        callback_data=f"ap_editimg_1",
-                        style=BTN_PRIMARY,
-                    ),
-                ]
-            )
-            pm_markup_layout.append(
-                [
-                    create_btn(
-                        "❌ Cancel", callback_data=f"ap_cancel_1", style=BTN_DANGER
-                    )
-                ]
-            )
+            pm_markup_layout.append([create_btn("✅ Post to Channel", callback_data=f"ap_post_1", style=BTN_SUCCESS)])
+            pm_markup_layout.append([create_btn("✏️ Edit Text", callback_data=f"ap_edit_1", style=BTN_PRIMARY), create_btn("📸 Edit Image", callback_data=f"ap_editimg_1", style=BTN_PRIMARY)])
+            pm_markup_layout.append([create_btn("❌ Cancel", callback_data=f"ap_cancel_1", style=BTN_DANGER)])
 
             await query.message.delete()
 
             if new_mode == "photo":
-                new_ask_msg = await client.send_photo(
-                    chat_id=query.message.chat.id,
-                    photo=new_poster,
-                    caption=f"**🚨 AUTO-POST TRIGGERED (EDITED) 🚨**\n\n{final_text}",
-                    reply_markup=InlineKeyboardMarkup(pm_markup_layout),
-                )
+                new_ask_msg = await client.send_photo(chat_id=query.message.chat.id, photo=new_poster, caption=f"**🚨 AUTO-POST TRIGGERED (EDITED) 🚨**\n\n{final_text}", reply_markup=InlineKeyboardMarkup(pm_markup_layout))
             else:
-                new_ask_msg = await client.send_message(
-                    chat_id=query.message.chat.id,
-                    text=f"**🚨 AUTO-POST TRIGGERED (EDITED) 🚨**\n\n{final_text}",
-                    reply_markup=InlineKeyboardMarkup(pm_markup_layout),
-                    disable_web_page_preview=False,
-                )
+                new_ask_msg = await client.send_message(chat_id=query.message.chat.id, text=f"**🚨 AUTO-POST TRIGGERED (EDITED) 🚨**\n\n{final_text}", reply_markup=InlineKeyboardMarkup(pm_markup_layout), disable_web_page_preview=False)
 
             msg_id_str = str(new_ask_msg.id)
             payload["message_id"] = new_ask_msg.id
             PENDING_AP[msg_id_str] = payload
             PENDING_AP.pop(msg_id, None)
-
             asyncio.create_task(expire_pending_post(client, msg_id_str, 86400))
-
         except asyncio.TimeoutError:
             await prompt_msg.edit_text("⌛ Timeout. Image edit cancelled.")
