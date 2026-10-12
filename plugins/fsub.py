@@ -13,8 +13,8 @@ from pyrogram.errors import (
     UserNotParticipant,
 )
 from pyrogram.types import (
-    ChatJoinRequest,
     CallbackQuery,
+    ChatJoinRequest,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     Message,
@@ -537,6 +537,7 @@ async def get_all_fsub(bot: Client, message: Message):
         + await build_fsub_list_text("All")
     )
     await message.reply_text(text, disable_web_page_preview=True)
+
 
 # ============================================================
 # 🚪 JOIN REQUEST CATCHER
