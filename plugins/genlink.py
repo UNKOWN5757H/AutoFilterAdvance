@@ -2,6 +2,7 @@ import base64
 import json
 import os
 import re
+import asyncio
 from logging import INFO, getLogger
 
 from pyrogram import Client, enums, filters
@@ -19,20 +20,17 @@ from utils import temp
 logger = getLogger(__name__)
 logger.setLevel(INFO)
 
-
-def get_admin_list():
-    raw_admins = getattr(info, "ADMINS", [])
-    if isinstance(raw_admins, str):
-        return [
-            int(x)
-            for x in raw_admins.replace(",", " ").split()
-            if x.strip().lstrip("-").isdigit()
-        ]
-    elif isinstance(raw_admins, int):
-        return [raw_admins]
-    elif isinstance(raw_admins, list):
-        return [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
-    return []
+# ============================================================
+# ⚡ SIMPLE NATIVE ADMIN FILTER SETUP
+# ============================================================
+# Format info.ADMINS securely into a list of integers for Pyrogram
+raw_admins = getattr(info, "ADMINS", [])
+if isinstance(raw_admins, str):
+    ADMINS = [int(x) for x in raw_admins.replace(",", " ").split() if x.strip().lstrip("-").isdigit()]
+elif isinstance(raw_admins, int):
+    ADMINS = [raw_admins]
+else:
+    ADMINS = [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
 
 
 def is_file_store_channel(chat_id: int) -> bool:
@@ -48,18 +46,10 @@ def is_file_store_channel(chat_id: int) -> bool:
     return False
 
 
-async def allowed(_, __, message):
-    if getattr(info, "PUBLIC_FILE_STORE", False):
-        return True
-    if message.from_user and message.from_user.id in get_admin_list():
-        return True
-    return False
-
-
 # ============================================================
 # 🔗 SINGLE FILE LINK GENERATOR (/link, /plink)
 # ============================================================
-@Client.on_message(filters.command(["link", "plink"]) & filters.create(allowed))
+@Client.on_message(filters.command(["link", "plink"]) & filters.user(ADMINS))
 async def gen_link_s(bot: Client, message):
     replied = message.reply_to_message
     if not replied:
@@ -74,12 +64,6 @@ async def gen_link_s(bot: Client, message):
         enums.MessageMediaType.ANIMATION,
     ]:
         return await message.reply("⚠️ Reply to a valid media file.")
-
-    if (
-        getattr(message, "has_protected_content", False)
-        and message.from_user.id not in get_admin_list()
-    ):
-        return await message.reply("❌ Protected media cannot be shared.")
 
     media_obj = getattr(replied, file_type.value)
     file_id, _ = unpack_new_file_id(media_obj.file_id)
@@ -97,7 +81,7 @@ async def gen_link_s(bot: Client, message):
 # ============================================================
 # 📦 BATCH LINK GENERATOR (/batch, /pbatch)
 # ============================================================
-@Client.on_message(filters.command(["batch", "pbatch"]) & filters.create(allowed))
+@Client.on_message(filters.command(["batch", "pbatch"]) & filters.user(ADMINS))
 async def gen_link_batch(bot: Client, message):
     links = message.text.strip().split()
     if len(links) != 3:
