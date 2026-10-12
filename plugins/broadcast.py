@@ -5,7 +5,7 @@ import time
 from logging import ERROR, getLogger
 
 from motor.motor_asyncio import AsyncIOMotorClient
-from pyrogram import Client, filters
+from pyrogram import Client, enums, filters
 from pyrogram.errors import (
     ChatWriteForbidden,
     FloodWait,
@@ -27,6 +27,7 @@ logger.setLevel(ERROR)
 # ============================================================
 # ⚙️ MONGODB PERSISTENT TASKS SETUP
 # ============================================================
+_broadcast_col = None
 try:
     _DB_CLIENT = AsyncIOMotorClient(info.DATABASE_URI)
     _BOT_DB = _DB_CLIENT[info.DATABASE_NAME]
@@ -41,28 +42,43 @@ _WORKER_TASK = None
 
 
 # ============================================================
-# 👑 FOOLPROOF ADMIN CHECKER
+# 👑 FULL POWER ADMIN CHECKER (GLOBAL + CHAT + ANONYMOUS)
 # ============================================================
 def get_admin_list():
     raw_admins = getattr(info, "ADMINS", [])
-    if isinstance(raw_admins, str):
-        return [
-            int(x)
-            for x in raw_admins.replace(",", " ").split()
-            if x.strip().lstrip("-").isdigit()
-        ]
-    elif isinstance(raw_admins, int):
-        return [raw_admins]
-    elif isinstance(raw_admins, list):
-        return [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
-    return []
+    if isinstance(raw_admins, (str, int)):
+        raw_admins = str(raw_admins).replace(",", " ").split()
+    return [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
 
+async def is_user_admin(client: Client, message: Message):
+    admin_list = get_admin_list()
 
-async def admin_check(_, __, message: Message):
-    if not message.from_user:
-        return False
-    return message.from_user.id in get_admin_list()
+    # 1. Global Admin Check (Direct User)
+    if message.from_user and message.from_user.id in admin_list:
+        return True
 
+    # 2. Global Admin Check (Anonymous/Channel sending as Chat)
+    if message.sender_chat and message.sender_chat.id in admin_list:
+        return True
+
+    # 3. Group Admin Check (Normal & Anonymous Admins)
+    if message.chat and message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
+        # If the sender is the group itself, it's a Group Anonymous Admin
+        if message.sender_chat and message.sender_chat.id == message.chat.id:
+            return True
+            
+        # If it's a Normal Admin in this group
+        if message.from_user:
+            try:
+                member = await client.get_chat_member(message.chat.id, message.from_user.id)
+                return member.status in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]
+            except Exception:
+                pass
+
+    return False
+
+async def admin_check(_, client: Client, message: Message):
+    return await is_user_admin(client, message)
 
 admin_filter = filters.create(admin_check)
 
@@ -80,6 +96,8 @@ def get_progress_bar(current, total):
 # ============================================================
 async def bcast_cleaner_worker(bot: Client):
     """Permanently checks DB for expired broadcast messages to delete."""
+    if _broadcast_col is None:
+        return
     while True:
         try:
             now = time.time()
@@ -165,7 +183,7 @@ async def send_and_schedule_delete(bot: Client, chat_id: int, message: Message):
                         chat_id, message.text, disable_notification=True
                     )
 
-        if sent_msg:
+        if sent_msg and _broadcast_col is not None:
             # Save to MongoDB for auto-deletion
             await _broadcast_col.insert_one(
                 {
@@ -199,9 +217,7 @@ async def send_and_schedule_delete(bot: Client, chat_id: int, message: Message):
 async def user_broadcast(bot: Client, message: Message):
     b_msg = message.reply_to_message
     if not b_msg:
-        return await message.reply_text(
-            "⚠️ **Reply to the message you want to broadcast.**"
-        )
+        return await message.reply_text("⚠️ **Reply to the message you want to broadcast.**")
 
     status_msg = await message.reply_text("⏳ **Fetching user database...**")
 
@@ -276,9 +292,7 @@ async def user_broadcast(bot: Client, message: Message):
 async def group_broadcast(bot: Client, message: Message):
     b_msg = message.reply_to_message
     if not b_msg:
-        return await message.reply_text(
-            "⚠️ **Reply to the message you want to broadcast.**"
-        )
+        return await message.reply_text("⚠️ **Reply to the message you want to broadcast.**")
 
     status_msg = await message.reply_text("⏳ **Fetching chat database...**")
 
@@ -349,9 +363,10 @@ async def group_broadcast(bot: Client, message: Message):
     )
 
 
-@Client.on_message(
-    filters.command("addpromo") & admin_filter & (filters.private | filters.group)
-)
+# ============================================================
+# 📢 PROMOTIONS MANAGEMENT
+# ============================================================
+@Client.on_message(filters.command("addpromo") & admin_filter & (filters.private | filters.group))
 async def add_promo_handler(bot: Client, message: Message):
     text = message.text.split(None, 1)[1] if len(message.command) > 1 else ""
     match = re.search(r'"([^"]+)"\s+(https?://\S+)', text)
@@ -372,9 +387,7 @@ async def add_promo_handler(bot: Client, message: Message):
     )
 
 
-@Client.on_message(
-    filters.command("delpromo") & admin_filter & (filters.private | filters.group)
-)
+@Client.on_message(filters.command("delpromo") & admin_filter & (filters.private | filters.group))
 async def del_promo_handler(bot: Client, message: Message):
     if len(message.command) < 2:
         return await message.reply_text(
@@ -396,16 +409,12 @@ async def del_promo_handler(bot: Client, message: Message):
         )
 
 
-@Client.on_message(
-    filters.command("listpromos") & admin_filter & (filters.private | filters.group)
-)
+@Client.on_message(filters.command("listpromos") & admin_filter & (filters.private | filters.group))
 async def list_promo_handler(bot: Client, message: Message):
     promos = await _plugin_db.get_all_promos()
 
     if not promos:
-        return await message.reply_text(
-            "⚠️ **No active promotional links found in the database.**"
-        )
+        return await message.reply_text("⚠️ **No active promotional links found in the database.**")
 
     text = "📢 **Current Promotional Links:**\n\n"
     for i, p in enumerate(promos, 1):
