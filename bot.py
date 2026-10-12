@@ -64,10 +64,12 @@ logger = getLogger(__name__)
 # ============================================================
 def get_admin_list():
     import info
+
     raw_admins = getattr(info, "ADMINS", [])
     if isinstance(raw_admins, (str, int)):
         raw_admins = str(raw_admins).replace(",", " ").split()
     return [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
+
 
 async def is_user_admin(client: Client, message: Message):
     admin_list = get_admin_list()
@@ -81,14 +83,22 @@ async def is_user_admin(client: Client, message: Message):
         return True
 
     # 3. Group Admin Check (Normal & Anonymous Admins)
-    if message.chat and message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
+    if message.chat and message.chat.type in [
+        enums.ChatType.GROUP,
+        enums.ChatType.SUPERGROUP,
+    ]:
         if message.sender_chat and message.sender_chat.id == message.chat.id:
             return True
-            
+
         if message.from_user:
             try:
-                member = await client.get_chat_member(message.chat.id, message.from_user.id)
-                return member.status in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]
+                member = await client.get_chat_member(
+                    message.chat.id, message.from_user.id
+                )
+                return member.status in [
+                    enums.ChatMemberStatus.ADMINISTRATOR,
+                    enums.ChatMemberStatus.OWNER,
+                ]
             except Exception:
                 pass
 
@@ -117,6 +127,7 @@ class Bot(Client):
         b_users = []
         b_chats = []
         try:
+
             async def fetch_bans():
                 async for chat in old_db.grp.find({"chat_status.is_disabled": True}):
                     if chat.get("id"):
@@ -152,7 +163,9 @@ class Bot(Client):
         temp.B_NAME = me.first_name
         self.username = f"@{me.username}"
 
-        logger.info(f"{me.first_name} with Pyrogram v{__version__} (Layer {layer}) started on {me.username}.")
+        logger.info(
+            f"{me.first_name} with Pyrogram v{__version__} (Layer {layer}) started on {me.username}."
+        )
         logger.info(LOG_STR)
 
         if os.path.exists("restart.txt"):
@@ -174,17 +187,22 @@ class Bot(Client):
         await super().stop(*args, **kwargs)
         logger.info("Bot stopped. Bye.")
 
-    async def iter_messages(self, chat_id: Union[int, str], limit: int, offset: int = 0) -> AsyncGenerator[types.Message, None]:
+    async def iter_messages(
+        self, chat_id: Union[int, str], limit: int, offset: int = 0
+    ) -> AsyncGenerator[types.Message, None]:
         current = offset
         while True:
             new_diff = min(200, limit - current)
             if new_diff <= 0:
                 return
-            messages = await self.get_messages(chat_id, list(range(current, current + new_diff + 1)))
+            messages = await self.get_messages(
+                chat_id, list(range(current, current + new_diff + 1))
+            )
             for message in messages:
                 if not getattr(message, "empty", False):
                     yield message
                 current += 1
+
 
 app = Bot()
 
@@ -193,6 +211,7 @@ app = Bot()
 # 🗑️ AUTO DELETE PM MEDIA (WITH ADMIN IMMUNITY)
 # ============================================================
 AUTO_DELETE_TASKS = set()
+
 
 async def delete_media_task(message: Message, delay: int):
     await asyncio.sleep(delay)
@@ -205,17 +224,24 @@ async def delete_media_task(message: Message, delay: int):
 
 @app.on_message(
     filters.private
-    & (filters.document | filters.video | filters.audio | filters.photo | filters.voice | filters.video_note),
+    & (
+        filters.document
+        | filters.video
+        | filters.audio
+        | filters.photo
+        | filters.voice
+        | filters.video_note
+    ),
     group=2,
 )
 async def auto_delete_user_media_pm(client: Client, message: Message):
     if not message.from_user or message.outgoing:
         return
-        
+
     # 👑 FOOLPROOF IMMUNITY: Admins will NOT have their PM files deleted automatically
     if await is_user_admin(client, message):
         return
-        
+
     task = asyncio.create_task(delete_media_task(message, delay=1800))
     AUTO_DELETE_TASKS.add(task)
     task.add_done_callback(AUTO_DELETE_TASKS.discard)
