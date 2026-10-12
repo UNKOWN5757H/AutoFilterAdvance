@@ -13,6 +13,7 @@ from pyrogram.errors import (
     UserNotParticipant,
 )
 from pyrogram.types import (
+    ChatJoinRequest,
     CallbackQuery,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
@@ -28,16 +29,14 @@ logger = getLogger(__name__)
 logger.setLevel(ERROR)
 
 # ============================================================
-# ⚙️ MONGODB PERMANENT FSUB & VIP ENGINE
+# ⚙️ MONGODB PERMANENT FSUB ENGINE
 # ============================================================
 _fsub_db = None
-_vip_db = None
 
 try:
     _DB_CLIENT = AsyncIOMotorClient(info.DATABASE_URI)
     _BOT_DB = _DB_CLIENT[info.DATABASE_NAME]
     _fsub_db = _BOT_DB["fsub_config"]
-    _vip_db = _BOT_DB["fsub_vips"]
 except Exception as e:
     logger.error(f"Failed to init FSub DB: {e}")
 
@@ -67,31 +66,6 @@ async def update_fsub_channels(channels_dict):
         await _fsub_db.update_one(
             {"_id": "config"}, {"$set": {"channels": channels_dict}}, upsert=True
         )
-
-
-async def add_vip(user_id: int):
-    if _vip_db is not None:
-        await _vip_db.update_one(
-            {"user_id": user_id}, {"$set": {"is_vip": True}}, upsert=True
-        )
-
-
-async def rem_vip(user_id: int):
-    if _vip_db is not None:
-        await _vip_db.delete_one({"user_id": user_id})
-
-
-async def is_vip(user_id: int):
-    if _vip_db is not None:
-        doc = await _vip_db.find_one({"user_id": user_id})
-        return bool(doc)
-    return False
-
-
-async def get_all_vips():
-    if _vip_db is not None:
-        return await _vip_db.find().to_list(length=None)
-    return []
 
 
 # ============================================================
@@ -563,3 +537,81 @@ async def get_all_fsub(bot: Client, message: Message):
         + await build_fsub_list_text("All")
     )
     await message.reply_text(text, disable_web_page_preview=True)
+
+# ============================================================
+# 🚪 JOIN REQUEST CATCHER
+# ============================================================
+@Client.on_chat_join_request()
+async def join_reqs_handler(bot: Client, join_req: ChatJoinRequest):
+    if not _db.isActive():
+        return
+    user = join_req.from_user
+    try:
+        await _db.add_user(
+            user_id=user.id,
+            first_name=user.first_name or "Unknown",
+            username=user.username or "None",
+            date=join_req.date,
+        )
+    except Exception as e:
+        logger.error(f"Failed to log join request for {user.id}: {e}")
+
+
+# ============================================================
+# 📊 JOIN REQUEST COMMANDS
+# ============================================================
+@Client.on_message(filters.command("totalrequests") & filters.private & admin_filter)
+async def total_requests(bot: Client, message: Message):
+    if not _db.isActive():
+        return await message.reply_text(
+            "⚠️ Join request tracking is not active (DB inactive)."
+        )
+    try:
+        total = await _db.total_requests()
+        await message.reply_text(f"📨 **Total Join Requests:** <code>{total}</code>")
+    except Exception as e:
+        logger.error(f"Error fetching join requests: {e}")
+        await message.reply_text(f"⚠️ Error: <code>{e}</code>")
+
+
+@Client.on_message(filters.command("purgerequests") & filters.private & admin_filter)
+async def purge_requests(bot: Client, message: Message):
+    if not _db.isActive():
+        return await message.reply_text(
+            "⚠️ Join request tracking is not active (DB inactive)."
+        )
+
+    ask_msg = await message.reply_text(
+        "⚠️ **Are you sure you want to delete all join requests? (y/n)**"
+    )
+    try:
+        resp = await native_listen(
+            bot, message.chat.id, message.from_user.id, timeout=60
+        )
+
+        try:
+            await ask_msg.delete()
+        except Exception:
+            pass
+        if resp:
+            try:
+                await resp.delete()
+            except Exception:
+                pass
+
+        if not resp or not resp.text:
+            return
+
+        if resp.text.lower() == "y":
+            count = await _db.clear_all()
+            await message.reply_text(
+                f"✅ All join requests purged successfully. (<code>{count}</code> deleted)"
+            )
+        else:
+            await message.reply_text("❌ Operation cancelled.")
+
+    except asyncio.TimeoutError:
+        await message.reply_text("⌛ Timeout: No response, operation cancelled.")
+    except Exception as e:
+        logger.error(f"Error clearing join requests: {e}")
+        await message.reply_text(f"⚠️ Error clearing requests: <code>{e}</code>")
