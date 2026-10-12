@@ -37,21 +37,6 @@ try:
 except Exception as e:
     logger.error(f"Failed to init drafts_db: {e}")
 
-
-async def get_hydra_status():
-    if drafts_db is not None:
-        doc = await drafts_db.find_one({"_id": "hydra_config"})
-        return doc.get("enabled", False) if doc else False
-    return False
-
-
-async def set_hydra_status(status: bool):
-    if drafts_db is not None:
-        await drafts_db.update_one(
-            {"_id": "hydra_config"}, {"$set": {"enabled": status}}, upsert=True
-        )
-
-
 def btn_to_dict(btn: InlineKeyboardButton):
     return {
         "text": getattr(btn, "text", ""),
@@ -76,59 +61,10 @@ TEMPLATES = {
     "divider_list": """🎬 <b>{title} {year}</b>\n━━━━━━━━━━━━━━━━━━\n<blockquote>{LANGUAGES}\n{RESOLUTIONS}\n{OTT_PLATFORMS}</blockquote>""",
 }
 
-LANGUAGES = [
-    "Kannada",
-    "English",
-    "Gujarati",
-    "Hindi",
-    "Bengali",
-    "Malayalam",
-    "Marathi",
-    "Punjabi",
-    "Tamil",
-    "Telugu",
-    "Urdu",
-]
-RESOLUTIONS = [
-    "480p",
-    "720p",
-    "1080p",
-    "1440p",
-    "2160p",
-    "4k",
-    "BluRay",
-    "BDRip",
-    "WEB-DL",
-    "HDRip",
-    "WEBRip",
-    "HDTC",
-    "HEVC",
-]
-GENRES = [
-    "Action",
-    "Adventure",
-    "Animation",
-    "Comedy",
-    "Crime",
-    "Drama",
-    "Fantasy",
-    "Horror",
-    "Mystery",
-    "Romance",
-    "Sci-Fi",
-    "Thriller",
-]
-OTT_PLATFORMS = [
-    "Aha",
-    "JioCinema",
-    "SonyLIV",
-    "Voot",
-    "Zee5",
-    "AmazonPrime",
-    "Netflix",
-    "Hulu",
-    "Disney+",
-]
+LANGUAGES = ["Kannada", "English", "Gujarati", "Hindi", "Bengali", "Malayalam", "Marathi", "Punjabi", "Tamil", "Telugu", "Urdu", "#NotAvailable"]
+RESOLUTIONS = ["480p", "720p", "1080p", "1440p", "2160p", "4k", "BluRay", "BDRip", "WEB-DL", "HDRip", "HEVC", "#NotAvailable"]
+GENRES = ["Action", "Adventure", "Animation", "Biography", "Comedy", "Crime", "Documentary", "Drama", "Family", "Fantasy", "Horror", "Romance", "Sci-Fi", "Thriller", "#NotAvailable"]
+OTT_PLATFORMS = ["Aha", "ALTBalaji", "JioHotstar", "JioCinema", "MXPlayer", "SonyLIV", "SunNXT", "Voot", "Zee5", "AmazonPrime", "Netflix", "NotAvailable"]
 
 try:
     from pyrogram.enums import ButtonStyle
