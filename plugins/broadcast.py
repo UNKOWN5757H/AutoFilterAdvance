@@ -1,4 +1,5 @@
 import asyncio
+import re
 import datetime
 import time
 from logging import ERROR, getLogger
@@ -14,9 +15,10 @@ from pyrogram.errors import (
     UserDeactivatedBan,
     UserIsBlocked,
 )
-from pyrogram.types import Message
+from pyrogram.types import InlineKeyboardButton, Message
 
 import info
+from database.plugin_dbs import plugin_db as _plugin_db
 from database.users_chats_db import db as _db
 
 logger = getLogger(__name__)
