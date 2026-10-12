@@ -18,6 +18,7 @@ from database.users_chats_db import db as _db
 logger = getLogger(__name__)
 logger.setLevel(ERROR)
 
+
 # ============================================================
 # 👑 FULL POWER ADMIN CHECKER (GLOBAL + CHAT + ANONYMOUS)
 # ============================================================
@@ -26,6 +27,7 @@ def get_admin_list():
     if isinstance(raw_admins, (str, int)):
         raw_admins = str(raw_admins).replace(",", " ").split()
     return [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
+
 
 async def is_user_admin(client: Client, message: Message):
     admin_list = get_admin_list()
@@ -39,26 +41,37 @@ async def is_user_admin(client: Client, message: Message):
         return True
 
     # 3. Group Admin Check (Normal & Anonymous Admins)
-    if message.chat and message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
+    if message.chat and message.chat.type in [
+        enums.ChatType.GROUP,
+        enums.ChatType.SUPERGROUP,
+    ]:
         # If the sender is the group itself, it's a Group Anonymous Admin
         if message.sender_chat and message.sender_chat.id == message.chat.id:
             return True
-            
+
         # If it's a Normal Admin in this group
         if message.from_user:
             try:
-                member = await client.get_chat_member(message.chat.id, message.from_user.id)
-                return member.status in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]
+                member = await client.get_chat_member(
+                    message.chat.id, message.from_user.id
+                )
+                return member.status in [
+                    enums.ChatMemberStatus.ADMINISTRATOR,
+                    enums.ChatMemberStatus.OWNER,
+                ]
             except Exception:
                 pass
 
     return False
 
+
 async def admin_check(_, client: Client, message: Message):
     return await is_user_admin(client, message)
 
+
 async def cb_admin_check(_, client: Client, query: CallbackQuery):
     return await is_user_admin(client, query.message)
+
 
 admin_filter = filters.create(admin_check)
 cb_admin_filter = filters.create(cb_admin_check)
