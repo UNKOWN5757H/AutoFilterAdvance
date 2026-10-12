@@ -404,59 +404,6 @@ async def refresh_fsub_callback(bot: Client, query: CallbackQuery):
 
 
 # ============================================================
-# 👑 VIP SYSTEM COMMANDS
-# ============================================================
-@Client.on_message(filters.command("addvip") & admin_filter)
-async def cmd_addvip(bot: Client, message: Message):
-    if message.reply_to_message:
-        user_id = message.reply_to_message.from_user.id
-    elif len(message.command) > 1:
-        try:
-            user_id = int(message.command[1])
-        except ValueError:
-            return await message.reply_text("❌ Invalid User ID.")
-    else:
-        return await message.reply_text(
-            "⚠️ **Usage:** `/addvip <user_id>` or reply to a user."
-        )
-
-    await add_vip(user_id)
-    await message.reply_text(
-        f"👑 **User `{user_id}` added to VIP List!**\nThey will now bypass all Force Subscribe restrictions."
-    )
-
-
-@Client.on_message(filters.command("remvip") & admin_filter)
-async def cmd_remvip(bot: Client, message: Message):
-    if message.reply_to_message:
-        user_id = message.reply_to_message.from_user.id
-    elif len(message.command) > 1:
-        try:
-            user_id = int(message.command[1])
-        except ValueError:
-            return await message.reply_text("❌ Invalid User ID.")
-    else:
-        return await message.reply_text(
-            "⚠️ **Usage:** `/remvip <user_id>` or reply to a user."
-        )
-
-    await rem_vip(user_id)
-    await message.reply_text(f"🗑️ **User `{user_id}` removed from VIP List!**")
-
-
-@Client.on_message(filters.command("viplist") & admin_filter)
-async def cmd_viplist(bot: Client, message: Message):
-    vips = await get_all_vips()
-    if not vips:
-        return await message.reply_text("ℹ️ **VIP List is empty.**")
-
-    text = "👑 **ForceSub VIP List:**\n\n"
-    for i, vip in enumerate(vips, 1):
-        text += f"{i}. `{vip['user_id']}`\n"
-    await message.reply_text(text)
-
-
-# ============================================================
 # ⚙️ CONFIGURATION COMMANDS
 # ============================================================
 @Client.on_message(filters.command("rotatefsub") & admin_filter)
@@ -484,32 +431,6 @@ async def enable_fsub(bot: Client, message: Message):
 async def disable_fsub(bot: Client, message: Message):
     await update_fsub_config("is_enabled", False)
     await message.reply_text("❌ **Force Subscribe has been DISABLED.**")
-
-
-@Client.on_message(filters.command("setfsubcount") & admin_filter)
-async def set_fsub_count(bot: Client, message: Message):
-    if len(message.command) < 2:
-        return await message.reply_text(
-            "⚙️ **Usage:** `/setfsubcount [number]`\n*Set to 0 for unlimited active channels.*"
-        )
-    try:
-        count = int(message.command[1])
-        if count < 0:
-            raise ValueError
-        await update_fsub_config("max_count", count)
-        limit_text = (
-            f"maximum `{count}` active channels at once"
-            if count > 0
-            else "unlimited channels simultaneously"
-        )
-        await message.reply_text(
-            f"✅ **FSub Queue Limit Updated!**\nThe system will now force a {limit_text}."
-        )
-    except ValueError:
-        await message.reply_text(
-            "❌ **Invalid number.** Please provide a valid positive integer."
-        )
-
 
 @Client.on_message(filters.command("setfsub") & admin_filter)
 async def add_dynamic_fsub(bot: Client, message: Message):
@@ -585,77 +506,6 @@ async def add_dynamic_fsub(bot: Client, message: Message):
         await message.reply_text(f"❌ **Error:** {e}")
 
 
-@Client.on_message(filters.command("activatefsub") & admin_filter)
-async def activate_fsub(bot: Client, message: Message):
-    if len(message.command) < 2:
-        return await message.reply_text("⚙️ **Usage:** `/activatefsub [channel_id]`")
-    channel_id = message.command[1]
-
-    config = await get_fsub_config()
-    channels = config.get("channels", {})
-    max_count = config.get("max_count", 0)
-
-    if channel_id not in channels:
-        return await message.reply_text("❌ Channel not found in FSub database.")
-
-    active_count = len([c for c in channels.values() if c.get("status") == "active"])
-    if max_count > 0 and active_count >= max_count:
-        return await message.reply_text(
-            f"⚠️ **Queue Full!** You already have `{active_count}` active channels (Limit: {max_count}).\nUse `/deactivatefsub` on another channel first."
-        )
-
-    channels[channel_id]["status"] = "active"
-    await update_fsub_channels(channels)
-    await message.reply_text(f"✅ FSub for `{channel_id}` is now **ACTIVE**.")
-
-
-@Client.on_message(filters.command("deactivatefsub") & admin_filter)
-async def deactivate_fsub(bot: Client, message: Message):
-    if len(message.command) < 2:
-        return await message.reply_text("⚙️ **Usage:** `/deactivatefsub [channel_id]`")
-    channel_id = message.command[1]
-
-    config = await get_fsub_config()
-    channels = config.get("channels", {})
-
-    if channel_id in channels:
-        channels[channel_id]["status"] = "pending"
-        await update_fsub_channels(channels)
-        await message.reply_text(
-            f"⏸ FSub for `{channel_id}` is now **PENDING (Deactivated)**."
-        )
-    else:
-        await message.reply_text("❌ Channel not found in FSub database.")
-
-
-@Client.on_message(filters.command("updatefsubtarget") & admin_filter)
-async def update_fsub_target(bot: Client, message: Message):
-    if len(message.command) < 3:
-        return await message.reply_text(
-            "⚙️ **Usage:** `/updatefsubtarget [channel_id] [target_link]`\n*Use 'none' to remove custom target.*"
-        )
-    channel_id, target = str(message.command[1]), message.command[2]
-
-    config = await get_fsub_config()
-    channels = config.get("channels", {})
-
-    if channel_id not in channels:
-        return await message.reply_text(
-            f"❌ Channel `{channel_id}` is not configured in FSub."
-        )
-
-    if target.lower() == "none":
-        channels[channel_id]["target"] = None
-        await message.reply_text(
-            "✅ Custom target removed. Bot will use standard invite link."
-        )
-    else:
-        channels[channel_id]["target"] = target
-        await message.reply_text(f"✅ Target for `{channel_id}` updated to:\n{target}")
-
-    await update_fsub_channels(channels)
-
-
 @Client.on_message(filters.command("rmfsub") & admin_filter)
 async def rem_fsub(bot: Client, message: Message):
     if len(message.command) < 2:
@@ -712,17 +562,3 @@ async def get_all_fsub(bot: Client, message: Message):
         + await build_fsub_list_text("All")
     )
     await message.reply_text(text, disable_web_page_preview=True)
-
-
-@Client.on_message(filters.command("getactivefsub") & admin_filter)
-async def get_active_fsub(bot: Client, message: Message):
-    await message.reply_text(
-        await build_fsub_list_text("Active", "active"), disable_web_page_preview=True
-    )
-
-
-@Client.on_message(filters.command("getpendingfsub") & admin_filter)
-async def get_pending_fsub(bot: Client, message: Message):
-    await message.reply_text(
-        await build_fsub_list_text("Pending", "pending"), disable_web_page_preview=True
-    )
