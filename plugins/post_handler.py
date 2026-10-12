@@ -238,59 +238,6 @@ async def expire_post_session(client: Client, user_id: int, delay: int = 1800):
 
 
 # ============================================================
-# 👑 THE MASTER "/ADMIN" CONTROL DASHBOARD
-# ============================================================
-@Client.on_message(filters.command("admin") & admin_filter, group=-4)
-async def master_admin_dashboard(client: Client, message: Message):
-    text = (
-        "👑 **Enterprise Admin Control Panel**\n\nManage your automated systems below:"
-    )
-    buttons = [
-        [
-            create_btn("🐉 Hydra Anti-Ban", callback_data="admin_db:hydra"),
-            create_btn("🧬 Auto-Post", callback_data="admin_db:autopost"),
-        ],
-        [
-            create_btn("📊 Live Analytics", callback_data="admin_db:analytics"),
-            create_btn("🚀 Optimize DB", callback_data="admin_db:optimize"),
-        ],
-        [
-            create_btn("📱 Connected Channels", callback_data="admin_db:channels"),
-            create_btn(
-                "❌ Close Panel", callback_data="admin_db:close", style=BTN_DANGER
-            ),
-        ],
-    ]
-    await message.reply(text, reply_markup=InlineKeyboardMarkup(buttons))
-
-
-@Client.on_callback_query(filters.regex(r"^admin_db:") & admin_filter)
-async def admin_db_cbs(client: Client, query: CallbackQuery):
-    action = query.data.split(":")[1]
-    if action == "hydra":
-        status = not await get_hydra_status()
-        await set_hydra_status(status)
-        await query.answer(
-            f"Hydra Engine is now {'ON' if status else 'OFF'}", show_alert=True
-        )
-    elif action == "autopost":
-        await query.answer(
-            "Use /autopost on or /autopost off to toggle.", show_alert=True
-        )
-    elif action == "analytics":
-        await query.message.delete()
-        await client.send_message(query.message.chat.id, "/analize")
-    elif action == "optimize":
-        await query.message.delete()
-        await client.send_message(query.message.chat.id, "/optimize_db")
-    elif action == "channels":
-        await query.message.delete()
-        await client.send_message(query.message.chat.id, "/channels")
-    elif action == "close":
-        await query.message.delete()
-
-
-# ============================================================
 # 🚨 THE DEEP-LINK INTERCEPTOR
 # ============================================================
 @Client.on_message(filters.command("start") & filters.private, group=-1)
@@ -317,245 +264,6 @@ async def old_link_interceptor(client: Client, message: Message):
                 message.stop_propagation()
             except Exception as e:
                 logger.error(f"Link Interceptor Error: {e}")
-
-
-# ============================================================
-# 🐉 HYDRA ANTI-BAN LINK RESURRECTION ENGINE
-# ============================================================
-@Client.on_message(filters.command("hydra") & admin_filter, group=-4)
-async def toggle_hydra(client: Client, message: Message):
-    if len(message.command) < 2:
-        status = (
-            "🟢 ON (Links Encrypted)"
-            if await get_hydra_status()
-            else "🔴 OFF (Standard Links)"
-        )
-        return await message.reply(
-            f"**Hydra Engine Status:** {status}\n\nUse `/hydra on` or `/hydra off`."
-        )
-
-    cmd = message.command[1].lower()
-    if cmd == "on":
-        await set_hydra_status(True)
-        await message.reply(
-            "🐉 **Hydra Anti-Ban Engine is now ON!**\nAll new channel posts will contain Base64 Encrypted search tokens to defeat copyright bots."
-        )
-    elif cmd == "off":
-        await set_hydra_status(False)
-        await message.reply("🔴 **Hydra Anti-Ban Engine is now OFF!**")
-
-
-@Client.on_message(filters.command("updatealllinks") & admin_filter, group=-4)
-async def update_all_links_cmd(client: Client, message: Message):
-    if len(message.command) < 4 or "|" not in message.text:
-        return await message.reply(
-            "⚠️ **Usage:** `/updatealllinks <chat_id> <limit> <old_link> | <new_link>`"
-        )
-
-    try:
-        args_text = message.text.split(None, 3)
-        chat_id = int(args_text[1])
-        limit = int(args_text[2])
-        old_link, new_link = [x.strip() for x in args_text[3].split("|", 1)]
-    except Exception:
-        return await message.reply("❌ Invalid format. Use `|` between links.")
-
-    status_msg = await message.reply(
-        f"⏳ **Hydra Scanning Initiated...**\nChecking last `{limit}` posts..."
-    )
-    updated_count, scanned_count = 0, 0
-
-    try:
-        async for msg in client.get_chat_history(chat_id, limit=limit):
-            scanned_count += 1
-            if not msg.reply_markup or not msg.reply_markup.inline_keyboard:
-                continue
-
-            has_change = False
-            new_keyboard = []
-            for row in msg.reply_markup.inline_keyboard:
-                new_row = []
-                for btn in row:
-                    if btn.url and old_link in btn.url:
-                        updated_url = btn.url.replace(old_link, new_link)
-                        new_row.append(
-                            create_btn(
-                                btn.text,
-                                url=updated_url,
-                                style=getattr(btn, "style", None),
-                            )
-                        )
-                        has_change = True
-                    else:
-                        new_row.append(btn)
-                new_keyboard.append(new_row)
-
-            if has_change:
-                try:
-                    await client.edit_message_reply_markup(
-                        chat_id, msg.id, reply_markup=InlineKeyboardMarkup(new_keyboard)
-                    )
-                    updated_count += 1
-                    await asyncio.sleep(1.2)
-                except FloodWait as e:
-                    await asyncio.sleep(e.value + 1)
-                    await client.edit_message_reply_markup(
-                        chat_id, msg.id, reply_markup=InlineKeyboardMarkup(new_keyboard)
-                    )
-                    updated_count += 1
-                except Exception:
-                    pass
-
-        await status_msg.edit(
-            f"🐉 **Hydra Complete!**\nScanned: `{scanned_count}`\nUpdated: `{updated_count}` posts\nReplaced: `{old_link}` ➔ `{new_link}`"
-        )
-    except Exception as e:
-        await status_msg.edit(f"❌ **Hydra Error:** `{e}`")
-
-
-# ============================================================
-# 💥 TYPE 2: LIVE CHANNEL POST EDITORS (NO IMPORT NEEDED)
-# ============================================================
-async def extract_and_edit_live_post(client: Client, message: Message, edit_type: str):
-    try:
-        link, new_val = "", ""
-        if (
-            edit_type in ["image", "normalimage"]
-            and message.reply_to_message
-            and message.reply_to_message.photo
-        ):
-            if len(message.command) < 2:
-                return await message.reply(
-                    f"⚠️ Usage: Reply to photo with `/{message.command[0]} <link>`"
-                )
-            link = message.command[1].strip()
-            new_val = message.reply_to_message.photo.file_id
-        else:
-            if len(message.command) < 2 or "|" not in message.text:
-                return await message.reply(
-                    f"⚠️ Usage: `/{message.command[0]} <link> | <new_value>`"
-                )
-            args = message.text.split(None, 1)[1]
-            link, new_val = [x.strip() for x in args.split("|", 1)]
-
-        parts = link.split("/")
-        chat_id = (
-            int("-100" + parts[-2])
-            if "t.me/c/" in link
-            else ("@" + parts[-2] if not parts[-2].startswith("@") else parts[-2])
-        )
-        msg_id = int(parts[-1])
-
-        target_msg = await client.get_messages(chat_id, msg_id)
-        if not target_msg or target_msg.empty:
-            return await message.reply("❌ Post not found. Check the link.")
-
-        html_text = (
-            target_msg.caption.html
-            if target_msg.photo
-            else (target_msg.text.html if target_msg.text else "")
-        )
-        reply_markup = target_msg.reply_markup
-        new_photo = None
-
-        if edit_type == "title":
-            html_text = re.sub(r"<b>(.*?)</b>", f"<b>{new_val}</b>", html_text, count=1)
-        elif edit_type == "year":
-            year_match = re.search(r"<b>.*? (\d{4})</b>", html_text)
-            if year_match:
-                html_text = html_text.replace(year_match.group(1), new_val)
-        elif edit_type == "direct":
-            if reply_markup and reply_markup.inline_keyboard:
-                new_kbd = []
-                for row in reply_markup.inline_keyboard:
-                    new_row = []
-                    for btn in row:
-                        if btn.url and (
-                            "?start=search_" in btn.url or "?start=hdra_" in btn.url
-                        ):
-                            new_row.append(
-                                create_btn(
-                                    new_val,
-                                    url=btn.url,
-                                    style=getattr(btn, "style", None),
-                                )
-                            )
-                        else:
-                            new_row.append(btn)
-                    new_kbd.append(new_row)
-                reply_markup = InlineKeyboardMarkup(new_kbd)
-        elif edit_type == "button":
-            row_str, rest = new_val.split(" ", 1)
-            row_idx = int(row_str) - 1
-            b_text, b_url = [x.strip() for x in rest.split("|", 1)]
-            if not b_url.startswith(("http://", "https://", "tg://")):
-                b_url = "https://" + b_url
-            if (
-                reply_markup
-                and reply_markup.inline_keyboard
-                and len(reply_markup.inline_keyboard) > row_idx
-            ):
-                kbd = list(reply_markup.inline_keyboard)
-                kbd[row_idx] = [create_btn(b_text, url=b_url)]
-                reply_markup = InlineKeyboardMarkup(kbd)
-        elif edit_type == "buttoncolour":
-            row_str, color_str = new_val.split(" ", 1)
-            row_idx = int(row_str) - 1
-            color_map = {"green": BTN_SUCCESS, "red": BTN_DANGER, "blue": BTN_PRIMARY}
-            if (
-                reply_markup
-                and reply_markup.inline_keyboard
-                and len(reply_markup.inline_keyboard) > row_idx
-            ):
-                kbd = list(reply_markup.inline_keyboard)
-                new_row = [
-                    create_btn(
-                        b.text,
-                        url=b.url,
-                        callback_data=b.callback_data,
-                        style=color_map.get(color_str.lower(), None),
-                    )
-                    for b in kbd[row_idx]
-                ]
-                kbd[row_idx] = new_row
-                reply_markup = InlineKeyboardMarkup(kbd)
-        elif edit_type == "image":
-            html_text = re.sub(
-                r"<a href=['\"](https?://[^'\"]+)['\"]>&#8205;</a>",
-                f"<a href='{new_val}'>&#8205;</a>",
-                html_text,
-            )
-        elif edit_type == "normalimage":
-            new_photo = new_val
-
-        # ⚡ INVISIBLE SPACE BYPASS TO DEFEAT MessageNotModified
-        html_text = html_text + ("\u200b" * random.randint(1, 3))
-
-        if new_photo:
-            await client.edit_message_media(
-                chat_id,
-                msg_id,
-                media=InputMediaPhoto(media=new_photo, caption=html_text),
-                reply_markup=reply_markup,
-            )
-        else:
-            if target_msg.photo:
-                await client.edit_message_caption(
-                    chat_id, msg_id, caption=html_text, reply_markup=reply_markup
-                )
-            else:
-                await client.edit_message_text(
-                    chat_id,
-                    msg_id,
-                    text=html_text,
-                    reply_markup=reply_markup,
-                    disable_web_page_preview=False,
-                )
-
-        await message.reply("✅ Live channel post updated successfully!")
-    except Exception as e:
-        await message.reply(f"❌ Error during live edit: {e}")
-
 
 # ============================================================
 # 📝 TYPE 1: ONGOING DRAFT EDITORS (APPLIES TO /post SESSION)
@@ -759,6 +467,21 @@ async def cmd_edit_post_direct(client: Client, message: Message):
     await save_session_to_db(uid, post_sessions[uid])
     await update_post_preview(client, uid, message.chat.id, force_resend=False)
     await message.reply("✅ Direct Search button text updated!")
+
+@Client.on_message(filters.command("setpoststicker") & admin_filter, group=-4)
+async def set_autopost_sticker(client: Client, message: Message):
+    if not message.reply_to_message or not message.reply_to_message.sticker:
+        return await message.reply_text(
+            "⚠️ **Please reply directly to a sticker** with `/setpoststicker`."
+        )
+    await save_ap_settings("sticker", message.reply_to_message.sticker.file_id)
+    await message.reply_text("✅ **Post Sticker Saved!**")
+
+
+@Client.on_message(filters.command("rempoststicker") & admin_filter, group=-4)
+async def rem_autopost_sticker(client: Client, message: Message):
+    await save_ap_settings("sticker", None)
+    await message.reply_text("🗑️ **Auto-Post Sticker Removed.**")
 
 
 # ============================================================
