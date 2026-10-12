@@ -51,7 +51,11 @@ except Exception as e:
 # Format info.ADMINS securely into a list of integers for Pyrogram
 raw_admins = getattr(info, "ADMINS", [])
 if isinstance(raw_admins, str):
-    ADMINS = [int(x) for x in raw_admins.replace(",", " ").split() if x.strip().lstrip("-").isdigit()]
+    ADMINS = [
+        int(x)
+        for x in raw_admins.replace(",", " ").split()
+        if x.strip().lstrip("-").isdigit()
+    ]
 elif isinstance(raw_admins, int):
     ADMINS = [raw_admins]
 else:
@@ -232,7 +236,9 @@ async def auto_index_new_files(bot: Client, message: Message):
 # ⚡ INTELLIGENT PM MEDIA FORWARD HANDLER (Fixes Single Save Issue)
 # ============================================================
 @Client.on_message(
-    filters.private & (filters.document | filters.video | filters.audio) & filters.user(ADMINS),
+    filters.private
+    & (filters.document | filters.video | filters.audio)
+    & filters.user(ADMINS),
     group=-5,
 )
 async def pm_media_handler(bot: Client, message: Message):
@@ -267,7 +273,9 @@ async def pm_media_handler(bot: Client, message: Message):
         await save_single_file(bot, message)
 
 
-@Client.on_callback_query(filters.regex(r"^save_single#") & filters.user(ADMINS), group=-5)
+@Client.on_callback_query(
+    filters.regex(r"^save_single#") & filters.user(ADMINS), group=-5
+)
 async def save_single_callback(bot: Client, query: CallbackQuery):
     msg_id = int(query.data.split("#")[1])
     try:
@@ -365,7 +373,9 @@ async def current_skip_number(bot: Client, message: Message):
 # ============================================================
 # 🧭 CALLBACK HANDLERS & PROCESSORS
 # ============================================================
-@Client.on_callback_query(filters.regex(r"^(idx|idx_cancel|close_data)") & filters.user(ADMINS), group=-5)
+@Client.on_callback_query(
+    filters.regex(r"^(idx|idx_cancel|close_data)") & filters.user(ADMINS), group=-5
+)
 async def index_files(bot: Client, query: CallbackQuery):
     if query.data == "close_data":
         await query.message.delete()
@@ -447,7 +457,8 @@ async def process_index_request(
 
 
 @Client.on_message(
-    filters.command(["index", "indexvideo", "indexdoc", "indexaudio"]) & filters.user(ADMINS),
+    filters.command(["index", "indexvideo", "indexdoc", "indexaudio"])
+    & filters.user(ADMINS),
     group=-5,
 )
 async def index_command(bot: Client, message: Message):
