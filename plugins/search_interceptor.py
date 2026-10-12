@@ -9,6 +9,7 @@ import info
 logger = getLogger(__name__)
 logger.setLevel(ERROR)
 
+
 # ============================================================
 # 👑 FULL POWER ADMIN CHECKER (GLOBAL + CHAT + ANONYMOUS)
 # ============================================================
@@ -31,14 +32,22 @@ async def is_user_admin(client: Client, message: Message):
         return True
 
     # 3. Group Admin Check (Normal & Anonymous Admins)
-    if message.chat and message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
+    if message.chat and message.chat.type in [
+        enums.ChatType.GROUP,
+        enums.ChatType.SUPERGROUP,
+    ]:
         if message.sender_chat and message.sender_chat.id == message.chat.id:
             return True
-            
+
         if message.from_user:
             try:
-                member = await client.get_chat_member(message.chat.id, message.from_user.id)
-                return member.status in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]
+                member = await client.get_chat_member(
+                    message.chat.id, message.from_user.id
+                )
+                return member.status in [
+                    enums.ChatMemberStatus.ADMINISTRATOR,
+                    enums.ChatMemberStatus.OWNER,
+                ]
             except Exception:
                 pass
 
@@ -47,6 +56,7 @@ async def is_user_admin(client: Client, message: Message):
 
 async def admin_check(_, client: Client, message: Message):
     return await is_user_admin(client, message)
+
 
 admin_filter = filters.create(admin_check)
 
