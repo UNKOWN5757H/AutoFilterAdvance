@@ -385,29 +385,3 @@ async def set_autodelete_timer(bot: Client, message: Message):
         await message.reply_text(
             "❌ **Invalid duration!** Please provide a valid positive integer (seconds)."
         )
-
-
-@Client.on_message(filters.command("buttondel") & admin_filter)
-async def set_buttondel_timer(bot: Client, message: Message):
-    current = await get_del_setting("BUTTON_AUTO_DELETE", 1800)
-    if len(message.command) < 2:
-        return await message.reply_text(
-            f"⚙️ **Usage:** `/buttondel [seconds]`\n\n⏱ **Current Button Auto-Delete:** `{current}` seconds."
-        )
-    try:
-        seconds = int(message.command[1])
-        if seconds < 0:
-            raise ValueError
-        await save_del_setting("BUTTON_AUTO_DELETE", seconds)
-        if seconds == 0:
-            await message.reply_text(
-                "✅ **Group Button Auto-Delete has been DISABLED permanently.**"
-            )
-        else:
-            await message.reply_text(
-                f"✅ **Group Button Auto-Delete permanently set to:** `{seconds}` seconds."
-            )
-    except ValueError:
-        await message.reply_text(
-            "❌ **Invalid duration!** Please provide a valid positive integer (seconds)."
-        )
