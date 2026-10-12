@@ -18,34 +18,50 @@ from database.users_chats_db import db as _db
 logger = getLogger(__name__)
 logger.setLevel(ERROR)
 
-
 # ============================================================
-# ⚡ FOOLPROOF ADMIN PARSER (SUPPORTS ANONYMOUS ADMINS)
+# 👑 FULL POWER ADMIN CHECKER (GLOBAL + CHAT + ANONYMOUS)
 # ============================================================
 def get_admin_list():
     raw_admins = getattr(info, "ADMINS", [])
-    if isinstance(raw_admins, str):
-        return [
-            int(x)
-            for x in raw_admins.replace(",", " ").split()
-            if x.strip().lstrip("-").isdigit()
-        ]
-    elif isinstance(raw_admins, int):
-        return [raw_admins]
-    elif isinstance(raw_admins, list):
-        return [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
-    return []
+    if isinstance(raw_admins, (str, int)):
+        raw_admins = str(raw_admins).replace(",", " ").split()
+    return [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
 
+async def is_user_admin(client: Client, message: Message):
+    admin_list = get_admin_list()
 
-def get_uid(message: Message) -> int:
-    if getattr(message, "from_user", None):
-        return message.from_user.id
-    if getattr(message, "sender_chat", None):
-        return message.sender_chat.id
-    return 0
+    # 1. Global Admin Check (Direct User)
+    if message.from_user and message.from_user.id in admin_list:
+        return True
 
+    # 2. Global Admin Check (Anonymous/Channel sending as Chat)
+    if message.sender_chat and message.sender_chat.id in admin_list:
+        return True
 
-admin_filter = filters.create(lambda _, __, msg: bool(get_uid(msg) in get_admin_list()))
+    # 3. Group Admin Check (Normal & Anonymous Admins)
+    if message.chat and message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
+        # If the sender is the group itself, it's a Group Anonymous Admin
+        if message.sender_chat and message.sender_chat.id == message.chat.id:
+            return True
+            
+        # If it's a Normal Admin in this group
+        if message.from_user:
+            try:
+                member = await client.get_chat_member(message.chat.id, message.from_user.id)
+                return member.status in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]
+            except Exception:
+                pass
+
+    return False
+
+async def admin_check(_, client: Client, message: Message):
+    return await is_user_admin(client, message)
+
+async def cb_admin_check(_, client: Client, query: CallbackQuery):
+    return await is_user_admin(client, query.message)
+
+admin_filter = filters.create(admin_check)
+cb_admin_filter = filters.create(cb_admin_check)
 
 
 # ============================================================
@@ -134,7 +150,7 @@ async def channels_dashboard_cmd(client: Client, message: Message):
     await message.reply_text(text, reply_markup=markup, disable_web_page_preview=True)
 
 
-@Client.on_callback_query(filters.regex(r"^chan_page:(\d+)") & admin_filter)
+@Client.on_callback_query(filters.regex(r"^chan_page:(\d+)") & cb_admin_filter)
 async def channels_page_cb(client: Client, query: CallbackQuery):
     page = int(query.matches[0].group(1))
     text, markup = await build_channels_dashboard(client, page=page)
@@ -147,7 +163,7 @@ async def channels_page_cb(client: Client, query: CallbackQuery):
     await query.answer()
 
 
-@Client.on_callback_query(filters.regex(r"^chan_leave:(-?\d+):(\d+)") & admin_filter)
+@Client.on_callback_query(filters.regex(r"^chan_leave:(-?\d+):(\d+)") & cb_admin_filter)
 async def channels_leave_cb(client: Client, query: CallbackQuery):
     cid = int(query.matches[0].group(1))
     page = int(query.matches[0].group(2))
@@ -171,7 +187,7 @@ async def channels_leave_cb(client: Client, query: CallbackQuery):
         pass
 
 
-@Client.on_callback_query(filters.regex(r"^chan_info:(-?\d+)") & admin_filter)
+@Client.on_callback_query(filters.regex(r"^chan_info:(-?\d+)") & cb_admin_filter)
 async def channels_info_cb(client: Client, query: CallbackQuery):
     cid = int(query.matches[0].group(1))
     try:
