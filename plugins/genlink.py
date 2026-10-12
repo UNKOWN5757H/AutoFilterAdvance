@@ -7,9 +7,7 @@ from logging import INFO, getLogger
 
 from pyrogram import Client, enums, filters
 from pyrogram.errors import FloodWait
-from pyrogram.errors.exceptions.bad_request_400 import (
-    ChannelInvalid,
-)
+from pyrogram.errors.exceptions.bad_request_400 import ChannelInvalid
 
 import info
 from database.ia_filterdb import unpack_new_file_id
@@ -17,6 +15,7 @@ from utils import temp
 
 logger = getLogger(__name__)
 logger.setLevel(INFO)
+
 
 # ============================================================
 # 👑 FULL POWER ADMIN CHECKER (GLOBAL + CHAT + ANONYMOUS)
@@ -26,6 +25,7 @@ def get_admin_list():
     if isinstance(raw_admins, (str, int)):
         raw_admins = str(raw_admins).replace(",", " ").split()
     return [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
+
 
 async def is_user_admin(client: Client, message):
     admin_list = get_admin_list()
@@ -39,21 +39,31 @@ async def is_user_admin(client: Client, message):
         return True
 
     # 3. Group Admin Check (Normal & Anonymous Admins)
-    if message.chat and message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
+    if message.chat and message.chat.type in [
+        enums.ChatType.GROUP,
+        enums.ChatType.SUPERGROUP,
+    ]:
         if message.sender_chat and message.sender_chat.id == message.chat.id:
             return True
-            
+
         if message.from_user:
             try:
-                member = await client.get_chat_member(message.chat.id, message.from_user.id)
-                return member.status in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]
+                member = await client.get_chat_member(
+                    message.chat.id, message.from_user.id
+                )
+                return member.status in [
+                    enums.ChatMemberStatus.ADMINISTRATOR,
+                    enums.ChatMemberStatus.OWNER,
+                ]
             except Exception:
                 pass
 
     return False
 
+
 async def admin_check(_, client: Client, message):
     return await is_user_admin(client, message)
+
 
 admin_filter = filters.create(admin_check)
 
@@ -63,7 +73,9 @@ def is_file_store_channel(chat_id: int) -> bool:
     if isinstance(fsc, int):
         return chat_id == fsc
     if isinstance(fsc, str):
-        return str(chat_id) in [x.strip() for x in fsc.replace(",", " ").split() if x.strip()]
+        return str(chat_id) in [
+            x.strip() for x in fsc.replace(",", " ").split() if x.strip()
+        ]
     if isinstance(fsc, list):
         return chat_id in [int(x) for x in fsc if str(x).strip().lstrip("-").isdigit()]
     return False
@@ -96,7 +108,9 @@ async def gen_link_s(bot: Client, message):
     outstr = base64.urlsafe_b64encode(string.encode("ascii")).decode().rstrip("=")
 
     bot_username = temp.U_NAME or (await bot.get_me()).username
-    await message.reply(f"🔗 **Shareable Link Generated:**\nhttps://t.me/{bot_username}?start={outstr}")
+    await message.reply(
+        f"🔗 **Shareable Link Generated:**\nhttps://t.me/{bot_username}?start={outstr}"
+    )
 
 
 # ============================================================
@@ -111,7 +125,9 @@ async def gen_link_batch(bot: Client, message):
         )
 
     cmd, first, last = links
-    regex = re.compile(r"(https?://)?(t(elegram)?\.(me|dog)|telegram\.org)/(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$")
+    regex = re.compile(
+        r"(https?://)?(t(elegram)?\.(me|dog)|telegram\.org)/(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$"
+    )
 
     match_first = regex.match(first)
     match_last = regex.match(last)
@@ -125,13 +141,17 @@ async def gen_link_batch(bot: Client, message):
     l_chat_id = int(f"-100{l_chat_raw}") if l_chat_raw.isdigit() else l_chat_raw
 
     if f_chat_id != l_chat_id:
-        return await message.reply("❌ Both links must originate from the same channel.")
+        return await message.reply(
+            "❌ Both links must originate from the same channel."
+        )
 
     try:
         chat = await bot.get_chat(f_chat_id)
         chat_id = chat.id
     except ChannelInvalid:
-        return await message.reply("❌ Bot lacks access. Add this bot as an admin in the target channel.")
+        return await message.reply(
+            "❌ Bot lacks access. Add this bot as an admin in the target channel."
+        )
     except Exception as e:
         return await message.reply(f"❌ Error accessing channel: `{e}`")
 
@@ -141,7 +161,9 @@ async def gen_link_batch(bot: Client, message):
     if is_file_store_channel(chat_id):
         string = f"{f_msg_id}_{l_msg_id}_{chat_id}_{cmd.lower().strip()}"
         b_64 = base64.urlsafe_b64encode(string.encode("ascii")).decode().rstrip("=")
-        return await sts.edit(f"🔗 **Batch File Store Link:**\nhttps://t.me/{bot_username}?start=DSTORE-{b_64}")
+        return await sts.edit(
+            f"🔗 **Batch File Store Link:**\nhttps://t.me/{bot_username}?start=DSTORE-{b_64}"
+        )
 
     outlist = []
     og_msg = 0
@@ -165,34 +187,48 @@ async def gen_link_batch(bot: Client, message):
             try:
                 media_obj = getattr(msg, msg.media.value)
                 caption = msg.caption.html if msg.caption else ""
-                outlist.append({
-                    "file_id": media_obj.file_id,
-                    "caption": caption,
-                    "title": getattr(media_obj, "file_name", ""),
-                    "size": getattr(media_obj, "file_size", 0),
-                    "protect": cmd.lower().strip() == "/pbatch"
-                })
+                outlist.append(
+                    {
+                        "file_id": media_obj.file_id,
+                        "caption": caption,
+                        "title": getattr(media_obj, "file_name", ""),
+                        "size": getattr(media_obj, "file_size", 0),
+                        "protect": cmd.lower().strip() == "/pbatch",
+                    }
+                )
                 og_msg += 1
             except Exception:
                 pass
 
         try:
-            await sts.edit(f"⏳ **Batch Link Progress:**\nProcessed: `{min(i + 200, total_count)}/{total_count}` messages\nFiles Found: `{og_msg}`")
+            await sts.edit(
+                f"⏳ **Batch Link Progress:**\nProcessed: `{min(i + 200, total_count)}/{total_count}` messages\nFiles Found: `{og_msg}`"
+            )
         except Exception:
             pass
 
     if not outlist:
-        return await sts.edit("❌ No downloadable media found within the provided message range.")
+        return await sts.edit(
+            "❌ No downloadable media found within the provided message range."
+        )
 
-    req_id = message.from_user.id if message.from_user else (message.sender_chat.id if message.sender_chat else chat_id)
+    req_id = (
+        message.from_user.id
+        if message.from_user
+        else (message.sender_chat.id if message.sender_chat else chat_id)
+    )
     batch_file_path = f"batchmode_{req_id}.json"
-    
+
     with open(batch_file_path, "w+", encoding="utf-8") as out:
         json.dump(outlist, out)
 
     log_chan = getattr(info, "LOG_CHANNEL", None)
     post = None
-    uploader_name = message.from_user.mention if message.from_user else (message.sender_chat.title if message.sender_chat else "Admin")
+    uploader_name = (
+        message.from_user.mention
+        if message.from_user
+        else (message.sender_chat.title if message.sender_chat else "Admin")
+    )
 
     if log_chan:
         try:
@@ -222,4 +258,6 @@ async def gen_link_batch(bot: Client, message):
         os.remove(batch_file_path)
 
     file_id, _ = unpack_new_file_id(post.document.file_id)
-    await sts.edit(f"✅ **Batch Link Complete!**\nFiles Included: `{og_msg}`\n\n🔗 https://t.me/{bot_username}?start=BATCH-{file_id}")
+    await sts.edit(
+        f"✅ **Batch Link Complete!**\nFiles Included: `{og_msg}`\n\n🔗 https://t.me/{bot_username}?start=BATCH-{file_id}"
+    )
