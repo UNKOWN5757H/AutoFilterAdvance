@@ -22,10 +22,8 @@ from pyrogram.types import (
 )
 
 import info
-from info import (
-    ADMINS,
-)
 from database.ia_filterdb import Media, save_batch
+from info import ADMINS
 from info import INDEX_REQ_CHANNEL as LOG_CHANNEL
 from utils import get_size, temp
 
