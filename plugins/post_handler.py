@@ -9,7 +9,7 @@ from logging import ERROR, getLogger
 
 import requests
 from motor.motor_asyncio import AsyncIOMotorClient
-from pyrogram import Client, filters, enums
+from pyrogram import Client, enums, filters
 from pyrogram.errors import FloodWait, MessageNotModified
 from pyrogram.types import (
     CallbackQuery,
@@ -26,12 +26,16 @@ from utils import temp
 try:
     from plugins.auto_post import get_ap_settings, save_ap_settings, upload_image_safely
 except ImportError:
+
     async def get_ap_settings():
         return {}
+
     async def save_ap_settings(key, value):
         pass
+
     async def upload_image_safely(client, message):
         return None, "Not found"
+
 
 logger = getLogger(__name__)
 logger.setLevel(ERROR)
@@ -47,6 +51,7 @@ try:
 except Exception as e:
     logger.error(f"Failed to init drafts_db: {e}")
 
+
 def btn_to_dict(btn: InlineKeyboardButton):
     return {
         "text": getattr(btn, "text", ""),
@@ -54,6 +59,7 @@ def btn_to_dict(btn: InlineKeyboardButton):
         "callback_data": getattr(btn, "callback_data", None),
         "style": getattr(btn, "style", None),
     }
+
 
 post_sessions = {}
 TEMP_SEARCH = {}
@@ -70,13 +76,69 @@ TEMPLATES = {
     "divider_list": """🎬 <b>{title} {year}</b>\n━━━━━━━━━━━━━━━━━━\n<blockquote>{LANGUAGES}\n{RESOLUTIONS}\n{OTT_PLATFORMS}</blockquote>""",
 }
 
-LANGUAGES = ["Kannada", "English", "Gujarati", "Hindi", "Bengali", "Malayalam", "Marathi", "Punjabi", "Tamil", "Telugu", "Urdu", "#NotAvailable"]
-RESOLUTIONS = ["480p", "720p", "1080p", "1440p", "2160p", "4k", "BluRay", "BDRip", "WEB-DL", "HDRip", "HEVC", "#NotAvailable"]
-GENRES = ["Action", "Adventure", "Animation", "Biography", "Comedy", "Crime", "Documentary", "Drama", "Family", "Fantasy", "Horror", "Romance", "Sci-Fi", "Thriller", "#NotAvailable"]
-OTT_PLATFORMS = ["Aha", "ALTBalaji", "JioHotstar", "JioCinema", "MXPlayer", "SonyLIV", "SunNXT", "Voot", "Zee5", "AmazonPrime", "Netflix", "NotAvailable"]
+LANGUAGES = [
+    "Kannada",
+    "English",
+    "Gujarati",
+    "Hindi",
+    "Bengali",
+    "Malayalam",
+    "Marathi",
+    "Punjabi",
+    "Tamil",
+    "Telugu",
+    "Urdu",
+    "#NotAvailable",
+]
+RESOLUTIONS = [
+    "480p",
+    "720p",
+    "1080p",
+    "1440p",
+    "2160p",
+    "4k",
+    "BluRay",
+    "BDRip",
+    "WEB-DL",
+    "HDRip",
+    "HEVC",
+    "#NotAvailable",
+]
+GENRES = [
+    "Action",
+    "Adventure",
+    "Animation",
+    "Biography",
+    "Comedy",
+    "Crime",
+    "Documentary",
+    "Drama",
+    "Family",
+    "Fantasy",
+    "Horror",
+    "Romance",
+    "Sci-Fi",
+    "Thriller",
+    "#NotAvailable",
+]
+OTT_PLATFORMS = [
+    "Aha",
+    "ALTBalaji",
+    "JioHotstar",
+    "JioCinema",
+    "MXPlayer",
+    "SonyLIV",
+    "SunNXT",
+    "Voot",
+    "Zee5",
+    "AmazonPrime",
+    "Netflix",
+    "NotAvailable",
+]
 
 try:
     from pyrogram.enums import ButtonStyle
+
     BTN_PRIMARY = getattr(ButtonStyle, "PRIMARY", 1)
     BTN_SUCCESS = getattr(ButtonStyle, "SUCCESS", 3)
     BTN_DANGER = getattr(ButtonStyle, "DANGER", 4)
@@ -86,16 +148,21 @@ except ImportError:
 
 from database.users_chats_db import db as _db
 
+
 def create_btn(text, url=None, callback_data=None, style=None):
     kwargs = {"text": text}
-    if url: kwargs["url"] = url
-    if callback_data: kwargs["callback_data"] = callback_data
-    if style is not None: kwargs["style"] = style
+    if url:
+        kwargs["url"] = url
+    if callback_data:
+        kwargs["callback_data"] = callback_data
+    if style is not None:
+        kwargs["style"] = style
     try:
         return InlineKeyboardButton(**kwargs)
     except TypeError:
         kwargs.pop("style", None)
         return InlineKeyboardButton(**kwargs)
+
 
 # ============================================================
 # 👑 FULL POWER ADMIN CHECKER (GLOBAL + CHAT + ANONYMOUS)
@@ -106,6 +173,7 @@ def get_admin_list():
         raw_admins = str(raw_admins).replace(",", " ").split()
     return [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
 
+
 async def is_user_admin(client: Client, message: Message):
     admin_list = get_admin_list()
 
@@ -113,30 +181,46 @@ async def is_user_admin(client: Client, message: Message):
         return True
     if message.sender_chat and message.sender_chat.id in admin_list:
         return True
-    if message.chat and message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
+    if message.chat and message.chat.type in [
+        enums.ChatType.GROUP,
+        enums.ChatType.SUPERGROUP,
+    ]:
         if message.sender_chat and message.sender_chat.id == message.chat.id:
             return True
         if message.from_user:
             try:
-                member = await client.get_chat_member(message.chat.id, message.from_user.id)
-                return member.status in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]
+                member = await client.get_chat_member(
+                    message.chat.id, message.from_user.id
+                )
+                return member.status in [
+                    enums.ChatMemberStatus.ADMINISTRATOR,
+                    enums.ChatMemberStatus.OWNER,
+                ]
             except Exception:
                 pass
     return False
 
+
 async def admin_check(_, client: Client, message: Message):
     return await is_user_admin(client, message)
+
 
 async def cb_admin_check(_, client: Client, query: CallbackQuery):
     return await is_user_admin(client, query.message)
 
+
 admin_filter = filters.create(admin_check)
 cb_admin_filter = filters.create(cb_admin_check)
 
+
 def get_uid(msg):
-    return getattr(msg.from_user, "id", getattr(msg.sender_chat, "id", getattr(msg.chat, "id", 0)))
+    return getattr(
+        msg.from_user, "id", getattr(msg.sender_chat, "id", getattr(msg.chat, "id", 0))
+    )
+
 
 _WAITING_REQUESTS = {}
+
 
 @Client.on_message(admin_filter, group=-90)
 async def custom_listener(client: Client, message: Message):
@@ -147,7 +231,10 @@ async def custom_listener(client: Client, message: Message):
             future.set_result(message)
         message.stop_propagation()
 
-async def native_listen(client: Client, chat_id: int, user_id: int, timeout: int = 300) -> Message:
+
+async def native_listen(
+    client: Client, chat_id: int, user_id: int, timeout: int = 300
+) -> Message:
     loop = asyncio.get_running_loop()
     future = loop.create_future()
     _WAITING_REQUESTS[(chat_id, user_id)] = future
@@ -157,24 +244,33 @@ async def native_listen(client: Client, chat_id: int, user_id: int, timeout: int
         _WAITING_REQUESTS.pop((chat_id, user_id), None)
         raise asyncio.TimeoutError
 
+
 async def save_session_to_db(user_id: int, session: dict):
     if drafts_db is not None:
         try:
             draft = session.copy()
-            draft["buttons"] = [[btn_to_dict(b) for b in row] for row in session.get("buttons", [])]
+            draft["buttons"] = [
+                [btn_to_dict(b) for b in row] for row in session.get("buttons", [])
+            ]
             await drafts_db.update_one({"_id": user_id}, {"$set": draft}, upsert=True)
         except Exception as e:
             logger.error(f"Draft Save Error: {e}")
+
 
 async def expire_post_session(client: Client, user_id: int, delay: int = 1800):
     await asyncio.sleep(delay)
     session = post_sessions.get(user_id)
     if session:
-        msg_id, chat_id = session.get("last_preview_message_id"), session.get("original_chat_id")
+        msg_id, chat_id = session.get("last_preview_message_id"), session.get(
+            "original_chat_id"
+        )
         if msg_id and chat_id:
-            try: await client.delete_messages(chat_id, msg_id)
-            except Exception: pass
+            try:
+                await client.delete_messages(chat_id, msg_id)
+            except Exception:
+                pass
         post_sessions.pop(user_id, None)
+
 
 # ============================================================
 # 🚨 DEEP-LINK INTERCEPTOR (Hydra removed)
@@ -188,10 +284,12 @@ async def old_link_interceptor(client: Client, message: Message):
                 query = cmd.replace("search_", "").replace("_", " ")
                 message.text = query
                 from plugins.pm_filter import auto_filter
+
                 await auto_filter(client, message)
                 message.stop_propagation()
             except Exception as e:
                 logger.error(f"Link Interceptor Error: {e}")
+
 
 # ============================================================
 # 📝 ONGOING DRAFT EDITORS
@@ -199,27 +297,39 @@ async def old_link_interceptor(client: Client, message: Message):
 def smart_patch_imported_caption(session, old_val, new_val, is_title=False):
     if session.get("is_manual_caption") and session.get("caption"):
         if is_title:
-            session["caption"] = re.sub(r"<b>(.*?)</b>", f"<b>{new_val}</b>", session["caption"], count=1)
+            session["caption"] = re.sub(
+                r"<b>(.*?)</b>", f"<b>{new_val}</b>", session["caption"], count=1
+            )
         elif old_val and new_val:
             session["caption"] = session["caption"].replace(str(old_val), str(new_val))
 
-@Client.on_message(filters.command(["edittitle", "edittittle"]) & admin_filter, group=-4)
+
+@Client.on_message(
+    filters.command(["edittitle", "edittittle"]) & admin_filter, group=-4
+)
 async def cmd_edit_title(client: Client, message: Message):
     uid = get_uid(message)
-    if uid not in post_sessions: return await message.reply("⚠️ No active post session. Use `/post` first.")
-    if len(message.command) < 2: return await message.reply("⚠️ Usage: `/edittitle New Title`")
+    if uid not in post_sessions:
+        return await message.reply("⚠️ No active post session. Use `/post` first.")
+    if len(message.command) < 2:
+        return await message.reply("⚠️ Usage: `/edittitle New Title`")
     new_title = message.text.split(None, 1)[1]
     old_title = post_sessions[uid]["movie_details"].get("title", "")
     post_sessions[uid]["movie_details"]["title"] = new_title
-    smart_patch_imported_caption(post_sessions[uid], old_title, new_title, is_title=True)
+    smart_patch_imported_caption(
+        post_sessions[uid], old_title, new_title, is_title=True
+    )
     await update_post_preview(client, uid, message.chat.id, force_resend=False)
     await message.reply("✅ Title updated!")
+
 
 @Client.on_message(filters.command(["edityear"]) & admin_filter, group=-4)
 async def cmd_edit_year(client: Client, message: Message):
     uid = get_uid(message)
-    if uid not in post_sessions: return await message.reply("⚠️ No active session.")
-    if len(message.command) < 2: return await message.reply("⚠️ Usage: `/edityear 2024`")
+    if uid not in post_sessions:
+        return await message.reply("⚠️ No active session.")
+    if len(message.command) < 2:
+        return await message.reply("⚠️ Usage: `/edityear 2024`")
     new_year = message.text.split(None, 1)[1]
     old_year = post_sessions[uid]["movie_details"].get("year", "")
     post_sessions[uid]["movie_details"]["year"] = new_year
@@ -227,48 +337,72 @@ async def cmd_edit_year(client: Client, message: Message):
     await update_post_preview(client, uid, message.chat.id, force_resend=False)
     await message.reply("✅ Year updated!")
 
+
 @Client.on_message(filters.command(["editlangs"]) & admin_filter, group=-4)
 async def cmd_edit_langs(client: Client, message: Message):
     uid = get_uid(message)
-    if uid not in post_sessions: return await message.reply("⚠️ No active session.")
-    if len(message.command) < 2: return await message.reply("⚠️ Usage: `/editlangs Hindi, English`")
-    post_sessions[uid]["custom_languages"] = [x.strip() for x in message.text.split(None, 1)[1].split(",")]
+    if uid not in post_sessions:
+        return await message.reply("⚠️ No active session.")
+    if len(message.command) < 2:
+        return await message.reply("⚠️ Usage: `/editlangs Hindi, English`")
+    post_sessions[uid]["custom_languages"] = [
+        x.strip() for x in message.text.split(None, 1)[1].split(",")
+    ]
     await update_post_preview(client, uid, message.chat.id, force_resend=False)
     await message.reply("✅ Languages updated!")
+
 
 @Client.on_message(filters.command(["editresolutions"]) & admin_filter, group=-4)
 async def cmd_edit_res(client: Client, message: Message):
     uid = get_uid(message)
-    if uid not in post_sessions: return await message.reply("⚠️ No active session.")
-    if len(message.command) < 2: return await message.reply("⚠️ Usage: `/editresolutions 1080p, 720p`")
-    post_sessions[uid]["custom_resolutions"] = [x.strip() for x in message.text.split(None, 1)[1].split(",")]
+    if uid not in post_sessions:
+        return await message.reply("⚠️ No active session.")
+    if len(message.command) < 2:
+        return await message.reply("⚠️ Usage: `/editresolutions 1080p, 720p`")
+    post_sessions[uid]["custom_resolutions"] = [
+        x.strip() for x in message.text.split(None, 1)[1].split(",")
+    ]
     await update_post_preview(client, uid, message.chat.id, force_resend=False)
     await message.reply("✅ Resolutions updated!")
+
 
 @Client.on_message(filters.command(["editgenres"]) & admin_filter, group=-4)
 async def cmd_edit_gen(client: Client, message: Message):
     uid = get_uid(message)
-    if uid not in post_sessions: return await message.reply("⚠️ No active session.")
-    if len(message.command) < 2: return await message.reply("⚠️ Usage: `/editgenres Action, Drama`")
-    post_sessions[uid]["custom_genres"] = [x.strip() for x in message.text.split(None, 1)[1].split(",")]
+    if uid not in post_sessions:
+        return await message.reply("⚠️ No active session.")
+    if len(message.command) < 2:
+        return await message.reply("⚠️ Usage: `/editgenres Action, Drama`")
+    post_sessions[uid]["custom_genres"] = [
+        x.strip() for x in message.text.split(None, 1)[1].split(",")
+    ]
     await update_post_preview(client, uid, message.chat.id, force_resend=False)
     await message.reply("✅ Genres updated!")
+
 
 @Client.on_message(filters.command(["editotts"]) & admin_filter, group=-4)
 async def cmd_edit_ott(client: Client, message: Message):
     uid = get_uid(message)
-    if uid not in post_sessions: return await message.reply("⚠️ No active session.")
-    if len(message.command) < 2: return await message.reply("⚠️ Usage: `/editotts Netflix, Prime`")
-    post_sessions[uid]["custom_otts"] = [x.strip() for x in message.text.split(None, 1)[1].split(",")]
+    if uid not in post_sessions:
+        return await message.reply("⚠️ No active session.")
+    if len(message.command) < 2:
+        return await message.reply("⚠️ Usage: `/editotts Netflix, Prime`")
+    post_sessions[uid]["custom_otts"] = [
+        x.strip() for x in message.text.split(None, 1)[1].split(",")
+    ]
     await update_post_preview(client, uid, message.chat.id, force_resend=False)
     await message.reply("✅ OTT Platforms updated!")
+
 
 @Client.on_message(filters.command(["editbutton"]) & admin_filter, group=-4)
 async def cmd_edit_post_button(client: Client, message: Message):
     uid = get_uid(message)
-    if uid not in post_sessions: return await message.reply("⚠️ No active session.")
+    if uid not in post_sessions:
+        return await message.reply("⚠️ No active session.")
     if len(message.command) < 2 or "|" not in message.text:
-        return await message.reply("⚠️ Usage: `/editbutton 1 Download Now | https://url.com`")
+        return await message.reply(
+            "⚠️ Usage: `/editbutton 1 Download Now | https://url.com`"
+        )
 
     try:
         args = message.text.split(None, 1)[1]
@@ -289,52 +423,78 @@ async def cmd_edit_post_button(client: Client, message: Message):
     except Exception as e:
         await message.reply(f"❌ Error updating button: {e}")
 
+
 @Client.on_message(filters.command(["editbuttoncolour"]) & admin_filter, group=-4)
 async def cmd_edit_btn_color(client: Client, message: Message):
     uid = get_uid(message)
-    if uid not in post_sessions: return await message.reply("⚠️ No active session.")
-    if len(message.command) < 3: return await message.reply("⚠️ Usage: `/editbuttoncolour 1 green`\n(Colors: green, red, blue)")
+    if uid not in post_sessions:
+        return await message.reply("⚠️ No active session.")
+    if len(message.command) < 3:
+        return await message.reply(
+            "⚠️ Usage: `/editbuttoncolour 1 green`\n(Colors: green, red, blue)"
+        )
 
     try:
         row_idx = int(message.command[1]) - 1
         color_str = message.command[2].lower()
         color_map = {"green": BTN_SUCCESS, "red": BTN_DANGER, "blue": BTN_PRIMARY}
 
-        if color_str not in color_map: return await message.reply("❌ Invalid color. Use green, red, or blue.")
+        if color_str not in color_map:
+            return await message.reply("❌ Invalid color. Use green, red, or blue.")
         if len(post_sessions[uid]["buttons"]) > row_idx:
-            new_row = [create_btn(b.text, url=b.url, callback_data=b.callback_data, style=color_map[color_str]) for b in post_sessions[uid]["buttons"][row_idx]]
+            new_row = [
+                create_btn(
+                    b.text,
+                    url=b.url,
+                    callback_data=b.callback_data,
+                    style=color_map[color_str],
+                )
+                for b in post_sessions[uid]["buttons"][row_idx]
+            ]
             post_sessions[uid]["buttons"][row_idx] = new_row
             await save_session_to_db(uid, post_sessions[uid])
             await update_post_preview(client, uid, message.chat.id, force_resend=False)
-            await message.reply(f"✅ Button row {row_idx + 1} color changed to {color_str}!")
+            await message.reply(
+                f"✅ Button row {row_idx + 1} color changed to {color_str}!"
+            )
         else:
             await message.reply("❌ That button row doesn't exist.")
     except Exception as e:
         await message.reply(f"❌ Error: {e}")
 
+
 @Client.on_message(filters.command(["editdirect"]) & admin_filter, group=-4)
 async def cmd_edit_post_direct(client: Client, message: Message):
     uid = get_uid(message)
-    if uid not in post_sessions: return await message.reply("⚠️ No active session.")
-    if len(message.command) < 2: return await message.reply("⚠️ Usage: `/editdirect Download Now 📥`")
+    if uid not in post_sessions:
+        return await message.reply("⚠️ No active session.")
+    if len(message.command) < 2:
+        return await message.reply("⚠️ Usage: `/editdirect Download Now 📥`")
 
-    post_sessions[uid]["custom_direct_btn_text"] = message.text.split(None, 1)[1].strip()
+    post_sessions[uid]["custom_direct_btn_text"] = message.text.split(None, 1)[
+        1
+    ].strip()
     await handle_add_get_files(client, post_sessions[uid], update_text_only=True)
     await save_session_to_db(uid, post_sessions[uid])
     await update_post_preview(client, uid, message.chat.id, force_resend=False)
     await message.reply("✅ Direct Search button text updated!")
 
+
 @Client.on_message(filters.command("setpoststicker") & admin_filter, group=-4)
 async def set_autopost_sticker(client: Client, message: Message):
     if not message.reply_to_message or not message.reply_to_message.sticker:
-        return await message.reply_text("⚠️ **Please reply directly to a sticker** with `/setpoststicker`.")
+        return await message.reply_text(
+            "⚠️ **Please reply directly to a sticker** with `/setpoststicker`."
+        )
     await save_ap_settings("sticker", message.reply_to_message.sticker.file_id)
     await message.reply_text("✅ **Post Sticker Saved!**")
+
 
 @Client.on_message(filters.command("rempoststicker") & admin_filter, group=-4)
 async def rem_autopost_sticker(client: Client, message: Message):
     await save_ap_settings("sticker", None)
     await message.reply_text("🗑️ **Auto-Post Sticker Removed.**")
+
 
 # ============================================================
 # START POST SESSION
@@ -342,7 +502,9 @@ async def rem_autopost_sticker(client: Client, message: Message):
 @Client.on_message(filters.command("post") & admin_filter, group=-4)
 async def post_command(client: Client, message: Message):
     if len(message.command) == 1:
-        return await message.reply_text("Please provide a movie name. Usage: `/post Vikram`")
+        return await message.reply_text(
+            "Please provide a movie name. Usage: `/post Vikram`"
+        )
     movie_name = " ".join(message.command[1:])
     user_id = get_uid(message)
     status_msg = await message.reply_text("⏳ Searching TMDB...")
@@ -359,7 +521,8 @@ async def post_command(client: Client, message: Message):
                 TEMP_SEARCH[user_id] = []
                 for idx, r in enumerate(results):
                     title = r.get("title") or r.get("name")
-                    if not title: continue
+                    if not title:
+                        continue
                     date = r.get("release_date") or r.get("first_air_date") or ""
                     year = date[:4] if date else ""
                     display = f"{title} ({year})" if year else title
@@ -369,11 +532,15 @@ async def post_command(client: Client, message: Message):
 
                 if buttons:
                     buttons.append([create_btn("❌ Cancel", callback_data="p_cancel")])
-                    return await status_msg.edit_text(f"🔍 **Found results:**\nSelect the exact movie:", reply_markup=InlineKeyboardMarkup(buttons))
+                    return await status_msg.edit_text(
+                        f"🔍 **Found results:**\nSelect the exact movie:",
+                        reply_markup=InlineKeyboardMarkup(buttons),
+                    )
         except Exception:
             pass
     await status_msg.delete()
     await start_post_session(client, message, user_id, movie_name)
+
 
 @Client.on_callback_query(filters.regex(r"^p_init:|^p_cancel$") & cb_admin_filter)
 async def tmdb_selector_callback(client: Client, query: CallbackQuery):
@@ -381,19 +548,24 @@ async def tmdb_selector_callback(client: Client, query: CallbackQuery):
     if query.data == "p_cancel":
         TEMP_SEARCH.pop(user_id, None)
         return await query.message.edit_text("❌ Cancelled.")
-    
+
     idx = int(query.data.split(":")[1])
     if user_id not in TEMP_SEARCH or len(TEMP_SEARCH[user_id]) <= idx:
         return await query.answer("Search session expired.", show_alert=True)
-    
+
     selected_name = TEMP_SEARCH[user_id][idx]
     TEMP_SEARCH.pop(user_id, None)
     await query.message.delete()
     await start_post_session(client, query.message, user_id, selected_name)
 
-async def start_post_session(client: Client, message: Message, user_id: int, movie_name: str):
+
+async def start_post_session(
+    client: Client, message: Message, user_id: int, movie_name: str
+):
     try:
-        status_msg = await client.send_message(message.chat.id, "⏳ Fetching movie details...")
+        status_msg = await client.send_message(
+            message.chat.id, "⏳ Fetching movie details..."
+        )
         movie_details = await get_movie_detailsx(movie_name)
         if not movie_details:
             return await status_msg.edit_text("❌ TMDB failed.")
@@ -405,11 +577,16 @@ async def start_post_session(client: Client, message: Message, user_id: int, mov
             "buttons": [],
             "photo_mode": False,
             "use_landscape": bool(movie_details.get("backdrop_url")),
-            "custom_languages": [], "custom_resolutions": [],
-            "custom_genres": [], "custom_otts": [],
-            "schedule": 0, "auto_delete": 0,
+            "custom_languages": [],
+            "custom_resolutions": [],
+            "custom_genres": [],
+            "custom_otts": [],
+            "schedule": 0,
+            "auto_delete": 0,
             "last_preview_message_id": status_msg.id,
-            "original_message_id": message.id if hasattr(message, "id") else status_msg.id,
+            "original_message_id": (
+                message.id if hasattr(message, "id") else status_msg.id
+            ),
             "original_chat_id": message.chat.id,
             "custom_poster": None,
             "watermark": DEFAULT_WATERMARK,
@@ -431,13 +608,19 @@ async def start_post_session(client: Client, message: Message, user_id: int, mov
     except Exception as e:
         await client.send_message(message.chat.id, f"❌ **SESSION ERROR:**\n`{e}`")
 
+
 @Client.on_message(filters.command("editpost") & admin_filter, group=-4)
 async def edit_post_cmd(client: Client, message: Message):
     try:
-        if len(message.command) < 2: return await message.reply_text("❌ Please provide a post link.")
+        if len(message.command) < 2:
+            return await message.reply_text("❌ Please provide a post link.")
         link = message.command[1]
         parts = link.split("/")
-        chat_id = int("-100" + parts[-2]) if "t.me/c/" in link else ("@" + parts[-2] if not parts[-2].startswith("@") else parts[-2])
+        chat_id = (
+            int("-100" + parts[-2])
+            if "t.me/c/" in link
+            else ("@" + parts[-2] if not parts[-2].startswith("@") else parts[-2])
+        )
         msg_id = int(parts[-1])
 
         status_msg = await message.reply_text("⏳ Fetching post...")
@@ -450,10 +633,14 @@ async def edit_post_cmd(client: Client, message: Message):
             is_photo_mode = True
         else:
             html_text = target_msg.text.html if target_msg.text else ""
-            match = re.search(r"<a href=['\"](https?://[^'\"]+)['\"]>&#8205;</a>", html_text)
+            match = re.search(
+                r"<a href=['\"](https?://[^'\"]+)['\"]>&#8205;</a>", html_text
+            )
             if match:
                 poster_url = match.group(1)
-                html_text = re.sub(r"<a href=['\"](https?://[^'\"]+)['\"]>&#8205;</a>", "", html_text).strip()
+                html_text = re.sub(
+                    r"<a href=['\"](https?://[^'\"]+)['\"]>&#8205;</a>", "", html_text
+                ).strip()
 
         title_match = re.search(r"<b>(.*?)</b>", html_text.split("\n")[0])
         search_name = title_match.group(1).strip() if title_match else "Unknown Movie"
@@ -461,18 +648,43 @@ async def edit_post_cmd(client: Client, message: Message):
         buttons = []
         if target_msg.reply_markup and target_msg.reply_markup.inline_keyboard:
             for row in target_msg.reply_markup.inline_keyboard:
-                buttons.append([create_btn(text=b.text, url=b.url, callback_data=b.callback_data, style=getattr(b, "style", None)) for b in row])
+                buttons.append(
+                    [
+                        create_btn(
+                            text=b.text,
+                            url=b.url,
+                            callback_data=b.callback_data,
+                            style=getattr(b, "style", None),
+                        )
+                        for b in row
+                    ]
+                )
 
         user_id = get_uid(message)
         post_sessions[user_id] = {
-            "movie_name": search_name, "caption": html_text, "is_manual_caption": True,
-            "buttons": buttons, "photo_mode": is_photo_mode, "use_landscape": False,
-            "custom_languages": [], "custom_resolutions": [], "custom_genres": [], "custom_otts": [],
-            "schedule": 0, "auto_delete": 0, "last_preview_message_id": status_msg.id,
-            "original_message_id": message.id, "original_chat_id": message.chat.id,
-            "custom_poster": poster_url, "watermark": "",
-            "lang_format": LANGUAGES_FORMAT, "ott_format": OTT_FORMAT, "gen_format": GENRES_FORMAT, "res_format": RESOLUTIONS_FORMAT,
-            "active_template": "clean_grid", "movie_details": {"title": search_name, "year": ""},
+            "movie_name": search_name,
+            "caption": html_text,
+            "is_manual_caption": True,
+            "buttons": buttons,
+            "photo_mode": is_photo_mode,
+            "use_landscape": False,
+            "custom_languages": [],
+            "custom_resolutions": [],
+            "custom_genres": [],
+            "custom_otts": [],
+            "schedule": 0,
+            "auto_delete": 0,
+            "last_preview_message_id": status_msg.id,
+            "original_message_id": message.id,
+            "original_chat_id": message.chat.id,
+            "custom_poster": poster_url,
+            "watermark": "",
+            "lang_format": LANGUAGES_FORMAT,
+            "ott_format": OTT_FORMAT,
+            "gen_format": GENRES_FORMAT,
+            "res_format": RESOLUTIONS_FORMAT,
+            "active_template": "clean_grid",
+            "movie_details": {"title": search_name, "year": ""},
             "edit_target": {"chat_id": chat_id, "message_id": msg_id},
             "custom_direct_btn_text": "Direct Search 🔎",
         }
@@ -482,129 +694,332 @@ async def edit_post_cmd(client: Client, message: Message):
     except Exception as e:
         await message.reply_text(f"❌ Error: {e}")
 
+
 class SafeDict(dict):
-    def __missing__(self, key): return "{" + key + "}"
+    def __missing__(self, key):
+        return "{" + key + "}"
+
 
 async def _build_final_post_content(session: dict, session_id: int):
     movie_details = session.get("movie_details", {})
     if session.get("is_manual_caption") and session.get("caption"):
-        return session["caption"], build_keyboard(session, session_id), (None if session.get("custom_poster") == "BLANK" else session.get("custom_poster"))
+        return (
+            session["caption"],
+            build_keyboard(session, session_id),
+            (
+                None
+                if session.get("custom_poster") == "BLANK"
+                else session.get("custom_poster")
+            ),
+        )
 
-    template_str = TEMPLATES.get(session.get("active_template"), TEMPLATES["clean_grid"])
+    template_str = TEMPLATES.get(
+        session.get("active_template"), TEMPLATES["clean_grid"]
+    )
     val_title = html.escape(movie_details.get("title", ""))
     val_year = html.escape(str(movie_details.get("year", "")))
     rating_str = html.escape(str(movie_details.get("rating", "N/A")))
     plot_str = html.escape(str(movie_details.get("plot", "N/A")))
 
-    c_langs, c_res, c_gen, c_ott = session.get("custom_languages", []), session.get("custom_resolutions", []), session.get("custom_genres", []), session.get("custom_otts", [])
-    langs_str = "" if c_langs == ["BLANK"] else (", ".join(c_langs) if c_langs else "N/A")
+    c_langs, c_res, c_gen, c_ott = (
+        session.get("custom_languages", []),
+        session.get("custom_resolutions", []),
+        session.get("custom_genres", []),
+        session.get("custom_otts", []),
+    )
+    langs_str = (
+        "" if c_langs == ["BLANK"] else (", ".join(c_langs) if c_langs else "N/A")
+    )
     res_str = "" if c_res == ["BLANK"] else (", ".join(c_res) if c_res else "N/A")
     genres_str = "" if c_gen == ["BLANK"] else (", ".join(c_gen) if c_gen else "N/A")
     otts_str = "" if c_ott == ["BLANK"] else (", ".join(c_ott) if c_ott else "N/A")
 
-    val_langs = session.get("lang_format", LANGUAGES_FORMAT).format_map(SafeDict(langs=langs_str, LANGUAGES=langs_str)) if langs_str != "N/A" else ""
-    val_res = session.get("res_format", RESOLUTIONS_FORMAT).format_map(SafeDict(resolutions=res_str, RESOLUTIONS=res_str)) if res_str != "N/A" else ""
-    val_gens = session.get("gen_format", GENRES_FORMAT).format_map(SafeDict(genres=genres_str, GENRES=genres_str)) if genres_str != "N/A" else ""
-    val_otts = session.get("ott_format", OTT_FORMAT).format_map(SafeDict(otts=otts_str, OTT_PLATFORMS=otts_str)) if otts_str != "N/A" else ""
+    val_langs = (
+        session.get("lang_format", LANGUAGES_FORMAT).format_map(
+            SafeDict(langs=langs_str, LANGUAGES=langs_str)
+        )
+        if langs_str != "N/A"
+        else ""
+    )
+    val_res = (
+        session.get("res_format", RESOLUTIONS_FORMAT).format_map(
+            SafeDict(resolutions=res_str, RESOLUTIONS=res_str)
+        )
+        if res_str != "N/A"
+        else ""
+    )
+    val_gens = (
+        session.get("gen_format", GENRES_FORMAT).format_map(
+            SafeDict(genres=genres_str, GENRES=genres_str)
+        )
+        if genres_str != "N/A"
+        else ""
+    )
+    val_otts = (
+        session.get("ott_format", OTT_FORMAT).format_map(
+            SafeDict(otts=otts_str, OTT_PLATFORMS=otts_str)
+        )
+        if otts_str != "N/A"
+        else ""
+    )
 
     def render_text(plot_input):
         text = template_str.replace("{title}", val_title).replace("{year}", val_year)
-        for tag, val in [("{LANGUAGES}", val_langs), ("{RESOLUTIONS}", val_res), ("{GENRES}", val_gens), ("{OTT_PLATFORMS}", val_otts), ("{langs}", val_langs), ("{resolutions}", val_res), ("{genres}", val_gens), ("{otts}", val_otts)]:
-            text = text.replace(tag, val) if val else re.sub(rf"[^\n]*{re.escape(tag)}[^\n]*\n?", "", text)
-        text = text.replace("{size}", "Available In Files.").replace("{rating}", rating_str).replace("{plot}", plot_input)
-        if session.get("watermark"): text += f"\n\n{session['watermark']}"
+        for tag, val in [
+            ("{LANGUAGES}", val_langs),
+            ("{RESOLUTIONS}", val_res),
+            ("{GENRES}", val_gens),
+            ("{OTT_PLATFORMS}", val_otts),
+            ("{langs}", val_langs),
+            ("{resolutions}", val_res),
+            ("{genres}", val_gens),
+            ("{otts}", val_otts),
+        ]:
+            text = (
+                text.replace(tag, val)
+                if val
+                else re.sub(rf"[^\n]*{re.escape(tag)}[^\n]*\n?", "", text)
+            )
+        text = (
+            text.replace("{size}", "Available In Files.")
+            .replace("{rating}", rating_str)
+            .replace("{plot}", plot_input)
+        )
+        if session.get("watermark"):
+            text += f"\n\n{session['watermark']}"
         return text
 
     final_text = render_text(plot_str)
     if session.get("photo_mode") and len(final_text) > 1024:
         excess = len(final_text) - 1000
-        final_text = render_text(plot_str[: -(excess + 5)] + "...") if len(plot_str) > excess + 10 else final_text[:1024]
+        final_text = (
+            render_text(plot_str[: -(excess + 5)] + "...")
+            if len(plot_str) > excess + 10
+            else final_text[:1024]
+        )
 
-    poster_to_use = None if session.get("custom_poster") == "BLANK" else (session.get("custom_poster") or (movie_details.get("backdrop_url") if session.get("use_landscape") else movie_details.get("poster_url")))
+    poster_to_use = (
+        None
+        if session.get("custom_poster") == "BLANK"
+        else (
+            session.get("custom_poster")
+            or (
+                movie_details.get("backdrop_url")
+                if session.get("use_landscape")
+                else movie_details.get("poster_url")
+            )
+        )
+    )
     return final_text, build_keyboard(session, session_id), poster_to_use
 
-async def update_post_preview(client: Client, session_id: int, chat_id: int, force_resend: bool = False):
+
+async def update_post_preview(
+    client: Client, session_id: int, chat_id: int, force_resend: bool = False
+):
     session = post_sessions.get(session_id)
-    if not session: return
+    if not session:
+        return
 
     is_new = not session.get("last_preview_message_id")
     if is_new or force_resend:
         if not is_new:
-            try: await client.delete_messages(chat_id, session["last_preview_message_id"])
-            except Exception: pass
+            try:
+                await client.delete_messages(
+                    chat_id, session["last_preview_message_id"]
+                )
+            except Exception:
+                pass
         try:
-            status_msg = await client.send_message(chat_id, "<i>Generating preview...</i>")
+            status_msg = await client.send_message(
+                chat_id, "<i>Generating preview...</i>"
+            )
             session["last_preview_message_id"] = status_msg.id
-        except Exception: return
+        except Exception:
+            return
 
-    try: final_caption, keyboard, poster_to_use = await _build_final_post_content(session, session_id)
-    except Exception: return
+    try:
+        final_caption, keyboard, poster_to_use = await _build_final_post_content(
+            session, session_id
+        )
+    except Exception:
+        return
 
     try:
         final_caption = final_caption + ("\u200b" * random.randint(1, 3))
-        is_normal_photo = session.get("photo_mode") and poster_to_use and str(poster_to_use).upper() != "BLANK"
-        
+        is_normal_photo = (
+            session.get("photo_mode")
+            and poster_to_use
+            and str(poster_to_use).upper() != "BLANK"
+        )
+
         if is_normal_photo:
             if force_resend:
                 old_msg_id = session.get("last_preview_message_id")
-                sent_msg = await client.send_photo(chat_id, photo=poster_to_use, caption=final_caption, reply_markup=keyboard)
+                sent_msg = await client.send_photo(
+                    chat_id,
+                    photo=poster_to_use,
+                    caption=final_caption,
+                    reply_markup=keyboard,
+                )
                 session["last_preview_message_id"] = sent_msg.id
                 if old_msg_id:
-                    try: await client.delete_messages(chat_id, old_msg_id)
-                    except Exception: pass
+                    try:
+                        await client.delete_messages(chat_id, old_msg_id)
+                    except Exception:
+                        pass
             else:
-                await client.edit_message_caption(chat_id, session["last_preview_message_id"], caption=final_caption, reply_markup=keyboard)
+                await client.edit_message_caption(
+                    chat_id,
+                    session["last_preview_message_id"],
+                    caption=final_caption,
+                    reply_markup=keyboard,
+                )
         else:
-            text_content = f"{final_caption}\n<a href='{poster_to_use}'>&#8205;</a>" if poster_to_use and str(poster_to_use).upper() != "BLANK" else final_caption
+            text_content = (
+                f"{final_caption}\n<a href='{poster_to_use}'>&#8205;</a>"
+                if poster_to_use and str(poster_to_use).upper() != "BLANK"
+                else final_caption
+            )
             if force_resend:
                 old_msg_id = session.get("last_preview_message_id")
-                sent_msg = await client.send_message(chat_id, text=text_content, reply_markup=keyboard, disable_web_page_preview=False)
+                sent_msg = await client.send_message(
+                    chat_id,
+                    text=text_content,
+                    reply_markup=keyboard,
+                    disable_web_page_preview=False,
+                )
                 session["last_preview_message_id"] = sent_msg.id
                 if old_msg_id:
-                    try: await client.delete_messages(chat_id, old_msg_id)
-                    except Exception: pass
+                    try:
+                        await client.delete_messages(chat_id, old_msg_id)
+                    except Exception:
+                        pass
             else:
-                await client.edit_message_text(chat_id, session["last_preview_message_id"], text=text_content, reply_markup=keyboard, disable_web_page_preview=False)
+                await client.edit_message_text(
+                    chat_id,
+                    session["last_preview_message_id"],
+                    text=text_content,
+                    reply_markup=keyboard,
+                    disable_web_page_preview=False,
+                )
         await save_session_to_db(session_id, session)
-    except Exception: pass
+    except Exception:
+        pass
+
 
 def build_keyboard(session: dict, session_id: int):
     rows = session.get("buttons", []).copy()
     mode_btn = []
-    if not session.get("edit_target"): mode_btn.append(create_btn(f"Mode: {'Normal Img' if session.get('photo_mode') else 'Preview Img'}", callback_data=f"post:toggle_mode:{session_id}"))
-    mode_btn.append(create_btn(f"Poster: {'Landscape' if session['use_landscape'] else 'Portrait'}", callback_data=f"post:toggle_poster:{session_id}"))
+    if not session.get("edit_target"):
+        mode_btn.append(
+            create_btn(
+                f"Mode: {'Normal Img' if session.get('photo_mode') else 'Preview Img'}",
+                callback_data=f"post:toggle_mode:{session_id}",
+            )
+        )
+    mode_btn.append(
+        create_btn(
+            f"Poster: {'Landscape' if session['use_landscape'] else 'Portrait'}",
+            callback_data=f"post:toggle_poster:{session_id}",
+        )
+    )
 
     sched_val, del_val = session.get("schedule", 0), session.get("auto_delete", 0)
     timing_row = [
-        create_btn(f"⏰ Sched: {sched_val}s" if sched_val else "⏰ Sched: OFF", callback_data=f"post:set_schedule:{session_id}"),
-        create_btn(f"🗑️ Auto-Del: {del_val}s" if del_val else "🗑️ Auto-Del: OFF", callback_data=f"post:set_autodelete:{session_id}")
+        create_btn(
+            f"⏰ Sched: {sched_val}s" if sched_val else "⏰ Sched: OFF",
+            callback_data=f"post:set_schedule:{session_id}",
+        ),
+        create_btn(
+            f"🗑️ Auto-Del: {del_val}s" if del_val else "🗑️ Auto-Del: OFF",
+            callback_data=f"post:set_autodelete:{session_id}",
+        ),
     ]
 
-    rows.extend([
-        [create_btn("✏️ Buttons", callback_data=f"post:buttons_menu:{session_id}"), create_btn("✏️ Caption", callback_data=f"post:edit_caption:{session_id}")],
-        [create_btn("🔗 editdirect", callback_data=f"post:edit_direct:{session_id}"), create_btn("⚪ editbuttoncolour", callback_data=f"post:edit_buttoncolour:{session_id}")],
-        [create_btn("🖼️ Poster", callback_data=f"post:set_poster:{session_id}"), create_btn("✨ Templates", callback_data=f"post:templates:{session_id}"), create_btn("💧 Watermark", callback_data=f"post:set_watermark:{session_id}")],
-        [create_btn("🀄 setpoststicker", callback_data=f"post:set_sticker:{session_id}"), create_btn("❌ rempoststicker", callback_data=f"post:rem_sticker:{session_id}")],
-        [create_btn("🔊", callback_data=f"post:languages:{session_id}"), create_btn("🖥️", callback_data=f"post:resolutions:{session_id}"), create_btn("🎥", callback_data=f"post:genres:{session_id}"), create_btn("📺", callback_data=f"post:otts:{session_id}")],
-        timing_row, mode_btn,
-        [create_btn("✅ Post", callback_data=f"post:finalize:{session_id}", style=BTN_SUCCESS), create_btn("❌ Cancel", callback_data=f"post:cancel:{session_id}", style=BTN_DANGER)]
-    ])
+    rows.extend(
+        [
+            [
+                create_btn(
+                    "✏️ Buttons", callback_data=f"post:buttons_menu:{session_id}"
+                ),
+                create_btn(
+                    "✏️ Caption", callback_data=f"post:edit_caption:{session_id}"
+                ),
+            ],
+            [
+                create_btn(
+                    "🔗 editdirect", callback_data=f"post:edit_direct:{session_id}"
+                ),
+                create_btn(
+                    "⚪ editbuttoncolour",
+                    callback_data=f"post:edit_buttoncolour:{session_id}",
+                ),
+            ],
+            [
+                create_btn("🖼️ Poster", callback_data=f"post:set_poster:{session_id}"),
+                create_btn(
+                    "✨ Templates", callback_data=f"post:templates:{session_id}"
+                ),
+                create_btn(
+                    "💧 Watermark", callback_data=f"post:set_watermark:{session_id}"
+                ),
+            ],
+            [
+                create_btn(
+                    "🀄 setpoststicker", callback_data=f"post:set_sticker:{session_id}"
+                ),
+                create_btn(
+                    "❌ rempoststicker", callback_data=f"post:rem_sticker:{session_id}"
+                ),
+            ],
+            [
+                create_btn("🔊", callback_data=f"post:languages:{session_id}"),
+                create_btn("🖥️", callback_data=f"post:resolutions:{session_id}"),
+                create_btn("🎥", callback_data=f"post:genres:{session_id}"),
+                create_btn("📺", callback_data=f"post:otts:{session_id}"),
+            ],
+            timing_row,
+            mode_btn,
+            [
+                create_btn(
+                    "✅ Post",
+                    callback_data=f"post:finalize:{session_id}",
+                    style=BTN_SUCCESS,
+                ),
+                create_btn(
+                    "❌ Cancel",
+                    callback_data=f"post:cancel:{session_id}",
+                    style=BTN_DANGER,
+                ),
+            ],
+        ]
+    )
     return InlineKeyboardMarkup(rows)
+
 
 async def show_target_selection(query: CallbackQuery, session_id: int, page: int = 1):
     all_chats_dict = {}
     settings = await get_ap_settings()
     db_titles = {}
     raw_chats = await _db.get_all_chats()
-    db_chats = [c async for c in raw_chats] if hasattr(raw_chats, "__aiter__") else list(raw_chats)
-    
+    db_chats = (
+        [c async for c in raw_chats]
+        if hasattr(raw_chats, "__aiter__")
+        else list(raw_chats)
+    )
+
     for chat in db_chats:
         chat_id = chat.get("id") or chat.get("chat_id")
-        if chat_id: db_titles[int(chat_id)] = chat.get("title") or chat.get("name") or str(chat_id)
+        if chat_id:
+            db_titles[int(chat_id)] = (
+                chat.get("title") or chat.get("name") or str(chat_id)
+            )
 
     def _safe_parse(var):
-        if isinstance(var, str): return [int(x) for x in var.split() if x.strip()]
-        if isinstance(var, list): return [int(x) for x in var if str(x).strip()]
+        if isinstance(var, str):
+            return [int(x) for x in var.split() if x.strip()]
+        if isinstance(var, list):
+            return [int(x) for x in var if str(x).strip()]
         return [int(var)] if var else []
 
     info_muc = _safe_parse(getattr(info, "MOVIE_UPDATE_CHANNEL", []))
@@ -613,8 +1028,10 @@ async def show_target_selection(query: CallbackQuery, session_id: int, page: int
     for ch in set(info_muc + db_muc):
         if ch:
             if int(ch) not in db_titles:
-                try: db_titles[int(ch)] = (await query._client.get_chat(ch)).title
-                except Exception: pass
+                try:
+                    db_titles[int(ch)] = (await query._client.get_chat(ch)).title
+                except Exception:
+                    pass
             all_chats_dict[int(ch)] = f"🌟 {db_titles.get(int(ch), str(ch))[:20]}"
 
     info_apc = _safe_parse(getattr(info, "AUTOPOSTCHANNEL", []))
@@ -622,32 +1039,78 @@ async def show_target_selection(query: CallbackQuery, session_id: int, page: int
     for ch in set(info_apc + db_apc):
         if ch and int(ch) not in all_chats_dict:
             if int(ch) not in db_titles:
-                try: db_titles[int(ch)] = (await query._client.get_chat(ch)).title
-                except Exception: pass
+                try:
+                    db_titles[int(ch)] = (await query._client.get_chat(ch)).title
+                except Exception:
+                    pass
             all_chats_dict[int(ch)] = f"🌟 {db_titles.get(int(ch), str(ch))[:20]}"
 
     for chat in db_chats:
         chat_id = chat.get("id") or chat.get("chat_id")
         if chat_id and int(chat_id) not in all_chats_dict:
-            all_chats_dict[int(chat_id)] = f"📢 {db_titles.get(int(chat_id), str(chat_id))[:20]}"
+            all_chats_dict[int(chat_id)] = (
+                f"📢 {db_titles.get(int(chat_id), str(chat_id))[:20]}"
+            )
 
     chat_list = list(all_chats_dict.items())
     page_size, total_pages = 10, max(1, math.ceil(len(chat_list) / 10))
     page = max(1, min(page, total_pages))
 
     start_idx = (page - 1) * page_size
-    buttons = [[create_btn("📢 Post to All Configured Channels", callback_data=f"post:send_all:{session_id}", style=BTN_SUCCESS)]]
+    buttons = [
+        [
+            create_btn(
+                "📢 Post to All Configured Channels",
+                callback_data=f"post:send_all:{session_id}",
+                style=BTN_SUCCESS,
+            )
+        ]
+    ]
     for chat_id, title in chat_list[start_idx : start_idx + page_size]:
-        buttons.append([create_btn(title, callback_data=f"post:send_to:{session_id}:{chat_id}", style=BTN_PRIMARY)])
+        buttons.append(
+            [
+                create_btn(
+                    title,
+                    callback_data=f"post:send_to:{session_id}:{chat_id}",
+                    style=BTN_PRIMARY,
+                )
+            ]
+        )
 
     nav_row = []
-    if page > 1: nav_row.append(create_btn("⬅️ Prev", callback_data=f"post:target_page:{session_id}:{page-1}", style=BTN_SECONDARY))
-    if page < total_pages: nav_row.append(create_btn("Next ➡️", callback_data=f"post:target_page:{session_id}:{page+1}", style=BTN_SECONDARY))
-    if nav_row: buttons.append(nav_row)
-    buttons.append([create_btn("🔙 Back to Editor", callback_data=f"post:back_editor:{session_id}", style=BTN_DANGER)])
+    if page > 1:
+        nav_row.append(
+            create_btn(
+                "⬅️ Prev",
+                callback_data=f"post:target_page:{session_id}:{page-1}",
+                style=BTN_SECONDARY,
+            )
+        )
+    if page < total_pages:
+        nav_row.append(
+            create_btn(
+                "Next ➡️",
+                callback_data=f"post:target_page:{session_id}:{page+1}",
+                style=BTN_SECONDARY,
+            )
+        )
+    if nav_row:
+        buttons.append(nav_row)
+    buttons.append(
+        [
+            create_btn(
+                "🔙 Back to Editor",
+                callback_data=f"post:back_editor:{session_id}",
+                style=BTN_DANGER,
+            )
+        ]
+    )
 
-    try: await query.edit_message_reply_markup(InlineKeyboardMarkup(buttons))
-    except MessageNotModified: pass
+    try:
+        await query.edit_message_reply_markup(InlineKeyboardMarkup(buttons))
+    except MessageNotModified:
+        pass
+
 
 @Client.on_callback_query(filters.regex(r"^post:") & cb_admin_filter, group=-4)
 async def post_callbacks(client: Client, query: CallbackQuery):
@@ -656,85 +1119,162 @@ async def post_callbacks(client: Client, query: CallbackQuery):
         action, session_id = parts[1], int(parts[2])
         extra_data = parts[3:]
         session = post_sessions.get(session_id)
-        if not session: return await query.answer("Session expired.", show_alert=True)
+        if not session:
+            return await query.answer("Session expired.", show_alert=True)
         force_resend = False
 
         if action == "back":
             await query.answer()
-        elif action in ["languages", "resolutions", "templates", "buttons_menu", "remove_buttons_menu", "genres", "otts"]:
+        elif action in [
+            "languages",
+            "resolutions",
+            "templates",
+            "buttons_menu",
+            "remove_buttons_menu",
+            "genres",
+            "otts",
+        ]:
             await query.answer()
-            if action == "languages": await show_selection_menu(query, session_id, "languages")
-            elif action == "resolutions": await show_selection_menu(query, session_id, "resolutions")
-            elif action == "genres": await show_selection_menu(query, session_id, "genres")
-            elif action == "otts": await show_selection_menu(query, session_id, "otts")
-            elif action == "templates": await handle_templates_menu(query, session_id)
-            elif action == "buttons_menu": await handle_buttons_menu(query, session_id)
-            elif action == "remove_buttons_menu": await handle_remove_buttons_menu(query, session_id)
+            if action == "languages":
+                await show_selection_menu(query, session_id, "languages")
+            elif action == "resolutions":
+                await show_selection_menu(query, session_id, "resolutions")
+            elif action == "genres":
+                await show_selection_menu(query, session_id, "genres")
+            elif action == "otts":
+                await show_selection_menu(query, session_id, "otts")
+            elif action == "templates":
+                await handle_templates_menu(query, session_id)
+            elif action == "buttons_menu":
+                await handle_buttons_menu(query, session_id)
+            elif action == "remove_buttons_menu":
+                await handle_remove_buttons_menu(query, session_id)
             return
         elif action in ["select_lang", "select_res", "select_gen", "select_ott"]:
             await query.answer()
             item = extra_data[0]
-            arr_map = {"select_lang": "custom_languages", "select_res": "custom_resolutions", "select_gen": "custom_genres", "select_ott": "custom_otts"}
+            arr_map = {
+                "select_lang": "custom_languages",
+                "select_res": "custom_resolutions",
+                "select_gen": "custom_genres",
+                "select_ott": "custom_otts",
+            }
             k = arr_map[action]
-            if "BLANK" in session[k]: session[k] = []
-            if item not in session[k]: session[k].append(item)
-            else: session[k].remove(item)
+            if "BLANK" in session[k]:
+                session[k] = []
+            if item not in session[k]:
+                session[k].append(item)
+            else:
+                session[k].remove(item)
             await save_session_to_db(session_id, session)
-            
-            if action == "select_lang": await show_selection_menu(query, session_id, "languages")
-            elif action == "select_res": await show_selection_menu(query, session_id, "resolutions")
-            elif action == "select_gen": await show_selection_menu(query, session_id, "genres")
-            elif action == "select_ott": await show_selection_menu(query, session_id, "otts")
+
+            if action == "select_lang":
+                await show_selection_menu(query, session_id, "languages")
+            elif action == "select_res":
+                await show_selection_menu(query, session_id, "resolutions")
+            elif action == "select_gen":
+                await show_selection_menu(query, session_id, "genres")
+            elif action == "select_ott":
+                await show_selection_menu(query, session_id, "otts")
             return
-        elif action == "format_lang": return await format_updater(client, query, session_id, "lang_format", "{langs}", LANGUAGES_FORMAT)
-        elif action == "format_res": return await format_updater(client, query, session_id, "res_format", "{resolutions}", RESOLUTIONS_FORMAT)
-        elif action == "format_gen": return await format_updater(client, query, session_id, "gen_format", "{genres}", GENRES_FORMAT)
-        elif action == "format_ott": return await format_updater(client, query, session_id, "ott_format", "{otts}", OTT_FORMAT)
-        
+        elif action == "format_lang":
+            return await format_updater(
+                client, query, session_id, "lang_format", "{langs}", LANGUAGES_FORMAT
+            )
+        elif action == "format_res":
+            return await format_updater(
+                client,
+                query,
+                session_id,
+                "res_format",
+                "{resolutions}",
+                RESOLUTIONS_FORMAT,
+            )
+        elif action == "format_gen":
+            return await format_updater(
+                client, query, session_id, "gen_format", "{genres}", GENRES_FORMAT
+            )
+        elif action == "format_ott":
+            return await format_updater(
+                client, query, session_id, "ott_format", "{otts}", OTT_FORMAT
+            )
+
         elif action == "select_template":
             session["active_template"] = extra_data[0]
             session["is_manual_caption"] = False
             session["caption"] = None
         elif action == "edit_caption":
-            response = await get_user_input(client, query, session, "Send the new caption text.")
+            response = await get_user_input(
+                client, query, session, "Send the new caption text."
+            )
             if response and response.text:
                 session["caption"] = response.text
                 session["is_manual_caption"] = True
         elif action == "set_poster":
-            response = await get_user_input(client, query, session, "📸 Send a photo or an image URL.\n*(Or type `/reset` or `blank`)*")
+            response = await get_user_input(
+                client,
+                query,
+                session,
+                "📸 Send a photo or an image URL.\n*(Or type `/reset` or `blank`)*",
+            )
             if response:
                 if response.photo:
                     status_msg = await query.message.reply_text("⏳ Uploading image...")
                     url, err = await upload_image_safely(client, response)
                     if url:
                         session["custom_poster"] = url
-                        if not session.get("edit_target"): session["photo_mode"] = False
-                        try: await status_msg.edit_text("✅ Poster updated successfully!")
-                        except: pass
+                        if not session.get("edit_target"):
+                            session["photo_mode"] = False
+                        try:
+                            await status_msg.edit_text(
+                                "✅ Poster updated successfully!"
+                            )
+                        except:
+                            pass
                     else:
                         session["custom_poster"] = response.photo.file_id
                         session["photo_mode"] = True
-                        try: await status_msg.edit_text("⚠️ Cloud blocked. Switched to 'Normal Image' Mode!")
-                        except: pass
+                        try:
+                            await status_msg.edit_text(
+                                "⚠️ Cloud blocked. Switched to 'Normal Image' Mode!"
+                            )
+                        except:
+                            pass
                 elif response.text:
                     text_input = response.text.strip().lower()
                     if text_input == "/reset":
                         session["custom_poster"] = None
-                        if not session.get("edit_target"): session["photo_mode"] = False
-                    elif text_input == "blank": session["custom_poster"] = "BLANK"
+                        if not session.get("edit_target"):
+                            session["photo_mode"] = False
+                    elif text_input == "blank":
+                        session["custom_poster"] = "BLANK"
                     elif response.text.startswith("http"):
                         session["custom_poster"] = response.text.strip()
-                        if not session.get("edit_target"): session["photo_mode"] = False
+                        if not session.get("edit_target"):
+                            session["photo_mode"] = False
             force_resend = True
         elif action == "set_watermark":
-            response = await get_user_input(client, query, session, "Send watermark. Send `blank` or `/reset` to remove. Send `/default` for default.")
+            response = await get_user_input(
+                client,
+                query,
+                session,
+                "Send watermark. Send `blank` or `/reset` to remove. Send `/default` for default.",
+            )
             if response and response.text:
                 text_input = response.text.strip().lower()
-                if text_input in ["/reset", "blank"]: session["watermark"] = ""
-                elif text_input == "/default": session["watermark"] = DEFAULT_WATERMARK
-                else: session["watermark"] = response.text
+                if text_input in ["/reset", "blank"]:
+                    session["watermark"] = ""
+                elif text_input == "/default":
+                    session["watermark"] = DEFAULT_WATERMARK
+                else:
+                    session["watermark"] = response.text
         elif action == "edit_buttons":
-            response = await get_user_input(client, query, session, "Send the button layout. Format:\n`Button 1 - URL1 | Button 2 - URL2`")
+            response = await get_user_input(
+                client,
+                query,
+                session,
+                "Send the button layout. Format:\n`Button 1 - URL1 | Button 2 - URL2`",
+            )
             if response and response.text:
                 new_layout = []
                 for row_str in response.text.strip().split("\n"):
@@ -742,167 +1282,379 @@ async def post_callbacks(client: Client, query: CallbackQuery):
                     for btn_str in row_str.split("|"):
                         if " - " in btn_str:
                             text, url = btn_str.split(" - ", 1)
-                            clean_url = url.strip() if url.strip().startswith(("http://", "https://", "tg://")) else "https://" + url.strip()
-                            clean_text = text.replace("[", "").replace("]", "").replace("(", "").replace(")", "").strip()
+                            clean_url = (
+                                url.strip()
+                                if url.strip().startswith(
+                                    ("http://", "https://", "tg://")
+                                )
+                                else "https://" + url.strip()
+                            )
+                            clean_text = (
+                                text.replace("[", "")
+                                .replace("]", "")
+                                .replace("(", "")
+                                .replace(")", "")
+                                .strip()
+                            )
                             row_btns.append(create_btn(clean_text, url=clean_url))
-                    if row_btns: new_layout.append(row_btns)
+                    if row_btns:
+                        new_layout.append(row_btns)
                 session["buttons"] = new_layout
                 await save_session_to_db(session_id, session)
         elif action == "remove_button":
             try:
                 row_i, col_i = int(extra_data[0]), int(extra_data[1])
                 session["buttons"][row_i].pop(col_i)
-                if not session["buttons"][row_i]: session["buttons"].pop(row_i)
-            except (IndexError, ValueError): pass
+                if not session["buttons"][row_i]:
+                    session["buttons"].pop(row_i)
+            except (IndexError, ValueError):
+                pass
             return await handle_remove_buttons_menu(query, session_id)
         elif action == "edit_direct":
-            response = await get_user_input(client, query, session, "Send the new Direct Search button text:")
+            response = await get_user_input(
+                client, query, session, "Send the new Direct Search button text:"
+            )
             if response and response.text:
                 session["custom_direct_btn_text"] = response.text.strip()
                 await handle_add_get_files(client, session, update_text_only=True)
             force_resend = True
         elif action == "edit_buttoncolour":
-            response = await get_user_input(client, query, session, "Send row number and color (e.g., `1 green`). Colors: green, red, blue.")
+            response = await get_user_input(
+                client,
+                query,
+                session,
+                "Send row number and color (e.g., `1 green`). Colors: green, red, blue.",
+            )
             if response and response.text:
                 try:
                     parts = response.text.strip().split()
                     row_idx = int(parts[0]) - 1
                     color_str = parts[1].lower()
-                    color_map = {"green": BTN_SUCCESS, "red": BTN_DANGER, "blue": BTN_PRIMARY}
+                    color_map = {
+                        "green": BTN_SUCCESS,
+                        "red": BTN_DANGER,
+                        "blue": BTN_PRIMARY,
+                    }
                     if color_str in color_map and len(session["buttons"]) > row_idx:
-                        session["buttons"][row_idx] = [create_btn(b.text, url=b.url, callback_data=b.callback_data, style=color_map[color_str]) for b in session["buttons"][row_idx]]
-                except Exception: pass
+                        session["buttons"][row_idx] = [
+                            create_btn(
+                                b.text,
+                                url=b.url,
+                                callback_data=b.callback_data,
+                                style=color_map[color_str],
+                            )
+                            for b in session["buttons"][row_idx]
+                        ]
+                except Exception:
+                    pass
             force_resend = True
         elif action == "set_sticker":
-            response = await get_user_input(client, query, session, "📸 Send a sticker to set as the auto-post sticker:")
+            response = await get_user_input(
+                client,
+                query,
+                session,
+                "📸 Send a sticker to set as the auto-post sticker:",
+            )
             if response and response.sticker:
                 await save_ap_settings("sticker", response.sticker.file_id)
-                try: await query.message.reply_text("✅ Auto-Post Sticker Saved!")
-                except Exception: pass
+                try:
+                    await query.message.reply_text("✅ Auto-Post Sticker Saved!")
+                except Exception:
+                    pass
         elif action == "rem_sticker":
             await save_ap_settings("sticker", None)
-            try: await query.answer("🗑️ Auto-Post Sticker Removed.", show_alert=True)
-            except Exception: pass
+            try:
+                await query.answer("🗑️ Auto-Post Sticker Removed.", show_alert=True)
+            except Exception:
+                pass
         elif action == "add_get_files":
             added = await handle_add_get_files(client, session)
-            await query.answer("✅ 'Get Files' button added!" if added else "⚠️ Button already exists!", show_alert=not added)
+            await query.answer(
+                (
+                    "✅ 'Get Files' button added!"
+                    if added
+                    else "⚠️ Button already exists!"
+                ),
+                show_alert=not added,
+            )
         elif action == "set_schedule":
-            response = await get_user_input(client, query, session, "⏰ Send schedule delay in **seconds** (e.g., `3600`). Or type `off`.")
+            response = await get_user_input(
+                client,
+                query,
+                session,
+                "⏰ Send schedule delay in **seconds** (e.g., `3600`). Or type `off`.",
+            )
             if response and response.text:
                 text_val = response.text.strip().lower()
-                session["schedule"] = 0 if text_val == "off" else int(text_val) if text_val.isdigit() else session["schedule"]
+                session["schedule"] = (
+                    0
+                    if text_val == "off"
+                    else int(text_val) if text_val.isdigit() else session["schedule"]
+                )
                 await save_session_to_db(session_id, session)
         elif action == "set_autodelete":
-            response = await get_user_input(client, query, session, "🗑️ Send auto-delete time in **seconds** (e.g., `86400`). Or type `off`.")
+            response = await get_user_input(
+                client,
+                query,
+                session,
+                "🗑️ Send auto-delete time in **seconds** (e.g., `86400`). Or type `off`.",
+            )
             if response and response.text:
                 text_val = response.text.strip().lower()
-                session["auto_delete"] = 0 if text_val == "off" else int(text_val) if text_val.isdigit() else session["auto_delete"]
+                session["auto_delete"] = (
+                    0
+                    if text_val == "off"
+                    else int(text_val) if text_val.isdigit() else session["auto_delete"]
+                )
                 await save_session_to_db(session_id, session)
         elif action == "toggle_poster":
             session["use_landscape"] = not session["use_landscape"]
             force_resend = True
         elif action == "toggle_mode":
-            if not session.get("edit_target"): session["photo_mode"] = not session.get("photo_mode")
-            else: return await query.answer("Cannot switch image modes on imported post!", show_alert=True)
+            if not session.get("edit_target"):
+                session["photo_mode"] = not session.get("photo_mode")
+            else:
+                return await query.answer(
+                    "Cannot switch image modes on imported post!", show_alert=True
+                )
             force_resend = True
         elif action == "cancel":
             if session := post_sessions.pop(session_id, None):
                 if session.get("last_preview_message_id"):
-                    try: await client.delete_messages(query.message.chat.id, session["last_preview_message_id"])
-                    except Exception: pass
-            try: await query.message.reply_text("❌ Post creation cancelled.")
-            except Exception: pass
+                    try:
+                        await client.delete_messages(
+                            query.message.chat.id, session["last_preview_message_id"]
+                        )
+                    except Exception:
+                        pass
+            try:
+                await query.message.reply_text("❌ Post creation cancelled.")
+            except Exception:
+                pass
             return
         elif action == "finalize":
-            if session.get("edit_target"): return await execute_post(client, query, session_id, session["edit_target"]["chat_id"])
-            else: return await show_target_selection(query, session_id, 1)
-        elif action == "target_page": return await show_target_selection(query, session_id, int(extra_data[0]))
-        elif action == "send_to": return await execute_post(client, query, session_id, int(extra_data[0]))
-        elif action == "send_all": return await execute_post_all(client, query, session_id)
-        elif action == "back_editor": return await update_post_preview(client, session_id, query.message.chat.id, force_resend=False)
+            if session.get("edit_target"):
+                return await execute_post(
+                    client, query, session_id, session["edit_target"]["chat_id"]
+                )
+            else:
+                return await show_target_selection(query, session_id, 1)
+        elif action == "target_page":
+            return await show_target_selection(query, session_id, int(extra_data[0]))
+        elif action == "send_to":
+            return await execute_post(client, query, session_id, int(extra_data[0]))
+        elif action == "send_all":
+            return await execute_post_all(client, query, session_id)
+        elif action == "back_editor":
+            return await update_post_preview(
+                client, session_id, query.message.chat.id, force_resend=False
+            )
 
         await save_session_to_db(session_id, session)
-        await update_post_preview(client, session_id, query.message.chat.id, force_resend)
+        await update_post_preview(
+            client, session_id, query.message.chat.id, force_resend
+        )
     except Exception as e:
         await query.message.reply_text(f"❌ **CALLBACK ERROR:**\n`{e}`")
 
+
 async def show_selection_menu(query: CallbackQuery, session_id: int, menu_type: str):
     session = post_sessions[session_id]
-    if menu_type == "languages": items, selected, act, fmt = LANGUAGES, session["custom_languages"], "select_lang", "format_lang"
-    elif menu_type == "resolutions": items, selected, act, fmt = RESOLUTIONS, session["custom_resolutions"], "select_res", "format_res"
-    elif menu_type == "genres": items, selected, act, fmt = GENRES, session["custom_genres"], "select_gen", "format_gen"
-    elif menu_type == "otts": items, selected, act, fmt = OTT_PLATFORMS, session["custom_otts"], "select_ott", "format_ott"
-    else: return
+    if menu_type == "languages":
+        items, selected, act, fmt = (
+            LANGUAGES,
+            session["custom_languages"],
+            "select_lang",
+            "format_lang",
+        )
+    elif menu_type == "resolutions":
+        items, selected, act, fmt = (
+            RESOLUTIONS,
+            session["custom_resolutions"],
+            "select_res",
+            "format_res",
+        )
+    elif menu_type == "genres":
+        items, selected, act, fmt = (
+            GENRES,
+            session["custom_genres"],
+            "select_gen",
+            "format_gen",
+        )
+    elif menu_type == "otts":
+        items, selected, act, fmt = (
+            OTT_PLATFORMS,
+            session["custom_otts"],
+            "select_ott",
+            "format_ott",
+        )
+    else:
+        return
 
-    buttons = [create_btn(f"✅ {i}" if i in selected else i, callback_data=f"post:{act}:{session_id}:{i}") for i in items]
+    buttons = [
+        create_btn(
+            f"✅ {i}" if i in selected else i,
+            callback_data=f"post:{act}:{session_id}:{i}",
+        )
+        for i in items
+    ]
     keyboard = [buttons[i : i + 3] for i in range(0, len(buttons), 3)]
-    keyboard.append([create_btn("⚙ Change Format", callback_data=f"post:{fmt}:{session_id}")])
+    keyboard.append(
+        [create_btn("⚙ Change Format", callback_data=f"post:{fmt}:{session_id}")]
+    )
     keyboard.append([create_btn("✅ Done", callback_data=f"post:back:{session_id}")])
-    try: await query.edit_message_reply_markup(InlineKeyboardMarkup(keyboard))
-    except MessageNotModified: pass
+    try:
+        await query.edit_message_reply_markup(InlineKeyboardMarkup(keyboard))
+    except MessageNotModified:
+        pass
+
 
 async def handle_templates_menu(query, session_id: int):
     session = post_sessions[session_id]
-    buttons = [[create_btn(f"✅ {name}" if session.get("active_template") == name else name, callback_data=f"post:select_template:{session_id}:{name}")] for name in TEMPLATES]
+    buttons = [
+        [
+            create_btn(
+                f"✅ {name}" if session.get("active_template") == name else name,
+                callback_data=f"post:select_template:{session_id}:{name}",
+            )
+        ]
+        for name in TEMPLATES
+    ]
     buttons.append([create_btn("Back", callback_data=f"post:back:{session_id}")])
-    try: await query.edit_message_reply_markup(InlineKeyboardMarkup(buttons))
-    except MessageNotModified: pass
+    try:
+        await query.edit_message_reply_markup(InlineKeyboardMarkup(buttons))
+    except MessageNotModified:
+        pass
+
 
 async def handle_buttons_menu(query, session_id):
     buttons = [
-        [create_btn("➕ Add/Edit Layout", callback_data=f"post:edit_buttons:{session_id}")],
-        [create_btn("📥 Add 'Get Files' Button", callback_data=f"post:add_get_files:{session_id}")],
-        [create_btn("🗑️ Remove a Button", callback_data=f"post:remove_buttons_menu:{session_id}")],
-        [create_btn("Back", callback_data=f"post:back:{session_id}")]
+        [
+            create_btn(
+                "➕ Add/Edit Layout", callback_data=f"post:edit_buttons:{session_id}"
+            )
+        ],
+        [
+            create_btn(
+                "📥 Add 'Get Files' Button",
+                callback_data=f"post:add_get_files:{session_id}",
+            )
+        ],
+        [
+            create_btn(
+                "🗑️ Remove a Button",
+                callback_data=f"post:remove_buttons_menu:{session_id}",
+            )
+        ],
+        [create_btn("Back", callback_data=f"post:back:{session_id}")],
     ]
-    try: await query.edit_message_reply_markup(InlineKeyboardMarkup(buttons))
-    except MessageNotModified: pass
+    try:
+        await query.edit_message_reply_markup(InlineKeyboardMarkup(buttons))
+    except MessageNotModified:
+        pass
+
 
 async def handle_remove_buttons_menu(query, session_id: int):
     session = post_sessions[session_id]
     buttons = []
     for i, row in enumerate(session["buttons"]):
         for j, btn in enumerate(row):
-            buttons.append([create_btn(f"❌ {btn.text}", callback_data=f"post:remove_button:{session_id}:{i}:{j}")])
-    if not buttons: buttons.append([create_btn("No buttons to remove", callback_data="noop")])
+            buttons.append(
+                [
+                    create_btn(
+                        f"❌ {btn.text}",
+                        callback_data=f"post:remove_button:{session_id}:{i}:{j}",
+                    )
+                ]
+            )
+    if not buttons:
+        buttons.append([create_btn("No buttons to remove", callback_data="noop")])
     buttons.append([create_btn("Back", callback_data=f"post:back:{session_id}")])
-    try: await query.edit_message_reply_markup(InlineKeyboardMarkup(buttons))
-    except MessageNotModified: pass
+    try:
+        await query.edit_message_reply_markup(InlineKeyboardMarkup(buttons))
+    except MessageNotModified:
+        pass
+
 
 async def get_user_input(client, query, session, prompt_text):
-    try: ask_msg = await query.message.reply_text(prompt_text, reply_to_message_id=session.get("original_message_id"))
-    except Exception: ask_msg = await query.message.reply_text(prompt_text)
-    
+    try:
+        ask_msg = await query.message.reply_text(
+            prompt_text, reply_to_message_id=session.get("original_message_id")
+        )
+    except Exception:
+        ask_msg = await query.message.reply_text(prompt_text)
+
     try:
         uid = get_uid(query.message)
         response = await native_listen(client, query.message.chat.id, uid, 120)
-        try: await ask_msg.delete()
-        except Exception: pass
+        try:
+            await ask_msg.delete()
+        except Exception:
+            pass
         if response:
-            try: await response.delete()
-            except Exception: pass
+            try:
+                await response.delete()
+            except Exception:
+                pass
             return response
-    except asyncio.TimeoutError: pass
+    except asyncio.TimeoutError:
+        pass
     return None
 
-async def format_updater(client: Client, query: CallbackQuery, session_id: int, format_key: str, tag: str, default_format: str):
-    session = post_sessions[session_id]
-    response = await get_user_input(client, query, session, f"Send format. Must include `{tag}`. Send `/reset` for default.")
-    if response and response.text:
-        if response.text == "/reset": session[format_key] = default_format
-        elif tag not in response.text:
-            try: await query.message.reply_text(f"⚠️ Must contain `{tag}`")
-            except Exception: pass
-        else: session[format_key] = response.text
-    return await update_post_preview(client, session_id, query.message.chat.id, force_resend=False)
 
-async def handle_add_get_files(client: Client, session: dict, update_text_only=False) -> bool:
+async def format_updater(
+    client: Client,
+    query: CallbackQuery,
+    session_id: int,
+    format_key: str,
+    tag: str,
+    default_format: str,
+):
+    session = post_sessions[session_id]
+    response = await get_user_input(
+        client,
+        query,
+        session,
+        f"Send format. Must include `{tag}`. Send `/reset` for default.",
+    )
+    if response and response.text:
+        if response.text == "/reset":
+            session[format_key] = default_format
+        elif tag not in response.text:
+            try:
+                await query.message.reply_text(f"⚠️ Must contain `{tag}`")
+            except Exception:
+                pass
+        else:
+            session[format_key] = response.text
+    return await update_post_preview(
+        client, session_id, query.message.chat.id, force_resend=False
+    )
+
+
+async def handle_add_get_files(
+    client: Client, session: dict, update_text_only=False
+) -> bool:
     movie_details = session["movie_details"]
-    title = str(movie_details.get("title", "movie")).replace("(", "").replace(")", "").replace("[", "").replace("]", "")
-    year = str(movie_details.get("year", "")).replace("(", "").replace(")", "").replace("[", "").replace("]", "")
-    
+    title = (
+        str(movie_details.get("title", "movie"))
+        .replace("(", "")
+        .replace(")", "")
+        .replace("[", "")
+        .replace("]", "")
+    )
+    year = (
+        str(movie_details.get("year", ""))
+        .replace("(", "")
+        .replace(")", "")
+        .replace("[", "")
+        .replace("]", "")
+    )
+
     bot_username = temp.U_NAME or (await client.get_me()).username
-    safe_query = re.sub(r"[^a-zA-Z0-9_-]", "_", f"{title} {year}".strip()).strip("_")[:50]
+    safe_query = re.sub(r"[^a-zA-Z0-9_-]", "_", f"{title} {year}".strip()).strip("_")[
+        :50
+    ]
     url = f"https://t.me/{bot_username}?start=search_{safe_query}"
     btn_text = session.get("custom_direct_btn_text", "Direct Search 🔎")
 
@@ -916,31 +1668,57 @@ async def handle_add_get_files(client: Client, session: dict, update_text_only=F
 
     for row in session["buttons"]:
         for btn in row:
-            if btn.url == url: return False
+            if btn.url == url:
+                return False
 
-    session["buttons"].append([
-        create_btn(text="Group 1 🎬", url="https://t.me/Sandalwood_Kannada_Group", style=BTN_PRIMARY),
-        create_btn(text="Group 2 🎬", url="https://t.me/+GLsPkRgLGGszMzY1", style=BTN_PRIMARY)
-    ])
+    session["buttons"].append(
+        [
+            create_btn(
+                text="Group 1 🎬",
+                url="https://t.me/Sandalwood_Kannada_Group",
+                style=BTN_PRIMARY,
+            ),
+            create_btn(
+                text="Group 2 🎬",
+                url="https://t.me/+GLsPkRgLGGszMzY1",
+                style=BTN_PRIMARY,
+            ),
+        ]
+    )
     session["buttons"].append([create_btn(text=btn_text, url=url, style=BTN_SUCCESS)])
     return True
+
 
 # ============================================================
 # BACKGROUND POST WORKER
 # ============================================================
 async def delete_after_delay(client: Client, chat_id: int, message_id: int, delay: int):
     await asyncio.sleep(delay)
-    try: await client.delete_messages(chat_id, message_id)
-    except Exception: pass
+    try:
+        await client.delete_messages(chat_id, message_id)
+    except Exception:
+        pass
 
-async def delayed_post_worker(client: Client, session: dict, target_chats: list, edit_target: dict = None):
+
+async def delayed_post_worker(
+    client: Client, session: dict, target_chats: list, edit_target: dict = None
+):
     delay = session.get("schedule", 0)
-    if delay > 0: await asyncio.sleep(delay)
+    if delay > 0:
+        await asyncio.sleep(delay)
 
-    try: final_caption, keyboard, poster_to_use = await _build_final_post_content(session, -1)
-    except Exception as e: return logger.error(f"Post Worker Error: {e}")
+    try:
+        final_caption, keyboard, poster_to_use = await _build_final_post_content(
+            session, -1
+        )
+    except Exception as e:
+        return logger.error(f"Post Worker Error: {e}")
 
-    is_normal_photo = session.get("photo_mode") and poster_to_use and str(poster_to_use).upper() != "BLANK"
+    is_normal_photo = (
+        session.get("photo_mode")
+        and poster_to_use
+        and str(poster_to_use).upper() != "BLANK"
+    )
     settings = await get_ap_settings()
     sticker_id = settings.get("sticker") if settings else None
 
@@ -948,57 +1726,123 @@ async def delayed_post_worker(client: Client, session: dict, target_chats: list,
         try:
             if edit_target:
                 if is_normal_photo:
-                    await client.edit_message_caption(edit_target["chat_id"], edit_target["message_id"], caption=final_caption, reply_markup=keyboard)
+                    await client.edit_message_caption(
+                        edit_target["chat_id"],
+                        edit_target["message_id"],
+                        caption=final_caption,
+                        reply_markup=keyboard,
+                    )
                 else:
-                    text_content = f"{final_caption}\n<a href='{poster_to_use}'>&#8205;</a>" if poster_to_use and str(poster_to_use).upper() != "BLANK" else final_caption
-                    await client.edit_message_text(edit_target["chat_id"], edit_target["message_id"], text=text_content, reply_markup=keyboard, disable_web_page_preview=False)
+                    text_content = (
+                        f"{final_caption}\n<a href='{poster_to_use}'>&#8205;</a>"
+                        if poster_to_use and str(poster_to_use).upper() != "BLANK"
+                        else final_caption
+                    )
+                    await client.edit_message_text(
+                        edit_target["chat_id"],
+                        edit_target["message_id"],
+                        text=text_content,
+                        reply_markup=keyboard,
+                        disable_web_page_preview=False,
+                    )
                 continue
 
             if is_normal_photo:
-                sent_msg = await client.send_photo(chat_id, photo=poster_to_use, caption=final_caption, reply_markup=keyboard)
+                sent_msg = await client.send_photo(
+                    chat_id,
+                    photo=poster_to_use,
+                    caption=final_caption,
+                    reply_markup=keyboard,
+                )
             else:
-                text_content = f"{final_caption}\n<a href='{poster_to_use}'>&#8205;</a>" if poster_to_use and str(poster_to_use).upper() != "BLANK" else final_caption
-                sent_msg = await client.send_message(chat_id, text=text_content, reply_markup=keyboard, disable_web_page_preview=False)
+                text_content = (
+                    f"{final_caption}\n<a href='{poster_to_use}'>&#8205;</a>"
+                    if poster_to_use and str(poster_to_use).upper() != "BLANK"
+                    else final_caption
+                )
+                sent_msg = await client.send_message(
+                    chat_id,
+                    text=text_content,
+                    reply_markup=keyboard,
+                    disable_web_page_preview=False,
+                )
 
             if sticker_id:
-                try: await client.send_sticker(chat_id, sticker=sticker_id)
-                except Exception: pass
+                try:
+                    await client.send_sticker(chat_id, sticker=sticker_id)
+                except Exception:
+                    pass
 
             auto_del = session.get("auto_delete", 0)
             if auto_del > 0:
-                asyncio.create_task(delete_after_delay(client, chat_id, sent_msg.id, auto_del))
+                asyncio.create_task(
+                    delete_after_delay(client, chat_id, sent_msg.id, auto_del)
+                )
         except Exception as e:
             logger.error(f"Failed to post in {chat_id}: {e}")
 
-async def execute_post(client: Client, query: CallbackQuery, session_id: int, target_chat_id: int):
+
+async def execute_post(
+    client: Client, query: CallbackQuery, session_id: int, target_chat_id: int
+):
     session = post_sessions.pop(session_id, None)
-    if not session: return
-    try: await client.delete_messages(query.message.chat.id, session["last_preview_message_id"])
-    except Exception: pass
+    if not session:
+        return
+    try:
+        await client.delete_messages(
+            query.message.chat.id, session["last_preview_message_id"]
+        )
+    except Exception:
+        pass
 
     delay = session.get("schedule", 0)
     if delay > 0:
-        try: await query.message.reply_text(f"✅ **Post Scheduled!** It will automatically execute after `{delay}` seconds.")
-        except Exception: pass
-        asyncio.create_task(delayed_post_worker(client, session, [target_chat_id], session.get("edit_target")))
+        try:
+            await query.message.reply_text(
+                f"✅ **Post Scheduled!** It will automatically execute after `{delay}` seconds."
+            )
+        except Exception:
+            pass
+        asyncio.create_task(
+            delayed_post_worker(
+                client, session, [target_chat_id], session.get("edit_target")
+            )
+        )
     else:
-        try: status_msg = await query.message.reply_text("<i>Finalizing and posting...</i>")
-        except Exception: status_msg = None
-        await delayed_post_worker(client, session, [target_chat_id], session.get("edit_target"))
+        try:
+            status_msg = await query.message.reply_text(
+                "<i>Finalizing and posting...</i>"
+            )
+        except Exception:
+            status_msg = None
+        await delayed_post_worker(
+            client, session, [target_chat_id], session.get("edit_target")
+        )
         if status_msg:
-            try: await status_msg.edit("✅ Post completed successfully!")
-            except Exception: pass
+            try:
+                await status_msg.edit("✅ Post completed successfully!")
+            except Exception:
+                pass
+
 
 async def execute_post_all(client: Client, query: CallbackQuery, session_id: int):
     session = post_sessions.pop(session_id, None)
-    if not session: return
-    try: await client.delete_messages(query.message.chat.id, session["last_preview_message_id"])
-    except Exception: pass
+    if not session:
+        return
+    try:
+        await client.delete_messages(
+            query.message.chat.id, session["last_preview_message_id"]
+        )
+    except Exception:
+        pass
 
     settings = await get_ap_settings()
+
     def _safe_parse(var):
-        if isinstance(var, str): return [int(x) for x in var.split() if x.strip()]
-        if isinstance(var, list): return [int(x) for x in var if str(x).strip()]
+        if isinstance(var, str):
+            return [int(x) for x in var.split() if x.strip()]
+        if isinstance(var, list):
+            return [int(x) for x in var if str(x).strip()]
         return [int(var)] if var else []
 
     info_muc = _safe_parse(getattr(info, "MOVIE_UPDATE_CHANNEL", []))
@@ -1008,18 +1852,30 @@ async def execute_post_all(client: Client, query: CallbackQuery, session_id: int
 
     all_targets = list(set(info_muc + db_muc + info_apc + db_apc))
     if not all_targets:
-        try: return await query.message.reply_text("❌ No channels configured.")
-        except Exception: return
+        try:
+            return await query.message.reply_text("❌ No channels configured.")
+        except Exception:
+            return
 
     delay = session.get("schedule", 0)
     if delay > 0:
-        try: await query.message.reply_text(f"✅ **Broadcast Scheduled!** Will post to `{len(all_targets)}` channels after `{delay}` seconds.")
-        except Exception: pass
+        try:
+            await query.message.reply_text(
+                f"✅ **Broadcast Scheduled!** Will post to `{len(all_targets)}` channels after `{delay}` seconds."
+            )
+        except Exception:
+            pass
         asyncio.create_task(delayed_post_worker(client, session, all_targets))
     else:
-        try: status_msg = await query.message.reply_text(f"<i>📢 Broadcasting to {len(all_targets)} channels...</i>")
-        except Exception: status_msg = None
+        try:
+            status_msg = await query.message.reply_text(
+                f"<i>📢 Broadcasting to {len(all_targets)} channels...</i>"
+            )
+        except Exception:
+            status_msg = None
         await delayed_post_worker(client, session, all_targets)
         if status_msg:
-            try: await status_msg.edit(f"✅ **Broadcast Complete!**")
-            except Exception: pass
+            try:
+                await status_msg.edit(f"✅ **Broadcast Complete!**")
+            except Exception:
+                pass
