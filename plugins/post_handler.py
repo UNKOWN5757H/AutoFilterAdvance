@@ -27,7 +27,7 @@ logger = getLogger(__name__)
 logger.setLevel(ERROR)
 
 # ============================================================
-# ⚙️ MONGODB DRAFTS & HYDRA CONFIG SETUP
+# ⚙️ MONGODB DRAFTS CONFIG SETUP
 # ============================================================
 drafts_db = None
 try:
