@@ -33,55 +33,55 @@ ADMIN_CACHE = {}  # {(chat_id, user_id): (expiry_timestamp, is_admin)}
 
 
 # ============================================================
-# 👑 ADMIN & IMMUNITY PARSERS
+# 👑 FULL POWER ADMIN CHECKER (GLOBAL + CHAT + ANONYMOUS)
 # ============================================================
-def get_bot_admins():
+def get_admin_list():
     raw_admins = getattr(info, "ADMINS", [])
-    if isinstance(raw_admins, str):
-        return [
-            int(x)
-            for x in raw_admins.replace(",", " ").split()
-            if x.strip().lstrip("-").isdigit()
-        ]
-    elif isinstance(raw_admins, int):
-        return [raw_admins]
-    elif isinstance(raw_admins, list):
-        return [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
-    return []
+    if isinstance(raw_admins, (str, int)):
+        raw_admins = str(raw_admins).replace(",", " ").split()
+    return [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
 
+async def is_user_admin(client: Client, message: Message):
+    admin_list = get_admin_list()
 
-async def is_exempt(
-    client: Client, chat_id: int, user_id: int, chat_type: enums.ChatType
-) -> bool:
-    # 1. Global Bot Admins are always exempt
-    if user_id in get_bot_admins():
+    # 1. Global Admin Check (Direct User)
+    if message.from_user and message.from_user.id in admin_list:
         return True
 
-    # 2. In private chats, only bot admins are exempt
-    if chat_type == enums.ChatType.PRIVATE:
-        return False
+    # 2. Global Admin Check (Anonymous/Channel sending as Chat)
+    if message.sender_chat and message.sender_chat.id in admin_list:
+        return True
 
-    # 3. In groups, check if user is a group Admin or Owner
-    cache_key = (chat_id, user_id)
-    now = time.time()
-    cached = ADMIN_CACHE.get(cache_key)
-    if cached and cached[0] > now:
-        return cached[1]
+    # 3. Group Admin Check (Normal & Anonymous Admins)
+    if message.chat and message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
+        # If the sender is the group itself, it's a Group Anonymous Admin
+        if message.sender_chat and message.sender_chat.id == message.chat.id:
+            return True
+            
+        # If it's a Normal Admin in this group
+        if message.from_user:
+            chat_id = message.chat.id
+            user_id = message.from_user.id
+            cache_key = (chat_id, user_id)
+            now = time.time()
+            
+            cached = ADMIN_CACHE.get(cache_key)
+            if cached and cached[0] > now:
+                return cached[1]
 
-    try:
-        member = await client.get_chat_member(chat_id, user_id)
-        is_admin = member.status in [
-            enums.ChatMemberStatus.ADMINISTRATOR,
-            enums.ChatMemberStatus.OWNER,
-        ]
-        ADMIN_CACHE[cache_key] = (now + 300, is_admin)  # Cache for 5 minutes
-        return is_admin
-    except Exception:
-        return False
+            try:
+                member = await client.get_chat_member(chat_id, user_id)
+                is_admin = member.status in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]
+                ADMIN_CACHE[cache_key] = (now + 300, is_admin)  # Cache for 5 minutes
+                return is_admin
+            except Exception:
+                return False
+
+    return False
 
 
 # ============================================================
-# 🧹 RAM GARBAGE COLLECTOR (PREVENTS KOYEB CONTAINER LEAKS)
+# 🧹 RAM GARBAGE COLLECTOR (PREVENTS LEAKS)
 # ============================================================
 async def memory_cleanup_worker():
     while True:
@@ -107,9 +107,7 @@ async def memory_cleanup_worker():
         for k in expired_admin_checks:
             del ADMIN_CACHE[k]
 
-
 _GC_STARTED = False
-
 
 @Client.on_message(group=-150)
 async def init_antiflood_gc(client: Client, message: Message):
@@ -124,15 +122,15 @@ async def init_antiflood_gc(client: Client, message: Message):
 # ============================================================
 @Client.on_message(filters.incoming & ~filters.service, group=-50)
 async def ironclad_antiflood_shield(client: Client, message: Message):
-    if not message.from_user:
+    user_id = message.from_user.id if message.from_user else getattr(message.sender_chat, "id", 0)
+    if not user_id:
         return
 
-    user_id = message.from_user.id
     chat_id = message.chat.id
     chat_type = message.chat.type
 
-    # Verify immunity
-    if await is_exempt(client, chat_id, user_id, chat_type):
+    # Verify immunity (Global Admins, Group Admins, Anonymous Admins)
+    if await is_user_admin(client, message):
         return
 
     now = time.time()
@@ -151,9 +149,7 @@ async def ironclad_antiflood_shield(client: Client, message: Message):
 
     # 2. Record message timestamps and clear outside the sliding window
     timestamps = USER_MESSAGE_LOG[user_id]
-    USER_MESSAGE_LOG[user_id] = [
-        t for t in timestamps if now - t <= FLOOD_WINDOW_SECONDS
-    ]
+    USER_MESSAGE_LOG[user_id] = [t for t in timestamps if now - t <= FLOOD_WINDOW_SECONDS]
     USER_MESSAGE_LOG[user_id].append(now)
 
     # 3. Threshold check
@@ -174,6 +170,7 @@ async def ironclad_antiflood_shield(client: Client, message: Message):
 
         # Apply group mute or private warning
         if chat_type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
+            mention = message.from_user.mention if message.from_user else "User"
             try:
                 await client.restrict_chat_member(
                     chat_id=chat_id,
@@ -183,14 +180,14 @@ async def ironclad_antiflood_shield(client: Client, message: Message):
                 )
                 warn = await client.send_message(
                     chat_id=chat_id,
-                    text=f"🛑 **Anti-Flood Triggered!**\n\n{message.from_user.mention} has been muted for **10 minutes** for spamming requests.",
+                    text=f"🛑 **Anti-Flood Triggered!**\n\n{mention} has been muted for **10 minutes** for spamming requests.",
                 )
                 asyncio.create_task(delete_after_delay(warn, 10))
             except (ChatAdminRequired, UserAdminInvalid):
                 # If bot lacks restrict rights, notify chat once
                 warn = await client.send_message(
                     chat_id=chat_id,
-                    text=f"⚠️ {message.from_user.mention}, please slow down! Your requests are being ignored for **10 minutes**.",
+                    text=f"⚠️ {mention}, please slow down! Your requests are being ignored for **10 minutes**.",
                 )
                 asyncio.create_task(delete_after_delay(warn, 10))
             except FloodWait as e:
