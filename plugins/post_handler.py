@@ -20,8 +20,20 @@ from pyrogram.types import (
 )
 
 import info
+from info import (
+    ADMINS,
+)
 from plugins.Imdbposter import get_movie_detailsx
 from utils import temp
+
+# Fix for missing auto_post imports
+try:
+    from plugins.auto_post import get_ap_settings, save_ap_settings
+except ImportError:
+    async def get_ap_settings():
+        return {}
+    async def save_ap_settings(key, value):
+        pass
 
 logger = getLogger(__name__)
 logger.setLevel(ERROR)
@@ -151,36 +163,23 @@ def create_btn(text, url=None, callback_data=None, style=None):
 
 
 # ============================================================
-# ⚡ FOOLPROOF ADMIN PARSER (SUPPORTS ANONYMOUS ADMINS)
+# ⚡ SIMPLE NATIVE ADMIN FILTER SETUP
 # ============================================================
-def get_admin_list():
-    raw_admins = getattr(info, "ADMINS", [])
-    if isinstance(raw_admins, str):
-        return [
-            int(x)
-            for x in raw_admins.replace(",", " ").split()
-            if x.strip().lstrip("-").isdigit()
-        ]
-    elif isinstance(raw_admins, int):
-        return [raw_admins]
-    elif isinstance(raw_admins, list):
-        return [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
-    return []
+# Format info.ADMINS securely into a list of integers for Pyrogram
+raw_admins = getattr(info, "ADMINS", [])
+if isinstance(raw_admins, str):
+    ADMINS = [int(x) for x in raw_admins.replace(",", " ").split() if x.strip().lstrip("-").isdigit()]
+elif isinstance(raw_admins, int):
+    ADMINS = [raw_admins]
+else:
+    ADMINS = [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
 
+def get_uid(msg):
+    return getattr(getattr(msg, "from_user", None), "id", getattr(getattr(msg, "sender_chat", None), "id", 0))
 
-def get_uid(message: Message) -> int:
-    if getattr(message, "from_user", None):
-        return message.from_user.id
-    if getattr(message, "sender_chat", None):
-        return message.sender_chat.id
-    return 0
-
-
-admin_filter = filters.create(lambda _, __, msg: bool(get_uid(msg) in get_admin_list()))
 _WAITING_REQUESTS = {}
 
-
-@Client.on_message(admin_filter, group=-90)
+@Client.on_message(filters.user(ADMINS), group=-90)
 async def custom_listener(client: Client, message: Message):
     key = (message.chat.id, get_uid(message))
     if key in _WAITING_REQUESTS:
@@ -272,7 +271,7 @@ def smart_patch_imported_caption(session, old_val, new_val, is_title=False):
 
 
 @Client.on_message(
-    filters.command(["edittitle", "edittittle"]) & admin_filter, group=-4
+    filters.command(["edittitle", "edittittle"]) & filters.user(ADMINS), group=-4
 )
 async def cmd_edit_title(client: Client, message: Message):
     uid = get_uid(message)
@@ -299,7 +298,7 @@ async def cmd_edit_title(client: Client, message: Message):
     await message.reply(btn_msg)
 
 
-@Client.on_message(filters.command(["edityear"]) & admin_filter, group=-4)
+@Client.on_message(filters.command(["edityear"]) & filters.user(ADMINS), group=-4)
 async def cmd_edit_year(client: Client, message: Message):
     uid = get_uid(message)
     if uid not in post_sessions:
@@ -316,7 +315,7 @@ async def cmd_edit_year(client: Client, message: Message):
     await message.reply("✅ Year updated!")
 
 
-@Client.on_message(filters.command(["editlangs"]) & admin_filter, group=-4)
+@Client.on_message(filters.command(["editlangs"]) & filters.user(ADMINS), group=-4)
 async def cmd_edit_langs(client: Client, message: Message):
     uid = get_uid(message)
     if uid not in post_sessions:
@@ -329,7 +328,7 @@ async def cmd_edit_langs(client: Client, message: Message):
     await message.reply("✅ Languages updated!")
 
 
-@Client.on_message(filters.command(["editresolutions"]) & admin_filter, group=-4)
+@Client.on_message(filters.command(["editresolutions"]) & filters.user(ADMINS), group=-4)
 async def cmd_edit_res(client: Client, message: Message):
     uid = get_uid(message)
     if uid not in post_sessions:
@@ -342,7 +341,7 @@ async def cmd_edit_res(client: Client, message: Message):
     await message.reply("✅ Resolutions updated!")
 
 
-@Client.on_message(filters.command(["editgenres"]) & admin_filter, group=-4)
+@Client.on_message(filters.command(["editgenres"]) & filters.user(ADMINS), group=-4)
 async def cmd_edit_gen(client: Client, message: Message):
     uid = get_uid(message)
     if uid not in post_sessions:
@@ -355,7 +354,7 @@ async def cmd_edit_gen(client: Client, message: Message):
     await message.reply("✅ Genres updated!")
 
 
-@Client.on_message(filters.command(["editotts"]) & admin_filter, group=-4)
+@Client.on_message(filters.command(["editotts"]) & filters.user(ADMINS), group=-4)
 async def cmd_edit_ott(client: Client, message: Message):
     uid = get_uid(message)
     if uid not in post_sessions:
@@ -368,7 +367,7 @@ async def cmd_edit_ott(client: Client, message: Message):
     await message.reply("✅ OTT Platforms updated!")
 
 
-@Client.on_message(filters.command(["editbutton"]) & admin_filter, group=-4)
+@Client.on_message(filters.command(["editbutton"]) & filters.user(ADMINS), group=-4)
 async def cmd_edit_post_button(client: Client, message: Message):
     uid = get_uid(message)
     if uid not in post_sessions:
@@ -403,7 +402,7 @@ async def cmd_edit_post_button(client: Client, message: Message):
         await message.reply(f"❌ Error updating button: {e}")
 
 
-@Client.on_message(filters.command(["editbuttoncolour"]) & admin_filter, group=-4)
+@Client.on_message(filters.command(["editbuttoncolour"]) & filters.user(ADMINS), group=-4)
 async def cmd_edit_btn_color(client: Client, message: Message):
     uid = get_uid(message)
     if uid not in post_sessions:
@@ -445,7 +444,7 @@ async def cmd_edit_btn_color(client: Client, message: Message):
         await message.reply(f"❌ Error updating button color: {e}")
 
 
-@Client.on_message(filters.command(["editdirect"]) & admin_filter, group=-4)
+@Client.on_message(filters.command(["editdirect"]) & filters.user(ADMINS), group=-4)
 async def cmd_edit_post_direct(client: Client, message: Message):
     uid = get_uid(message)
     if uid not in post_sessions:
@@ -462,7 +461,7 @@ async def cmd_edit_post_direct(client: Client, message: Message):
     await message.reply("✅ Direct Search button text updated!")
 
 
-@Client.on_message(filters.command("setpoststicker") & admin_filter, group=-4)
+@Client.on_message(filters.command("setpoststicker") & filters.user(ADMINS), group=-4)
 async def set_autopost_sticker(client: Client, message: Message):
     if not message.reply_to_message or not message.reply_to_message.sticker:
         return await message.reply_text(
@@ -472,7 +471,7 @@ async def set_autopost_sticker(client: Client, message: Message):
     await message.reply_text("✅ **Post Sticker Saved!**")
 
 
-@Client.on_message(filters.command("rempoststicker") & admin_filter, group=-4)
+@Client.on_message(filters.command("rempoststicker") & filters.user(ADMINS), group=-4)
 async def rem_autopost_sticker(client: Client, message: Message):
     await save_ap_settings("sticker", None)
     await message.reply_text("🗑️ **Auto-Post Sticker Removed.**")
@@ -481,7 +480,7 @@ async def rem_autopost_sticker(client: Client, message: Message):
 # ============================================================
 # START POST SESSION
 # ============================================================
-@Client.on_message(filters.command("post") & admin_filter, group=-4)
+@Client.on_message(filters.command("post") & filters.user(ADMINS), group=-4)
 async def post_command(client: Client, message: Message):
     if len(message.command) == 1:
         return await message.reply_text(
@@ -525,13 +524,9 @@ async def post_command(client: Client, message: Message):
     await start_post_session(client, message, user_id, movie_name)
 
 
-@Client.on_callback_query(filters.regex(r"^p_init:|^p_cancel$") & admin_filter)
+@Client.on_callback_query(filters.regex(r"^p_init:|^p_cancel$") & filters.user(ADMINS))
 async def tmdb_selector_callback(client: Client, query: CallbackQuery):
-    user_id = (
-        get_uid(query.message)
-        if getattr(query.message, "from_user", None)
-        else query.from_user.id
-    )
+    user_id = get_uid(query)
     if query.data == "p_cancel":
         TEMP_SEARCH.pop(user_id, None)
         return await query.message.edit_text("❌ Cancelled.")
@@ -595,7 +590,7 @@ async def start_post_session(
         await client.send_message(message.chat.id, f"❌ **SESSION ERROR:**\n`{e}`")
 
 
-@Client.on_message(filters.command("editpost") & admin_filter, group=-4)
+@Client.on_message(filters.command("editpost") & filters.user(ADMINS), group=-4)
 async def edit_post_cmd(client: Client, message: Message):
     try:
         if len(message.command) < 2:
@@ -939,12 +934,28 @@ def build_keyboard(session: dict, session_id: int):
                 ),
             ],
             [
+                create_btn(
+                    "🔗 editdirect", callback_data=f"post:edit_direct:{session_id}"
+                ),
+                create_btn(
+                    "⚪ editbuttoncolour", callback_data=f"post:edit_buttoncolour:{session_id}"
+                ),
+            ],
+            [
                 create_btn("🖼️ Poster", callback_data=f"post:set_poster:{session_id}"),
                 create_btn(
                     "✨ Templates", callback_data=f"post:templates:{session_id}"
                 ),
                 create_btn(
                     "💧 Watermark", callback_data=f"post:set_watermark:{session_id}"
+                ),
+            ],
+            [
+                create_btn(
+                    "🀄 setpoststicker", callback_data=f"post:set_sticker:{session_id}"
+                ),
+                create_btn(
+                    "❌ rempoststicker", callback_data=f"post:rem_sticker:{session_id}"
                 ),
             ],
             [
@@ -970,14 +981,6 @@ def build_keyboard(session: dict, session_id: int):
         ]
     )
     return InlineKeyboardMarkup(rows)
-
-
-try:
-    from plugins.auto_post import get_ap_settings
-except ImportError:
-
-    async def get_ap_settings():
-        return {}
 
 
 async def show_target_selection(query: CallbackQuery, session_id: int, page: int = 1):
@@ -1100,7 +1103,7 @@ async def show_target_selection(query: CallbackQuery, session_id: int, page: int
         pass
 
 
-@Client.on_callback_query(filters.regex(r"^post:") & admin_filter, group=-4)
+@Client.on_callback_query(filters.regex(r"^post:") & filters.user(ADMINS), group=-4)
 async def post_callbacks(client: Client, query: CallbackQuery):
     try:
         data_parts = query.data.split(":")
@@ -1303,6 +1306,63 @@ async def post_callbacks(client: Client, query: CallbackQuery):
             except (IndexError, ValueError):
                 pass
             return await handle_remove_buttons_menu(query, session_id)
+            
+        elif action == "edit_direct":
+            response = await get_user_input(
+                client, query, session, "Send the new Direct Search button text:"
+            )
+            if response and response.text:
+                session["custom_direct_btn_text"] = response.text.strip()
+                await handle_add_get_files(client, session, update_text_only=True)
+            force_resend = True
+
+        elif action == "edit_buttoncolour":
+            response = await get_user_input(
+                client, query, session, "Send row number and color (e.g., `1 green`). Colors: green, red, blue."
+            )
+            if response and response.text:
+                try:
+                    parts = response.text.strip().split()
+                    row_idx = int(parts[0]) - 1
+                    color_str = parts[1].lower()
+                    color_map = {"green": BTN_SUCCESS, "red": BTN_DANGER, "blue": BTN_PRIMARY}
+                    
+                    if color_str in color_map and len(session["buttons"]) > row_idx:
+                        new_row = []
+                        for btn in session["buttons"][row_idx]:
+                            new_row.append(
+                                create_btn(
+                                    btn.text,
+                                    url=btn.url,
+                                    callback_data=btn.callback_data,
+                                    style=color_map[color_str],
+                                )
+                            )
+                        session["buttons"][row_idx] = new_row
+                except Exception:
+                    pass
+            force_resend = True
+
+        elif action == "set_sticker":
+            response = await get_user_input(
+                client, query, session, "📸 Send a sticker to set as the auto-post sticker:"
+            )
+            if response and response.sticker:
+                await save_ap_settings("sticker", response.sticker.file_id)
+                try:
+                    await query.message.reply_text("✅ Auto-Post Sticker Saved!")
+                except Exception:
+                    pass
+            force_resend = False
+
+        elif action == "rem_sticker":
+            await save_ap_settings("sticker", None)
+            try:
+                await query.answer("🗑️ Auto-Post Sticker Removed.", show_alert=True)
+            except Exception:
+                pass
+            force_resend = False
+
         elif action == "add_get_files":
             added = await handle_add_get_files(client, session)
             await query.answer(
@@ -1528,11 +1588,7 @@ async def get_user_input(client, query, session, prompt_text):
     except Exception:
         ask_msg = await query.message.reply_text(prompt_text)
     try:
-        uid = (
-            get_uid(query.message)
-            if getattr(query.message, "from_user", None)
-            else query.from_user.id
-        )
+        uid = get_uid(query)
         response = await native_listen(client, query.message.chat.id, uid, 120)
         try:
             await ask_msg.delete()
@@ -1702,8 +1758,6 @@ async def execute_post_all(client: Client, query: CallbackQuery, session_id: int
         )
     except Exception:
         pass
-
-    from plugins.auto_post import get_ap_settings
 
     settings = await get_ap_settings()
 
