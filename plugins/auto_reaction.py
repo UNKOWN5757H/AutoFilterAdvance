@@ -20,6 +20,7 @@ def get_admin_list():
         raw_admins = str(raw_admins).replace(",", " ").split()
     return [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
 
+
 async def is_user_admin(client: Client, message: Message):
     admin_list = get_admin_list()
 
@@ -32,21 +33,31 @@ async def is_user_admin(client: Client, message: Message):
         return True
 
     # 3. Group Admin Check (Normal & Anonymous Admins)
-    if message.chat and message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
+    if message.chat and message.chat.type in [
+        enums.ChatType.GROUP,
+        enums.ChatType.SUPERGROUP,
+    ]:
         if message.sender_chat and message.sender_chat.id == message.chat.id:
             return True
-            
+
         if message.from_user:
             try:
-                member = await client.get_chat_member(message.chat.id, message.from_user.id)
-                return member.status in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]
+                member = await client.get_chat_member(
+                    message.chat.id, message.from_user.id
+                )
+                return member.status in [
+                    enums.ChatMemberStatus.ADMINISTRATOR,
+                    enums.ChatMemberStatus.OWNER,
+                ]
             except Exception:
                 pass
 
     return False
 
+
 async def admin_check(_, client: Client, message: Message):
     return await is_user_admin(client, message)
+
 
 admin_filter = filters.create(admin_check)
 
@@ -74,7 +85,7 @@ async def auto_react_heart(bot: Client, message: Message):
     is_enabled = await _plugin_db.get_reaction_status()
     if not is_enabled or (message.from_user and message.from_user.is_bot):
         return
-        
+
     text = message.text or message.caption
     if text and str(text).startswith("/"):
         return
