@@ -3,7 +3,7 @@ from logging import ERROR, getLogger
 
 import requests
 from motor.motor_asyncio import AsyncIOMotorClient
-from pyrogram import Client, filters, enums
+from pyrogram import Client, enums, filters
 from pyrogram.types import Message
 
 import info
@@ -53,14 +53,22 @@ async def is_user_admin(client: Client, message: Message):
         return True
 
     # 3. Group Admin Check (Normal & Anonymous Admins)
-    if message.chat and message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
+    if message.chat and message.chat.type in [
+        enums.ChatType.GROUP,
+        enums.ChatType.SUPERGROUP,
+    ]:
         if message.sender_chat and message.sender_chat.id == message.chat.id:
             return True
-            
+
         if message.from_user:
             try:
-                member = await client.get_chat_member(message.chat.id, message.from_user.id)
-                return member.status in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]
+                member = await client.get_chat_member(
+                    message.chat.id, message.from_user.id
+                )
+                return member.status in [
+                    enums.ChatMemberStatus.ADMINISTRATOR,
+                    enums.ChatMemberStatus.OWNER,
+                ]
             except Exception:
                 pass
 
