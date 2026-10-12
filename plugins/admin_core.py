@@ -35,9 +35,6 @@ from database.users_chats_db import db as _db
 logger = getLogger(__name__)
 logger.setLevel(ERROR)
 
-if not hasattr(info, "REPAIR_MODE"):
-    info.REPAIR_MODE = False
-
 try:
     import psutil
 except ImportError:
@@ -101,6 +98,8 @@ async def cb_admin_check(_, client: Client, query: CallbackQuery):
 admin_filter = filters.create(admin_check)
 cb_admin_filter = filters.create(cb_admin_check)
 
+if not hasattr(info, "REPAIR_MODE"):
+    info.REPAIR_MODE = False
 
 def get_size_str(bytes_size):
     if not bytes_size:
