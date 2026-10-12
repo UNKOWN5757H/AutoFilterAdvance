@@ -1,12 +1,11 @@
 import asyncio
-import glob
 import os
 import signal
 import sys
 from typing import AsyncGenerator, Union
 
 # ===================================================================
-# ⚡ 1. CREATE EVENT LOOP FIRST
+# ⚡ 1. CREATE EVENT LOOP FIRST (Prevents RuntimeErrors)
 # ===================================================================
 try:
     loop = asyncio.get_event_loop()
@@ -15,7 +14,7 @@ except RuntimeError:
     asyncio.set_event_loop(loop)
 
 # ===================================================================
-# 🚀 2. MONGODB CRASH FIX (Monkey Patch)
+# 🚀 2. MONGODB CRASH FIX (Monkey Patch for Hosters)
 # ===================================================================
 import motor.motor_asyncio
 import pymongo
@@ -32,7 +31,7 @@ from logging import ERROR, INFO, basicConfig, getLogger
 from logging.config import fileConfig
 
 from aiohttp import web
-from pyrogram import Client, __version__, filters, idle, types
+from pyrogram import Client, __version__, enums, filters, idle, types
 from pyrogram.raw.all import layer
 from pyrogram.types import Message
 
@@ -41,9 +40,6 @@ from database.plugin_dbs import plugin_db
 from database.users_chats_db import db as old_db
 from info import API_HASH, API_ID, BOT_TOKEN, LOG_STR, PORT, SESSION
 from utils import temp
-
-# [REMOVED: import pyromod] - This library caused the TypeError crash.
-
 
 # ============================================================
 # ⚙️ SAFE LOGGING SETUP
@@ -64,7 +60,43 @@ logger = getLogger(__name__)
 
 
 # ============================================================
-# 🤖 BOT CLASS
+# 👑 FULL POWER ADMIN CHECKER (GLOBAL + CHAT + ANONYMOUS)
+# ============================================================
+def get_admin_list():
+    import info
+    raw_admins = getattr(info, "ADMINS", [])
+    if isinstance(raw_admins, (str, int)):
+        raw_admins = str(raw_admins).replace(",", " ").split()
+    return [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
+
+async def is_user_admin(client: Client, message: Message):
+    admin_list = get_admin_list()
+
+    # 1. Global Admin Check (Direct User)
+    if message.from_user and message.from_user.id in admin_list:
+        return True
+
+    # 2. Global Admin Check (Anonymous/Channel sending as Chat)
+    if message.sender_chat and message.sender_chat.id in admin_list:
+        return True
+
+    # 3. Group Admin Check (Normal & Anonymous Admins)
+    if message.chat and message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
+        if message.sender_chat and message.sender_chat.id == message.chat.id:
+            return True
+            
+        if message.from_user:
+            try:
+                member = await client.get_chat_member(message.chat.id, message.from_user.id)
+                return member.status in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]
+            except Exception:
+                pass
+
+    return False
+
+
+# ============================================================
+# 🤖 BOT CLASS INITIALIZATION
 # ============================================================
 class Bot(Client):
     def __init__(self):
@@ -85,7 +117,6 @@ class Bot(Client):
         b_users = []
         b_chats = []
         try:
-
             async def fetch_bans():
                 async for chat in old_db.grp.find({"chat_status.is_disabled": True}):
                     if chat.get("id"):
@@ -98,7 +129,7 @@ class Bot(Client):
                     if u_id and u_id not in b_users:
                         b_users.append(u_id)
 
-            await asyncio.wait_for(fetch_bans(), timeout=10.0)
+            await asyncio.wait_for(fetch_bans(), timeout=15.0)
         except Exception as e:
             logger.error(f"Failed to load bans (Timeout/Error): {e}")
 
@@ -121,9 +152,7 @@ class Bot(Client):
         temp.B_NAME = me.first_name
         self.username = f"@{me.username}"
 
-        logger.info(
-            f"{me.first_name} with Pyrogram v{__version__} (Layer {layer}) started on {me.username}."
-        )
+        logger.info(f"{me.first_name} with Pyrogram v{__version__} (Layer {layer}) started on {me.username}.")
         logger.info(LOG_STR)
 
         if os.path.exists("restart.txt"):
@@ -145,30 +174,25 @@ class Bot(Client):
         await super().stop(*args, **kwargs)
         logger.info("Bot stopped. Bye.")
 
-    async def iter_messages(
-        self, chat_id: Union[int, str], limit: int, offset: int = 0
-    ) -> AsyncGenerator[types.Message, None]:
+    async def iter_messages(self, chat_id: Union[int, str], limit: int, offset: int = 0) -> AsyncGenerator[types.Message, None]:
         current = offset
         while True:
             new_diff = min(200, limit - current)
             if new_diff <= 0:
                 return
-            messages = await self.get_messages(
-                chat_id, list(range(current, current + new_diff + 1))
-            )
+            messages = await self.get_messages(chat_id, list(range(current, current + new_diff + 1)))
             for message in messages:
                 if not getattr(message, "empty", False):
                     yield message
                 current += 1
 
-
 app = Bot()
 
+
 # ============================================================
-# 🗑️ AUTO DELETE PM MEDIA
+# 🗑️ AUTO DELETE PM MEDIA (WITH ADMIN IMMUNITY)
 # ============================================================
 AUTO_DELETE_TASKS = set()
-
 
 async def delete_media_task(message: Message, delay: int):
     await asyncio.sleep(delay)
@@ -181,20 +205,17 @@ async def delete_media_task(message: Message, delay: int):
 
 @app.on_message(
     filters.private
-    & (
-        filters.document
-        | filters.video
-        | filters.audio
-        | filters.photo
-        | filters.voice
-        | filters.video_note
-    ),
+    & (filters.document | filters.video | filters.audio | filters.photo | filters.voice | filters.video_note),
     group=2,
 )
 async def auto_delete_user_media_pm(client: Client, message: Message):
-    user = message.from_user
-    if not user or message.outgoing:
+    if not message.from_user or message.outgoing:
         return
+        
+    # 👑 FOOLPROOF IMMUNITY: Admins will NOT have their PM files deleted automatically
+    if await is_user_admin(client, message):
+        return
+        
     task = asyncio.create_task(delete_media_task(message, delay=1800))
     AUTO_DELETE_TASKS.add(task)
     task.add_done_callback(AUTO_DELETE_TASKS.discard)
@@ -225,7 +246,12 @@ async def start_services():
 
 
 def force_shutdown(signum, frame):
-    logger.info("🛑 Received shutdown signal. Killing instance immediately!")
+    logger.info("🛑 Received shutdown signal. Exiting gracefully...")
+    # Using event loop to stop the app safely before hard exit
+    try:
+        loop.create_task(app.stop())
+    except Exception:
+        pass
     sys.exit(0)
 
 
