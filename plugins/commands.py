@@ -26,22 +26,11 @@ import info
 from database.ia_filterdb import get_file_details
 from database.plugin_dbs import plugin_db as _plugin_db
 from database.users_chats_db import db as _db
-from info import (
-    AUTH_CHANNEL,
-    CUSTOM_FILE_CAPTION,
-    LOG_CHANNEL,
-    PICS,
-    REQ_CHANNEL,
-)
+from info import AUTH_CHANNEL, CUSTOM_FILE_CAPTION, LOG_CHANNEL, PICS, REQ_CHANNEL
 from plugins.editable import get_ui
 from plugins.fsub import ForceSub
 from Script import script
-from utils import (
-    get_size,
-    is_subscribed,
-    parse_text_and_markup,
-    temp,
-)
+from utils import get_size, is_subscribed, parse_text_and_markup, temp
 
 logger = getLogger(__name__)
 logger.setLevel(ERROR)
@@ -55,6 +44,7 @@ AUTO_DELETE_TASKS = set()
 # ⚡ EXACT TELEGRAM SUPPORTED COLORS
 try:
     from pyrogram.enums import ButtonStyle
+
     BTN_PRIMARY = getattr(ButtonStyle, "PRIMARY", 1)
     BTN_SUCCESS = getattr(ButtonStyle, "SUCCESS", 3)
     BTN_DANGER = getattr(ButtonStyle, "DANGER", 4)
@@ -73,8 +63,10 @@ try:
 except Exception as e:
     logger.error(f"Failed to init databases: {e}")
 
+
 async def get_pm_settings():
-    if pm_db is None: return {}
+    if pm_db is None:
+        return {}
     settings = await pm_db.find_one({"id": "pm_config"})
     if not settings:
         return {
@@ -82,13 +74,15 @@ async def get_pm_settings():
             "image": getattr(info, "NOT_FOUND_IMG", None),
             "button_text": "💬 Message Here Only",
             "button_url": "https://t.me/Sandalwood_Kannada_Group",
-            "button_color": "red"
+            "button_color": "red",
         }
     return settings
+
 
 async def save_pm_settings(key, value):
     if pm_db is not None:
         await pm_db.update_one({"id": "pm_config"}, {"$set": {key: value}}, upsert=True)
+
 
 # ============================================================
 # 👑 FULL POWER ADMIN CHECKER (GLOBAL + CHAT + ANONYMOUS)
@@ -99,6 +93,7 @@ def get_admin_list():
         raw_admins = str(raw_admins).replace(",", " ").split()
     return [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
 
+
 async def is_user_admin(client: Client, message: Message):
     admin_list = get_admin_list()
 
@@ -106,29 +101,50 @@ async def is_user_admin(client: Client, message: Message):
         return True
     if message.sender_chat and message.sender_chat.id in admin_list:
         return True
-    if message.chat and message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
+    if message.chat and message.chat.type in [
+        enums.ChatType.GROUP,
+        enums.ChatType.SUPERGROUP,
+    ]:
         if message.sender_chat and message.sender_chat.id == message.chat.id:
             return True
         if message.from_user:
             try:
-                member = await client.get_chat_member(message.chat.id, message.from_user.id)
-                return member.status in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]
+                member = await client.get_chat_member(
+                    message.chat.id, message.from_user.id
+                )
+                return member.status in [
+                    enums.ChatMemberStatus.ADMINISTRATOR,
+                    enums.ChatMemberStatus.OWNER,
+                ]
             except Exception:
                 pass
     return False
 
+
 async def cb_user_admin(client: Client, query: CallbackQuery):
     admin_list = get_admin_list()
-    if query.from_user and query.from_user.id in admin_list: return True
-    if query.message.chat and query.message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
+    if query.from_user and query.from_user.id in admin_list:
+        return True
+    if query.message.chat and query.message.chat.type in [
+        enums.ChatType.GROUP,
+        enums.ChatType.SUPERGROUP,
+    ]:
         try:
-            member = await client.get_chat_member(query.message.chat.id, query.from_user.id)
-            return member.status in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]
-        except Exception: pass
+            member = await client.get_chat_member(
+                query.message.chat.id, query.from_user.id
+            )
+            return member.status in [
+                enums.ChatMemberStatus.ADMINISTRATOR,
+                enums.ChatMemberStatus.OWNER,
+            ]
+        except Exception:
+            pass
     return False
+
 
 async def admin_check(_, client: Client, message: Message):
     return await is_user_admin(client, message)
+
 
 admin_filter = filters.create(admin_check)
 
@@ -139,15 +155,25 @@ admin_filter = filters.create(admin_check)
 def _upload_sync(file_bytes):
     headers = {"User-Agent": "Mozilla/5.0"}
     for url, files_dict, data_dict in [
-        ("https://catbox.moe/user/api.php", {"fileToUpload": ("img.jpg", file_bytes, "image/jpeg")}, {"reqtype": "fileupload"}),
-        ("https://graph.org/upload", {"file": ("img.jpg", file_bytes, "image/jpeg")}, None),
+        (
+            "https://catbox.moe/user/api.php",
+            {"fileToUpload": ("img.jpg", file_bytes, "image/jpeg")},
+            {"reqtype": "fileupload"},
+        ),
+        (
+            "https://graph.org/upload",
+            {"file": ("img.jpg", file_bytes, "image/jpeg")},
+            None,
+        ),
         ("https://envs.sh", {"file": ("img.jpg", file_bytes, "image/jpeg")}, None),
         ("https://x0.at", {"file": ("img.jpg", file_bytes, "image/jpeg")}, None),
         ("https://ttm.sh", {"file": ("img.jpg", file_bytes, "image/jpeg")}, None),
-        ("https://0x0.st", {"file": ("img.jpg", file_bytes, "image/jpeg")}, None)
+        ("https://0x0.st", {"file": ("img.jpg", file_bytes, "image/jpeg")}, None),
     ]:
         try:
-            res = requests.post(url, data=data_dict, files=files_dict, headers=headers, timeout=6)
+            res = requests.post(
+                url, data=data_dict, files=files_dict, headers=headers, timeout=6
+            )
             if res.status_code == 200:
                 if url == "https://graph.org/upload":
                     return "https://graph.org" + res.json()[0]["src"]
@@ -157,12 +183,15 @@ def _upload_sync(file_bytes):
             continue
     return None
 
+
 async def upload_image_safely(client: Client, message: Message):
     try:
         file_io = await client.download_media(message, in_memory=True)
-        if not file_io: return None
+        if not file_io:
+            return None
         return await asyncio.to_thread(_upload_sync, file_io.getvalue())
-    except Exception: return None
+    except Exception:
+        return None
 
 
 # ============================================================
@@ -170,14 +199,18 @@ async def upload_image_safely(client: Client, message: Message):
 # ============================================================
 def create_btn(text, url=None, callback_data=None, style=None):
     kwargs = {"text": text}
-    if url: kwargs["url"] = url
-    if callback_data: kwargs["callback_data"] = callback_data
-    if style is not None: kwargs["style"] = style
+    if url:
+        kwargs["url"] = url
+    if callback_data:
+        kwargs["callback_data"] = callback_data
+    if style is not None:
+        kwargs["style"] = style
     try:
         return InlineKeyboardButton(**kwargs)
     except TypeError:
         kwargs.pop("style", None)
         return InlineKeyboardButton(**kwargs)
+
 
 def get_html_text(message: Message):
     if message.reply_to_message and message.reply_to_message.text:
@@ -187,28 +220,39 @@ def get_html_text(message: Message):
         return re.sub(r"^/\w+(?:@[a-zA-Z0-9_]+)?\s+", "", html_text, count=1)
     return None
 
+
 def parse_timer(var_name: str, default_time: int = 1800) -> int:
     try:
         global_switch = getattr(info, "AUTO_DELETE", True)
-        if str(global_switch).strip().lower() in ["false", "off", "0"]: return 0
+        if str(global_switch).strip().lower() in ["false", "off", "0"]:
+            return 0
         val = getattr(info, "AUTO_DELETE_TIME", getattr(info, var_name, default_time))
-        if isinstance(val, bool): return 1800 if val else 0
+        if isinstance(val, bool):
+            return 1800 if val else 0
         parsed_time = int(val)
         return 1800 if 0 < parsed_time < 10 else parsed_time
-    except Exception: return 1800
+    except Exception:
+        return 1800
 
 
 # ============================================================
 # ⏳ LIVE TEXT COUNTDOWN AUTO-DELETE ENGINE
 # ============================================================
-async def live_text_auto_delete(client: Client, media_msg: Message, warning_msg: Message, delay: int):
+async def live_text_auto_delete(
+    client: Client, media_msg: Message, warning_msg: Message, delay: int
+):
     expire_at = time.time() + delay
     while time.time() < expire_at:
         remaining = int(expire_at - time.time())
-        if remaining <= 0: break
+        if remaining <= 0:
+            break
 
         m, s = divmod(remaining, 60)
-        time_str = f"{m} Minutes {s} Seconds" if m > 0 and s > 0 else f"{m} Minutes" if m > 0 else f"{s} Seconds"
+        time_str = (
+            f"{m} Minutes {s} Seconds"
+            if m > 0 and s > 0
+            else f"{m} Minutes" if m > 0 else f"{s} Seconds"
+        )
         text = f"<b>📢 Please Note\n\n✅ The above file will be autodeleted in {time_str} to avoid copyright issues.\n\n✅ Please forward this file to your saved messages and start downloading from there.\n\nTᴇᴀᴍ: @KR_Picture</b>"
 
         try:
@@ -216,18 +260,29 @@ async def live_text_auto_delete(client: Client, media_msg: Message, warning_msg:
         except FloodWait as e:
             await asyncio.sleep(e.value + 1)
             continue
-        except (MessageNotModified, Exception): pass
+        except (MessageNotModified, Exception):
+            pass
 
         await asyncio.sleep(min(60 if remaining > 60 else 10, remaining))
 
-    try: await media_msg.delete()
-    except Exception: pass
-    try: await warning_msg.delete()
-    except Exception: pass
+    try:
+        await media_msg.delete()
+    except Exception:
+        pass
+    try:
+        await warning_msg.delete()
+    except Exception:
+        pass
 
-def schedule_auto_delete(client: Client, media_msg: Message, warning_msg: Message, delay: int):
-    if delay <= 0: return
-    task = asyncio.create_task(live_text_auto_delete(client, media_msg, warning_msg, delay))
+
+def schedule_auto_delete(
+    client: Client, media_msg: Message, warning_msg: Message, delay: int
+):
+    if delay <= 0:
+        return
+    task = asyncio.create_task(
+        live_text_auto_delete(client, media_msg, warning_msg, delay)
+    )
     AUTO_DELETE_TASKS.add(task)
     task.add_done_callback(AUTO_DELETE_TASKS.discard)
 
@@ -238,72 +293,163 @@ def schedule_auto_delete(client: Client, media_msg: Message, warning_msg: Messag
 def build_dynamic_keyboard(custom_buttons, static_buttons):
     keyboard, row = [], []
     for btn in custom_buttons:
-        style_map = {"blue": BTN_PRIMARY, "green": BTN_SUCCESS, "red": BTN_DANGER, "normal": None}
+        style_map = {
+            "blue": BTN_PRIMARY,
+            "green": BTN_SUCCESS,
+            "red": BTN_DANGER,
+            "normal": None,
+        }
         style = style_map.get(btn.get("color", "normal"), None)
         ibtn = create_btn(btn["text"], url=btn["url"], style=style)
         if btn.get("layout") == "sidebyside":
             row.append(ibtn)
-            if len(row) == 2: keyboard.append(row); row = []
+            if len(row) == 2:
+                keyboard.append(row)
+                row = []
         else:
-            if row: keyboard.append(row); row = []
+            if row:
+                keyboard.append(row)
+                row = []
             keyboard.append([ibtn])
-    if row: keyboard.append(row)
+    if row:
+        keyboard.append(row)
     keyboard.extend(static_buttons)
     return InlineKeyboardMarkup(keyboard)
+
 
 async def get_start_keyboard(user_id):
     ui = await get_ui()
     static_buttons = [
         [
-            create_btn("✈️ Gʀᴏᴜᴘ 1", url="https://t.me/Sandalwood_Kannada_Group", style=BTN_PRIMARY),
-            create_btn("✈️ Gʀᴏᴜᴘ 2", url="http://t.me/Kannada_Filmy_Group", style=BTN_PRIMARY),
-            create_btn("✈️ Gʀᴏᴜᴘ 3", url="https://t.me/+GLsPkRgLGGszMzY1", style=BTN_PRIMARY),
+            create_btn(
+                "✈️ Gʀᴏᴜᴘ 1",
+                url="https://t.me/Sandalwood_Kannada_Group",
+                style=BTN_PRIMARY,
+            ),
+            create_btn(
+                "✈️ Gʀᴏᴜᴘ 2", url="http://t.me/Kannada_Filmy_Group", style=BTN_PRIMARY
+            ),
+            create_btn(
+                "✈️ Gʀᴏᴜᴘ 3", url="https://t.me/+GLsPkRgLGGszMzY1", style=BTN_PRIMARY
+            ),
         ]
     ]
     if user_id in get_admin_list():
-        static_buttons.append([create_btn("ℹ️ 𝙷𝚎𝚕𝚙", callback_data="help"), create_btn("😊 𝙰𝚋𝚘𝚞𝚝", callback_data="about")])
-    static_buttons.append([create_btn("🔗 Nᴇᴡ Rᴇʟᴇᴀꜱᴇꜱ & Oᴛᴛ Uᴘᴅᴀᴛᴇꜱ", url="https://t.me/sandalwood_kannada_moviesz", style=BTN_SUCCESS)])
+        static_buttons.append(
+            [
+                create_btn("ℹ️ 𝙷𝚎𝚕𝚙", callback_data="help"),
+                create_btn("😊 𝙰𝚋𝚘𝚞𝚝", callback_data="about"),
+            ]
+        )
+    static_buttons.append(
+        [
+            create_btn(
+                "🔗 Nᴇᴡ Rᴇʟᴇᴀꜱᴇꜱ & Oᴛᴛ Uᴘᴅᴀᴛᴇꜱ",
+                url="https://t.me/sandalwood_kannada_moviesz",
+                style=BTN_SUCCESS,
+            )
+        ]
+    )
     return build_dynamic_keyboard(ui.get("start_buttons", []), static_buttons)
+
 
 async def get_help_keyboard():
     static_buttons = [
-        [create_btn("🖥️ UI Start", callback_data="helps_uistart"), create_btn("🖥️ UI Help", callback_data="helps_uihelp"), create_btn("🖥️ UI About", callback_data="helps_uiabout")],
-        [create_btn("👋 Welcome", callback_data="helps_welcome"), create_btn("🖼️ Images", callback_data="helps_images")],
-        [create_btn("🔍 Spell Check", callback_data="helps_spell"), create_btn("📝 Filters", callback_data="helps_filters")],
-        [create_btn("📱 Force Sub", callback_data="helps_forcesub"), create_btn("👥 Force Add", callback_data="helps_forceadd")],
-        [create_btn("🚫 Bans", callback_data="helps_bans"), create_btn("🗑️ Delete", callback_data="helps_delete")],
-        [create_btn("📢 Promotions", callback_data="helps_promotions"), create_btn("📚 Index", callback_data="helps_index")],
-        [create_btn("⚙ Settings", callback_data="helps_settings"), create_btn("🌐 Connections", callback_data="helps_connections")],
-        [create_btn("📊 Utilities", callback_data="helps_utilities"), create_btn("💬 Custom Messages", callback_data="helps_custommessages")],
-        [create_btn("📝 Post Handle", callback_data="helps_posthand"), create_btn("📝 Custom Captions", callback_data="helps_customcaption")],
-        [create_btn("🧬 Auto post", callback_data="helps_autopost"), create_btn("💬 Pm Auto Reply", callback_data="helps_pmautoreply")],
+        [
+            create_btn("🖥️ UI Start", callback_data="helps_uistart"),
+            create_btn("🖥️ UI Help", callback_data="helps_uihelp"),
+            create_btn("🖥️ UI About", callback_data="helps_uiabout"),
+        ],
+        [
+            create_btn("👋 Welcome", callback_data="helps_welcome"),
+            create_btn("🖼️ Images", callback_data="helps_images"),
+        ],
+        [
+            create_btn("🔍 Spell Check", callback_data="helps_spell"),
+            create_btn("📝 Filters", callback_data="helps_filters"),
+        ],
+        [
+            create_btn("📱 Force Sub", callback_data="helps_forcesub"),
+            create_btn("👥 Force Add", callback_data="helps_forceadd"),
+        ],
+        [
+            create_btn("🚫 Bans", callback_data="helps_bans"),
+            create_btn("🗑️ Delete", callback_data="helps_delete"),
+        ],
+        [
+            create_btn("📢 Promotions", callback_data="helps_promotions"),
+            create_btn("📚 Index", callback_data="helps_index"),
+        ],
+        [
+            create_btn("⚙ Settings", callback_data="helps_settings"),
+            create_btn("🌐 Connections", callback_data="helps_connections"),
+        ],
+        [
+            create_btn("📊 Utilities", callback_data="helps_utilities"),
+            create_btn("💬 Custom Messages", callback_data="helps_custommessages"),
+        ],
+        [
+            create_btn("📝 Post Handle", callback_data="helps_posthand"),
+            create_btn("📝 Custom Captions", callback_data="helps_customcaption"),
+        ],
+        [
+            create_btn("🧬 Auto post", callback_data="helps_autopost"),
+            create_btn("💬 Pm Auto Reply", callback_data="helps_pmautoreply"),
+        ],
         [create_btn("💾 Backup", callback_data="helps_backup", style=BTN_SUCCESS)],
-        [create_btn("🔙 Back", callback_data="start", style=BTN_PRIMARY), create_btn("🔐 Cʟᴏsᴇ", callback_data="close_data", style=BTN_DANGER)],
+        [
+            create_btn("🔙 Back", callback_data="start", style=BTN_PRIMARY),
+            create_btn("🔐 Cʟᴏsᴇ", callback_data="close_data", style=BTN_DANGER),
+        ],
     ]
     return InlineKeyboardMarkup(static_buttons)
 
+
 async def get_about_keyboard():
-    return InlineKeyboardMarkup([
-        [create_btn("Sᴛᴀᴛᴜs ​", callback_data="stats")],
-        [create_btn("🏘 Hᴏᴍᴇ", callback_data="start", style=BTN_SUCCESS), create_btn("🔐 Cʟᴏsᴇ", callback_data="close_data", style=BTN_DANGER)]
-    ])
+    return InlineKeyboardMarkup(
+        [
+            [create_btn("Sᴛᴀᴛᴜs ​", callback_data="stats")],
+            [
+                create_btn("🏘 Hᴏᴍᴇ", callback_data="start", style=BTN_SUCCESS),
+                create_btn("🔐 Cʟᴏsᴇ", callback_data="close_data", style=BTN_DANGER),
+            ],
+        ]
+    )
+
 
 async def transition_ui_message(client, msg_obj, text, keyboard, img=None):
     try:
         if img:
             if msg_obj.photo or msg_obj.video or msg_obj.document:
-                await msg_obj.edit_caption(caption=text, reply_markup=keyboard, parse_mode=enums.ParseMode.HTML)
+                await msg_obj.edit_caption(
+                    caption=text, reply_markup=keyboard, parse_mode=enums.ParseMode.HTML
+                )
             else:
                 await msg_obj.delete()
-                await client.send_photo(chat_id=msg_obj.chat.id, photo=img, caption=text, reply_markup=keyboard, parse_mode=enums.ParseMode.HTML)
+                await client.send_photo(
+                    chat_id=msg_obj.chat.id,
+                    photo=img,
+                    caption=text,
+                    reply_markup=keyboard,
+                    parse_mode=enums.ParseMode.HTML,
+                )
         else:
             if msg_obj.photo or msg_obj.video or msg_obj.document:
                 await msg_obj.delete()
-                await client.send_message(chat_id=msg_obj.chat.id, text=text, reply_markup=keyboard, parse_mode=enums.ParseMode.HTML)
+                await client.send_message(
+                    chat_id=msg_obj.chat.id,
+                    text=text,
+                    reply_markup=keyboard,
+                    parse_mode=enums.ParseMode.HTML,
+                )
             else:
-                await msg_obj.edit_text(text=text, reply_markup=keyboard, parse_mode=enums.ParseMode.HTML)
-    except MessageNotModified: pass
-    except Exception as e: logger.error(f"UI Transition Error: {e}")
+                await msg_obj.edit_text(
+                    text=text, reply_markup=keyboard, parse_mode=enums.ParseMode.HTML
+                )
+    except MessageNotModified:
+        pass
+    except Exception as e:
+        logger.error(f"UI Transition Error: {e}")
 
 
 # ============================================================
@@ -312,108 +458,246 @@ async def transition_ui_message(client, msg_obj, text, keyboard, img=None):
 @Client.on_message(filters.command(["start", "help"]) & filters.incoming)
 async def start(client: Client, message: Message):
     if getattr(info, "REPAIR_MODE", False) and not await is_user_admin(client, message):
-        return await message.reply_text("🛠️ <b>Bot is currently under maintenance!</b>", parse_mode=enums.ParseMode.HTML)
+        return await message.reply_text(
+            "🛠️ <b>Bot is currently under maintenance!</b>",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
-    if message.from_user and await _plugin_db.is_banned(message.from_user.id): return
+    if message.from_user and await _plugin_db.is_banned(message.from_user.id):
+        return
 
-    bot_uname, b_name, ui = temp.U_NAME or "my_bot", temp.B_NAME or "MovieBot", await get_ui()
-    is_help_command = (message.command[0] == "help") or (len(message.command) == 2 and message.command[1] == "help")
+    bot_uname, b_name, ui = (
+        temp.U_NAME or "my_bot",
+        temp.B_NAME or "MovieBot",
+        await get_ui(),
+    )
+    is_help_command = (message.command[0] == "help") or (
+        len(message.command) == 2 and message.command[1] == "help"
+    )
 
     if is_help_command:
         text = (ui.get("help_text") or script.HELP_TXT).format(
-            mention=message.from_user.mention if message.from_user else "User", uname=bot_uname, bname=b_name
+            mention=message.from_user.mention if message.from_user else "User",
+            uname=bot_uname,
+            bname=b_name,
         )
-        final_text, final_keyboard = parse_text_and_markup(text, await get_help_keyboard())
+        final_text, final_keyboard = parse_text_and_markup(
+            text, await get_help_keyboard()
+        )
         img = ui.get("help_img")
         if img:
-            return await message.reply_photo(photo=img, caption=final_text, reply_markup=final_keyboard, parse_mode=enums.ParseMode.HTML)
-        return await message.reply_text(text=final_text, reply_markup=final_keyboard, parse_mode=enums.ParseMode.HTML)
+            return await message.reply_photo(
+                photo=img,
+                caption=final_text,
+                reply_markup=final_keyboard,
+                parse_mode=enums.ParseMode.HTML,
+            )
+        return await message.reply_text(
+            text=final_text,
+            reply_markup=final_keyboard,
+            parse_mode=enums.ParseMode.HTML,
+        )
 
     if message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
         raw_text = (ui.get("start_text") or script.START_TXT).format(
-            mention=message.from_user.mention if message.from_user else message.chat.title,
-            uname=bot_uname, bname=b_name, plane_emoji=MESSAGE_EMOJI_PLANE, link_emoji=MESSAGE_EMOJI_LINK
+            mention=(
+                message.from_user.mention if message.from_user else message.chat.title
+            ),
+            uname=bot_uname,
+            bname=b_name,
+            plane_emoji=MESSAGE_EMOJI_PLANE,
+            link_emoji=MESSAGE_EMOJI_LINK,
         )
-        final_text, final_keyboard = parse_text_and_markup(raw_text, await get_start_keyboard(message.from_user.id if message.from_user else 0))
-        await message.reply(final_text, reply_markup=final_keyboard, parse_mode=enums.ParseMode.HTML)
+        final_text, final_keyboard = parse_text_and_markup(
+            raw_text,
+            await get_start_keyboard(message.from_user.id if message.from_user else 0),
+        )
+        await message.reply(
+            final_text, reply_markup=final_keyboard, parse_mode=enums.ParseMode.HTML
+        )
         await asyncio.sleep(2)
         if not await _db.get_chat(message.chat.id):
             total = await client.get_chat_members_count(message.chat.id)
-            try: await client.send_message(LOG_CHANNEL, script.LOG_TEXT_G.format(message.chat.title, message.chat.id, total, "Unknown"))
-            except Exception: pass
+            try:
+                await client.send_message(
+                    LOG_CHANNEL,
+                    script.LOG_TEXT_G.format(
+                        message.chat.title, message.chat.id, total, "Unknown"
+                    ),
+                )
+            except Exception:
+                pass
             await _db.add_chat(message.chat.id, message.chat.title)
         return
 
     if message.from_user and not await _db.is_user_exist(message.from_user.id):
         await _db.add_user(message.from_user.id, message.from_user.first_name)
-        try: await client.send_message(LOG_CHANNEL, script.LOG_TEXT_P.format(message.from_user.id, message.from_user.mention))
-        except Exception: pass
+        try:
+            await client.send_message(
+                LOG_CHANNEL,
+                script.LOG_TEXT_P.format(
+                    message.from_user.id, message.from_user.mention
+                ),
+            )
+        except Exception:
+            pass
 
     if len(message.command) != 2 or message.command[1] in ["error", "okay", "hehe"]:
         raw_text = (ui.get("start_text") or script.START_TXT).format(
             mention=message.from_user.mention if message.from_user else "User",
-            uname=bot_uname, bname=b_name, plane_emoji=MESSAGE_EMOJI_PLANE, link_emoji=MESSAGE_EMOJI_LINK
+            uname=bot_uname,
+            bname=b_name,
+            plane_emoji=MESSAGE_EMOJI_PLANE,
+            link_emoji=MESSAGE_EMOJI_LINK,
         )
-        final_text, final_keyboard = parse_text_and_markup(raw_text, await get_start_keyboard(message.from_user.id if message.from_user else 0))
+        final_text, final_keyboard = parse_text_and_markup(
+            raw_text,
+            await get_start_keyboard(message.from_user.id if message.from_user else 0),
+        )
         db_img, photo_to_send = ui.get("start_img"), None
-        if db_img: photo_to_send = db_img
-        elif PICS: photo_to_send = random.choice(PICS)
+        if db_img:
+            photo_to_send = db_img
+        elif PICS:
+            photo_to_send = random.choice(PICS)
 
         try:
             if photo_to_send:
-                await message.reply_photo(photo=photo_to_send, caption=final_text, reply_markup=final_keyboard, parse_mode=enums.ParseMode.HTML)
+                await message.reply_photo(
+                    photo=photo_to_send,
+                    caption=final_text,
+                    reply_markup=final_keyboard,
+                    parse_mode=enums.ParseMode.HTML,
+                )
             else:
-                await message.reply_text(text=final_text, reply_markup=final_keyboard, parse_mode=enums.ParseMode.HTML)
-        except (UserIsBlocked, PeerIdInvalid): pass
+                await message.reply_text(
+                    text=final_text,
+                    reply_markup=final_keyboard,
+                    parse_mode=enums.ParseMode.HTML,
+                )
+        except (UserIsBlocked, PeerIdInvalid):
+            pass
         return
 
-    if message.command[1] == "subscribe": return await ForceSub(client, message)
+    if message.command[1] == "subscribe":
+        return await ForceSub(client, message)
 
     cmd_data = message.command[1]
     kk, file_id = cmd_data.split("_", 1) if "_" in cmd_data else (False, False)
     pre = ("checksubp" if kk == "filep" else "checksub") if kk else False
 
     status = await ForceSub(client, message, file_id=file_id or cmd_data, mode=pre)
-    if not status: return
+    if not status:
+        return
 
     files_ = await get_file_details(file_id or cmd_data)
-    if not files_: return await message.reply_text("⚠️ No such file exists.", parse_mode=enums.ParseMode.HTML)
+    if not files_:
+        return await message.reply_text(
+            "⚠️ No such file exists.", parse_mode=enums.ParseMode.HTML
+        )
 
     files = files_[0]
-    title = str(files.get("file_name", "Unknown") if isinstance(files, dict) else getattr(files, "file_name", "Unknown"))
-    size = get_size(int(files.get("file_size", 0) if isinstance(files, dict) else getattr(files, "file_size", 0)))
-    f_caption = str(files.get("caption", "") if isinstance(files, dict) else getattr(files, "caption", ""))
-    db_file_id = files.get("full_file_id", files.get("file_id", file_id)) if isinstance(files, dict) else getattr(files, "full_file_id", getattr(files, "file_id", file_id))
+    title = str(
+        files.get("file_name", "Unknown")
+        if isinstance(files, dict)
+        else getattr(files, "file_name", "Unknown")
+    )
+    size = get_size(
+        int(
+            files.get("file_size", 0)
+            if isinstance(files, dict)
+            else getattr(files, "file_size", 0)
+        )
+    )
+    f_caption = str(
+        files.get("caption", "")
+        if isinstance(files, dict)
+        else getattr(files, "caption", "")
+    )
+    db_file_id = (
+        files.get("full_file_id", files.get("file_id", file_id))
+        if isinstance(files, dict)
+        else getattr(files, "full_file_id", getattr(files, "file_id", file_id))
+    )
 
     if CUSTOM_FILE_CAPTION:
-        try: f_caption = CUSTOM_FILE_CAPTION.format(file_name="" if title == "Unknown" else title, file_size="" if size == "0B" else size, file_caption="" if not f_caption else f_caption)
-        except Exception: pass
+        try:
+            f_caption = CUSTOM_FILE_CAPTION.format(
+                file_name="" if title == "Unknown" else title,
+                file_size="" if size == "0B" else size,
+                file_caption="" if not f_caption else f_caption,
+            )
+        except Exception:
+            pass
 
-    if not f_caption: f_caption = f"<b>{title}</b>"
-    if getattr(info, "CAPTION_PLUS", None): f_caption += f"\n\n{info.CAPTION_PLUS}"
+    if not f_caption:
+        f_caption = f"<b>{title}</b>"
+    if getattr(info, "CAPTION_PLUS", None):
+        f_caption += f"\n\n{info.CAPTION_PLUS}"
 
-    final_caption, final_keyboard = parse_text_and_markup(f_caption, InlineKeyboardMarkup([[create_btn(text="🎥 ಕನ್ನಡ ಹೊಸ ಮೂವೀಗಳು 🎥", url="https://t.me/Sandalwood_kannada_moviesz", style=BTN_SUCCESS)]]))
+    final_caption, final_keyboard = parse_text_and_markup(
+        f_caption,
+        InlineKeyboardMarkup(
+            [
+                [
+                    create_btn(
+                        text="🎥 ಕನ್ನಡ ಹೊಸ ಮೂವೀಗಳು 🎥",
+                        url="https://t.me/Sandalwood_kannada_moviesz",
+                        style=BTN_SUCCESS,
+                    )
+                ]
+            ]
+        ),
+    )
 
     msg = None
     try:
-        msg = await client.send_cached_media(chat_id=message.from_user.id, file_id=db_file_id, caption=final_caption, reply_markup=final_keyboard, protect_content=True if kk in ["filep", "checksubp"] else False, parse_mode=enums.ParseMode.HTML)
+        msg = await client.send_cached_media(
+            chat_id=message.from_user.id,
+            file_id=db_file_id,
+            caption=final_caption,
+            reply_markup=final_keyboard,
+            protect_content=True if kk in ["filep", "checksubp"] else False,
+            parse_mode=enums.ParseMode.HTML,
+        )
     except FloodWait as e:
         await asyncio.sleep(e.value + 1)
-        msg = await client.send_cached_media(chat_id=message.from_user.id, file_id=db_file_id, caption=final_caption, protect_content=True if kk in ["filep", "checksubp"] else False, parse_mode=enums.ParseMode.HTML)
+        msg = await client.send_cached_media(
+            chat_id=message.from_user.id,
+            file_id=db_file_id,
+            caption=final_caption,
+            protect_content=True if kk in ["filep", "checksubp"] else False,
+            parse_mode=enums.ParseMode.HTML,
+        )
     except Exception:
         try:
-            msg = await client.send_document(chat_id=message.from_user.id, document=db_file_id, caption=final_caption, reply_markup=final_keyboard, protect_content=True if kk in ["filep", "checksubp"] else False, parse_mode=enums.ParseMode.HTML)
+            msg = await client.send_document(
+                chat_id=message.from_user.id,
+                document=db_file_id,
+                caption=final_caption,
+                reply_markup=final_keyboard,
+                protect_content=True if kk in ["filep", "checksubp"] else False,
+                parse_mode=enums.ParseMode.HTML,
+            )
         except Exception as err:
-            return await message.reply_text(f"⚠️ <b>Error:</b>\n<code>{err}</code>", parse_mode=enums.ParseMode.HTML)
+            return await message.reply_text(
+                f"⚠️ <b>Error:</b>\n<code>{err}</code>", parse_mode=enums.ParseMode.HTML
+            )
 
     if msg:
         try:
             delete_timer = parse_timer("FILE_AUTO_DELETE", 1800)
             m, s = divmod(delete_timer, 60)
             time_str = f"{m} Minutes {s} Seconds" if s > 0 else f"{m} Minutes"
-            k = await client.send_message(chat_id=message.from_user.id, text=f"<b>📢 Please Note\n\n✅ The above file will be autodeleted in {time_str} to avoid copyright issues.\n\n✅ Please forward this file to your saved messages and start downloading from there.\n\nTᴇᴀᴍ: @KR_Picture</b>", reply_to_message_id=msg.id, parse_mode=enums.ParseMode.HTML)
-            if delete_timer > 0: schedule_auto_delete(client, msg, k, delete_timer)
-        except Exception as e: logger.error(f"Auto-delete warning failed to send: {e}")
+            k = await client.send_message(
+                chat_id=message.from_user.id,
+                text=f"<b>📢 Please Note\n\n✅ The above file will be autodeleted in {time_str} to avoid copyright issues.\n\n✅ Please forward this file to your saved messages and start downloading from there.\n\nTᴇᴀᴍ: @KR_Picture</b>",
+                reply_to_message_id=msg.id,
+                parse_mode=enums.ParseMode.HTML,
+            )
+            if delete_timer > 0:
+                schedule_auto_delete(client, msg, k, delete_timer)
+        except Exception as e:
+            logger.error(f"Auto-delete warning failed to send: {e}")
 
 
 # ============================================================
@@ -421,23 +705,44 @@ async def start(client: Client, message: Message):
 # ============================================================
 @Client.on_message(filters.command("setcleanfilename") & admin_filter)
 async def set_clean_words(client: Client, message: Message):
-    if len(message.command) < 2: return await message.reply_text("⚠️ **Usage:** `/setcleanfilename word1, word2, @ChannelName`")
-    words_list = [w.strip() for w in message.text.split(None, 1)[1].split(",") if w.strip()]
+    if len(message.command) < 2:
+        return await message.reply_text(
+            "⚠️ **Usage:** `/setcleanfilename word1, word2, @ChannelName`"
+        )
+    words_list = [
+        w.strip() for w in message.text.split(None, 1)[1].split(",") if w.strip()
+    ]
     if cw_db is not None:
-        await cw_db.update_one({"id": "words"}, {"$set": {"list": words_list, "use_default": False}}, upsert=True)
-        await message.reply_text(f"✅ **Clean Words Set Successfully!**\n\nThe following words will be removed from buttons:\n`{', '.join(words_list)}`")
+        await cw_db.update_one(
+            {"id": "words"},
+            {"$set": {"list": words_list, "use_default": False}},
+            upsert=True,
+        )
+        await message.reply_text(
+            f"✅ **Clean Words Set Successfully!**\n\nThe following words will be removed from buttons:\n`{', '.join(words_list)}`"
+        )
+
 
 @Client.on_message(filters.command("defaultcleanfilename") & admin_filter)
 async def default_clean_words(client: Client, message: Message):
     if cw_db is not None:
-        await cw_db.update_one({"id": "words"}, {"$set": {"use_default": True}}, upsert=True)
-        await message.reply_text("✅ **Reverted to Default Clean Words!**\n(Standard extensions and default tags will be removed).")
+        await cw_db.update_one(
+            {"id": "words"}, {"$set": {"use_default": True}}, upsert=True
+        )
+        await message.reply_text(
+            "✅ **Reverted to Default Clean Words!**\n(Standard extensions and default tags will be removed)."
+        )
+
 
 @Client.on_message(filters.command("remcleanfilename") & admin_filter)
 async def rem_clean_words(client: Client, message: Message):
     if cw_db is not None:
-        await cw_db.update_one({"id": "words"}, {"$set": {"list": [], "use_default": False}}, upsert=True)
-        await message.reply_text("🗑️ **All Clean Words Removed.**\nFilenames will now display exactly as they are uploaded.")
+        await cw_db.update_one(
+            {"id": "words"}, {"$set": {"list": [], "use_default": False}}, upsert=True
+        )
+        await message.reply_text(
+            "🗑️ **All Clean Words Removed.**\nFilenames will now display exactly as they are uploaded."
+        )
 
 
 # ============================================================
@@ -447,20 +752,31 @@ async def rem_clean_words(client: Client, message: Message):
 async def set_pm_text(client: Client, message: Message):
     try:
         text = get_html_text(message)
-        if not text: return await message.reply_text("Usage: `/setpmtext Your Text Here` or reply to a text.")
+        if not text:
+            return await message.reply_text(
+                "Usage: `/setpmtext Your Text Here` or reply to a text."
+            )
         await save_pm_settings("text", text)
         await message.reply_text(f"✅ PM Text updated successfully to:\n\n{text}")
-    except Exception as e: await message.reply_text(f"Error: {e}")
+    except Exception as e:
+        await message.reply_text(f"Error: {e}")
+
 
 @Client.on_message(filters.command("rempmtext") & admin_filter)
 async def rem_pm_text(client: Client, message: Message):
-    await save_pm_settings("text", "<b>🚫 Don't Message Here, Message Here Only!</b>\n\nI do not respond to direct messages in PM. Please join our official group to request and download movies.")
+    await save_pm_settings(
+        "text",
+        "<b>🚫 Don't Message Here, Message Here Only!</b>\n\nI do not respond to direct messages in PM. Please join our official group to request and download movies.",
+    )
     await message.reply_text("✅ PM Text reset to default.")
+
 
 @Client.on_message(filters.command("setpmimage") & admin_filter)
 async def set_pm_image(client: Client, message: Message):
     if not message.reply_to_message or not message.reply_to_message.photo:
-        return await message.reply_text("⚙️ **Usage:** Reply to a photo with `/setpmimage`")
+        return await message.reply_text(
+            "⚙️ **Usage:** Reply to a photo with `/setpmimage`"
+        )
 
     status = await message.reply_text("⏳ **Uploading to Cloud...**")
     url = await upload_image_safely(client, message.reply_to_message)
@@ -470,29 +786,42 @@ async def set_pm_image(client: Client, message: Message):
     else:
         file_id = message.reply_to_message.photo.file_id
         await save_pm_settings("image", file_id)
-        await status.edit_text("⚠️ Cloud upload failed. **PM Image updated successfully as Telegram File_ID!**")
+        await status.edit_text(
+            "⚠️ Cloud upload failed. **PM Image updated successfully as Telegram File_ID!**"
+        )
+
 
 @Client.on_message(filters.command("rempmimage") & admin_filter)
 async def rem_pm_image(client: Client, message: Message):
     await save_pm_settings("image", None)
     await message.reply_text("✅ PM Image removed.")
 
+
 @Client.on_message(filters.command("setpmbutton") & admin_filter)
 async def set_pm_button(client: Client, message: Message):
     try:
-        if len(message.command) < 2: return await message.reply_text("Usage: `/setpmbutton Text | URL | Color`")
+        if len(message.command) < 2:
+            return await message.reply_text("Usage: `/setpmbutton Text | URL | Color`")
         args = message.text.split(None, 1)[1].split("|")
-        if len(args) < 2: return await message.reply_text("❌ Invalid format. Use: `Text | URL | Color`")
+        if len(args) < 2:
+            return await message.reply_text(
+                "❌ Invalid format. Use: `Text | URL | Color`"
+            )
 
         btn_text, btn_url = args[0].strip(), args[1].strip()
         btn_color = args[2].strip().lower() if len(args) > 2 else "normal"
-        if btn_color not in ["green", "red", "blue", "normal"]: btn_color = "normal"
+        if btn_color not in ["green", "red", "blue", "normal"]:
+            btn_color = "normal"
 
         await save_pm_settings("button_text", btn_text)
         await save_pm_settings("button_url", btn_url)
         await save_pm_settings("button_color", btn_color)
-        await message.reply_text(f"✅ PM Button updated!\nText: {btn_text}\nURL: {btn_url}\nColor: {btn_color}")
-    except Exception as e: await message.reply_text(f"Error: {e}")
+        await message.reply_text(
+            f"✅ PM Button updated!\nText: {btn_text}\nURL: {btn_url}\nColor: {btn_color}"
+        )
+    except Exception as e:
+        await message.reply_text(f"Error: {e}")
+
 
 @Client.on_message(filters.command("rempmbutton") & admin_filter)
 async def rem_pm_button(client: Client, message: Message):
@@ -506,25 +835,58 @@ async def rem_pm_button(client: Client, message: Message):
 # ============================================================
 @Client.on_message(filters.private & filters.text & filters.incoming)
 async def pm_auto_reply(client: Client, message: Message):
-    if message.text.startswith("/"): return
-    if getattr(info, "REPAIR_MODE", False) and not await is_user_admin(client, message): return
-    if await is_user_admin(client, message): return
-    if message.from_user and await _plugin_db.is_banned(message.from_user.id): return
+    if message.text.startswith("/"):
+        return
+    if getattr(info, "REPAIR_MODE", False) and not await is_user_admin(client, message):
+        return
+    if await is_user_admin(client, message):
+        return
+    if message.from_user and await _plugin_db.is_banned(message.from_user.id):
+        return
 
     settings = await get_pm_settings()
     text = settings.get("text", "<b>🚫 Don't Message Here, Message Here Only!</b>")
     pm_img = settings.get("image", getattr(info, "NOT_FOUND_IMG", None))
-    btn_text, btn_url, btn_color_str = settings.get("button_text", "💬 Message Here Only"), settings.get("button_url", "https://t.me/Sandalwood_Kannada_Group"), settings.get("button_color", "green")
+    btn_text, btn_url, btn_color_str = (
+        settings.get("button_text", "💬 Message Here Only"),
+        settings.get("button_url", "https://t.me/Sandalwood_Kannada_Group"),
+        settings.get("button_color", "green"),
+    )
 
-    color_map = {"green": BTN_SUCCESS, "red": BTN_DANGER, "blue": BTN_PRIMARY, "normal": None}
-    reply_markup = InlineKeyboardMarkup([[create_btn(btn_text, url=btn_url, style=color_map.get(btn_color_str, None))]]) if btn_text and btn_url else None
+    color_map = {
+        "green": BTN_SUCCESS,
+        "red": BTN_DANGER,
+        "blue": BTN_PRIMARY,
+        "normal": None,
+    }
+    reply_markup = (
+        InlineKeyboardMarkup(
+            [
+                [
+                    create_btn(
+                        btn_text, url=btn_url, style=color_map.get(btn_color_str, None)
+                    )
+                ]
+            ]
+        )
+        if btn_text and btn_url
+        else None
+    )
 
     try:
         if pm_img and str(pm_img).lower() != "none":
-            await message.reply_photo(photo=pm_img, caption=text, reply_markup=reply_markup, parse_mode=enums.ParseMode.HTML)
+            await message.reply_photo(
+                photo=pm_img,
+                caption=text,
+                reply_markup=reply_markup,
+                parse_mode=enums.ParseMode.HTML,
+            )
         else:
-            await message.reply_text(text=text, reply_markup=reply_markup, parse_mode=enums.ParseMode.HTML)
-    except Exception as e: logger.error(f"PM Reply Error: {e}")
+            await message.reply_text(
+                text=text, reply_markup=reply_markup, parse_mode=enums.ParseMode.HTML
+            )
+    except Exception as e:
+        logger.error(f"PM Reply Error: {e}")
 
 
 # ============================================================
@@ -532,7 +894,11 @@ async def pm_auto_reply(client: Client, message: Message):
 # ============================================================
 async def get_channels_page(client: Client, page: int = 1):
     raw_chats = await _db.get_all_chats()
-    all_chats = await raw_chats.to_list(length=None) if hasattr(raw_chats, "to_list") else list(raw_chats)
+    all_chats = (
+        await raw_chats.to_list(length=None)
+        if hasattr(raw_chats, "to_list")
+        else list(raw_chats)
+    )
 
     total_chats, page_size = len(all_chats), 15
     total_pages = max(1, math.ceil(total_chats / page_size))
@@ -541,159 +907,336 @@ async def get_channels_page(client: Client, page: int = 1):
     start_idx = (page - 1) * page_size
     text = f"📑 <b>All Connected Channels & Groups</b> (Page {page}/{total_pages})\n\n"
 
-    for i, chat in enumerate(all_chats[start_idx : start_idx + page_size], start=start_idx + 1):
-        chat_id, title, username = chat.get("id") or chat.get("chat_id"), chat.get("title") or chat.get("name") or "Unknown", chat.get("username")
+    for i, chat in enumerate(
+        all_chats[start_idx : start_idx + page_size], start=start_idx + 1
+    ):
+        chat_id, title, username = (
+            chat.get("id") or chat.get("chat_id"),
+            chat.get("title") or chat.get("name") or "Unknown",
+            chat.get("username"),
+        )
         link = f"https://t.me/{username}" if username else "Private / No Link"
         if not username:
             try:
                 chat_obj = await client.get_chat(chat_id)
-                link = f"https://t.me/{chat_obj.username}" if chat_obj.username else chat_obj.invite_link or await client.export_chat_invite_link(chat_id)
+                link = (
+                    f"https://t.me/{chat_obj.username}"
+                    if chat_obj.username
+                    else chat_obj.invite_link
+                    or await client.export_chat_invite_link(chat_id)
+                )
             except Exception:
                 link = f"https://t.me/c/{str(chat_id)[4:] if str(chat_id).startswith('-100') else str(chat_id)}/1"
-        text += f"<b>{i}. {title}</b>\n🔗 Link: {link}\n🆔 ID: <code>{chat_id}</code>\n\n"
+        text += (
+            f"<b>{i}. {title}</b>\n🔗 Link: {link}\n🆔 ID: <code>{chat_id}</code>\n\n"
+        )
 
     buttons, nav_row = [], []
-    if page > 1: nav_row.append(create_btn("⬅️ Previous", callback_data=f"channels_page#{page - 1}", style=BTN_PRIMARY))
-    if page < total_pages: nav_row.append(create_btn("Next ➡️", callback_data=f"channels_page#{page + 1}", style=BTN_PRIMARY))
-    if nav_row: buttons.append(nav_row)
-    buttons.append([create_btn("🔐 Close", callback_data="close_data", style=BTN_DANGER)])
+    if page > 1:
+        nav_row.append(
+            create_btn(
+                "⬅️ Previous",
+                callback_data=f"channels_page#{page - 1}",
+                style=BTN_PRIMARY,
+            )
+        )
+    if page < total_pages:
+        nav_row.append(
+            create_btn(
+                "Next ➡️", callback_data=f"channels_page#{page + 1}", style=BTN_PRIMARY
+            )
+        )
+    if nav_row:
+        buttons.append(nav_row)
+    buttons.append(
+        [create_btn("🔐 Close", callback_data="close_data", style=BTN_DANGER)]
+    )
     return text, InlineKeyboardMarkup(buttons)
+
 
 @Client.on_message(filters.command(["channels", "channel"]) & admin_filter)
 async def list_all_channels_cmd(client: Client, message: Message):
     status_msg = await message.reply_text("⏳ Generating link database...")
     text, reply_markup = await get_channels_page(client, page=1)
-    await status_msg.edit_text(text, reply_markup=reply_markup, disable_web_page_preview=True, parse_mode=enums.ParseMode.HTML)
+    await status_msg.edit_text(
+        text,
+        reply_markup=reply_markup,
+        disable_web_page_preview=True,
+        parse_mode=enums.ParseMode.HTML,
+    )
+
 
 @Client.on_message(filters.command(["leavechannel", "leave"]) & admin_filter)
 async def leave_channel_cmd(client: Client, message: Message):
-    if len(message.command) < 2: return await message.reply_text("⚙️ <b>Usage:</b> <code>/leavechannel &lt;channel_id&gt;</code>", parse_mode=enums.ParseMode.HTML)
-    try: chat_id_int = int(message.command[1].strip())
-    except ValueError: return await message.reply_text("❌ Invalid Channel ID format.")
+    if len(message.command) < 2:
+        return await message.reply_text(
+            "⚙️ <b>Usage:</b> <code>/leavechannel &lt;channel_id&gt;</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
+    try:
+        chat_id_int = int(message.command[1].strip())
+    except ValueError:
+        return await message.reply_text("❌ Invalid Channel ID format.")
 
-    chat_title, tg_status, db_status = "Unknown Chat", "⚠️ Not inside chat", "⚠️ Not inside DB"
+    chat_title, tg_status, db_status = (
+        "Unknown Chat",
+        "⚠️ Not inside chat",
+        "⚠️ Not inside DB",
+    )
     try:
         chat = await client.get_chat(chat_id_int)
         chat_title = chat.title or "Unknown"
         await client.leave_chat(chat_id_int)
         tg_status = "✅ Successfully left chat."
-    except Exception as e: tg_status = f"⚠️ Could not leave Telegram chat: {e}"
+    except Exception as e:
+        tg_status = f"⚠️ Could not leave Telegram chat: {e}"
 
     try:
-        if hasattr(_db, "delete_chat"): await _db.delete_chat(chat_id_int)
+        if hasattr(_db, "delete_chat"):
+            await _db.delete_chat(chat_id_int)
         elif hasattr(_db, "grp"):
             await _db.grp.delete_one({"id": chat_id_int})
             await _db.grp.delete_one({"chat_id": chat_id_int})
         db_status = "✅ Removed from Database."
-    except Exception as e: db_status = f"❌ DB Remove Error: {e}"
+    except Exception as e:
+        db_status = f"❌ DB Remove Error: {e}"
 
-    await message.reply_text(f"🎯 <b>Operation Complete:</b>\n\n<b>Name:</b> {chat_title}\n<b>ID:</b> <code>{chat_id_int}</code>\n\n<b>Telegram Status:</b> {tg_status}\n<b>Database Status:</b> {db_status}", parse_mode=enums.ParseMode.HTML)
+    await message.reply_text(
+        f"🎯 <b>Operation Complete:</b>\n\n<b>Name:</b> {chat_title}\n<b>ID:</b> <code>{chat_id_int}</code>\n\n<b>Telegram Status:</b> {tg_status}\n<b>Database Status:</b> {db_status}",
+        parse_mode=enums.ParseMode.HTML,
+    )
 
 
 # ============================================================
 # 🎛️ INLINE CALLBACK HANDLER
 # ============================================================
-@Client.on_callback_query(filters.regex(r"^(close_data|channels_page#.*|delallconfirm|delallcancel|groupcb.*|connectcb.*|disconnect.*|deletecb.*|backcb|alertmessage.*|file.*|checksub.*|pages|start|help|about|helps_.*|stats|rfrsh)$"))
+@Client.on_callback_query(
+    filters.regex(
+        r"^(close_data|channels_page#.*|delallconfirm|delallcancel|groupcb.*|connectcb.*|disconnect.*|deletecb.*|backcb|alertmessage.*|file.*|checksub.*|pages|start|help|about|helps_.*|stats|rfrsh)$"
+    )
+)
 async def cb_handler(client: Client, query: CallbackQuery):
-    if getattr(info, "REPAIR_MODE", False) and not await cb_user_admin(client, query) and query.data != "close_data":
+    if (
+        getattr(info, "REPAIR_MODE", False)
+        and not await cb_user_admin(client, query)
+        and query.data != "close_data"
+    ):
         return await query.answer("🛠️ Bot is under maintenance!", show_alert=True)
     try:
-        if query.data == "close_data": await query.message.delete()
+        if query.data == "close_data":
+            await query.message.delete()
         elif query.data.startswith("channels_page#"):
             page_num = int(query.data.split("#")[1])
             try:
                 text, reply_markup = await get_channels_page(client, page=page_num)
-                await query.message.edit_text(text=text, reply_markup=reply_markup, disable_web_page_preview=True, parse_mode=enums.ParseMode.HTML)
-            except Exception: pass
+                await query.message.edit_text(
+                    text=text,
+                    reply_markup=reply_markup,
+                    disable_web_page_preview=True,
+                    parse_mode=enums.ParseMode.HTML,
+                )
+            except Exception:
+                pass
             await query.answer()
         elif query.data == "start":
             await query.answer()
             ui = await get_ui()
             raw_text = (ui.get("start_text") or script.START_TXT).format(
-                mention=query.from_user.mention, uname=temp.U_NAME or "my_bot", bname=temp.B_NAME or "MovieBot",
-                plane_emoji=MESSAGE_EMOJI_PLANE, link_emoji=MESSAGE_EMOJI_LINK
+                mention=query.from_user.mention,
+                uname=temp.U_NAME or "my_bot",
+                bname=temp.B_NAME or "MovieBot",
+                plane_emoji=MESSAGE_EMOJI_PLANE,
+                link_emoji=MESSAGE_EMOJI_LINK,
             )
-            final_text, final_keyboard = parse_text_and_markup(raw_text, await get_start_keyboard(query.from_user.id if query.from_user else 0))
-            await transition_ui_message(client, query.message, final_text, final_keyboard, ui.get("start_img"))
+            final_text, final_keyboard = parse_text_and_markup(
+                raw_text,
+                await get_start_keyboard(query.from_user.id if query.from_user else 0),
+            )
+            await transition_ui_message(
+                client, query.message, final_text, final_keyboard, ui.get("start_img")
+            )
         elif query.data == "help":
             await query.answer()
             ui = await get_ui()
             raw_text = (ui.get("help_text") or script.HELP_TXT).format(
-                mention=query.from_user.mention, uname=temp.U_NAME or "my_bot", bname=temp.B_NAME or "MovieBot"
+                mention=query.from_user.mention,
+                uname=temp.U_NAME or "my_bot",
+                bname=temp.B_NAME or "MovieBot",
             )
-            final_text, final_keyboard = parse_text_and_markup(raw_text, await get_help_keyboard())
-            await transition_ui_message(client, query.message, final_text, final_keyboard, ui.get("help_img"))
+            final_text, final_keyboard = parse_text_and_markup(
+                raw_text, await get_help_keyboard()
+            )
+            await transition_ui_message(
+                client, query.message, final_text, final_keyboard, ui.get("help_img")
+            )
         elif query.data == "about":
             await query.answer()
             ui = await get_ui()
             raw_text = (ui.get("about_text") or script.ABOUT_TXT).format(
                 mention=query.from_user.mention, bname=temp.B_NAME or "MovieBot"
             )
-            final_text, final_keyboard = parse_text_and_markup(raw_text, await get_about_keyboard())
-            await transition_ui_message(client, query.message, final_text, final_keyboard, ui.get("about_img"))
+            final_text, final_keyboard = parse_text_and_markup(
+                raw_text, await get_about_keyboard()
+            )
+            await transition_ui_message(
+                client, query.message, final_text, final_keyboard, ui.get("about_img")
+            )
         elif query.data.startswith("helps_"):
             await query.answer()
             buttons = [[create_btn("🔙 Back", callback_data="help")]]
             help_dict = {
-                "helps_uistart": ("UISTART_TXT", "🎨 UI Start Menu"), "helps_uihelp": ("UIHELP_TXT", "🎨 UI Help Menu"),
-                "helps_uiabout": ("UIABOUT_TXT", "🎨 UI About Menu"), "helps_welcome": ("WELCOME_TXT", "👋 Welcome Help"),
-                "helps_images": ("IMAGES_TXT", "🖼️ Images Help"), "helps_spell": ("SPELLCHECK_TXT", "🔍 Spell Check Help"),
-                "helps_filters": ("FILTERS_TXT", "📝 Filters Help"), "helps_forcesub": ("FORCESUB_TXT", "📱 Force Sub Help"),
-                "helps_forceadd": ("FORCEADD_TXT", "👥 Force Add Help"), "helps_bans": ("BANS_TXT", "🚫 Bans Help"),
-                "helps_delete": ("DELETE_TXT", "🗑 Delete Help"), "helps_promotions": ("PROMOTIONS_TXT", "📢 Promotions Help"),
-                "helps_index": ("INDEX_TXT", "📚 Index Help"), "helps_settings": ("SETTINGS_TXT", "⚙️ Settings Help"),
-                "helps_connections": ("CONNECTIONS_TXT", "🌐 Connections Help"), "helps_utilities": ("UTILITIES_TXT", "📊 Utilities Help"),
-                "helps_custommessages": ("CUSTOMMESSAGES_TXT", "💬 Custom Messages"), "helps_posthand": ("POSTHAND_TXT", "📝 Post Handle Help"),
-                "helps_customcaption": ("CUSTOMCAPTION_TXT", "📝 Custom Captions Help"), "helps_backup": ("BACKUP_TXT", "💾 Backup Help"),
-                "helps_autopost": ("AUTOPOST_TXT", "🧬 Auto Post Help"), "helps_pmautoreply": ("PMAUTOREPLY_TXT", "💬 PM Auto Reply Help"),
+                "helps_uistart": ("UISTART_TXT", "🎨 UI Start Menu"),
+                "helps_uihelp": ("UIHELP_TXT", "🎨 UI Help Menu"),
+                "helps_uiabout": ("UIABOUT_TXT", "🎨 UI About Menu"),
+                "helps_welcome": ("WELCOME_TXT", "👋 Welcome Help"),
+                "helps_images": ("IMAGES_TXT", "🖼️ Images Help"),
+                "helps_spell": ("SPELLCHECK_TXT", "🔍 Spell Check Help"),
+                "helps_filters": ("FILTERS_TXT", "📝 Filters Help"),
+                "helps_forcesub": ("FORCESUB_TXT", "📱 Force Sub Help"),
+                "helps_forceadd": ("FORCEADD_TXT", "👥 Force Add Help"),
+                "helps_bans": ("BANS_TXT", "🚫 Bans Help"),
+                "helps_delete": ("DELETE_TXT", "🗑 Delete Help"),
+                "helps_promotions": ("PROMOTIONS_TXT", "📢 Promotions Help"),
+                "helps_index": ("INDEX_TXT", "📚 Index Help"),
+                "helps_settings": ("SETTINGS_TXT", "⚙️ Settings Help"),
+                "helps_connections": ("CONNECTIONS_TXT", "🌐 Connections Help"),
+                "helps_utilities": ("UTILITIES_TXT", "📊 Utilities Help"),
+                "helps_custommessages": ("CUSTOMMESSAGES_TXT", "💬 Custom Messages"),
+                "helps_posthand": ("POSTHAND_TXT", "📝 Post Handle Help"),
+                "helps_customcaption": ("CUSTOMCAPTION_TXT", "📝 Custom Captions Help"),
+                "helps_backup": ("BACKUP_TXT", "💾 Backup Help"),
+                "helps_autopost": ("AUTOPOST_TXT", "🧬 Auto Post Help"),
+                "helps_pmautoreply": ("PMAUTOREPLY_TXT", "💬 PM Auto Reply Help"),
             }
-            target_var, default_text = help_dict.get(query.data, ("HELP_TXT", "Help unavailable."))
+            target_var, default_text = help_dict.get(
+                query.data, ("HELP_TXT", "Help unavailable.")
+            )
             text = getattr(script, target_var, default_text)
             try:
-                if query.message.photo or query.message.video or query.message.animation or query.message.document:
-                    await query.message.edit_caption(caption=text, reply_markup=InlineKeyboardMarkup(buttons), parse_mode=enums.ParseMode.HTML)
+                if (
+                    query.message.photo
+                    or query.message.video
+                    or query.message.animation
+                    or query.message.document
+                ):
+                    await query.message.edit_caption(
+                        caption=text,
+                        reply_markup=InlineKeyboardMarkup(buttons),
+                        parse_mode=enums.ParseMode.HTML,
+                    )
                 else:
-                    await query.message.edit_text(text=text, reply_markup=InlineKeyboardMarkup(buttons), parse_mode=enums.ParseMode.HTML)
-            except Exception: pass
+                    await query.message.edit_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(buttons),
+                        parse_mode=enums.ParseMode.HTML,
+                    )
+            except Exception:
+                pass
         elif query.data.startswith("file") or query.data.startswith("checksub"):
-            if query.data.startswith("checksub") and (AUTH_CHANNEL or REQ_CHANNEL) and not await is_subscribed(client, query):
-                return await query.answer("Search Your Self In The Group. Team: @KR_PICTURE", show_alert=True)
+            if (
+                query.data.startswith("checksub")
+                and (AUTH_CHANNEL or REQ_CHANNEL)
+                and not await is_subscribed(client, query)
+            ):
+                return await query.answer(
+                    "Search Your Self In The Group. Team: @KR_PICTURE", show_alert=True
+                )
 
-            try: ident, file_id = query.data.split("#")
-            except ValueError: return await query.answer("Invalid button data!", show_alert=True)
+            try:
+                ident, file_id = query.data.split("#")
+            except ValueError:
+                return await query.answer("Invalid button data!", show_alert=True)
 
             files_ = await get_file_details(file_id)
-            if not files_: return await query.answer("No such file exist.", show_alert=True)
+            if not files_:
+                return await query.answer("No such file exist.", show_alert=True)
 
             files = files_[0]
-            title = str(files.get("file_name", "Unknown") if isinstance(files, dict) else getattr(files, "file_name", "Unknown"))
-            size = get_size(int(files.get("file_size", 0) if isinstance(files, dict) else getattr(files, "file_size", 0)))
-            f_caption = str(files.get("caption", "") if isinstance(files, dict) else getattr(files, "caption", ""))
+            title = str(
+                files.get("file_name", "Unknown")
+                if isinstance(files, dict)
+                else getattr(files, "file_name", "Unknown")
+            )
+            size = get_size(
+                int(
+                    files.get("file_size", 0)
+                    if isinstance(files, dict)
+                    else getattr(files, "file_size", 0)
+                )
+            )
+            f_caption = str(
+                files.get("caption", "")
+                if isinstance(files, dict)
+                else getattr(files, "caption", "")
+            )
 
             if CUSTOM_FILE_CAPTION:
-                try: f_caption = CUSTOM_FILE_CAPTION.format(file_name="" if title == "Unknown" else title, file_size="" if size == "0B" else size, file_caption="" if not f_caption else f_caption)
-                except Exception: pass
-            if not f_caption: f_caption = f"<b>{title}</b>"
+                try:
+                    f_caption = CUSTOM_FILE_CAPTION.format(
+                        file_name="" if title == "Unknown" else title,
+                        file_size="" if size == "0B" else size,
+                        file_caption="" if not f_caption else f_caption,
+                    )
+                except Exception:
+                    pass
+            if not f_caption:
+                f_caption = f"<b>{title}</b>"
             final_caption, final_keyboard = parse_text_and_markup(f_caption, None)
 
             await query.answer()
             m = None
             try:
-                m = await client.send_cached_media(chat_id=query.from_user.id, file_id=file_id, caption=final_caption, reply_markup=final_keyboard, protect_content=True if ident in ["filep", "checksubp"] else False, parse_mode=enums.ParseMode.HTML)
+                m = await client.send_cached_media(
+                    chat_id=query.from_user.id,
+                    file_id=file_id,
+                    caption=final_caption,
+                    reply_markup=final_keyboard,
+                    protect_content=True if ident in ["filep", "checksubp"] else False,
+                    parse_mode=enums.ParseMode.HTML,
+                )
             except FloodWait as e:
                 await asyncio.sleep(e.value + 1)
-                m = await client.send_cached_media(chat_id=query.from_user.id, file_id=file_id, caption=final_caption, reply_markup=final_keyboard, protect_content=True if ident in ["filep", "checksubp"] else False, parse_mode=enums.ParseMode.HTML)
+                m = await client.send_cached_media(
+                    chat_id=query.from_user.id,
+                    file_id=file_id,
+                    caption=final_caption,
+                    reply_markup=final_keyboard,
+                    protect_content=True if ident in ["filep", "checksubp"] else False,
+                    parse_mode=enums.ParseMode.HTML,
+                )
             except Exception:
                 try:
-                    m = await client.send_document(chat_id=query.from_user.id, document=file_id, caption=final_caption, reply_markup=final_keyboard, protect_content=True if ident in ["filep", "checksubp"] else False, parse_mode=enums.ParseMode.HTML)
-                except Exception: pass
+                    m = await client.send_document(
+                        chat_id=query.from_user.id,
+                        document=file_id,
+                        caption=final_caption,
+                        reply_markup=final_keyboard,
+                        protect_content=(
+                            True if ident in ["filep", "checksubp"] else False
+                        ),
+                        parse_mode=enums.ParseMode.HTML,
+                    )
+                except Exception:
+                    pass
 
             if m:
                 try:
                     delete_timer = parse_timer("FILE_AUTO_DELETE", 1800)
                     min_, sec_ = divmod(delete_timer, 60)
-                    time_str = f"{min_} Minutes {sec_} Seconds" if sec_ > 0 else f"{min_} Minutes"
-                    k = await client.send_message(chat_id=query.from_user.id, text=f"<b>📢 Please Note\n\n✅ The above file will be autodeleted in {time_str} to avoid copyright issues.\n\n✅ Please forward this file to your saved messages and start downloading from there.\n\nTᴇᴀᴍ: @KR_Picture</b>", reply_to_message_id=m.id, parse_mode=enums.ParseMode.HTML)
-                    if delete_timer > 0: schedule_auto_delete(client, m, k, delete_timer)
-                except Exception: pass
-    except QueryIdInvalid: pass
+                    time_str = (
+                        f"{min_} Minutes {sec_} Seconds"
+                        if sec_ > 0
+                        else f"{min_} Minutes"
+                    )
+                    k = await client.send_message(
+                        chat_id=query.from_user.id,
+                        text=f"<b>📢 Please Note\n\n✅ The above file will be autodeleted in {time_str} to avoid copyright issues.\n\n✅ Please forward this file to your saved messages and start downloading from there.\n\nTᴇᴀᴍ: @KR_Picture</b>",
+                        reply_to_message_id=m.id,
+                        parse_mode=enums.ParseMode.HTML,
+                    )
+                    if delete_timer > 0:
+                        schedule_auto_delete(client, m, k, delete_timer)
+                except Exception:
+                    pass
+    except QueryIdInvalid:
+        pass
