@@ -265,6 +265,7 @@ async def old_link_interceptor(client: Client, message: Message):
             except Exception as e:
                 logger.error(f"Link Interceptor Error: {e}")
 
+
 # ============================================================
 # 📝 TYPE 1: ONGOING DRAFT EDITORS (APPLIES TO /post SESSION)
 # ============================================================
@@ -467,6 +468,7 @@ async def cmd_edit_post_direct(client: Client, message: Message):
     await save_session_to_db(uid, post_sessions[uid])
     await update_post_preview(client, uid, message.chat.id, force_resend=False)
     await message.reply("✅ Direct Search button text updated!")
+
 
 @Client.on_message(filters.command("setpoststicker") & admin_filter, group=-4)
 async def set_autopost_sticker(client: Client, message: Message):
