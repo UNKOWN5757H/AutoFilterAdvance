@@ -63,11 +63,9 @@ def get_admin_list():
     return admin_list
 
 async def is_global_admin(user_id: int):
-    """Check if the user is a Global Bot Admin (in info.ADMINS)"""
     return user_id in get_admin_list()
 
 async def is_group_admin(client: Client, user_id: int, chat_id: int):
-    """Check if the user is an admin of the specified group, OR a Global Admin"""
     if await is_global_admin(user_id):
         return True
     try:
@@ -77,7 +75,6 @@ async def is_group_admin(client: Client, user_id: int, chat_id: int):
         return False
 
 async def get_active_group(user_id: str):
-    """Safely fetch the currently connected active group."""
     try:
         groupids = await all_connections(user_id)
         if not groupids: return None
@@ -90,7 +87,6 @@ async def get_active_group(user_id: str):
         return None
 
 async def get_target_chat(client: Client, message: Message):
-    """Gets target chat ID. If in PM, uses the active connected group."""
     if message.chat.type == enums.ChatType.PRIVATE:
         user_id = message.from_user.id
         connected_chat = await get_active_group(str(user_id))
@@ -313,7 +309,6 @@ async def enable_spell_check(client, message):
     await save_group_settings(target_chat_id, "spell_check", True)
     await message.reply_text(f"✅ **Spell Check Enabled for chat:** `{target_chat_id}`")
 
-
 @Client.on_message(filters.command("disablespellcheck"))
 async def disable_spell_check(client, message):
     user_id = message.from_user.id if message.from_user else getattr(message.sender_chat, "id", 0)
@@ -340,7 +335,6 @@ async def enable_welc(client, message):
     await update_group_welcome(target_chat_id, "welcome", True)
     await message.reply_text(f"✅ **Welcome Messages Enabled for `{target_chat_id}`.**")
 
-
 @Client.on_message(filters.command("disablewelcome"))
 async def disable_welc(client, message):
     user_id = message.from_user.id if message.from_user else getattr(message.sender_chat, "id", 0)
@@ -351,7 +345,6 @@ async def disable_welc(client, message):
 
     await update_group_welcome(target_chat_id, "welcome", False)
     await message.reply_text(f"🚫 **Welcome Messages Disabled for `{target_chat_id}`.**")
-
 
 @Client.on_message(filters.command("setwelcometxt"))
 async def set_welc_txt(client, message):
@@ -366,7 +359,6 @@ async def set_welc_txt(client, message):
     text_val = message.text.split(None, 1)[1]
     await update_group_welcome(target_chat_id, "text", text_val)
     await message.reply_text(f"✅ **Welcome Text updated for `{target_chat_id}`!**")
-
 
 @Client.on_message(filters.command("setwelcomeimg"))
 async def set_welc_img(client, message):
@@ -386,7 +378,6 @@ async def set_welc_img(client, message):
     else:
         await update_group_welcome(target_chat_id, "img", message.reply_to_message.photo.file_id)
         await status.edit_text(f"⚠️ Cloud blocked. **Welcome Image updated for `{target_chat_id}` (File ID Saved)!**")
-
 
 @Client.on_message(filters.command("setwelcome"))
 async def set_welcome_both(client, message):
@@ -410,7 +401,6 @@ async def set_welcome_both(client, message):
 
     await status.edit_text(f"✅ **Welcome Image & Text set for `{target_chat_id}`!**")
 
-
 @Client.on_message(filters.command("delwelcome"))
 async def del_welcome(client, message):
     user_id = message.from_user.id if message.from_user else getattr(message.sender_chat, "id", 0)
@@ -423,4 +413,3 @@ async def del_welcome(client, message):
     await update_group_welcome(target_chat_id, "text", None)
     await update_group_welcome(target_chat_id, "welcome", False)
     await message.reply_text(f"🗑️ **Welcome settings deleted and disabled for `{target_chat_id}`.**")
-```eof
