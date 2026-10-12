@@ -188,22 +188,6 @@ async def save_group(bot: Client, message: Message):
                     )
 
 
-@Client.on_message(filters.command("leave") & admin_filter)
-async def leave_chat(bot: Client, message: Message):
-    if len(message.command) == 1:
-        return await message.reply_text("⚠️ Usage: `/leave <chat_id>`")
-    try:
-        chat_id = int(message.command[1])
-    except ValueError:
-        return await message.reply_text("❌ Invalid chat ID!")
-
-    try:
-        await bot.leave_chat(chat_id)
-        await message.reply_text(f"✅ Left the chat `{chat_id}` successfully.")
-    except Exception as e:
-        await message.reply_text(f"⚠️ Error: `{e}`")
-
-
 @Client.on_message(filters.command("disable") & admin_filter)
 async def disable_chat(bot: Client, message: Message):
     if len(message.command) == 1:
