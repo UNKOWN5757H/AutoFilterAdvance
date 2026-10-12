@@ -23,7 +23,6 @@ from pyrogram.types import (
 
 import info
 from database.ia_filterdb import Media, save_batch
-from info import ADMINS
 from info import INDEX_REQ_CHANNEL as LOG_CHANNEL
 from utils import get_size, temp
 
@@ -46,23 +45,17 @@ except Exception as e:
     logger.error(f"Failed to init advanced DBs: {e}")
 
 
-# ⚡ FOOLPROOF ADMIN PARSER
-def get_admin_list():
-    raw_admins = getattr(info, "ADMINS", [])
-    if isinstance(raw_admins, str):
-        return [x.strip() for x in raw_admins.replace(",", " ").split() if x.strip()]
-    elif isinstance(raw_admins, int):
-        return [str(raw_admins)]
-    elif isinstance(raw_admins, list):
-        return [str(a) for a in raw_admins]
-    return []
-
-
-admin_filter = filters.create(
-    lambda _, __, message: bool(
-        message.from_user and str(message.from_user.id) in get_admin_list()
-    )
-)
+# ============================================================
+# ⚡ SIMPLE NATIVE ADMIN FILTER SETUP
+# ============================================================
+# Format info.ADMINS securely into a list of integers for Pyrogram
+raw_admins = getattr(info, "ADMINS", [])
+if isinstance(raw_admins, str):
+    ADMINS = [int(x) for x in raw_admins.replace(",", " ").split() if x.strip().lstrip("-").isdigit()]
+elif isinstance(raw_admins, int):
+    ADMINS = [raw_admins]
+else:
+    ADMINS = [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
 
 
 async def save_resume_state(chat_id, last_processed_id):
@@ -239,7 +232,7 @@ async def auto_index_new_files(bot: Client, message: Message):
 # ⚡ INTELLIGENT PM MEDIA FORWARD HANDLER (Fixes Single Save Issue)
 # ============================================================
 @Client.on_message(
-    filters.private & (filters.document | filters.video | filters.audio) & admin_filter,
+    filters.private & (filters.document | filters.video | filters.audio) & filters.user(ADMINS),
     group=-5,
 )
 async def pm_media_handler(bot: Client, message: Message):
@@ -274,7 +267,7 @@ async def pm_media_handler(bot: Client, message: Message):
         await save_single_file(bot, message)
 
 
-@Client.on_callback_query(filters.regex(r"^save_single#"), group=-5)
+@Client.on_callback_query(filters.regex(r"^save_single#") & filters.user(ADMINS), group=-5)
 async def save_single_callback(bot: Client, query: CallbackQuery):
     msg_id = int(query.data.split("#")[1])
     try:
@@ -337,7 +330,6 @@ async def save_single_file(bot: Client, message: Message):
 
     try:
         await save_batch([safe_media])
-        # Note: quote=True is completely removed to prevent Pyrogram v2.2.26 crash
         await message.reply(
             f"✅ **Successfully Saved to Database!**\n\n`{cleaned_name}`"
         )
@@ -349,7 +341,7 @@ async def save_single_file(bot: Client, message: Message):
 # ============================================================
 # 🎛️ ADVANCED COMMAND CONTROLS
 # ============================================================
-@Client.on_message(filters.command("setskip") & admin_filter, group=-5)
+@Client.on_message(filters.command("setskip") & filters.user(ADMINS), group=-5)
 async def set_skip_number(bot: Client, message: Message):
     if len(message.command) > 1:
         try:
@@ -364,7 +356,7 @@ async def set_skip_number(bot: Client, message: Message):
         await message.reply("⚠️ Usage: `/setskip 100`")
 
 
-@Client.on_message(filters.command("currentskip") & admin_filter, group=-5)
+@Client.on_message(filters.command("currentskip") & filters.user(ADMINS), group=-5)
 async def current_skip_number(bot: Client, message: Message):
     current = getattr(temp, "CURRENT", 0)
     await message.reply(f"ℹ️ The current default SKIP number is: `{current}`")
@@ -373,7 +365,7 @@ async def current_skip_number(bot: Client, message: Message):
 # ============================================================
 # 🧭 CALLBACK HANDLERS & PROCESSORS
 # ============================================================
-@Client.on_callback_query(filters.regex(r"^(idx|idx_cancel|close_data)"), group=-5)
+@Client.on_callback_query(filters.regex(r"^(idx|idx_cancel|close_data)") & filters.user(ADMINS), group=-5)
 async def index_files(bot: Client, query: CallbackQuery):
     if query.data == "close_data":
         await query.message.delete()
@@ -455,7 +447,7 @@ async def process_index_request(
 
 
 @Client.on_message(
-    filters.command(["index", "indexvideo", "indexdoc", "indexaudio"]) & admin_filter,
+    filters.command(["index", "indexvideo", "indexdoc", "indexaudio"]) & filters.user(ADMINS),
     group=-5,
 )
 async def index_command(bot: Client, message: Message):
@@ -497,7 +489,7 @@ async def index_command(bot: Client, message: Message):
     await process_index_request(bot, message, chat_id, last_msg_id, filter_type)
 
 
-@Client.on_message(filters.command("resumeindex") & admin_filter, group=-5)
+@Client.on_message(filters.command("resumeindex") & filters.user(ADMINS), group=-5)
 async def resume_index_command(bot: Client, message: Message):
     if len(message.command) != 2:
         return await message.reply("**Usage:** `/resumeindex <chat_id>`")
@@ -528,7 +520,7 @@ async def resume_index_command(bot: Client, message: Message):
     & filters.regex(
         r"(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$"
     )
-    & admin_filter,
+    & filters.user(ADMINS),
     group=-5,
 )
 async def send_for_index(bot: Client, message: Message):
@@ -550,7 +542,7 @@ async def send_for_index(bot: Client, message: Message):
 
 # ⚡ IF USER FORWARDS A PURE TEXT MESSAGE FROM CHANNEL, ALSO TRIGGER INDEX
 @Client.on_message(
-    filters.private & filters.forwarded & filters.text & admin_filter, group=-5
+    filters.private & filters.forwarded & filters.text & filters.user(ADMINS), group=-5
 )
 async def pm_forward_text_indexer(bot: Client, message: Message):
     if (
