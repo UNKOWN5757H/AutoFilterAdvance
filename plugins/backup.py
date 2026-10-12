@@ -27,33 +27,37 @@ scheduler_running = False
 # 👑 FULL POWER ADMIN CHECKER (GLOBAL + CHAT + ANONYMOUS)
 # ============================================================
 def get_admin_list():
+    admin_list = []
     raw_admins = getattr(info, "ADMINS", [])
-    if isinstance(raw_admins, (str, int)):
-        raw_admins = str(raw_admins).replace(",", " ").split()
-    return [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
+    if isinstance(raw_admins, int):
+        admin_list.append(raw_admins)
+    elif isinstance(raw_admins, str):
+        admin_list.extend(
+            [
+                int(x.strip())
+                for x in raw_admins.split()
+                if x.strip().replace("-", "").isdigit()
+            ]
+        )
+    elif isinstance(raw_admins, list):
+        admin_list.extend(
+            [int(x) for x in raw_admins if str(x).strip().replace("-", "").isdigit()]
+        )
+    return admin_list
 
 
 async def is_user_admin(client: Client, message: Message):
     admin_list = get_admin_list()
-
-    # 1. Global Admin Check (Direct User)
     if message.from_user and message.from_user.id in admin_list:
         return True
-
-    # 2. Global Admin Check (Anonymous/Channel sending as Chat)
     if message.sender_chat and message.sender_chat.id in admin_list:
         return True
-
-    # 3. Group Admin Check (Normal & Anonymous Admins)
     if message.chat and message.chat.type in [
         enums.ChatType.GROUP,
         enums.ChatType.SUPERGROUP,
     ]:
-        # If the sender is the group itself, it's a Group Anonymous Admin
         if message.sender_chat and message.sender_chat.id == message.chat.id:
             return True
-
-        # If it's a Normal Admin in this group
         if message.from_user:
             try:
                 member = await client.get_chat_member(
@@ -65,15 +69,45 @@ async def is_user_admin(client: Client, message: Message):
                 ]
             except Exception:
                 pass
-
     return False
 
 
-async def admin_check(_, client: Client, message: Message):
-    return await is_user_admin(client, message)
+async def cb_user_admin(client: Client, query: CallbackQuery):
+    admin_list = get_admin_list()
+    if query.from_user and query.from_user.id in admin_list:
+        return True
+    if query.message.chat and query.message.chat.type in [
+        enums.ChatType.GROUP,
+        enums.ChatType.SUPERGROUP,
+    ]:
+        if (
+            query.message.sender_chat
+            and query.message.sender_chat.id == query.message.chat.id
+        ):
+            return True
+        try:
+            member = await client.get_chat_member(
+                query.message.chat.id, query.from_user.id
+            )
+            return member.status in [
+                enums.ChatMemberStatus.ADMINISTRATOR,
+                enums.ChatMemberStatus.OWNER,
+            ]
+        except Exception:
+            pass
+    return False
 
 
-admin_filter = filters.create(admin_check)
+def _admin_check_sync(_, client: Client, message: Message):
+    return asyncio.run(is_user_admin(client, message))
+
+
+def _cb_admin_check_sync(_, client: Client, query: CallbackQuery):
+    return asyncio.run(cb_user_admin(client, query))
+
+
+admin_filter = filters.create(_admin_check_sync)
+cb_admin_filter = filters.create(_cb_admin_check_sync)
 
 
 # ============================================================
