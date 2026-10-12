@@ -41,6 +41,7 @@ def get_admin_list():
         raw_admins = str(raw_admins).replace(",", " ").split()
     return [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
 
+
 async def is_user_admin(client: Client, message: Message):
     admin_list = get_admin_list()
 
@@ -53,25 +54,31 @@ async def is_user_admin(client: Client, message: Message):
         return True
 
     # 3. Group Admin Check (Normal & Anonymous Admins)
-    if message.chat and message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
+    if message.chat and message.chat.type in [
+        enums.ChatType.GROUP,
+        enums.ChatType.SUPERGROUP,
+    ]:
         # If the sender is the group itself, it's a Group Anonymous Admin
         if message.sender_chat and message.sender_chat.id == message.chat.id:
             return True
-            
+
         # If it's a Normal Admin in this group
         if message.from_user:
             chat_id = message.chat.id
             user_id = message.from_user.id
             cache_key = (chat_id, user_id)
             now = time.time()
-            
+
             cached = ADMIN_CACHE.get(cache_key)
             if cached and cached[0] > now:
                 return cached[1]
 
             try:
                 member = await client.get_chat_member(chat_id, user_id)
-                is_admin = member.status in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]
+                is_admin = member.status in [
+                    enums.ChatMemberStatus.ADMINISTRATOR,
+                    enums.ChatMemberStatus.OWNER,
+                ]
                 ADMIN_CACHE[cache_key] = (now + 300, is_admin)  # Cache for 5 minutes
                 return is_admin
             except Exception:
@@ -107,7 +114,9 @@ async def memory_cleanup_worker():
         for k in expired_admin_checks:
             del ADMIN_CACHE[k]
 
+
 _GC_STARTED = False
+
 
 @Client.on_message(group=-150)
 async def init_antiflood_gc(client: Client, message: Message):
@@ -122,7 +131,11 @@ async def init_antiflood_gc(client: Client, message: Message):
 # ============================================================
 @Client.on_message(filters.incoming & ~filters.service, group=-50)
 async def ironclad_antiflood_shield(client: Client, message: Message):
-    user_id = message.from_user.id if message.from_user else getattr(message.sender_chat, "id", 0)
+    user_id = (
+        message.from_user.id
+        if message.from_user
+        else getattr(message.sender_chat, "id", 0)
+    )
     if not user_id:
         return
 
@@ -149,7 +162,9 @@ async def ironclad_antiflood_shield(client: Client, message: Message):
 
     # 2. Record message timestamps and clear outside the sliding window
     timestamps = USER_MESSAGE_LOG[user_id]
-    USER_MESSAGE_LOG[user_id] = [t for t in timestamps if now - t <= FLOOD_WINDOW_SECONDS]
+    USER_MESSAGE_LOG[user_id] = [
+        t for t in timestamps if now - t <= FLOOD_WINDOW_SECONDS
+    ]
     USER_MESSAGE_LOG[user_id].append(now)
 
     # 3. Threshold check
