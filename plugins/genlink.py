@@ -1,8 +1,8 @@
+import asyncio
 import base64
 import json
 import os
 import re
-import asyncio
 from logging import INFO, getLogger
 
 from pyrogram import Client, enums, filters
@@ -26,7 +26,11 @@ logger.setLevel(INFO)
 # Format info.ADMINS securely into a list of integers for Pyrogram
 raw_admins = getattr(info, "ADMINS", [])
 if isinstance(raw_admins, str):
-    ADMINS = [int(x) for x in raw_admins.replace(",", " ").split() if x.strip().lstrip("-").isdigit()]
+    ADMINS = [
+        int(x)
+        for x in raw_admins.replace(",", " ").split()
+        if x.strip().lstrip("-").isdigit()
+    ]
 elif isinstance(raw_admins, int):
     ADMINS = [raw_admins]
 else:
