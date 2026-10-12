@@ -35,6 +35,9 @@ from database.users_chats_db import db as _db
 logger = getLogger(__name__)
 logger.setLevel(ERROR)
 
+if not hasattr(info, "REPAIR_MODE"):
+    info.REPAIR_MODE = False
+
 try:
     import psutil
 except ImportError:
