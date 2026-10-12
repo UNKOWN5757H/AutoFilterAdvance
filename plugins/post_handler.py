@@ -760,6 +760,7 @@ async def cmd_edit_post_direct(client: Client, message: Message):
     await update_post_preview(client, uid, message.chat.id, force_resend=False)
     await message.reply("✅ Direct Search button text updated!")
 
+
 # ============================================================
 # START POST SESSION
 # ============================================================
