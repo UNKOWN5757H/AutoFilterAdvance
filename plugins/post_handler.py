@@ -20,9 +20,7 @@ from pyrogram.types import (
 )
 
 import info
-from info import (
-    ADMINS,
-)
+from info import ADMINS
 from plugins.Imdbposter import get_movie_detailsx
 from utils import temp
 
@@ -30,10 +28,13 @@ from utils import temp
 try:
     from plugins.auto_post import get_ap_settings, save_ap_settings
 except ImportError:
+
     async def get_ap_settings():
         return {}
+
     async def save_ap_settings(key, value):
         pass
+
 
 logger = getLogger(__name__)
 logger.setLevel(ERROR)
@@ -168,16 +169,27 @@ def create_btn(text, url=None, callback_data=None, style=None):
 # Format info.ADMINS securely into a list of integers for Pyrogram
 raw_admins = getattr(info, "ADMINS", [])
 if isinstance(raw_admins, str):
-    ADMINS = [int(x) for x in raw_admins.replace(",", " ").split() if x.strip().lstrip("-").isdigit()]
+    ADMINS = [
+        int(x)
+        for x in raw_admins.replace(",", " ").split()
+        if x.strip().lstrip("-").isdigit()
+    ]
 elif isinstance(raw_admins, int):
     ADMINS = [raw_admins]
 else:
     ADMINS = [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
 
+
 def get_uid(msg):
-    return getattr(getattr(msg, "from_user", None), "id", getattr(getattr(msg, "sender_chat", None), "id", 0))
+    return getattr(
+        getattr(msg, "from_user", None),
+        "id",
+        getattr(getattr(msg, "sender_chat", None), "id", 0),
+    )
+
 
 _WAITING_REQUESTS = {}
+
 
 @Client.on_message(filters.user(ADMINS), group=-90)
 async def custom_listener(client: Client, message: Message):
@@ -328,7 +340,9 @@ async def cmd_edit_langs(client: Client, message: Message):
     await message.reply("✅ Languages updated!")
 
 
-@Client.on_message(filters.command(["editresolutions"]) & filters.user(ADMINS), group=-4)
+@Client.on_message(
+    filters.command(["editresolutions"]) & filters.user(ADMINS), group=-4
+)
 async def cmd_edit_res(client: Client, message: Message):
     uid = get_uid(message)
     if uid not in post_sessions:
@@ -402,7 +416,9 @@ async def cmd_edit_post_button(client: Client, message: Message):
         await message.reply(f"❌ Error updating button: {e}")
 
 
-@Client.on_message(filters.command(["editbuttoncolour"]) & filters.user(ADMINS), group=-4)
+@Client.on_message(
+    filters.command(["editbuttoncolour"]) & filters.user(ADMINS), group=-4
+)
 async def cmd_edit_btn_color(client: Client, message: Message):
     uid = get_uid(message)
     if uid not in post_sessions:
@@ -938,7 +954,8 @@ def build_keyboard(session: dict, session_id: int):
                     "🔗 editdirect", callback_data=f"post:edit_direct:{session_id}"
                 ),
                 create_btn(
-                    "⚪ editbuttoncolour", callback_data=f"post:edit_buttoncolour:{session_id}"
+                    "⚪ editbuttoncolour",
+                    callback_data=f"post:edit_buttoncolour:{session_id}",
                 ),
             ],
             [
@@ -1306,7 +1323,7 @@ async def post_callbacks(client: Client, query: CallbackQuery):
             except (IndexError, ValueError):
                 pass
             return await handle_remove_buttons_menu(query, session_id)
-            
+
         elif action == "edit_direct":
             response = await get_user_input(
                 client, query, session, "Send the new Direct Search button text:"
@@ -1318,15 +1335,22 @@ async def post_callbacks(client: Client, query: CallbackQuery):
 
         elif action == "edit_buttoncolour":
             response = await get_user_input(
-                client, query, session, "Send row number and color (e.g., `1 green`). Colors: green, red, blue."
+                client,
+                query,
+                session,
+                "Send row number and color (e.g., `1 green`). Colors: green, red, blue.",
             )
             if response and response.text:
                 try:
                     parts = response.text.strip().split()
                     row_idx = int(parts[0]) - 1
                     color_str = parts[1].lower()
-                    color_map = {"green": BTN_SUCCESS, "red": BTN_DANGER, "blue": BTN_PRIMARY}
-                    
+                    color_map = {
+                        "green": BTN_SUCCESS,
+                        "red": BTN_DANGER,
+                        "blue": BTN_PRIMARY,
+                    }
+
                     if color_str in color_map and len(session["buttons"]) > row_idx:
                         new_row = []
                         for btn in session["buttons"][row_idx]:
@@ -1345,7 +1369,10 @@ async def post_callbacks(client: Client, query: CallbackQuery):
 
         elif action == "set_sticker":
             response = await get_user_input(
-                client, query, session, "📸 Send a sticker to set as the auto-post sticker:"
+                client,
+                query,
+                session,
+                "📸 Send a sticker to set as the auto-post sticker:",
             )
             if response and response.sticker:
                 await save_ap_settings("sticker", response.sticker.file_id)
