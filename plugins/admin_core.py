@@ -1,39 +1,44 @@
 import asyncio
 import os
 import platform
+import re
 import shutil
 import sys
-import re
 from datetime import datetime
 from logging import ERROR, getLogger
 
 from pyrogram import Client, enums, filters
 from pyrogram.errors import (
     ChatAdminRequired,
-    MessageTooLong,
-    MediaEmpty,
-    PhotoInvalidDimensions,
-    UserNotParticipant,
-    WebpageMediaEmpty,
     FloodWait,
     InputUserDeactivated,
+    MediaEmpty,
+    MessageTooLong,
     PeerIdInvalid,
+    PhotoInvalidDimensions,
     UserDeactivatedBan,
     UserIsBlocked,
+    UserNotParticipant,
+    WebpageMediaEmpty,
 )
-from pyrogram.types import CallbackQuery, Message, InlineKeyboardButton, InlineKeyboardMarkup
+from pyrogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 
 import info
-from database.plugin_dbs import plugin_db as _plugin_db
-from database.ia_filterdb import Media as _Media
-from database.users_chats_db import db as _db
 from database.connections_mdb import (
     add_connection,
     all_connections,
     delete_connection,
     if_active,
 )
-from utils import get_settings, temp, extract_user, get_file_id, get_poster
+from database.ia_filterdb import Media as _Media
+from database.plugin_dbs import plugin_db as _plugin_db
+from database.users_chats_db import db as _db
+from utils import extract_user, get_file_id, get_poster, get_settings, temp
 
 logger = getLogger(__name__)
 logger.setLevel(ERROR)
@@ -52,6 +57,7 @@ def get_admin_list():
     elif isinstance(raw_admins, list):
         return [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
     return []
+
 
 @Client.on_message(filters.command("info"))
 async def who_is(client: Client, message: Message):
@@ -235,6 +241,7 @@ async def connections(client, message):
     else:
         await message.reply_text("There are no active connections!", quote=True)
 
+
 @Client.on_message(
     filters.command("repairmode") & admin_filter & (filters.private | filters.group)
 )
@@ -289,6 +296,7 @@ async def show_admin_settings(bot: Client, message: Message):
 
     await message.reply_text(text)
 
+
 @Client.on_message(filters.command("leave") & admin_filter)
 async def leave_chat(bot: Client, message: Message):
     if len(message.command) == 1:
@@ -303,6 +311,7 @@ async def leave_chat(bot: Client, message: Message):
         await message.reply_text(f"✅ Left the chat `{chat_id}` successfully.")
     except Exception as e:
         await message.reply_text(f"⚠️ Error: `{e}`")
+
 
 @Client.on_message(filters.command("ban") & admin_filter)
 async def ban_user_cmd(bot: Client, message: Message):
@@ -360,6 +369,7 @@ async def check_banned_users(bot: Client, message: Message):
         await message.reply_text(f"📊 **Total Banned Users:** `{count}`")
     except Exception as e:
         await message.reply_text(f"❌ **Error:** `{e}`")
+
 
 # ============================================================
 # 📜 LOGS COMMAND
