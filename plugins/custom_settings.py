@@ -28,15 +28,20 @@ try:
 except Exception as e:
     logger.error(f"Failed to init custom settings DB: {e}")
 
+
 async def get_bot_settings():
     if b_settings_db is not None:
         doc = await b_settings_db.find_one({"_id": "bot_config"})
         return doc or {}
     return {}
 
+
 async def update_bot_settings(key, value):
     if b_settings_db is not None:
-        await b_settings_db.update_one({"_id": "bot_config"}, {"$set": {key: value}}, upsert=True)
+        await b_settings_db.update_one(
+            {"_id": "bot_config"}, {"$set": {key: value}}, upsert=True
+        )
+
 
 async def get_group_welcome(chat_id):
     if g_welcome_db is not None:
@@ -44,9 +49,12 @@ async def get_group_welcome(chat_id):
         return doc or {}
     return {}
 
+
 async def update_group_welcome(chat_id, key, value):
     if g_welcome_db is not None:
-        await g_welcome_db.update_one({"_id": chat_id}, {"$set": {key: value}}, upsert=True)
+        await g_welcome_db.update_one(
+            {"_id": chat_id}, {"$set": {key: value}}, upsert=True
+        )
 
 
 # ============================================================
@@ -58,27 +66,42 @@ def get_admin_list():
         raw_admins = str(raw_admins).replace(",", " ").split()
     return [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
 
+
 async def global_admin_check(_, client: Client, message: Message):
     admin_list = get_admin_list()
-    if message.from_user and message.from_user.id in admin_list: return True
-    if message.sender_chat and message.sender_chat.id in admin_list: return True
+    if message.from_user and message.from_user.id in admin_list:
+        return True
+    if message.sender_chat and message.sender_chat.id in admin_list:
+        return True
     return False
+
 
 async def group_admin_check(_, client: Client, message: Message):
     admin_list = get_admin_list()
-    if message.from_user and message.from_user.id in admin_list: return True
-    if message.sender_chat and message.sender_chat.id in admin_list: return True
+    if message.from_user and message.from_user.id in admin_list:
+        return True
+    if message.sender_chat and message.sender_chat.id in admin_list:
+        return True
 
-    if message.chat and message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
+    if message.chat and message.chat.type in [
+        enums.ChatType.GROUP,
+        enums.ChatType.SUPERGROUP,
+    ]:
         if message.sender_chat and message.sender_chat.id == message.chat.id:
             return True
         if message.from_user:
             try:
-                member = await client.get_chat_member(message.chat.id, message.from_user.id)
-                return member.status in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]
+                member = await client.get_chat_member(
+                    message.chat.id, message.from_user.id
+                )
+                return member.status in [
+                    enums.ChatMemberStatus.ADMINISTRATOR,
+                    enums.ChatMemberStatus.OWNER,
+                ]
             except Exception:
                 pass
     return False
+
 
 global_admin_filter = filters.create(global_admin_check)
 group_admin_filter = filters.create(group_admin_check)
@@ -88,20 +111,84 @@ group_admin_filter = filters.create(group_admin_check)
 # 🛑 SMART STOPWORDS ENGINE
 # ============================================================
 DEFAULT_STOPWORDS = [
-    "send", "snd", "give", "gib", "pls", "plz", "please", "need", "want", "upload", "uplod", "drop",
-    "share", "find", "search", "provide", "post", "movie", "movies", "film", "films", "cinema", "cinemas",
-    "full", "fullmovie", "download", "downlod", "link", "links", "file", "files", "print", "audio", "video",
-    "ott", "hd", "hq", "bluray", "rip", "watch", "online", "admin", "beku", "bekithu", "bekittu", "bekagide",
-    "kodi", "kodro", "kalsi", "kalsro", "kalisi", "haki", "haku", "hakro", "ideya", "irboda", "bidi", "madu",
-    "yaradru", "chitra", "chithra", "chalanachitra", "chalanachithra", "kannadadalli", "sandalwood",
-    "kr_picture", "kannada_filmy_group", "telegram", "dubbed"
+    "send",
+    "snd",
+    "give",
+    "gib",
+    "pls",
+    "plz",
+    "please",
+    "need",
+    "want",
+    "upload",
+    "uplod",
+    "drop",
+    "share",
+    "find",
+    "search",
+    "provide",
+    "post",
+    "movie",
+    "movies",
+    "film",
+    "films",
+    "cinema",
+    "cinemas",
+    "full",
+    "fullmovie",
+    "download",
+    "downlod",
+    "link",
+    "links",
+    "file",
+    "files",
+    "print",
+    "audio",
+    "video",
+    "ott",
+    "hd",
+    "hq",
+    "bluray",
+    "rip",
+    "watch",
+    "online",
+    "admin",
+    "beku",
+    "bekithu",
+    "bekittu",
+    "bekagide",
+    "kodi",
+    "kodro",
+    "kalsi",
+    "kalsro",
+    "kalisi",
+    "haki",
+    "haku",
+    "hakro",
+    "ideya",
+    "irboda",
+    "bidi",
+    "madu",
+    "yaradru",
+    "chitra",
+    "chithra",
+    "chalanachitra",
+    "chalanachithra",
+    "kannadadalli",
+    "sandalwood",
+    "kr_picture",
+    "kannada_filmy_group",
+    "telegram",
+    "dubbed",
 ]
 
 ACTIVE_STOPWORDS = DEFAULT_STOPWORDS.copy()
 _stopwords_loaded = False
 
+
 def get_stopwords():
     return ACTIVE_STOPWORDS
+
 
 @Client.on_message(filters.all, group=-999)
 async def load_stopwords_on_boot(client, message):
@@ -109,34 +196,58 @@ async def load_stopwords_on_boot(client, message):
     if not _stopwords_loaded:
         settings = await get_bot_settings()
         custom_stops = settings.get("custom_stopwords")
-        ACTIVE_STOPWORDS = custom_stops if custom_stops is not None else DEFAULT_STOPWORDS.copy()
+        ACTIVE_STOPWORDS = (
+            custom_stops if custom_stops is not None else DEFAULT_STOPWORDS.copy()
+        )
         _stopwords_loaded = True
+
 
 @Client.on_message(filters.command("addstopwords") & global_admin_filter)
 async def add_stopwords(client, message):
     global ACTIVE_STOPWORDS
-    if len(message.command) < 2: return await message.reply_text("⚠️ **Usage:** `/addstopwords word1, word2`")
-    new_words = [w.strip().lower() for w in message.text.split(None, 1)[1].split(",") if w.strip()]
+    if len(message.command) < 2:
+        return await message.reply_text("⚠️ **Usage:** `/addstopwords word1, word2`")
+    new_words = [
+        w.strip().lower()
+        for w in message.text.split(None, 1)[1].split(",")
+        if w.strip()
+    ]
     ACTIVE_STOPWORDS = list(set(ACTIVE_STOPWORDS + new_words))
     await update_bot_settings("custom_stopwords", ACTIVE_STOPWORDS)
-    await message.reply_text(f"✅ **Added {len(new_words)} stopwords.**\nTotal Active Stopwords: `{len(ACTIVE_STOPWORDS)}`")
+    await message.reply_text(
+        f"✅ **Added {len(new_words)} stopwords.**\nTotal Active Stopwords: `{len(ACTIVE_STOPWORDS)}`"
+    )
+
 
 @Client.on_message(filters.command("stopwords") & global_admin_filter)
 async def show_stopwords(client, message):
-    if not ACTIVE_STOPWORDS: return await message.reply_text("ℹ️ **No stopwords are currently active.**")
-    await message.reply_text(f"🛑 **Current Active Stopwords:**\n\n`{', '.join(ACTIVE_STOPWORDS)}`\n\n**Total:** `{len(ACTIVE_STOPWORDS)}`")
+    if not ACTIVE_STOPWORDS:
+        return await message.reply_text("ℹ️ **No stopwords are currently active.**")
+    await message.reply_text(
+        f"🛑 **Current Active Stopwords:**\n\n`{', '.join(ACTIVE_STOPWORDS)}`\n\n**Total:** `{len(ACTIVE_STOPWORDS)}`"
+    )
+
 
 @Client.on_message(filters.command("remstopwords") & global_admin_filter)
 async def rem_stopwords(client, message):
     global ACTIVE_STOPWORDS
-    if len(message.command) < 2: return await message.reply_text("⚠️ **Usage:** `/remstopwords word1, word2`")
-    words_to_remove = [w.strip().lower() for w in message.text.split(None, 1)[1].split(",") if w.strip()]
-    if not ACTIVE_STOPWORDS: return await message.reply_text("ℹ️ **There are no stopwords to remove.**")
-    
+    if len(message.command) < 2:
+        return await message.reply_text("⚠️ **Usage:** `/remstopwords word1, word2`")
+    words_to_remove = [
+        w.strip().lower()
+        for w in message.text.split(None, 1)[1].split(",")
+        if w.strip()
+    ]
+    if not ACTIVE_STOPWORDS:
+        return await message.reply_text("ℹ️ **There are no stopwords to remove.**")
+
     original_count = len(ACTIVE_STOPWORDS)
     ACTIVE_STOPWORDS = [w for w in ACTIVE_STOPWORDS if w not in words_to_remove]
     await update_bot_settings("custom_stopwords", ACTIVE_STOPWORDS)
-    await message.reply_text(f"✅ **Removed {original_count - len(ACTIVE_STOPWORDS)} stopwords.**\nTotal Stopwords left: `{len(ACTIVE_STOPWORDS)}`")
+    await message.reply_text(
+        f"✅ **Removed {original_count - len(ACTIVE_STOPWORDS)} stopwords.**\nTotal Stopwords left: `{len(ACTIVE_STOPWORDS)}`"
+    )
+
 
 @Client.on_message(filters.command("remallstopwords") & global_admin_filter)
 async def rem_all_stopwords(client, message):
@@ -145,12 +256,15 @@ async def rem_all_stopwords(client, message):
     await update_bot_settings("custom_stopwords", [])
     await message.reply_text("🗑️ **All stopwords have been completely removed.**")
 
+
 @Client.on_message(filters.command("defaultstopwords") & global_admin_filter)
 async def default_stopwords(client, message):
     global ACTIVE_STOPWORDS
     ACTIVE_STOPWORDS = DEFAULT_STOPWORDS.copy()
     await update_bot_settings("custom_stopwords", ACTIVE_STOPWORDS)
-    await message.reply_text("✅ **Stopwords have been successfully reset to the repository default list.**")
+    await message.reply_text(
+        "✅ **Stopwords have been successfully reset to the repository default list.**"
+    )
 
 
 # ============================================================
@@ -159,21 +273,39 @@ async def default_stopwords(client, message):
 def _upload_sync(file_bytes):
     headers = {"User-Agent": "Mozilla/5.0"}
     for url, files_dict, data_dict in [
-        ("https://catbox.moe/user/api.php", {"fileToUpload": ("img.jpg", file_bytes, "image/jpeg")}, {"reqtype": "fileupload"}),
-        ("https://graph.org/upload", {"file": ("img.jpg", file_bytes, "image/jpeg")}, None),
+        (
+            "https://catbox.moe/user/api.php",
+            {"fileToUpload": ("img.jpg", file_bytes, "image/jpeg")},
+            {"reqtype": "fileupload"},
+        ),
+        (
+            "https://graph.org/upload",
+            {"file": ("img.jpg", file_bytes, "image/jpeg")},
+            None,
+        ),
         ("https://envs.sh", {"file": ("img.jpg", file_bytes, "image/jpeg")}, None),
         ("https://x0.at", {"file": ("img.jpg", file_bytes, "image/jpeg")}, None),
         ("https://ttm.sh", {"file": ("img.jpg", file_bytes, "image/jpeg")}, None),
         ("https://0x0.st", {"file": ("img.jpg", file_bytes, "image/jpeg")}, None),
-        ("https://pixeldrain.com/api/file", {"file": ("img.jpg", file_bytes, "image/jpeg")}, None),
+        (
+            "https://pixeldrain.com/api/file",
+            {"file": ("img.jpg", file_bytes, "image/jpeg")},
+            None,
+        ),
         ("https://file.io", {"file": ("img.jpg", file_bytes, "image/jpeg")}, None),
-        ("https://telegra.ph/upload", {"file": ("img.jpg", file_bytes, "image/jpeg")}, None)
+        (
+            "https://telegra.ph/upload",
+            {"file": ("img.jpg", file_bytes, "image/jpeg")},
+            None,
+        ),
     ]:
         try:
-            res = requests.post(url, data=data_dict, files=files_dict, headers=headers, timeout=6)
+            res = requests.post(
+                url, data=data_dict, files=files_dict, headers=headers, timeout=6
+            )
             if res.status_code in [200, 201]:
                 if url in ["https://graph.org/upload", "https://telegra.ph/upload"]:
-                    return url.rsplit('/', 1)[0] + res.json()[0]["src"]
+                    return url.rsplit("/", 1)[0] + res.json()[0]["src"]
                 elif "pixeldrain" in url and res.json().get("success"):
                     return "https://pixeldrain.com/api/file/" + res.json()["id"]
                 elif "file.io" in url and res.json().get("success"):
@@ -184,12 +316,15 @@ def _upload_sync(file_bytes):
             continue
     return None
 
+
 async def upload_image_safely(client: Client, message: Message):
     try:
         file_io = await client.download_media(message, in_memory=True)
-        if not file_io: return None, "❌ Failed to download the image."
+        if not file_io:
+            return None, "❌ Failed to download the image."
         url = await asyncio.to_thread(_upload_sync, file_io.getvalue())
-        if not url: return None, "❌ All 10 cloud uploaders failed."
+        if not url:
+            return None, "❌ All 10 cloud uploaders failed."
         return url, None
     except Exception as e:
         return None, f"❌ Internal Error: {e}"
@@ -211,29 +346,43 @@ async def process_image_setting(client, message, setting_key, success_msg):
     else:
         file_id = message.reply_to_message.photo.file_id
         await update_bot_settings(setting_key, file_id)
-        await status.edit_text(f"⚠️ Cloud blocked. **{success_msg}**\n*(Saved as Telegram File_ID)*")
+        await status.edit_text(
+            f"⚠️ Cloud blocked. **{success_msg}**\n*(Saved as Telegram File_ID)*"
+        )
+
 
 @Client.on_message(filters.command("setfsubimg") & global_admin_filter)
 async def set_fsub_img(client, message):
-    await process_image_setting(client, message, "fsub_img", "Force Subscribe Image updated!")
+    await process_image_setting(
+        client, message, "fsub_img", "Force Subscribe Image updated!"
+    )
+
 
 @Client.on_message(filters.command("setautoimg") & global_admin_filter)
 async def set_auto_img(client, message):
-    await process_image_setting(client, message, "auto_img", "Default Auto-Filter Image updated!")
+    await process_image_setting(
+        client, message, "auto_img", "Default Auto-Filter Image updated!"
+    )
+
 
 @Client.on_message(filters.command("remautoimg") & global_admin_filter)
 async def rem_auto_img(client, message):
     await update_bot_settings("auto_img", None)
     await message.reply_text("🗑️ **Default Auto-Filter Image removed.**")
 
+
 @Client.on_message(filters.command("setfilenotfoundimg") & global_admin_filter)
 async def set_fnf_img(client, message):
-    await process_image_setting(client, message, "not_found_img", "File Not Found Image updated!")
+    await process_image_setting(
+        client, message, "not_found_img", "File Not Found Image updated!"
+    )
+
 
 @Client.on_message(filters.command("remfilenotfoundimg") & global_admin_filter)
 async def rem_fnf_img(client, message):
     await update_bot_settings("not_found_img", None)
     await message.reply_text("🗑️ **File Not Found Image removed.**")
+
 
 @Client.on_message(filters.command("defaultfilenotfoundimg") & global_admin_filter)
 async def default_fnf_img(client, message):
@@ -246,30 +395,40 @@ async def default_fnf_img(client, message):
 # ============================================================
 @Client.on_message(filters.command("setnotfoundtext") & global_admin_filter)
 async def set_fnf_text(client, message):
-    if len(message.command) < 2: return await message.reply_text("⚠️ **Usage:** `/setnotfoundtext <your text>`")
+    if len(message.command) < 2:
+        return await message.reply_text("⚠️ **Usage:** `/setnotfoundtext <your text>`")
     await update_bot_settings("not_found_text", message.text.split(None, 1)[1])
     await message.reply_text("✅ **File Not Found Text updated!**")
+
 
 @Client.on_message(filters.command("remnotfoundtext") & global_admin_filter)
 async def rem_fnf_text(client, message):
     await update_bot_settings("not_found_text", None)
     await message.reply_text("🗑️ **File Not Found Text removed.**")
 
+
 @Client.on_message(filters.command("defaultnotfoundtext") & global_admin_filter)
 async def def_fnf_text(client, message):
-    await update_bot_settings("not_found_text", getattr(info, "NOT_FOUND_MSG", "<b>🚫 File not found.</b>"))
+    await update_bot_settings(
+        "not_found_text", getattr(info, "NOT_FOUND_MSG", "<b>🚫 File not found.</b>")
+    )
     await message.reply_text("✅ **File Not Found Text reset to default.**")
 
 
 # ============================================================
 # 🪄 SPELL CHECK (GROUP ADMINS)
 # ============================================================
-@Client.on_message(filters.command("enablespellcheck") & filters.group & group_admin_filter)
+@Client.on_message(
+    filters.command("enablespellcheck") & filters.group & group_admin_filter
+)
 async def enable_spell_check(client, message):
     await save_group_settings(message.chat.id, "spell_check", True)
     await message.reply_text("✅ **Spell Check Enabled for this group.**")
 
-@Client.on_message(filters.command("disablespellcheck") & filters.group & group_admin_filter)
+
+@Client.on_message(
+    filters.command("disablespellcheck") & filters.group & group_admin_filter
+)
 async def disable_spell_check(client, message):
     await save_group_settings(message.chat.id, "spell_check", False)
     await message.reply_text("🚫 **Spell Check Disabled for this group.**")
@@ -278,27 +437,42 @@ async def disable_spell_check(client, message):
 # ============================================================
 # 👋 WELCOME SETTINGS (GROUP ADMINS)
 # ============================================================
-@Client.on_message(filters.command("enablewelcome") & filters.group & group_admin_filter)
+@Client.on_message(
+    filters.command("enablewelcome") & filters.group & group_admin_filter
+)
 async def enable_welc(client, message):
     await update_group_welcome(message.chat.id, "welcome", True)
     await message.reply_text("✅ **Welcome Messages Enabled for this group.**")
 
-@Client.on_message(filters.command("disablewelcome") & filters.group & group_admin_filter)
+
+@Client.on_message(
+    filters.command("disablewelcome") & filters.group & group_admin_filter
+)
 async def disable_welc(client, message):
     await update_group_welcome(message.chat.id, "welcome", False)
     await message.reply_text("🚫 **Welcome Messages Disabled for this group.**")
 
-@Client.on_message(filters.command("setwelcometxt") & filters.group & group_admin_filter)
+
+@Client.on_message(
+    filters.command("setwelcometxt") & filters.group & group_admin_filter
+)
 async def set_welc_txt(client, message):
     if len(message.command) < 2:
-        return await message.reply_text("⚠️ **Usage:** `/setwelcometxt <text>`\n\n💡 **Variables:**\n`{mention}` - User ping\n`{title}` - Group Name\n`{count}` - Member count")
+        return await message.reply_text(
+            "⚠️ **Usage:** `/setwelcometxt <text>`\n\n💡 **Variables:**\n`{mention}` - User ping\n`{title}` - Group Name\n`{count}` - Member count"
+        )
     await update_group_welcome(message.chat.id, "text", message.text.split(None, 1)[1])
     await message.reply_text("✅ **Welcome Text updated!**")
 
-@Client.on_message(filters.command("setwelcomeimg") & filters.group & group_admin_filter)
+
+@Client.on_message(
+    filters.command("setwelcomeimg") & filters.group & group_admin_filter
+)
 async def set_welc_img(client, message):
     if not message.reply_to_message or not message.reply_to_message.photo:
-        return await message.reply_text("⚠️ **Usage:** Reply to a photo with `/setwelcomeimg`")
+        return await message.reply_text(
+            "⚠️ **Usage:** Reply to a photo with `/setwelcomeimg`"
+        )
 
     status = await message.reply_text("⏳ Uploading to Cloud...")
     url, err = await upload_image_safely(client, message.reply_to_message)
@@ -306,13 +480,20 @@ async def set_welc_img(client, message):
         await update_group_welcome(message.chat.id, "img", url)
         await status.edit_text("✅ **Welcome Image updated (Cloud Saved)!**")
     else:
-        await update_group_welcome(message.chat.id, "img", message.reply_to_message.photo.file_id)
-        await status.edit_text("⚠️ Cloud blocked. **Welcome Image updated (File ID Saved)!**")
+        await update_group_welcome(
+            message.chat.id, "img", message.reply_to_message.photo.file_id
+        )
+        await status.edit_text(
+            "⚠️ Cloud blocked. **Welcome Image updated (File ID Saved)!**"
+        )
+
 
 @Client.on_message(filters.command("setwelcome") & filters.group & group_admin_filter)
 async def set_welcome_both(client, message):
     if not message.reply_to_message or not message.reply_to_message.photo:
-        return await message.reply_text("⚠️ **Usage:** Reply to a photo containing a caption with `/setwelcome`")
+        return await message.reply_text(
+            "⚠️ **Usage:** Reply to a photo containing a caption with `/setwelcome`"
+        )
 
     txt = message.reply_to_message.caption
     status = await message.reply_text("⏳ Processing...")
@@ -321,10 +502,14 @@ async def set_welcome_both(client, message):
     img_data = url if url else message.reply_to_message.photo.file_id
 
     await update_group_welcome(message.chat.id, "img", img_data)
-    if txt: await update_group_welcome(message.chat.id, "text", txt)
+    if txt:
+        await update_group_welcome(message.chat.id, "text", txt)
     await update_group_welcome(message.chat.id, "welcome", True)
 
-    await status.edit_text("✅ **Welcome Image & Text set, and Welcome Engine enabled!**")
+    await status.edit_text(
+        "✅ **Welcome Image & Text set, and Welcome Engine enabled!**"
+    )
+
 
 @Client.on_message(filters.command("delwelcome") & filters.group & group_admin_filter)
 async def del_welcome(client, message):
