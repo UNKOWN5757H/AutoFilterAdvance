@@ -1,7 +1,6 @@
 import asyncio
 import os
 import platform
-import re
 import shutil
 import sys
 from datetime import datetime
@@ -9,57 +8,98 @@ from logging import ERROR, getLogger
 
 from pyrogram import Client, enums, filters
 from pyrogram.errors import (
-    ChatAdminRequired,
     FloodWait,
     InputUserDeactivated,
-    MediaEmpty,
-    MessageTooLong,
     PeerIdInvalid,
-    PhotoInvalidDimensions,
     UserDeactivatedBan,
     UserIsBlocked,
-    UserNotParticipant,
-    WebpageMediaEmpty,
 )
-from pyrogram.types import (
-    CallbackQuery,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    Message,
-)
+from pyrogram.types import CallbackQuery, Message, InlineKeyboardButton, InlineKeyboardMarkup
 
 import info
+from database.plugin_dbs import plugin_db as _plugin_db
+from database.ia_filterdb import Media as _Media
+from database.users_chats_db import db as _db
 from database.connections_mdb import (
     add_connection,
     all_connections,
     delete_connection,
     if_active,
 )
-from database.ia_filterdb import Media as _Media
-from database.plugin_dbs import plugin_db as _plugin_db
-from database.users_chats_db import db as _db
-from utils import extract_user, get_file_id, get_poster, get_settings, temp
 
 logger = getLogger(__name__)
 logger.setLevel(ERROR)
 
+try:
+    import psutil
+except ImportError:
+    psutil = None
 
+
+# ============================================================
+# 👑 FULL POWER ADMIN CHECKER (GLOBAL + CHAT + ANONYMOUS)
+# ============================================================
 def get_admin_list():
     raw_admins = getattr(info, "ADMINS", [])
-    if isinstance(raw_admins, str):
-        return [
-            int(x)
-            for x in raw_admins.replace(",", " ").split()
-            if x.strip().lstrip("-").isdigit()
-        ]
-    elif isinstance(raw_admins, int):
-        return [raw_admins]
-    elif isinstance(raw_admins, list):
-        return [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
-    return []
+    if isinstance(raw_admins, (str, int)):
+        raw_admins = str(raw_admins).replace(",", " ").split()
+    return [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
 
 
-@Client.on_message(filters.command("info"))
+async def is_user_admin(client: Client, message: Message):
+    admin_list = get_admin_list()
+
+    # 1. Global Admin Check (Direct User)
+    if message.from_user and message.from_user.id in admin_list:
+        return True
+
+    # 2. Global Admin Check (Anonymous/Channel sending as Chat)
+    if message.sender_chat and message.sender_chat.id in admin_list:
+        return True
+
+    # 3. Group Admin Check (Normal & Anonymous Admins)
+    if message.chat and message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
+        # If the sender is the group itself, it's a Group Anonymous Admin
+        if message.sender_chat and message.sender_chat.id == message.chat.id:
+            return True
+            
+        # If it's a Normal Admin in this group
+        if message.from_user:
+            try:
+                member = await client.get_chat_member(message.chat.id, message.from_user.id)
+                return member.status in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]
+            except Exception:
+                pass
+
+    return False
+
+
+async def admin_check(_, client: Client, message: Message):
+    return await is_user_admin(client, message)
+
+
+async def cb_admin_check(_, client: Client, query: CallbackQuery):
+    return await is_user_admin(client, query.message)
+
+
+admin_filter = filters.create(admin_check)
+cb_admin_filter = filters.create(cb_admin_check)
+
+
+def get_size_str(bytes_size):
+    if not bytes_size:
+        return "0.00 B"
+    for unit in ["B", "KB", "MB", "GB", "TB"]:
+        if bytes_size < 1024.0:
+            return f"{bytes_size:.2f} {unit}"
+        bytes_size /= 1024.0
+    return f"{bytes_size:.2f} PB"
+
+
+# ============================================================
+# ℹ️ INFO COMMAND
+# ============================================================
+@Client.on_message(filters.command("info") & admin_filter)
 async def who_is(client: Client, message: Message):
     status = await message.reply_text("🔍 Fetching user info...")
 
@@ -77,7 +117,7 @@ async def who_is(client: Client, message: Message):
         if not user:
             user = message.from_user
         if not user:
-            return await status.edit_text("⚠️ No valid user found.")
+            return await status.edit_text("⚠️ No valid user found. *(Anonymous admins must reply to a user or provide an ID)*")
 
         text = (
             f"<b>👤 First Name:</b> {user.first_name}\n"
@@ -88,11 +128,7 @@ async def who_is(client: Client, message: Message):
             f"<b>🔗 User Link:</b> <a href='tg://user?id={user.id}'>Click Here</a>\n"
         )
 
-        if message.chat.type in (
-            enums.ChatType.SUPERGROUP,
-            enums.ChatType.CHANNEL,
-            enums.ChatType.GROUP,
-        ):
+        if message.chat.type in (enums.ChatType.SUPERGROUP, enums.ChatType.CHANNEL, enums.ChatType.GROUP):
             try:
                 member = await client.get_chat_member(message.chat.id, user.id)
                 if member.joined_date:
@@ -100,27 +136,18 @@ async def who_is(client: Client, message: Message):
             except Exception:
                 pass
 
-        markup = InlineKeyboardMarkup(
-            [[InlineKeyboardButton("🔐 Close", callback_data="close_data")]]
-        )
-
+        markup = InlineKeyboardMarkup([[InlineKeyboardButton("🔐 Close", callback_data="close_data")]])
         photo_sent = False
+        
         if user.photo:
             try:
-                await message.reply_photo(
-                    photo=user.photo.big_file_id,
-                    caption=text,
-                    reply_markup=markup,
-                    parse_mode=enums.ParseMode.HTML,
-                )
+                await message.reply_photo(photo=user.photo.big_file_id, caption=text, reply_markup=markup, parse_mode=enums.ParseMode.HTML)
                 photo_sent = True
             except Exception:
                 photo_sent = False
 
         if not photo_sent:
-            await message.reply_text(
-                text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
-            )
+            await message.reply_text(text, reply_markup=markup, parse_mode=enums.ParseMode.HTML)
 
         await status.delete()
     except Exception as e:
@@ -128,123 +155,105 @@ async def who_is(client: Client, message: Message):
         await status.edit_text("❌ An error occurred while fetching user data.")
 
 
+# ============================================================
+# 🔗 CONNECTION COMMANDS (Group Admin Managed internally)
+# ============================================================
 @Client.on_message((filters.private | filters.group) & filters.command("connect"))
-async def addconnection(client, message):
+async def addconnection(client: Client, message: Message):
     userid = message.from_user.id if message.from_user else None
     if not userid:
-        return await message.reply("You are anonymous admin. Use /connect in PM.")
+        return await message.reply("⚠️ You are posting as an anonymous admin. Please use `/connect group_id` in my PM.")
 
     if message.chat.type == enums.ChatType.PRIVATE:
         try:
             cmd, group_id = message.text.split(" ", 1)
+            group_id = int(group_id)
         except Exception:
-            return await message.reply_text(
-                "<b>Enter correct format!</b>\n\n<code>/connect groupid</code>",
-                quote=True,
-            )
+            return await message.reply_text("<b>Enter correct format!</b>\n\n<code>/connect groupid</code>", quote=True)
     else:
         group_id = message.chat.id
 
-    try:
-        st = await client.get_chat_member(group_id, userid)
-        if (
-            st.status
-            not in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]
-            and userid not in get_admin_list()
-        ):
-            return await message.reply_text(
-                "You should be an admin in the Given group!", quote=True
-            )
-    except Exception:
-        return await message.reply_text(
-            "Invalid Group ID!\n\nMake sure I'm present in your group!", quote=True
-        )
+    is_admin = userid in get_admin_list()
+    if not is_admin:
+        try:
+            st = await client.get_chat_member(group_id, userid)
+            if st.status in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]:
+                is_admin = True
+        except Exception:
+            return await message.reply_text("❌ Invalid Group ID or I'm not in that group!", quote=True)
+
+    if not is_admin:
+        return await message.reply_text("❌ You must be an admin in the specified group!", quote=True)
 
     try:
         st = await client.get_chat_member(group_id, "me")
         if st.status == enums.ChatMemberStatus.ADMINISTRATOR:
             ttl = await client.get_chat(group_id)
             if await add_connection(str(group_id), str(userid)):
-                await message.reply_text(
-                    f"Successfully connected to **{ttl.title}**\nNow manage your group from my PM!",
-                    quote=True,
-                )
+                await message.reply_text(f"✅ Successfully connected to **{ttl.title}**\nNow manage your group from my PM!", quote=True)
             else:
-                await message.reply_text(
-                    "You're already connected to this chat!", quote=True
-                )
+                await message.reply_text("⚠️ You're already connected to this chat!", quote=True)
         else:
-            await message.reply_text("Add me as an admin in group", quote=True)
+            await message.reply_text("❌ Add me as an admin in the group first.", quote=True)
     except Exception:
-        await message.reply_text("Some error occurred! Try again later.", quote=True)
+        await message.reply_text("❌ Some error occurred! Try again later.", quote=True)
 
 
 @Client.on_message((filters.private | filters.group) & filters.command("disconnect"))
-async def deleteconnection(client, message):
+async def deleteconnection(client: Client, message: Message):
     userid = message.from_user.id if message.from_user else None
     if not userid:
-        return
+        return await message.reply("⚠️ You are an anonymous admin. Please use `/disconnect` in my PM.")
 
     if message.chat.type == enums.ChatType.PRIVATE:
-        return await message.reply_text(
-            "Run /connections to view or disconnect from groups!", quote=True
-        )
+        return await message.reply_text("Run `/connections` to view or disconnect from groups!", quote=True)
+    
     group_id = message.chat.id
+    is_admin = userid in get_admin_list()
+    if not is_admin:
+        try:
+            st = await client.get_chat_member(group_id, userid)
+            if st.status in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]:
+                is_admin = True
+        except Exception:
+            pass
 
-    st = await client.get_chat_member(group_id, userid)
-    if (
-        st.status
-        not in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]
-        and userid not in get_admin_list()
-    ):
+    if not is_admin:
         return
 
     if await delete_connection(str(userid), str(group_id)):
-        await message.reply_text("Successfully disconnected from this chat", quote=True)
+        await message.reply_text("✅ Successfully disconnected from this chat", quote=True)
     else:
-        await message.reply_text("This chat isn't connected to me!", quote=True)
+        await message.reply_text("⚠️ This chat isn't connected to me!", quote=True)
 
 
-@Client.on_message(filters.private & filters.command(["connections"]))
-async def connections(client, message):
+@Client.on_message(filters.private & filters.command("connections"))
+async def connections(client: Client, message: Message):
     userid = message.from_user.id
     groupids = await all_connections(str(userid))
 
     if not groupids:
-        return await message.reply_text(
-            "There are no active connections!! Connect to some groups first.",
-            quote=True,
-        )
+        return await message.reply_text("⚠️ There are no active connections! Connect to some groups first.", quote=True)
 
     buttons = []
     for groupid in groupids:
         try:
             ttl = await client.get_chat(int(groupid))
             act = " - ACTIVE" if await if_active(str(userid), str(groupid)) else ""
-            buttons.append(
-                [
-                    InlineKeyboardButton(
-                        text=f"{ttl.title}{act}",
-                        callback_data=f"groupcb:{groupid}:{act}",
-                    )
-                ]
-            )
+            buttons.append([InlineKeyboardButton(text=f"{ttl.title}{act}", callback_data=f"groupcb:{groupid}:{act}")])
         except Exception:
             pass
 
     if buttons:
-        await message.reply_text(
-            "Your connected group details:\n\n",
-            reply_markup=InlineKeyboardMarkup(buttons),
-            quote=True,
-        )
+        await message.reply_text("🔗 **Your connected group details:**\n\n", reply_markup=InlineKeyboardMarkup(buttons), quote=True)
     else:
-        await message.reply_text("There are no active connections!", quote=True)
+        await message.reply_text("⚠️ There are no active connections!", quote=True)
 
 
-@Client.on_message(
-    filters.command("repairmode") & admin_filter & (filters.private | filters.group)
-)
+# ============================================================
+# ⚙️ ADMIN SETTINGS & MANAGEMENT
+# ============================================================
+@Client.on_message(filters.command("repairmode") & admin_filter)
 async def toggle_repair_mode(bot: Client, message: Message):
     if len(message.command) > 1:
         arg = message.command[1].lower()
@@ -267,32 +276,16 @@ async def toggle_repair_mode(bot: Client, message: Message):
     await message.reply_text(text)
 
 
-@Client.on_message(
-    filters.command("adminsettings") & admin_filter & (filters.private | filters.group)
-)
+@Client.on_message(filters.command("adminsettings") & admin_filter)
 async def show_admin_settings(bot: Client, message: Message):
-    repair_status = (
-        "🟢 ENABLED" if getattr(info, "REPAIR_MODE", False) else "🔴 DISABLED"
-    )
-    fsub_status = (
-        "🟢 ENABLED" if getattr(info, "IS_FSUB_ENABLED", True) else "🔴 DISABLED"
-    )
+    repair_status = "🟢 ENABLED" if getattr(info, "REPAIR_MODE", False) else "🔴 DISABLED"
+    fsub_status = "🟢 ENABLED" if getattr(info, "IS_FSUB_ENABLED", True) else "🔴 DISABLED"
 
     text = "⚙️ **Current Admin Settings Dashboard**\n━━━━━━━━━━━━━━━━━━━━━\n\n"
     text += f"🛠️ **Repair Mode:** {repair_status}\n🔐 **Force Subscribe:** {fsub_status}\n\n"
-
-    if getattr(info, "AUTH_CHANNEL", None):
-        text += f"📢 **Main FSub Channel:** <code>{info.AUTH_CHANNEL}</code>\n"
-    else:
-        text += "📢 **Main FSub Channel:** ❌ Not Set\n"
-
-    if getattr(info, "REQ_CHANNEL", None):
-        text += f"📨 **Request FSub Channel:** <code>{info.REQ_CHANNEL}</code>\n"
-    else:
-        text += "📨 **Request FSub Channel:** ❌ Not Set\n"
-
-    admin_count = len(info.ADMINS) if getattr(info, "ADMINS", None) else 0
-    text += f"\n👥 **Total Admins Configured:** `{admin_count}`\n\n━━━━━━━━━━━━━━━━━━━━━\n💡 *Use commands like `/repairmode` or `/disablefsub` to toggle these values.*"
+    text += f"📢 **Main FSub Channel:** <code>{getattr(info, 'AUTH_CHANNEL', '❌ Not Set')}</code>\n"
+    text += f"📨 **Request FSub Channel:** <code>{getattr(info, 'REQ_CHANNEL', '❌ Not Set')}</code>\n\n"
+    text += f"👥 **Total Admins Configured:** `{len(getattr(info, 'ADMINS', []))}`\n━━━━━━━━━━━━━━━━━━━━━\n💡 *Use commands like /repairmode to toggle values.*"
 
     await message.reply_text(text)
 
@@ -303,16 +296,15 @@ async def leave_chat(bot: Client, message: Message):
         return await message.reply_text("⚠️ Usage: `/leave <chat_id>`")
     try:
         chat_id = int(message.command[1])
-    except ValueError:
-        return await message.reply_text("❌ Invalid chat ID!")
-
-    try:
         await bot.leave_chat(chat_id)
         await message.reply_text(f"✅ Left the chat `{chat_id}` successfully.")
     except Exception as e:
         await message.reply_text(f"⚠️ Error: `{e}`")
 
 
+# ============================================================
+# 🚫 BAN SYSTEM
+# ============================================================
 @Client.on_message(filters.command("ban") & admin_filter)
 async def ban_user_cmd(bot: Client, message: Message):
     if len(message.command) < 2:
@@ -320,20 +312,14 @@ async def ban_user_cmd(bot: Client, message: Message):
     try:
         user_id = int(message.command[1])
         if user_id in get_admin_list():
-            return await message.reply_text(
-                "❌ **You cannot ban a bot administrator!**"
-            )
+            return await message.reply_text("❌ **You cannot ban a bot administrator!**")
         if user_id == bot.me.id:
             return await message.reply_text("❌ **I cannot ban myself!**")
 
         await _plugin_db.ban_user(user_id)
-        await message.reply_text(
-            f"🚫 **User `{user_id}` has been successfully BANNED.**\nThey can no longer use this bot."
-        )
+        await message.reply_text(f"🚫 **User `{user_id}` has been successfully BANNED.**\nThey can no longer use this bot.")
     except ValueError:
-        await message.reply_text(
-            "❌ **Invalid User ID!** Please provide a valid numerical ID."
-        )
+        await message.reply_text("❌ **Invalid User ID!** Please provide a valid numerical ID.")
     except Exception as e:
         await message.reply_text(f"❌ **Error:** `{e}`")
 
@@ -344,20 +330,13 @@ async def unban_user_cmd(bot: Client, message: Message):
         return await message.reply_text("⚙️ **Usage:** `/unban [user_id]`")
     try:
         user_id = int(message.command[1])
-        is_banned = await _plugin_db.is_banned(user_id)
-        if not is_banned:
-            return await message.reply_text(
-                f"⚠️ **User `{user_id}` is not currently banned.**"
-            )
+        if not await _plugin_db.is_banned(user_id):
+            return await message.reply_text(f"⚠️ **User `{user_id}` is not currently banned.**")
 
         await _plugin_db.unban_user(user_id)
-        await message.reply_text(
-            f"✅ **User `{user_id}` has been successfully UNBANNED.**\nThey can now use the bot again."
-        )
+        await message.reply_text(f"✅ **User `{user_id}` has been successfully UNBANNED.**")
     except ValueError:
-        await message.reply_text(
-            "❌ **Invalid User ID!** Please provide a valid numerical ID."
-        )
+        await message.reply_text("❌ **Invalid User ID!** Please provide a valid numerical ID.")
     except Exception as e:
         await message.reply_text(f"❌ **Error:** `{e}`")
 
@@ -372,27 +351,20 @@ async def check_banned_users(bot: Client, message: Message):
 
 
 # ============================================================
-# 📜 LOGS COMMAND
+# 📜 LOGS & SERVER COMMANDS
 # ============================================================
 @Client.on_message(filters.command("logs") & admin_filter, group=3)
 async def get_logs_cmd(bot: Client, message: Message):
     log_file = "TelegramBot.log"
     if not os.path.exists(log_file):
-        return await message.reply_text(
-            "⚠️ **Log file not found!** No errors recorded yet."
-        )
+        return await message.reply_text("⚠️ **Log file not found!** No errors recorded yet.")
 
     try:
-        await message.reply_document(
-            document=log_file, caption="📜 **Here are the latest bot logs.**"
-        )
+        await message.reply_document(document=log_file, caption="📜 **Here are the latest bot logs.**")
     except Exception as e:
         await message.reply_text(f"❌ **Failed to send logs:**\n`{e}`")
 
 
-# ============================================================
-# 🖥️ SERVER STATS
-# ============================================================
 @Client.on_message(filters.command("server") & admin_filter, group=3)
 async def server_stats_cmd(bot: Client, message: Message):
     msg = await message.reply_text("⏳ **Fetching server statistics...**")
@@ -411,16 +383,11 @@ async def server_stats_cmd(bot: Client, message: Message):
     await msg.edit_text(text)
 
 
-# ============================================================
-# ♻️ RESTART COMMAND (Optimized with OS Exec)
-# ============================================================
 @Client.on_message(filters.command("restart") & admin_filter, group=3)
 async def restart_bot_cmd(bot: Client, message: Message):
     await message.reply_text(
         "⚠️ **Are you sure you want to restart the bot?**",
-        reply_markup=InlineKeyboardMarkup(
-            [[InlineKeyboardButton("✅ Confirm Restart", callback_data="util_restart")]]
-        ),
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ Confirm Restart", callback_data="util_restart")]]),
     )
 
 
@@ -434,12 +401,11 @@ async def confirm_restart_cb(bot: Client, query: CallbackQuery):
     except Exception:
         pass
 
-    # Executes an immediate, clean process restart
     os.execl(sys.executable, sys.executable, *sys.argv)
 
 
 # ============================================================
-# 📊 BOT DATABASE STATS (Combined stats & total)
+# 📊 BOT DATABASE STATS & CLEANUP
 # ============================================================
 @Client.on_message(filters.command(["stats", "total"]) & admin_filter, group=3)
 async def bot_stats_cmd(bot: Client, message: Message):
@@ -462,22 +428,13 @@ async def bot_stats_cmd(bot: Client, message: Message):
         await status_msg.edit_text(f"❌ **Error fetching stats:** `{e}`")
 
 
-# ============================================================
-# 🧹 DEEP CLEAN USERS
-# ============================================================
 @Client.on_message(filters.command("cleanusers") & admin_filter, group=3)
 async def clean_users_cmd(bot: Client, message: Message):
-    status_msg = await message.reply_text(
-        "⏳ **Starting Deep Clean...** (This is a safe background process)"
-    )
+    status_msg = await message.reply_text("⏳ **Starting Deep Clean...** (This is a safe background process)")
 
     try:
         users_cursor = await _db.get_all_users()
-        users = (
-            await users_cursor.to_list(length=None)
-            if hasattr(users_cursor, "to_list")
-            else list(users_cursor)
-        )
+        users = await users_cursor.to_list(length=None) if hasattr(users_cursor, "to_list") else list(users_cursor)
     except Exception as e:
         return await status_msg.edit_text(f"❌ **Failed to fetch users:** `{e}`")
 
@@ -508,51 +465,33 @@ async def clean_users_cmd(bot: Client, message: Message):
 
         if (i + len(chunk)) % 300 == 0 or (i + len(chunk)) == total_users:
             try:
-                await status_msg.edit_text(
-                    f"⏳ **Cleaning Database...**\nScanned: `{i + len(chunk)} / {total_users}`"
-                )
+                await status_msg.edit_text(f"⏳ **Cleaning Database...**\nScanned: `{i + len(chunk)} / {total_users}`")
             except Exception:
                 pass
 
         await asyncio.sleep(2)
 
-    await status_msg.edit_text(
-        f"✅ **Deep Clean Completed!**\n\n🟢 **Active Users Kept:** `{active}`\n🔴 **Dead Accounts Removed:** `{blocked}`"
-    )
+    await status_msg.edit_text(f"✅ **Deep Clean Completed!**\n\n🟢 **Active Users Kept:** `{active}`\n🔴 **Dead Accounts Removed:** `{blocked}`")
 
 
 # ============================================================
-# 🔥 DATABASE WIPE COMMANDS (Consolidated)
+# 🔥 DATABASE WIPE COMMANDS
 # ============================================================
-@Client.on_message(
-    filters.command(["clearfiles", "clearusers", "clearfsubusers"]) & admin_filter,
-    group=3,
-)
+@Client.on_message(filters.command(["clearfiles", "clearusers", "clearfsubusers"]) & admin_filter, group=3)
 async def wipe_prompt_cmd(bot: Client, message: Message):
     cmd = message.command[0]
-    action = (
-        "files" if cmd == "clearfiles" else "users" if cmd == "clearusers" else "fsub"
-    )
+    action = "files" if cmd == "clearfiles" else "users" if cmd == "clearusers" else "fsub"
 
     await message.reply_text(
         f"⚠️ **WARNING!** ⚠️\nDelete **ALL** {action} in your database?",
-        reply_markup=InlineKeyboardMarkup(
-            [
-                [
-                    InlineKeyboardButton(
-                        f"🔥 YES, DELETE ALL {action.upper()}",
-                        callback_data=f"nuke_{action}",
-                    )
-                ],
-                [InlineKeyboardButton("❌ Cancel", callback_data="close_data")],
-            ]
-        ),
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton(f"🔥 YES, DELETE ALL {action.upper()}", callback_data=f"nuke_{action}")],
+            [InlineKeyboardButton("❌ Cancel", callback_data="close_data")]
+        ])
     )
 
 
-@Client.on_callback_query(
-    filters.regex(r"^nuke_(files|users|fsub)$") & cb_admin_filter, group=3
-)
+@Client.on_callback_query(filters.regex(r"^nuke_(files|users|fsub)$") & cb_admin_filter, group=3)
 async def nuke_callbacks(bot: Client, query: CallbackQuery):
     await query.answer("Processing request...", show_alert=False)
     action = query.data.split("_")[1]
@@ -563,23 +502,17 @@ async def nuke_callbacks(bot: Client, query: CallbackQuery):
             collection = getattr(_Media, "collection", _Media)
             res = await collection.delete_many({})
             count = getattr(res, "deleted_count", "All")
-            await query.message.edit_text(
-                f"✅ **Database Wiped!**\n🗑 **Deleted Files:** `{count}`"
-            )
+            await query.message.edit_text(f"✅ **Database Wiped!**\n🗑 **Deleted Files:** `{count}`")
 
         elif action == "users":
             collection = getattr(_db, "col", _db)
             res = await collection.delete_many({})
             count = getattr(res, "deleted_count", "All")
-            await query.message.edit_text(
-                f"✅ **Database Wiped!**\n🗑 **Deleted Users:** `{count}`"
-            )
+            await query.message.edit_text(f"✅ **Database Wiped!**\n🗑 **Deleted Users:** `{count}`")
 
         elif action == "fsub":
             await _plugin_db.clear_fsub_users()
-            await query.message.edit_text(
-                "✅ **Force Subscribe Database has been completely cleared.**"
-            )
+            await query.message.edit_text("✅ **Force Subscribe Database has been completely cleared.**")
 
     except Exception as e:
         logger.exception(f"Error during nuke_{action}")
