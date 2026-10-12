@@ -41,19 +41,32 @@ try:
 except Exception as e:
     logger.error(f"Failed to init FSub DB: {e}")
 
+
 async def get_fsub_config():
     if _fsub_db is not None:
         doc = await _fsub_db.find_one({"_id": "config"})
-        if doc: return doc
-    return {"is_enabled": True, "max_count": 0, "rotation_enabled": False, "channels": {}}
+        if doc:
+            return doc
+    return {
+        "is_enabled": True,
+        "max_count": 0,
+        "rotation_enabled": False,
+        "channels": {},
+    }
+
 
 async def update_fsub_config(key, value):
     if _fsub_db is not None:
-        await _fsub_db.update_one({"_id": "config"}, {"$set": {key: value}}, upsert=True)
+        await _fsub_db.update_one(
+            {"_id": "config"}, {"$set": {key: value}}, upsert=True
+        )
+
 
 async def update_fsub_channels(channels_dict):
     if _fsub_db is not None:
-        await _fsub_db.update_one({"_id": "config"}, {"$set": {"channels": channels_dict}}, upsert=True)
+        await _fsub_db.update_one(
+            {"_id": "config"}, {"$set": {"channels": channels_dict}}, upsert=True
+        )
 
 
 # ============================================================
@@ -65,46 +78,76 @@ def get_admin_list():
         raw_admins = str(raw_admins).replace(",", " ").split()
     return [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
 
+
 async def is_global_admin(user_id: int):
     return user_id in get_admin_list()
+
 
 async def get_target_chat(client: Client, message: Message):
     if message.chat.type == enums.ChatType.PRIVATE:
         user_id = message.from_user.id
         connected_chat = await active_connection(str(user_id))
-        if connected_chat: return int(connected_chat)
+        if connected_chat:
+            return int(connected_chat)
         return None
     return message.chat.id
 
+
 async def verify_admin(client: Client, message: Message, target_chat_id=None):
-    uid = message.from_user.id if message.from_user else getattr(message.sender_chat, "id", 0)
-    if await is_global_admin(uid): return True
+    uid = (
+        message.from_user.id
+        if message.from_user
+        else getattr(message.sender_chat, "id", 0)
+    )
+    if await is_global_admin(uid):
+        return True
     if message.chat.type == enums.ChatType.PRIVATE:
-        if not target_chat_id: return False
+        if not target_chat_id:
+            return False
         try:
             member = await client.get_chat_member(target_chat_id, uid)
-            return member.status in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]
-        except Exception: return False
+            return member.status in [
+                enums.ChatMemberStatus.ADMINISTRATOR,
+                enums.ChatMemberStatus.OWNER,
+            ]
+        except Exception:
+            return False
     if message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
-        if message.sender_chat and message.sender_chat.id == message.chat.id: return True
+        if message.sender_chat and message.sender_chat.id == message.chat.id:
+            return True
         if message.from_user:
             try:
                 member = await client.get_chat_member(message.chat.id, uid)
-                return member.status in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]
-            except Exception: return False
+                return member.status in [
+                    enums.ChatMemberStatus.ADMINISTRATOR,
+                    enums.ChatMemberStatus.OWNER,
+                ]
+            except Exception:
+                return False
     return False
+
 
 # Quick inline checker for callbacks and pure FSub execution
 async def quick_admin_check(client: Client, message: Message):
-    uid = message.from_user.id if message.from_user else getattr(message.sender_chat, "id", 0)
-    if await is_global_admin(uid): return True
+    uid = (
+        message.from_user.id
+        if message.from_user
+        else getattr(message.sender_chat, "id", 0)
+    )
+    if await is_global_admin(uid):
+        return True
     if message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
-        if message.sender_chat and message.sender_chat.id == message.chat.id: return True
+        if message.sender_chat and message.sender_chat.id == message.chat.id:
+            return True
         if message.from_user:
             try:
                 member = await client.get_chat_member(message.chat.id, uid)
-                return member.status in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]
-            except Exception: return False
+                return member.status in [
+                    enums.ChatMemberStatus.ADMINISTRATOR,
+                    enums.ChatMemberStatus.OWNER,
+                ]
+            except Exception:
+                return False
     return False
 
 
@@ -113,97 +156,146 @@ async def quick_admin_check(client: Client, message: Message):
 # ============================================================
 _WAITING_REQUESTS = {}
 
+
 @Client.on_message(filters.group | filters.private, group=-12)
 async def custom_listener(client: Client, message: Message):
     chat_id = message.chat.id
-    if chat_id not in _WAITING_REQUESTS: return
-    sender_id = message.from_user.id if message.from_user else getattr(message.sender_chat, "id", 0)
+    if chat_id not in _WAITING_REQUESTS:
+        return
+    sender_id = (
+        message.from_user.id
+        if message.from_user
+        else getattr(message.sender_chat, "id", 0)
+    )
     expected_session_id = _WAITING_REQUESTS[chat_id]["session_id"]
 
     if sender_id == expected_session_id or sender_id == chat_id:
         future = _WAITING_REQUESTS[chat_id]["future"]
-        if not future.done(): future.set_result(message)
+        if not future.done():
+            future.set_result(message)
         message.stop_propagation()
 
-async def native_listen(client: Client, chat_id: int, user_id: int, timeout: int = 120) -> Message:
+
+async def native_listen(
+    client: Client, chat_id: int, user_id: int, timeout: int = 120
+) -> Message:
     loop = asyncio.get_running_loop()
     future = loop.create_future()
     _WAITING_REQUESTS[chat_id] = {"future": future, "session_id": user_id}
-    try: return await asyncio.wait_for(future, timeout=timeout)
-    finally: _WAITING_REQUESTS.pop(chat_id, None)
+    try:
+        return await asyncio.wait_for(future, timeout=timeout)
+    finally:
+        _WAITING_REQUESTS.pop(chat_id, None)
 
 
 # ============================================================
 # 🔗 INVITE LINK & USER CHECKING
 # ============================================================
 async def get_invite_link(bot: Client, chat_id_str: str, config: dict) -> str:
-    channels, channel_data = config.get("channels", {}), config.get("channels", {}).get(chat_id_str, {})
-    if channel_data.get("target"): return channel_data["target"]
-    if channel_data.get("link"): return channel_data["link"]
+    channels, channel_data = config.get("channels", {}), config.get("channels", {}).get(
+        chat_id_str, {}
+    )
+    if channel_data.get("target"):
+        return channel_data["target"]
+    if channel_data.get("link"):
+        return channel_data["link"]
 
     try:
         chat_id_int = int(chat_id_str.strip())
         chat = await bot.get_chat(chat_id_int)
         is_req = channel_data.get("type") == "req"
-        invite = await bot.create_chat_invite_link(chat_id_int, creates_join_request=is_req)
+        invite = await bot.create_chat_invite_link(
+            chat_id_int, creates_join_request=is_req
+        )
 
         channels[chat_id_str]["link"] = invite.invite_link
         channels[chat_id_str]["title"] = chat.title
         await update_fsub_channels(channels)
         return invite.invite_link
-    except (ChatAdminRequired, Exception): return ""
+    except (ChatAdminRequired, Exception):
+        return ""
 
-async def check_user_in_channel(bot: Client, channel_id: int, user_id: int, is_req: bool = False) -> bool:
+
+async def check_user_in_channel(
+    bot: Client, channel_id: int, user_id: int, is_req: bool = False
+) -> bool:
     try:
         member = await bot.get_chat_member(channel_id, user_id)
-        if member.status in [enums.ChatMemberStatus.MEMBER, enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]: return True
-    except UserNotParticipant: pass
+        if member.status in [
+            enums.ChatMemberStatus.MEMBER,
+            enums.ChatMemberStatus.ADMINISTRATOR,
+            enums.ChatMemberStatus.OWNER,
+        ]:
+            return True
+    except UserNotParticipant:
+        pass
     except FloodWait as e:
         await asyncio.sleep(e.value + 1)
         return await check_user_in_channel(bot, channel_id, user_id, is_req)
-    except Exception: pass
+    except Exception:
+        pass
 
     if is_req:
         try:
-            if _join_reqs_db.isActive() and await _join_reqs_db.get_user(user_id): return True
-        except Exception: pass
+            if _join_reqs_db.isActive() and await _join_reqs_db.get_user(user_id):
+                return True
+        except Exception:
+            pass
     return False
 
 
 # ============================================================
 # 🛑 MAIN FORCESUB INTERCEPTOR
 # ============================================================
-async def ForceSub(bot: Client, message: Message, file_id: str = None, mode: str = None) -> bool:
-    if await quick_admin_check(bot, message): return True
+async def ForceSub(
+    bot: Client, message: Message, file_id: str = None, mode: str = None
+) -> bool:
+    if await quick_admin_check(bot, message):
+        return True
     user = message.from_user
-    if not user: return True
+    if not user:
+        return True
 
     config = await get_fsub_config()
-    if not config.get("is_enabled", True): return True
+    if not config.get("is_enabled", True):
+        return True
     channels_dict = config.get("channels", {})
-    if not channels_dict: return True
+    if not channels_dict:
+        return True
 
-    rotation_enabled, max_count = config.get("rotation_enabled", False), config.get("max_count", 0)
+    rotation_enabled, max_count = config.get("rotation_enabled", False), config.get(
+        "max_count", 0
+    )
 
     if rotation_enabled:
         eligible_channels = list(channels_dict.keys())
         if eligible_channels:
             shift = int(time.time() / 3600) % len(eligible_channels)
             eligible_channels = eligible_channels[shift:] + eligible_channels[:shift]
-    else: eligible_channels = [k for k, v in channels_dict.items() if v.get("status") == "active"]
+    else:
+        eligible_channels = [
+            k for k, v in channels_dict.items() if v.get("status") == "active"
+        ]
 
     not_joined_buttons, channels_to_force = [], 0
 
     try:
         for chat_id_str in eligible_channels:
-            if max_count > 0 and channels_to_force >= max_count: break
+            if max_count > 0 and channels_to_force >= max_count:
+                break
             data = channels_dict[chat_id_str]
             is_req = data.get("type") == "req"
 
             if not await check_user_in_channel(bot, int(chat_id_str), user.id, is_req):
                 if link := await get_invite_link(bot, chat_id_str, config):
                     btn_text = "⚓ Request to Join" if is_req else "📢 Join Channel"
-                    not_joined_buttons.append([InlineKeyboardButton(btn_text, url=link, style=ButtonStyle.PRIMARY)])
+                    not_joined_buttons.append(
+                        [
+                            InlineKeyboardButton(
+                                btn_text, url=link, style=ButtonStyle.PRIMARY
+                            )
+                        ]
+                    )
                     channels_to_force += 1
 
         if not not_joined_buttons:
@@ -211,64 +303,129 @@ async def ForceSub(bot: Client, message: Message, file_id: str = None, mode: str
             return True
 
         cb_data = f"refresh_fsub_{file_id}" if file_id else "refresh_fsub_0"
-        not_joined_buttons.append([InlineKeyboardButton(text="✅ I've Joined", callback_data=cb_data, style=ButtonStyle.SUCCESS)])
+        not_joined_buttons.append(
+            [
+                InlineKeyboardButton(
+                    text="✅ I've Joined",
+                    callback_data=cb_data,
+                    style=ButtonStyle.SUCCESS,
+                )
+            ]
+        )
 
         b_settings = await get_bot_settings()
         custom_fsub_img = b_settings.get("fsub_img", getattr(info, "FSUB_IMG", None))
 
         try:
-            if custom_fsub_img: await message.reply_photo(photo=custom_fsub_img, caption="**⚠️ Please join the channels below to get your file!**", reply_markup=InlineKeyboardMarkup(not_joined_buttons))
-            else: await message.reply_text("**⚠️ Please join the channels below to get your file!**", reply_markup=InlineKeyboardMarkup(not_joined_buttons), disable_web_page_preview=True)
-        except UserIsBlocked: return False
+            if custom_fsub_img:
+                await message.reply_photo(
+                    photo=custom_fsub_img,
+                    caption="**⚠️ Please join the channels below to get your file!**",
+                    reply_markup=InlineKeyboardMarkup(not_joined_buttons),
+                )
+            else:
+                await message.reply_text(
+                    "**⚠️ Please join the channels below to get your file!**",
+                    reply_markup=InlineKeyboardMarkup(not_joined_buttons),
+                    disable_web_page_preview=True,
+                )
+        except UserIsBlocked:
+            return False
         return False
-    except Exception: return True
+    except Exception:
+        return True
+
 
 @Client.on_callback_query(filters.regex(r"^refresh_fsub_(.*)"))
 async def refresh_fsub_callback(bot: Client, query: CallbackQuery):
-    if await quick_admin_check(bot, query.message): return await query.answer("👑 Admin Verified!", show_alert=False)
+    if await quick_admin_check(bot, query.message):
+        return await query.answer("👑 Admin Verified!", show_alert=False)
 
     user_id, file_id = query.from_user.id, query.matches[0].group(1)
     config = await get_fsub_config()
-    channels_dict, rotation_enabled, max_count = config.get("channels", {}), config.get("rotation_enabled", False), config.get("max_count", 0)
+    channels_dict, rotation_enabled, max_count = (
+        config.get("channels", {}),
+        config.get("rotation_enabled", False),
+        config.get("max_count", 0),
+    )
 
-    if not channels_dict: return await query.answer("Force subscribe is no longer required.", show_alert=True)
+    if not channels_dict:
+        return await query.answer(
+            "Force subscribe is no longer required.", show_alert=True
+        )
 
     if rotation_enabled:
         eligible_channels = list(channels_dict.keys())
         if eligible_channels:
             shift = int(time.time() / 3600) % len(eligible_channels)
             eligible_channels = eligible_channels[shift:] + eligible_channels[:shift]
-    else: eligible_channels = [k for k, v in channels_dict.items() if v.get("status") == "active"]
+    else:
+        eligible_channels = [
+            k for k, v in channels_dict.items() if v.get("status") == "active"
+        ]
 
     not_joined_buttons, channels_to_force = [], 0
 
     for chat_id_str in eligible_channels:
-        if max_count > 0 and channels_to_force >= max_count: break
+        if max_count > 0 and channels_to_force >= max_count:
+            break
         data = channels_dict[chat_id_str]
         is_req = data.get("type") == "req"
         if not await check_user_in_channel(bot, int(chat_id_str), user_id, is_req):
             if link := await get_invite_link(bot, chat_id_str, config):
                 btn_text = "⚓ Request to Join" if is_req else "📢 Join Channel"
-                not_joined_buttons.append([InlineKeyboardButton(btn_text, url=link, style=ButtonStyle.PRIMARY)])
+                not_joined_buttons.append(
+                    [
+                        InlineKeyboardButton(
+                            btn_text, url=link, style=ButtonStyle.PRIMARY
+                        )
+                    ]
+                )
                 channels_to_force += 1
 
     if channels_to_force > 0:
-        await query.answer("❌ You haven't joined all required channels yet!", show_alert=True)
+        await query.answer(
+            "❌ You haven't joined all required channels yet!", show_alert=True
+        )
         cb_data = f"refresh_fsub_{file_id}" if file_id else "refresh_fsub_0"
-        not_joined_buttons.append([InlineKeyboardButton(text="✅ I've Joined", callback_data=cb_data, style=ButtonStyle.SUCCESS)])
-        try: await query.message.edit_reply_markup(InlineKeyboardMarkup(not_joined_buttons))
-        except MessageNotModified: pass
+        not_joined_buttons.append(
+            [
+                InlineKeyboardButton(
+                    text="✅ I've Joined",
+                    callback_data=cb_data,
+                    style=ButtonStyle.SUCCESS,
+                )
+            ]
+        )
+        try:
+            await query.message.edit_reply_markup(
+                InlineKeyboardMarkup(not_joined_buttons)
+            )
+        except MessageNotModified:
+            pass
     else:
         await _plugin_db.add_fsub_user(user_id)
-        try: await query.message.delete()
-        except Exception: pass
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
         await query.answer("✅ Subscriptions verified!", show_alert=False)
 
         if file_id and file_id != "0":
-            try: await bot.send_cached_media(chat_id=user_id, file_id=file_id, caption="🎉 **Thank you for joining! Here is your file:**")
+            try:
+                await bot.send_cached_media(
+                    chat_id=user_id,
+                    file_id=file_id,
+                    caption="🎉 **Thank you for joining! Here is your file:**",
+                )
             except Exception:
-                try: await bot.send_message(chat_id=user_id, text="✅ **Verification complete!**\n\n⚠️ *The original file link expired. Please go back to the main group and click the file link again to get your movie!*")
-                except Exception: pass
+                try:
+                    await bot.send_message(
+                        chat_id=user_id,
+                        text="✅ **Verification complete!**\n\n⚠️ *The original file link expired. Please go back to the main group and click the file link again to get your movie!*",
+                    )
+                except Exception:
+                    pass
 
 
 # ============================================================
@@ -276,71 +433,121 @@ async def refresh_fsub_callback(bot: Client, query: CallbackQuery):
 # ============================================================
 @Client.on_message(filters.command("rotatefsub"))
 async def toggle_rotate(bot: Client, message: Message):
-    if not await verify_admin(bot, message): return await message.reply_text("❌ **Unauthorized.**")
+    if not await verify_admin(bot, message):
+        return await message.reply_text("❌ **Unauthorized.**")
     config = await get_fsub_config()
     current = config.get("rotation_enabled", False)
     await update_fsub_config("rotation_enabled", not current)
-    status = "🟢 ENABLED (Smart 1-Hour User Rotation)" if not current else "🔴 DISABLED (Static Priority)"
-    await message.reply_text(f"🔄 **Auto-Rotation Engine:** {status}\n\n*When enabled, the bot automatically cycles through all channels and forces users into the ones they haven't joined yet!*")
+    status = (
+        "🟢 ENABLED (Smart 1-Hour User Rotation)"
+        if not current
+        else "🔴 DISABLED (Static Priority)"
+    )
+    await message.reply_text(
+        f"🔄 **Auto-Rotation Engine:** {status}\n\n*When enabled, the bot automatically cycles through all channels and forces users into the ones they haven't joined yet!*"
+    )
+
 
 @Client.on_message(filters.command("enablefsub"))
 async def enable_fsub(bot: Client, message: Message):
-    if not await verify_admin(bot, message): return await message.reply_text("❌ **Unauthorized.**")
+    if not await verify_admin(bot, message):
+        return await message.reply_text("❌ **Unauthorized.**")
     await update_fsub_config("is_enabled", True)
     await message.reply_text("✅ **Force Subscribe has been ENABLED.**")
 
+
 @Client.on_message(filters.command("disablefsub"))
 async def disable_fsub(bot: Client, message: Message):
-    if not await verify_admin(bot, message): return await message.reply_text("❌ **Unauthorized.**")
+    if not await verify_admin(bot, message):
+        return await message.reply_text("❌ **Unauthorized.**")
     await update_fsub_config("is_enabled", False)
     await message.reply_text("❌ **Force Subscribe has been DISABLED.**")
+
 
 @Client.on_message(filters.command("setfsub"))
 async def add_dynamic_fsub(bot: Client, message: Message):
     target_chat_id = await get_target_chat(bot, message)
-    if not await verify_admin(bot, message, target_chat_id): return await message.reply_text("❌ **Unauthorized.**")
-    
-    if len(message.command) < 2: return await message.reply_text("⚙️ **Usage:** `/setfsub [channel_id]`")
+    if not await verify_admin(bot, message, target_chat_id):
+        return await message.reply_text("❌ **Unauthorized.**")
+
+    if len(message.command) < 2:
+        return await message.reply_text("⚙️ **Usage:** `/setfsub [channel_id]`")
 
     channel_id = message.command[1]
-    try: chat = await bot.get_chat(int(channel_id))
-    except Exception as e: return await message.reply_text(f"❌ **Failed to fetch channel.** Make sure the bot is an admin in `{channel_id}`.\n`Error: {e}`")
+    try:
+        chat = await bot.get_chat(int(channel_id))
+    except Exception as e:
+        return await message.reply_text(
+            f"❌ **Failed to fetch channel.** Make sure the bot is an admin in `{channel_id}`.\n`Error: {e}`"
+        )
 
     try:
-        user_id = message.from_user.id if message.from_user else getattr(message.sender_chat, "id", 0)
-        ask_msg = await message.reply_text(f"🎯 **Target:** `{chat.title}`\n\nDo you want this to be a **Join Request** channel?\n\nReply with `y` for Yes, or `n` for No (Normal invite).")
+        user_id = (
+            message.from_user.id
+            if message.from_user
+            else getattr(message.sender_chat, "id", 0)
+        )
+        ask_msg = await message.reply_text(
+            f"🎯 **Target:** `{chat.title}`\n\nDo you want this to be a **Join Request** channel?\n\nReply with `y` for Yes, or `n` for No (Normal invite)."
+        )
         resp = await native_listen(bot, message.chat.id, user_id, timeout=120)
 
-        try: await ask_msg.delete()
-        except Exception: pass
+        try:
+            await ask_msg.delete()
+        except Exception:
+            pass
         if resp:
-            try: await resp.delete()
-            except Exception: pass
+            try:
+                await resp.delete()
+            except Exception:
+                pass
 
-        if not resp or not resp.text: return await message.reply_text("❌ **Invalid response.** Please send text (y/n).")
+        if not resp or not resp.text:
+            return await message.reply_text(
+                "❌ **Invalid response.** Please send text (y/n)."
+            )
 
         is_req = resp.text.lower() == "y"
         fsub_type = "req" if is_req else "regular"
 
         config = await get_fsub_config()
         channels, max_count = config.get("channels", {}), config.get("max_count", 0)
-        active_count = len([c for c in channels.values() if c.get("status") == "active"])
+        active_count = len(
+            [c for c in channels.values() if c.get("status") == "active"]
+        )
         status = "pending" if max_count > 0 and active_count >= max_count else "active"
 
         invite = await bot.create_chat_invite_link(chat.id, creates_join_request=is_req)
 
-        channels[channel_id] = {"title": chat.title, "link": invite.invite_link, "target": None, "type": fsub_type, "status": status}
+        channels[channel_id] = {
+            "title": chat.title,
+            "link": invite.invite_link,
+            "target": None,
+            "type": fsub_type,
+            "status": status,
+        }
         await update_fsub_channels(channels)
 
-        await message.reply_text(f"✅ **Successfully Configured FSub!**\n\n📢 **Channel:** `{chat.title}`\n🔗 **Link:** {invite.invite_link}\n⚙️ **Type:** `{'Join Request' if is_req else 'Normal'}`\n🟢 **Status:** `{status.upper()}`", disable_web_page_preview=True)
-    except ChatAdminRequired: await message.reply_text("❌ **The bot is not an admin in that channel or lacks 'Invite Users' rights.**")
-    except asyncio.TimeoutError: await message.reply_text("⌛ **Timeout.** Setup cancelled.")
-    except Exception as e: await message.reply_text(f"❌ **Error:** {e}")
+        await message.reply_text(
+            f"✅ **Successfully Configured FSub!**\n\n📢 **Channel:** `{chat.title}`\n🔗 **Link:** {invite.invite_link}\n⚙️ **Type:** `{'Join Request' if is_req else 'Normal'}`\n🟢 **Status:** `{status.upper()}`",
+            disable_web_page_preview=True,
+        )
+    except ChatAdminRequired:
+        await message.reply_text(
+            "❌ **The bot is not an admin in that channel or lacks 'Invite Users' rights.**"
+        )
+    except asyncio.TimeoutError:
+        await message.reply_text("⌛ **Timeout.** Setup cancelled.")
+    except Exception as e:
+        await message.reply_text(f"❌ **Error:** {e}")
+
 
 @Client.on_message(filters.command("rmfsub"))
 async def rem_fsub(bot: Client, message: Message):
-    if not await verify_admin(bot, message): return await message.reply_text("❌ **Unauthorized.**")
-    if len(message.command) < 2: return await message.reply_text("⚙️ **Usage:** `/rmfsub [channel_id]`")
+    if not await verify_admin(bot, message):
+        return await message.reply_text("❌ **Unauthorized.**")
+    if len(message.command) < 2:
+        return await message.reply_text("⚙️ **Usage:** `/rmfsub [channel_id]`")
     channel_id = message.command[1]
 
     config = await get_fsub_config()
@@ -349,36 +556,55 @@ async def rem_fsub(bot: Client, message: Message):
     if channel_id in channels:
         del channels[channel_id]
         await update_fsub_channels(channels)
-        await message.reply_text(f"🗑️ **ForceSub channel `{channel_id}` removed permanently.**")
-    else: await message.reply_text("❌ Channel not found in FSub database.")
+        await message.reply_text(
+            f"🗑️ **ForceSub channel `{channel_id}` removed permanently.**"
+        )
+    else:
+        await message.reply_text("❌ Channel not found in FSub database.")
+
 
 @Client.on_message(filters.command("rmallfsub"))
 async def rem_all_fsub(bot: Client, message: Message):
-    if not await verify_admin(bot, message): return await message.reply_text("❌ **Unauthorized.**")
+    if not await verify_admin(bot, message):
+        return await message.reply_text("❌ **Unauthorized.**")
     await update_fsub_channels({})
-    await message.reply_text("🗑️ **ALL ForceSub channels have been removed and database is empty.**")
+    await message.reply_text(
+        "🗑️ **ALL ForceSub channels have been removed and database is empty.**"
+    )
+
 
 async def build_fsub_list_text(title_prefix: str, filter_status: str = None) -> str:
     config = await get_fsub_config()
     channels_dict = config.get("channels", {})
 
     channels = channels_dict.items()
-    if filter_status: channels = [(k, v) for k, v in channels if v.get("status") == filter_status]
+    if filter_status:
+        channels = [(k, v) for k, v in channels if v.get("status") == filter_status]
 
-    if not channels: return f"❌ No {title_prefix.lower()} ForceSub channels found."
+    if not channels:
+        return f"❌ No {title_prefix.lower()} ForceSub channels found."
     text = f"📋 **{title_prefix} ForceSub Channels:**\n\n"
     for idx, (cid, data) in enumerate(channels, 1):
-        status_emoji, req_type = "🟢" if data.get("status") == "active" else "🟡", "Req" if data.get("type") == "req" else "Normal"
+        status_emoji, req_type = "🟢" if data.get("status") == "active" else "🟡", (
+            "Req" if data.get("type") == "req" else "Normal"
+        )
         active_link = data.get("target") or data.get("link") or "No Link Generated"
         text += f"{idx}. {status_emoji} **{data.get('title', 'Unknown')}**\n├ ID: `{cid}`\n├ Type: `{req_type}`\n└ Link: {active_link}\n\n"
     return text
 
+
 @Client.on_message(filters.command("getallfsub"))
 async def get_all_fsub(bot: Client, message: Message):
-    if not await verify_admin(bot, message): return await message.reply_text("❌ **Unauthorized.**")
+    if not await verify_admin(bot, message):
+        return await message.reply_text("❌ **Unauthorized.**")
     config = await get_fsub_config()
-    max_count, rot_status = config.get("max_count", 0), "ON" if config.get("rotation_enabled", False) else "OFF"
-    text = f"⚙️ **Queue Limit:** `{max_count if max_count > 0 else 'Unlimited'}`\n🔄 **Auto-Rotation:** `{rot_status}`\n\n" + await build_fsub_list_text("All")
+    max_count, rot_status = config.get("max_count", 0), (
+        "ON" if config.get("rotation_enabled", False) else "OFF"
+    )
+    text = (
+        f"⚙️ **Queue Limit:** `{max_count if max_count > 0 else 'Unlimited'}`\n🔄 **Auto-Rotation:** `{rot_status}`\n\n"
+        + await build_fsub_list_text("All")
+    )
     await message.reply_text(text, disable_web_page_preview=True)
 
 
@@ -387,43 +613,78 @@ async def get_all_fsub(bot: Client, message: Message):
 # ============================================================
 @Client.on_chat_join_request()
 async def join_reqs_handler(bot: Client, join_req: ChatJoinRequest):
-    if not _db.isActive(): return
+    if not _db.isActive():
+        return
     user = join_req.from_user
-    try: await _db.add_user(user_id=user.id, first_name=user.first_name or "Unknown", username=user.username or "None", date=join_req.date)
-    except Exception as e: logger.error(f"Failed to log join request for {user.id}: {e}")
+    try:
+        await _db.add_user(
+            user_id=user.id,
+            first_name=user.first_name or "Unknown",
+            username=user.username or "None",
+            date=join_req.date,
+        )
+    except Exception as e:
+        logger.error(f"Failed to log join request for {user.id}: {e}")
+
 
 # ============================================================
 # 📊 JOIN REQUEST COMMANDS
 # ============================================================
 @Client.on_message(filters.command("totalrequests") & filters.private)
 async def total_requests(bot: Client, message: Message):
-    if not await verify_admin(bot, message): return await message.reply_text("❌ **Unauthorized.**")
-    if not _db.isActive(): return await message.reply_text("⚠️ Join request tracking is not active (DB inactive).")
+    if not await verify_admin(bot, message):
+        return await message.reply_text("❌ **Unauthorized.**")
+    if not _db.isActive():
+        return await message.reply_text(
+            "⚠️ Join request tracking is not active (DB inactive)."
+        )
     try:
         total = await _db.total_requests()
         await message.reply_text(f"📨 **Total Join Requests:** <code>{total}</code>")
-    except Exception as e: await message.reply_text(f"⚠️ Error: <code>{e}</code>")
+    except Exception as e:
+        await message.reply_text(f"⚠️ Error: <code>{e}</code>")
+
 
 @Client.on_message(filters.command("purgerequests") & filters.private)
 async def purge_requests(bot: Client, message: Message):
-    if not await verify_admin(bot, message): return await message.reply_text("❌ **Unauthorized.**")
-    if not _db.isActive(): return await message.reply_text("⚠️ Join request tracking is not active (DB inactive).")
+    if not await verify_admin(bot, message):
+        return await message.reply_text("❌ **Unauthorized.**")
+    if not _db.isActive():
+        return await message.reply_text(
+            "⚠️ Join request tracking is not active (DB inactive)."
+        )
 
-    ask_msg = await message.reply_text("⚠️ **Are you sure you want to delete all join requests? (y/n)**")
+    ask_msg = await message.reply_text(
+        "⚠️ **Are you sure you want to delete all join requests? (y/n)**"
+    )
     try:
-        user_id = message.from_user.id if message.from_user else getattr(message.sender_chat, "id", 0)
+        user_id = (
+            message.from_user.id
+            if message.from_user
+            else getattr(message.sender_chat, "id", 0)
+        )
         resp = await native_listen(bot, message.chat.id, user_id, timeout=60)
 
-        try: await ask_msg.delete()
-        except Exception: pass
+        try:
+            await ask_msg.delete()
+        except Exception:
+            pass
         if resp:
-            try: await resp.delete()
-            except Exception: pass
+            try:
+                await resp.delete()
+            except Exception:
+                pass
 
-        if not resp or not resp.text: return
+        if not resp or not resp.text:
+            return
         if resp.text.lower() == "y":
             count = await _db.clear_all()
-            await message.reply_text(f"✅ All join requests purged successfully. (<code>{count}</code> deleted)")
-        else: await message.reply_text("❌ Operation cancelled.")
-    except asyncio.TimeoutError: await message.reply_text("⌛ Timeout: No response, operation cancelled.")
-    except Exception as e: await message.reply_text(f"⚠️ Error clearing requests: <code>{e}</code>")
+            await message.reply_text(
+                f"✅ All join requests purged successfully. (<code>{count}</code> deleted)"
+            )
+        else:
+            await message.reply_text("❌ Operation cancelled.")
+    except asyncio.TimeoutError:
+        await message.reply_text("⌛ Timeout: No response, operation cancelled.")
+    except Exception as e:
+        await message.reply_text(f"⚠️ Error clearing requests: <code>{e}</code>")
