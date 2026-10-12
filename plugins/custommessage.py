@@ -3,7 +3,7 @@ from logging import ERROR, getLogger
 
 import requests
 from motor.motor_asyncio import AsyncIOMotorClient
-from pyrogram import Client, filters
+from pyrogram import Client, filters, enums
 from pyrogram.types import Message
 
 import info
@@ -31,24 +31,47 @@ async def save_msg_data(key: str, value: str):
         )
 
 
+# ============================================================
+# 👑 FULL POWER ADMIN CHECKER (GLOBAL + CHAT + ANONYMOUS)
+# ============================================================
 def get_admin_list():
     raw_admins = getattr(info, "ADMINS", [])
-    if isinstance(raw_admins, str):
-        return [
-            int(x)
-            for x in raw_admins.replace(",", " ").split()
-            if x.strip().lstrip("-").isdigit()
-        ]
-    elif isinstance(raw_admins, int):
-        return [raw_admins]
-    elif isinstance(raw_admins, list):
-        return [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
-    return []
+    if isinstance(raw_admins, (str, int)):
+        raw_admins = str(raw_admins).replace(",", " ").split()
+    return [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
 
 
-admin_filter = filters.create(
-    lambda _, __, msg: bool(msg.from_user and msg.from_user.id in get_admin_list())
-)
+async def is_user_admin(client: Client, message: Message):
+    admin_list = get_admin_list()
+
+    # 1. Global Admin Check (Direct User)
+    if message.from_user and message.from_user.id in admin_list:
+        return True
+
+    # 2. Global Admin Check (Anonymous/Channel sending as Chat)
+    if message.sender_chat and message.sender_chat.id in admin_list:
+        return True
+
+    # 3. Group Admin Check (Normal & Anonymous Admins)
+    if message.chat and message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
+        if message.sender_chat and message.sender_chat.id == message.chat.id:
+            return True
+            
+        if message.from_user:
+            try:
+                member = await client.get_chat_member(message.chat.id, message.from_user.id)
+                return member.status in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]
+            except Exception:
+                pass
+
+    return False
+
+
+async def admin_check(_, client: Client, message: Message):
+    return await is_user_admin(client, message)
+
+
+admin_filter = filters.create(admin_check)
 
 
 def _upload_sync(file_bytes):
@@ -58,6 +81,7 @@ def _upload_sync(file_bytes):
             "https://catbox.moe/user/api.php",
             data={"reqtype": "fileupload"},
             files={"fileToUpload": ("img.jpg", file_bytes, "image/jpeg")},
+            headers=headers,
             timeout=6,
         )
         if res.status_code == 200 and res.text.startswith("http"):
