@@ -22,6 +22,7 @@ last_backup_time = None
 next_backup_time = None
 scheduler_running = False
 
+
 # ============================================================
 # 👑 FULL POWER ADMIN CHECKER (GLOBAL + CHAT + ANONYMOUS)
 # ============================================================
@@ -44,16 +45,24 @@ async def is_user_admin(client: Client, message: Message):
         return True
 
     # 3. Group Admin Check (Normal & Anonymous Admins)
-    if message.chat and message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
+    if message.chat and message.chat.type in [
+        enums.ChatType.GROUP,
+        enums.ChatType.SUPERGROUP,
+    ]:
         # If the sender is the group itself, it's a Group Anonymous Admin
         if message.sender_chat and message.sender_chat.id == message.chat.id:
             return True
-            
+
         # If it's a Normal Admin in this group
         if message.from_user:
             try:
-                member = await client.get_chat_member(message.chat.id, message.from_user.id)
-                return member.status in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]
+                member = await client.get_chat_member(
+                    message.chat.id, message.from_user.id
+                )
+                return member.status in [
+                    enums.ChatMemberStatus.ADMINISTRATOR,
+                    enums.ChatMemberStatus.OWNER,
+                ]
             except Exception:
                 pass
 
@@ -115,7 +124,11 @@ async def db_backup_cmd(bot: Client, message: Message):
     status_msg = await message.reply_text("⏳ **Generating database backup...**")
     try:
         file_path = await generate_backup_file()
-        mention = message.from_user.mention if message.from_user else (message.sender_chat.title if message.sender_chat else "Admin")
+        mention = (
+            message.from_user.mention
+            if message.from_user
+            else (message.sender_chat.title if message.sender_chat else "Admin")
+        )
         caption = f"✅ **Database Backup Complete!**\n\n📅 Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n👤 **Requested By:** {mention}"
         await message.reply_document(document=file_path, caption=caption)
         os.remove(file_path)
@@ -127,8 +140,10 @@ async def db_backup_cmd(bot: Client, message: Message):
 @Client.on_message(filters.command("dbrestore") & admin_filter)
 async def db_restore_cmd(bot: Client, message: Message):
     if not message.reply_to_message or not message.reply_to_message.document:
-        return await message.reply_text("⚙️ **Usage:**\nReply to a previously generated backup `.json` file with `/dbrestore`.")
-        
+        return await message.reply_text(
+            "⚙️ **Usage:**\nReply to a previously generated backup `.json` file with `/dbrestore`."
+        )
+
     doc = message.reply_to_message.document
     if not doc.file_name.endswith(".json"):
         return await message.reply_text("❌ **Invalid File Format!**")
@@ -138,7 +153,7 @@ async def db_restore_cmd(bot: Client, message: Message):
         file_path = await message.reply_to_message.download()
         with open(file_path, "r", encoding="utf-8") as f:
             backup_data = loads(f.read())
-            
+
         restored_colls = restored_docs = 0
 
         for coll_name, docs in backup_data.items():
@@ -149,7 +164,9 @@ async def db_restore_cmd(bot: Client, message: Message):
                 restored_docs += len(docs)
 
         os.remove(file_path)
-        await status_msg.edit_text(f"✅ **Database Restored Successfully!**\n\n📁 **Collections:** `{restored_colls}`\n📄 **Documents:** `{restored_docs}`")
+        await status_msg.edit_text(
+            f"✅ **Database Restored Successfully!**\n\n📁 **Collections:** `{restored_colls}`\n📄 **Documents:** `{restored_docs}`"
+        )
     except Exception as e:
         await status_msg.edit_text(f"⚠️ **Restore Failed!**\n\nError: `{e}`")
         if "file_path" in locals() and os.path.exists(file_path):
@@ -176,12 +193,16 @@ async def db_stats_cmd(bot: Client, message: Message):
 async def db_schedule_cmd(bot: Client, message: Message):
     if not scheduler_running:
         asyncio.create_task(auto_backup_task(bot))
-        return await message.reply_text("✅ **Auto-backup scheduler initiated!**\nThe first automated backup will run in 24 hours.")
+        return await message.reply_text(
+            "✅ **Auto-backup scheduler initiated!**\nThe first automated backup will run in 24 hours."
+        )
 
     if next_backup_time:
         time_left = next_backup_time - time.time()
         hours, remainder = divmod(int(time_left), 3600)
         minutes, seconds = divmod(remainder, 60)
-        await message.reply_text(f"⏰ **Scheduled Backup Status**\n\n🟢 **Status:** `Active`\n⏳ **Next Backup In:** `{hours}h {minutes}m {seconds}s`")
+        await message.reply_text(
+            f"⏰ **Scheduled Backup Status**\n\n🟢 **Status:** `Active`\n⏳ **Next Backup In:** `{hours}h {minutes}m {seconds}s`"
+        )
     else:
         await message.reply_text("⏰ Scheduler is active but time is calculating...")
