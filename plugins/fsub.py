@@ -432,6 +432,7 @@ async def disable_fsub(bot: Client, message: Message):
     await update_fsub_config("is_enabled", False)
     await message.reply_text("❌ **Force Subscribe has been DISABLED.**")
 
+
 @Client.on_message(filters.command("setfsub") & admin_filter)
 async def add_dynamic_fsub(bot: Client, message: Message):
     if len(message.command) < 2:
