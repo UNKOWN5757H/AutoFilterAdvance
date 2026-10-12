@@ -595,39 +595,6 @@ async def start_post_session(
         await client.send_message(message.chat.id, f"❌ **SESSION ERROR:**\n`{e}`")
 
 
-@Client.on_message(filters.command("resumepost") & admin_filter, group=-4)
-async def resume_post_cmd(client: Client, message: Message):
-    if drafts_db is None:
-        return await message.reply("❌ DB not configured.")
-    user_id = get_uid(message)
-    draft = await drafts_db.find_one({"_id": user_id})
-    if not draft:
-        return await message.reply("⚠️ No saved draft found.")
-
-    reconstructed_buttons = []
-    for row in draft.get("buttons", []):
-        row_btns = []
-        for b_dict in row:
-            kwargs = {k: v for k, v in b_dict.items() if v is not None}
-            row_btns.append(create_btn(**kwargs))
-        reconstructed_buttons.append(row_btns)
-    draft["buttons"] = reconstructed_buttons
-
-    if draft.get("last_preview_message_id"):
-        try:
-            await client.delete_messages(
-                draft.get("original_chat_id"), draft.get("last_preview_message_id")
-            )
-        except Exception:
-            pass
-
-    draft["last_preview_message_id"] = None
-    post_sessions[user_id] = draft
-    asyncio.create_task(expire_post_session(client, user_id, 1800))
-    await update_post_preview(client, user_id, message.chat.id, force_resend=True)
-    await message.reply("✅ Draft successfully restored from Database!")
-
-
 @Client.on_message(filters.command("editpost") & admin_filter, group=-4)
 async def edit_post_cmd(client: Client, message: Message):
     try:
