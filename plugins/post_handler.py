@@ -20,7 +20,6 @@ from pyrogram.types import (
 )
 
 import info
-from info import ADMINS
 from plugins.Imdbposter import get_movie_detailsx
 from utils import temp
 
