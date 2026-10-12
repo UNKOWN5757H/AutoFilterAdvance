@@ -557,41 +557,6 @@ async def extract_and_edit_live_post(client: Client, message: Message, edit_type
         await message.reply(f"❌ Error during live edit: {e}")
 
 
-@Client.on_message(filters.command(["editposttitle"]) & admin_filter, group=-4)
-async def live_edit_title(client: Client, message: Message):
-    await extract_and_edit_live_post(client, message, "title")
-
-
-@Client.on_message(filters.command(["editpostyear"]) & admin_filter, group=-4)
-async def live_edit_year(client: Client, message: Message):
-    await extract_and_edit_live_post(client, message, "year")
-
-
-@Client.on_message(filters.command(["editpostdirect"]) & admin_filter, group=-4)
-async def live_edit_direct(client: Client, message: Message):
-    await extract_and_edit_live_post(client, message, "direct")
-
-
-@Client.on_message(filters.command(["editpostbutton"]) & admin_filter, group=-4)
-async def live_edit_button(client: Client, message: Message):
-    await extract_and_edit_live_post(client, message, "button")
-
-
-@Client.on_message(filters.command(["editpostbuttoncolour"]) & admin_filter, group=-4)
-async def live_edit_btn_color(client: Client, message: Message):
-    await extract_and_edit_live_post(client, message, "buttoncolour")
-
-
-@Client.on_message(filters.command(["editpostimage"]) & admin_filter, group=-4)
-async def live_edit_image(client: Client, message: Message):
-    await extract_and_edit_live_post(client, message, "image")
-
-
-@Client.on_message(filters.command(["editpostnormalimage"]) & admin_filter, group=-4)
-async def live_edit_nimg(client: Client, message: Message):
-    await extract_and_edit_live_post(client, message, "normalimage")
-
-
 # ============================================================
 # 📝 TYPE 1: ONGOING DRAFT EDITORS (APPLIES TO /post SESSION)
 # ============================================================
@@ -794,63 +759,6 @@ async def cmd_edit_post_direct(client: Client, message: Message):
     await save_session_to_db(uid, post_sessions[uid])
     await update_post_preview(client, uid, message.chat.id, force_resend=False)
     await message.reply("✅ Direct Search button text updated!")
-
-
-@Client.on_message(
-    filters.command(["editimage", "editipostmage"]) & admin_filter, group=-4
-)
-async def cmd_edit_img(client: Client, message: Message):
-    uid = get_uid(message)
-    if uid not in post_sessions:
-        return await message.reply("⚠️ No active session.")
-
-    if message.reply_to_message and message.reply_to_message.photo:
-        status_msg = await message.reply_text(
-            "⏳ Uploading image (Testing 10 cloud hosters)..."
-        )
-        from plugins.auto_post import upload_image_safely
-
-        url, err = await upload_image_safely(client, message.reply_to_message)
-        if url:
-            post_sessions[uid]["custom_poster"] = url
-            if not post_sessions[uid].get("edit_target"):
-                post_sessions[uid]["photo_mode"] = False
-            await status_msg.edit_text("✅ Poster updated successfully!")
-        else:
-            post_sessions[uid]["custom_poster"] = message.reply_to_message.photo.file_id
-            post_sessions[uid]["photo_mode"] = True
-            await status_msg.edit_text(
-                "⚠️ Cloud blocked. Switched to 'Normal Image' Mode!"
-            )
-    elif len(message.command) > 1:
-        post_sessions[uid]["custom_poster"] = message.text.split(None, 1)[1].strip()
-        await message.reply("✅ Poster URL updated!")
-    else:
-        return await message.reply(
-            "⚠️ Usage: Reply to an image or provide an Image URL."
-        )
-    await update_post_preview(client, uid, message.chat.id, force_resend=True)
-
-
-@Client.on_message(filters.command(["editnormalimage"]) & admin_filter, group=-4)
-async def cmd_edit_nimg(client: Client, message: Message):
-    uid = get_uid(message)
-    if uid not in post_sessions:
-        return await message.reply("⚠️ No active session.")
-    if message.reply_to_message and message.reply_to_message.photo:
-        post_sessions[uid]["custom_poster"] = message.reply_to_message.photo.file_id
-        post_sessions[uid]["photo_mode"] = True
-        await message.reply_text("✅ Normal Image set instantly!")
-    elif len(message.command) > 1:
-        post_sessions[uid]["custom_poster"] = message.text.split(None, 1)[1].strip()
-        post_sessions[uid]["photo_mode"] = True
-        await message.reply("✅ Normal Image URL set!")
-    else:
-        return await message.reply(
-            "⚠️ Usage: Reply to an image or provide an Image URL."
-        )
-    await update_post_preview(client, uid, message.chat.id, force_resend=True)
-
 
 # ============================================================
 # START POST SESSION
