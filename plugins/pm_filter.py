@@ -9,6 +9,7 @@ from typing import Dict, Optional, Tuple
 
 from motor.motor_asyncio import AsyncIOMotorClient
 from pyrogram import Client, enums, filters
+from pyrogram.enums import ButtonStyle
 from pyrogram.errors import (
     ButtonUrlInvalid,
     ChatWriteForbidden,
@@ -20,7 +21,6 @@ from pyrogram.errors import (
     QueryIdInvalid,
     UserIsBlocked,
 )
-from pyrogram.enums import ButtonStyle
 from pyrogram.types import (
     CallbackQuery,
     InlineKeyboardButton,
@@ -628,6 +628,7 @@ async def pagination_handler(bot: Client, query: CallbackQuery):
         await query.answer()
     except QueryIdInvalid:
         pass
+
 
 # ============================================================
 # 🗄️ DUAL-LAYER DATABASE ADAPTER
