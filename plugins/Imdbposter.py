@@ -9,8 +9,8 @@ from io import BytesIO
 from logging import ERROR, getLogger
 
 import aiohttp
+from admincore import extract_user, get_file_id, get_poster
 from PIL import Image
-
 from pyrogram import Client, enums, filters
 from pyrogram.errors import (
     MediaEmpty,
@@ -24,7 +24,6 @@ from pyrogram.types import (
     InlineKeyboardMarkup,
     Message,
 )
-from admincore import extract_user, get_file_id, get_poster
 
 from info import IMAGE_FETCH, MAX_LIST_ELM, TMDB_API_KEY
 
@@ -46,6 +45,7 @@ IMDB_TEMPLATE = (
 class SafeDict(dict):
     def __missing__(self, key):
         return "{" + key + "}"
+
 
 LONG_IMDB_DESCRIPTION = False
 
