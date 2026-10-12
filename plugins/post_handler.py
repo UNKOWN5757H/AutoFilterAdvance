@@ -37,6 +37,7 @@ try:
 except Exception as e:
     logger.error(f"Failed to init drafts_db: {e}")
 
+
 def btn_to_dict(btn: InlineKeyboardButton):
     return {
         "text": getattr(btn, "text", ""),
@@ -61,10 +62,65 @@ TEMPLATES = {
     "divider_list": """🎬 <b>{title} {year}</b>\n━━━━━━━━━━━━━━━━━━\n<blockquote>{LANGUAGES}\n{RESOLUTIONS}\n{OTT_PLATFORMS}</blockquote>""",
 }
 
-LANGUAGES = ["Kannada", "English", "Gujarati", "Hindi", "Bengali", "Malayalam", "Marathi", "Punjabi", "Tamil", "Telugu", "Urdu", "#NotAvailable"]
-RESOLUTIONS = ["480p", "720p", "1080p", "1440p", "2160p", "4k", "BluRay", "BDRip", "WEB-DL", "HDRip", "HEVC", "#NotAvailable"]
-GENRES = ["Action", "Adventure", "Animation", "Biography", "Comedy", "Crime", "Documentary", "Drama", "Family", "Fantasy", "Horror", "Romance", "Sci-Fi", "Thriller", "#NotAvailable"]
-OTT_PLATFORMS = ["Aha", "ALTBalaji", "JioHotstar", "JioCinema", "MXPlayer", "SonyLIV", "SunNXT", "Voot", "Zee5", "AmazonPrime", "Netflix", "NotAvailable"]
+LANGUAGES = [
+    "Kannada",
+    "English",
+    "Gujarati",
+    "Hindi",
+    "Bengali",
+    "Malayalam",
+    "Marathi",
+    "Punjabi",
+    "Tamil",
+    "Telugu",
+    "Urdu",
+    "#NotAvailable",
+]
+RESOLUTIONS = [
+    "480p",
+    "720p",
+    "1080p",
+    "1440p",
+    "2160p",
+    "4k",
+    "BluRay",
+    "BDRip",
+    "WEB-DL",
+    "HDRip",
+    "HEVC",
+    "#NotAvailable",
+]
+GENRES = [
+    "Action",
+    "Adventure",
+    "Animation",
+    "Biography",
+    "Comedy",
+    "Crime",
+    "Documentary",
+    "Drama",
+    "Family",
+    "Fantasy",
+    "Horror",
+    "Romance",
+    "Sci-Fi",
+    "Thriller",
+    "#NotAvailable",
+]
+OTT_PLATFORMS = [
+    "Aha",
+    "ALTBalaji",
+    "JioHotstar",
+    "JioCinema",
+    "MXPlayer",
+    "SonyLIV",
+    "SunNXT",
+    "Voot",
+    "Zee5",
+    "AmazonPrime",
+    "Netflix",
+    "NotAvailable",
+]
 
 try:
     from pyrogram.enums import ButtonStyle
