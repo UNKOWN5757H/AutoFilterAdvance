@@ -50,6 +50,7 @@ def get_admin_list():
         raw_admins = str(raw_admins).replace(",", " ").split()
     return [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
 
+
 async def is_user_admin(client: Client, message: Message):
     admin_list = get_admin_list()
 
@@ -62,23 +63,33 @@ async def is_user_admin(client: Client, message: Message):
         return True
 
     # 3. Group Admin Check (Normal & Anonymous Admins)
-    if message.chat and message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
+    if message.chat and message.chat.type in [
+        enums.ChatType.GROUP,
+        enums.ChatType.SUPERGROUP,
+    ]:
         # If the sender is the group itself, it's a Group Anonymous Admin
         if message.sender_chat and message.sender_chat.id == message.chat.id:
             return True
-            
+
         # If it's a Normal Admin in this group
         if message.from_user:
             try:
-                member = await client.get_chat_member(message.chat.id, message.from_user.id)
-                return member.status in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]
+                member = await client.get_chat_member(
+                    message.chat.id, message.from_user.id
+                )
+                return member.status in [
+                    enums.ChatMemberStatus.ADMINISTRATOR,
+                    enums.ChatMemberStatus.OWNER,
+                ]
             except Exception:
                 pass
 
     return False
 
+
 async def admin_check(_, client: Client, message: Message):
     return await is_user_admin(client, message)
+
 
 admin_filter = filters.create(admin_check)
 
@@ -217,7 +228,9 @@ async def send_and_schedule_delete(bot: Client, chat_id: int, message: Message):
 async def user_broadcast(bot: Client, message: Message):
     b_msg = message.reply_to_message
     if not b_msg:
-        return await message.reply_text("⚠️ **Reply to the message you want to broadcast.**")
+        return await message.reply_text(
+            "⚠️ **Reply to the message you want to broadcast.**"
+        )
 
     status_msg = await message.reply_text("⏳ **Fetching user database...**")
 
@@ -292,7 +305,9 @@ async def user_broadcast(bot: Client, message: Message):
 async def group_broadcast(bot: Client, message: Message):
     b_msg = message.reply_to_message
     if not b_msg:
-        return await message.reply_text("⚠️ **Reply to the message you want to broadcast.**")
+        return await message.reply_text(
+            "⚠️ **Reply to the message you want to broadcast.**"
+        )
 
     status_msg = await message.reply_text("⏳ **Fetching chat database...**")
 
@@ -366,7 +381,9 @@ async def group_broadcast(bot: Client, message: Message):
 # ============================================================
 # 📢 PROMOTIONS MANAGEMENT
 # ============================================================
-@Client.on_message(filters.command("addpromo") & admin_filter & (filters.private | filters.group))
+@Client.on_message(
+    filters.command("addpromo") & admin_filter & (filters.private | filters.group)
+)
 async def add_promo_handler(bot: Client, message: Message):
     text = message.text.split(None, 1)[1] if len(message.command) > 1 else ""
     match = re.search(r'"([^"]+)"\s+(https?://\S+)', text)
@@ -387,7 +404,9 @@ async def add_promo_handler(bot: Client, message: Message):
     )
 
 
-@Client.on_message(filters.command("delpromo") & admin_filter & (filters.private | filters.group))
+@Client.on_message(
+    filters.command("delpromo") & admin_filter & (filters.private | filters.group)
+)
 async def del_promo_handler(bot: Client, message: Message):
     if len(message.command) < 2:
         return await message.reply_text(
@@ -409,12 +428,16 @@ async def del_promo_handler(bot: Client, message: Message):
         )
 
 
-@Client.on_message(filters.command("listpromos") & admin_filter & (filters.private | filters.group))
+@Client.on_message(
+    filters.command("listpromos") & admin_filter & (filters.private | filters.group)
+)
 async def list_promo_handler(bot: Client, message: Message):
     promos = await _plugin_db.get_all_promos()
 
     if not promos:
-        return await message.reply_text("⚠️ **No active promotional links found in the database.**")
+        return await message.reply_text(
+            "⚠️ **No active promotional links found in the database.**"
+        )
 
     text = "📢 **Current Promotional Links:**\n\n"
     for i, p in enumerate(promos, 1):
