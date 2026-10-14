@@ -23,8 +23,10 @@ from utils import temp
 try:
     from plugins.Imdbposter import get_movie_detailsx
 except ImportError:
+
     async def get_movie_detailsx(name: str):
         return None
+
 
 try:
     from database.users_chats_db import db as _db
@@ -273,7 +275,11 @@ async def is_user_admin(client: Client, message: Message) -> bool:
                 ]
             except Exception:
                 pass
-    if message.chat and message.chat.type == enums.ChatType.PRIVATE and message.from_user:
+    if (
+        message.chat
+        and message.chat.type == enums.ChatType.PRIVATE
+        and message.from_user
+    ):
         try:
             if _active_db is not None:
                 doc = await _active_db.find_one({"user_id": str(message.from_user.id)})
@@ -794,7 +800,11 @@ async def tmdb_selector_callback(client: Client, query: CallbackQuery):
     action = parts[0]
 
     if action == "p_cancel":
-        session_uid = int(parts[1]) if len(parts) > 1 and parts[1].lstrip("-").isdigit() else get_cb_uid(query)
+        session_uid = (
+            int(parts[1])
+            if len(parts) > 1 and parts[1].lstrip("-").isdigit()
+            else get_cb_uid(query)
+        )
         TEMP_SEARCH.pop(session_uid, None)
         await query.answer("Cancelled.")
         return await query.message.edit_text("❌ Cancelled.")
@@ -1544,10 +1554,17 @@ async def post_callbacks(client: Client, query: CallbackQuery):
             session["caption"] = None
         elif action == "edit_caption":
             response = await get_user_input(
-                client, query, session_id, "✏️ Send the new caption text (HTML supported):"
+                client,
+                query,
+                session_id,
+                "✏️ Send the new caption text (HTML supported):",
             )
             if response and response.text:
-                session["caption"] = response.text.html if hasattr(response.text, "html") else response.text
+                session["caption"] = (
+                    response.text.html
+                    if hasattr(response.text, "html")
+                    else response.text
+                )
                 session["is_manual_caption"] = True
         elif action == "set_poster":
             response = await get_user_input(
@@ -1606,7 +1623,11 @@ async def post_callbacks(client: Client, query: CallbackQuery):
                 elif text_input == "/default":
                     session["watermark"] = DEFAULT_WATERMARK
                 else:
-                    session["watermark"] = response.text.html if hasattr(response.text, "html") else response.text
+                    session["watermark"] = (
+                        response.text.html
+                        if hasattr(response.text, "html")
+                        else response.text
+                    )
         elif action == "edit_buttons":
             response = await get_user_input(
                 client,
@@ -1933,7 +1954,9 @@ async def handle_remove_buttons_menu(query, session_id: int):
         pass
 
 
-async def get_user_input(client, query: CallbackQuery, session_id: int, prompt_text: str):
+async def get_user_input(
+    client, query: CallbackQuery, session_id: int, prompt_text: str
+):
     try:
         await query.answer()
     except Exception:
