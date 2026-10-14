@@ -319,8 +319,19 @@ def _build_caption_dashboard() -> tuple[str, InlineKeyboardMarkup]:
     fsub_status = "🟢 Custom Set" if fsub_msg else "⚪️ Default"
     nf_status = "🟢 Custom Set" if nf_msg else "⚪️ Default"
 
-    preview_cap = html.escape(str(cap)[:180] + ("..." if cap and len(str(cap)) > 180 else "")) if cap else "<i>Default</i>"
-    preview_plus = html.escape(str(cap_plus)[:120] + ("..." if cap_plus and len(str(cap_plus)) > 120 else "")) if cap_plus else "<i>None</i>"
+    preview_cap = (
+        html.escape(str(cap)[:180] + ("..." if cap and len(str(cap)) > 180 else ""))
+        if cap
+        else "<i>Default</i>"
+    )
+    preview_plus = (
+        html.escape(
+            str(cap_plus)[:120]
+            + ("..." if cap_plus and len(str(cap_plus)) > 120 else "")
+        )
+        if cap_plus
+        else "<i>None</i>"
+    )
 
     text = (
         "📝 <b>Custom Caption & Message Manager</b>\n"
@@ -347,12 +358,8 @@ def _build_caption_dashboard() -> tuple[str, InlineKeyboardMarkup]:
                 ),
             ],
             [
-                InlineKeyboardButton(
-                    "🔄 Refresh", callback_data="cap_ctl:refresh"
-                ),
-                InlineKeyboardButton(
-                    "🔐 Close", callback_data="cap_ctl:close"
-                ),
+                InlineKeyboardButton("🔄 Refresh", callback_data="cap_ctl:refresh"),
+                InlineKeyboardButton("🔐 Close", callback_data="cap_ctl:close"),
             ],
         ]
     )
@@ -364,9 +371,7 @@ def _build_caption_dashboard() -> tuple[str, InlineKeyboardMarkup]:
 )
 async def caption_dashboard_cmd(bot: Client, message: Message):
     text, markup = _build_caption_dashboard()
-    await message.reply_text(
-        text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
-    )
+    await message.reply_text(text, reply_markup=markup, parse_mode=enums.ParseMode.HTML)
 
 
 @Client.on_callback_query(

@@ -93,10 +93,15 @@ async def is_callback_admin(client: Client, query: CallbackQuery) -> bool:
         return False
     if await is_global_admin(query.from_user.id):
         return True
-    if query.message and query.message.chat and query.message.chat.type in [
-        enums.ChatType.GROUP,
-        enums.ChatType.SUPERGROUP,
-    ]:
+    if (
+        query.message
+        and query.message.chat
+        and query.message.chat.type
+        in [
+            enums.ChatType.GROUP,
+            enums.ChatType.SUPERGROUP,
+        ]
+    ):
         try:
             member = await client.get_chat_member(
                 query.message.chat.id, query.from_user.id
@@ -154,7 +159,11 @@ async def generate_backup_file(exclude_media: bool = False) -> tuple[str, int, i
     for coll_name in collections:
         if coll_name.startswith("system."):
             continue
-        if exclude_media and coll_name.lower() in (media_col_name, "telegram_files", "media"):
+        if exclude_media and coll_name.lower() in (
+            media_col_name,
+            "telegram_files",
+            "media",
+        ):
             continue
         docs = await _BOT_DB[coll_name].find({}).to_list(length=None)
         backup_data[coll_name] = docs
@@ -264,12 +273,12 @@ async def _build_backup_dashboard() -> tuple[str, InlineKeyboardMarkup]:
         [
             [
                 InlineKeyboardButton("📥 Full Backup", callback_data="db_bk:full"),
-                InlineKeyboardButton(
-                    "⚡ Settings Only", callback_data="db_bk:light"
-                ),
+                InlineKeyboardButton("⚡ Settings Only", callback_data="db_bk:light"),
             ],
             [
-                InlineKeyboardButton("📊 Collection Stats", callback_data="db_bk:stats"),
+                InlineKeyboardButton(
+                    "📊 Collection Stats", callback_data="db_bk:stats"
+                ),
                 InlineKeyboardButton(sched_btn_text, callback_data="db_bk:sched"),
             ],
             [
@@ -284,9 +293,7 @@ async def _build_backup_dashboard() -> tuple[str, InlineKeyboardMarkup]:
 # ============================================================
 # 🛠️ DATABASE MANAGEMENT COMMANDS & CALLBACKS
 # ============================================================
-@Client.on_message(
-    filters.command(["backup", "dbpanel"]) & filters.incoming
-)
+@Client.on_message(filters.command(["backup", "dbpanel"]) & filters.incoming)
 async def backup_dashboard_cmd(bot: Client, message: Message):
     if not await quick_admin_check(bot, message):
         return await message.reply_text(
@@ -294,9 +301,7 @@ async def backup_dashboard_cmd(bot: Client, message: Message):
             parse_mode=enums.ParseMode.HTML,
         )
     text, markup = await _build_backup_dashboard()
-    await message.reply_text(
-        text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
-    )
+    await message.reply_text(text, reply_markup=markup, parse_mode=enums.ParseMode.HTML)
 
 
 @Client.on_message(filters.command("dbbackup") & filters.incoming)
@@ -307,10 +312,11 @@ async def db_backup_cmd(bot: Client, message: Message):
             parse_mode=enums.ParseMode.HTML,
         )
 
-    exclude_media = (
-        len(message.command) > 1
-        and message.command[1].strip().lower() in ["light", "settings", "config"]
-    )
+    exclude_media = len(message.command) > 1 and message.command[1].strip().lower() in [
+        "light",
+        "settings",
+        "config",
+    ]
     status_msg = await message.reply_text(
         "⏳ <b>Generating database backup...</b>",
         parse_mode=enums.ParseMode.HTML,

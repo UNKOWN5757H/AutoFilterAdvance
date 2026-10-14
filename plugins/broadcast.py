@@ -599,7 +599,13 @@ async def group_broadcast(bot: Client, message: Message):
     pin_mode = len(message.command) > 1 and "pin" in message.command[1].lower()
 
     cancel_kb = InlineKeyboardMarkup(
-        [[InlineKeyboardButton("🛑 Stop Broadcast", callback_data="bcast_cancel:group")]]
+        [
+            [
+                InlineKeyboardButton(
+                    "🛑 Stop Broadcast", callback_data="bcast_cancel:group"
+                )
+            ]
+        ]
     )
     status_msg = await message.reply_text(
         "⏳ <b>Fetching chat database...</b>",
@@ -782,7 +788,7 @@ async def _build_promos_panel() -> tuple[str, InlineKeyboardMarkup]:
         text = (
             "⚠️ <b>No active promotional links found in the database.</b>\n\n"
             "💡 <b>Add one using:</b>\n"
-            "<code>/addpromo \"Button Text\" https://t.me/your_channel</code>"
+            '<code>/addpromo "Button Text" https://t.me/your_channel</code>'
         )
         markup = InlineKeyboardMarkup(
             [[InlineKeyboardButton("🔐 Close", callback_data="promo_ctl:close")]]
@@ -823,7 +829,7 @@ async def add_promo_handler(bot: Client, message: Message):
     if not btn_text or not btn_url:
         return await message.reply_text(
             "⚙️ <b>Usage:</b>\n"
-            "• <code>/addpromo \"Button Text\" https://example.com</code>\n"
+            '• <code>/addpromo "Button Text" https://example.com</code>\n'
             "• Or: <code>/addpromo Button Text | https://t.me/channel</code>",
             parse_mode=enums.ParseMode.HTML,
         )
