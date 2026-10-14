@@ -132,7 +132,13 @@ Seasons and Episodes are automatically collapsed into clean "Season X" folders.
 Control what words are removed from inline button filenames.
 • <code>/setcleanfilename [word1, word2, @channel]</code> - Set words to remove.
 • <code>/defaultcleanfilename</code> - Revert to standard repo default (removes mkv, mp4, sandalwood).
-• <code>/remcleanfilename</code> - Disable clean filename completely."""
+• <code>/remcleanfilename</code> - Disable clean filename completely.
+• <code>/autotranslate</code> - enable or disable.
+• <code>/enautotranslate</code> - enable auto translate. 
+• <code>/diautotranslate</code> - disable auto translate.
+• <code>/multichoice</code> - enable or disable.
+• <code>/enmultichoice</code> - enable multi choice.
+• <code>/dimultichoice</code> - disable multi choice."""
 
     # ==========================================
     # 📱 FORCE SUBSCRIBE
@@ -330,34 +336,6 @@ Configure what the bot says when someone messages it directly in PM.
 • <code>/setpmbutton [Text | URL | Color]</code> - Set colored PM button (green, red, blue).
 • <code>/rempmbutton</code> - Remove PM button."""
 
-    AUTOPOST_TXT = """<b>🧬 Auto-Post Engine</b>
-
-‣ <code>/autopost</code> - Toggle auto-post engine (on/off)
-‣ <code>/addmovieupdatechannel</code> - Add dynamic movie update channel
-‣ <code>/remmovieupdatechannel</code> - Remove movie update channel
-‣ <code>/allmovieupdatechannel</code> - View all movie update channels
-‣ <code>/addautopostchannel</code> - Add dynamic auto-post channel
-‣ <code>/remautopostchannel</code> - Remove auto-post channel
-‣ <code>/allautopostchannel</code> - View all auto-post channels
-‣ <code>/editautopost</code> - Set main caption template
-‣ <code>/setautoposttext</code> - Set main caption template (alias)
-‣ <code>/editautoposttitle</code> - Edit title format
-‣ <code>/editautopostyear</code> - Edit year format
-‣ <code>/editautopostlanguages</code> - Edit languages format
-‣ <code>/editautopostresolutions</code> - Edit resolutions format
-‣ <code>/editautopostgenres</code> - Edit genres format
-‣ <code>/editautopostottplatforms</code> - Edit OTT platforms format
-‣ <code>/editautopostdirect</code> - Edit direct search button text
-‣ <code>/setapbtn1</code> - Set button 1 (Text | URL)
-‣ <code>/setapbtn2</code> - Set button 2 (Text | URL)
-‣ <code>/setapbtn3</code> - Set button 3 (Text | URL)
-‣ <code>/remapbtn1</code> - Remove button 1
-‣ <code>/remapbtn2</code> - Remove button 2
-‣ <code>/remapbtn3</code> - Remove button 3
-‣ <code>/setautopostimage</code> - Set custom/global poster image
-‣ <code>/remautopostimage</code> - Revert back to dynamic TMDB posters
-‣ <code>/setautopoststicker</code> - Set sticker sent with post (reply to sticker)
-‣ <code>/remautopoststicker</code> - Remove auto-post sticker</b>"""
 
     POSTHAND_TXT = """<b>📝 POST HANDLER GUIDE
 
