@@ -2201,20 +2201,14 @@ async def interactive_help_actions_cb(client: Client, query: CallbackQuery):
             await prompt.delete()
         except Exception:
             pass
-        if (
-            not resp
-            or not resp.text
-            or resp.text.strip().lower() == "/cancel"
-        ):
+        if not resp or not resp.text or resp.text.strip().lower() == "/cancel":
             return
         try:
             await resp.delete()
         except Exception:
             pass
 
-        new_words = [
-            w.strip() for w in resp.text.split(",") if w.strip()
-        ]
+        new_words = [w.strip() for w in resp.text.split(",") if w.strip()]
         if cw_db is not None and new_words:
             if action == "cw_add":
                 _, cur_words = await get_clean_words_state()
@@ -2314,15 +2308,9 @@ async def interactive_help_actions_cb(client: Client, query: CallbackQuery):
                     await resp.delete()
                 except Exception:
                     pass
-                new_w = [
-                    w.strip().lower()
-                    for w in resp.text.split(",")
-                    if w.strip()
-                ]
+                new_w = [w.strip().lower() for w in resp.text.split(",") if w.strip()]
                 _cs.ACTIVE_STOPWORDS = list(set(_cs.ACTIVE_STOPWORDS + new_w))
-                await _cs.update_bot_settings(
-                    "custom_stopwords", _cs.ACTIVE_STOPWORDS
-                )
+                await _cs.update_bot_settings("custom_stopwords", _cs.ACTIVE_STOPWORDS)
 
         text, markup = await build_interactive_help_section(
             client, "helps_spell", uid, user_mention
