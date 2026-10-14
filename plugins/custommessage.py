@@ -1,4 +1,5 @@
 import asyncio
+import re
 from logging import ERROR, getLogger
 
 import requests
@@ -15,20 +16,63 @@ logger.setLevel(ERROR)
 # ⚙️ MONGODB PERMANENT SETTINGS
 # ============================================================
 _custom_db = None
+_global_settings_db = None
+_CUSTOM_BOOT_LOADED = False
+
 try:
     _DB_CLIENT = AsyncIOMotorClient(info.DATABASE_URI)
     _BOT_DB = _DB_CLIENT[info.DATABASE_NAME]
     _custom_db = _BOT_DB["custom_captions"]
+    _global_settings_db = _BOT_DB["global_bot_settings"]
 except Exception as e:
     logger.error(f"Failed to init custommessage DB: {e}")
 
+# Sync map between info attributes and global_bot_settings keys
+_REVERSE_GLOBAL_MAP = {
+    "FSUB_IMG": "fsub_img",
+    "NOT_FOUND_IMG": "not_found_img",
+    "NOT_FOUND_MSG": "not_found_text",
+}
 
-async def save_msg_data(key: str, value: str):
+
+async def save_msg_data(key: str, value):
     setattr(info, key, value)
     if _custom_db is not None:
-        await _custom_db.update_one(
-            {"_id": "settings"}, {"$set": {key: value}}, upsert=True
-        )
+        try:
+            await _custom_db.update_one(
+                {"_id": "settings"}, {"$set": {key: value}}, upsert=True
+            )
+        except Exception as e:
+            logger.error(f"Error saving {key} to custom_captions: {e}")
+
+    # Keep global_bot_settings in sync as well
+    global_key = _REVERSE_GLOBAL_MAP.get(key)
+    if global_key and _global_settings_db is not None:
+        try:
+            await _global_settings_db.update_one(
+                {"_id": "bot_config"}, {"$set": {global_key: value}}, upsert=True
+            )
+        except Exception:
+            pass
+
+
+@Client.on_message(filters.all, group=-998)
+async def load_custom_messages_on_boot(client: Client, message: Message):
+    """Automatically restores saved custom messages & images into `info` on bot startup."""
+    global _CUSTOM_BOOT_LOADED
+    if _CUSTOM_BOOT_LOADED:
+        return
+    _CUSTOM_BOOT_LOADED = True
+    if _custom_db is None:
+        return
+    try:
+        doc = await _custom_db.find_one({"_id": "settings"})
+        if doc:
+            for k, v in doc.items():
+                if k != "_id" and v is not None:
+                    setattr(info, k, v)
+    except Exception as e:
+        logger.error(f"Failed to load custom messages on boot: {e}")
 
 
 # ============================================================
@@ -38,10 +82,16 @@ def get_admin_list():
     raw_admins = getattr(info, "ADMINS", [])
     if isinstance(raw_admins, (str, int)):
         raw_admins = str(raw_admins).replace(",", " ").split()
+    elif isinstance(raw_admins, (list, tuple, set)):
+        raw_admins = list(raw_admins)
+    else:
+        raw_admins = []
     return [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
 
 
-async def is_user_admin(client: Client, message: Message):
+async def is_user_admin(client: Client, message: Message) -> bool:
+    if not message:
+        return False
     admin_list = get_admin_list()
 
     # 1. Global Admin Check (Direct User)
@@ -82,30 +132,37 @@ async def admin_check(_, client: Client, message: Message):
 admin_filter = filters.create(admin_check)
 
 
+# ============================================================
+# ☁️ CLOUD IMAGE UPLOADER
+# ============================================================
 def _upload_sync(file_bytes):
     headers = {"User-Agent": "Mozilla/5.0"}
-    try:
-        res = requests.post(
+    endpoints = [
+        (
             "https://catbox.moe/user/api.php",
-            data={"reqtype": "fileupload"},
-            files={"fileToUpload": ("img.jpg", file_bytes, "image/jpeg")},
-            headers=headers,
-            timeout=6,
-        )
-        if res.status_code == 200 and res.text.startswith("http"):
-            return res.text.strip()
-    except Exception:
-        pass
-    try:
-        res = requests.post(
+            {"fileToUpload": ("img.jpg", file_bytes, "image/jpeg")},
+            {"reqtype": "fileupload"},
+        ),
+        (
             "https://graph.org/upload",
-            files={"file": ("img.jpg", file_bytes, "image/jpeg")},
-            timeout=6,
-        )
-        if res.status_code == 200:
-            return "https://graph.org" + res.json()[0]["src"]
-    except Exception:
-        pass
+            {"file": ("img.jpg", file_bytes, "image/jpeg")},
+            None,
+        ),
+        ("https://envs.sh", {"file": ("img.jpg", file_bytes, "image/jpeg")}, None),
+        ("https://0x0.st", {"file": ("img.jpg", file_bytes, "image/jpeg")}, None),
+    ]
+    for url, files_dict, data_dict in endpoints:
+        try:
+            res = requests.post(
+                url, data=data_dict, files=files_dict, headers=headers, timeout=8
+            )
+            if res.status_code == 200:
+                if url == "https://graph.org/upload":
+                    return "https://graph.org" + res.json()[0]["src"]
+                elif res.text.strip().startswith("http"):
+                    return res.text.strip()
+        except Exception:
+            continue
     return None
 
 
@@ -119,63 +176,95 @@ async def upload_image_safely(client: Client, message: Message):
         return None
 
 
+# ============================================================
+# 🛠️ TEXT & IMAGE SETTING PROCESSORS
+# ============================================================
 async def process_text_setting(message: Message, var_name: str, setting_name: str):
-    if len(message.command) > 1 and message.command[1].lower() == "off":
+    if len(message.command) > 1 and message.command[1].strip().lower() in [
+        "off",
+        "reset",
+        "clear",
+        "none",
+    ]:
         await save_msg_data(var_name, None)
         return await message.reply_text(
-            f"✅ **{setting_name} has been REMOVED.**\nSystem will use the default message."
+            f"✅ <b>{setting_name} has been REMOVED.</b>\nSystem will now use the default message.",
+            parse_mode=enums.ParseMode.HTML,
         )
 
-    if not message.reply_to_message:
-        return await message.reply_text(
-            f"⚙️ **Usage:**\nReply to a text message with `/{message.command[0]}` to set it, or use `/{message.command[0]} off` to disable."
-        )
+    raw_text = None
+    if message.reply_to_message:
+        replied = message.reply_to_message
+        content = replied.text or replied.caption
+        if content:
+            raw_text = getattr(content, "html", str(content))
+    elif message.text and len(message.command) > 1:
+        html_text = getattr(message.text, "html", str(message.text))
+        raw_text = re.sub(r"^/\w+(?:@[a-zA-Z0-9_]+)?\s+", "", html_text, count=1).strip()
 
-    replied = message.reply_to_message
-    raw_text = (
-        replied.text.markdown
-        if replied.text
-        else (replied.caption.markdown if replied.caption else None)
-    )
     if not raw_text:
         return await message.reply_text(
-            "❌ **No text found!** Please reply to a message containing text."
+            f"⚙️ <b>Usage:</b>\n"
+            f"• Reply to a text message with <code>/{message.command[0]}</code>\n"
+            f"• Or send <code>/{message.command[0]} Your Text Here</code>\n"
+            f"• Or use <code>/{message.command[0]} off</code> to reset to default.",
+            parse_mode=enums.ParseMode.HTML,
         )
 
     await save_msg_data(var_name, raw_text)
     await message.reply_text(
-        f"✅ **{setting_name} successfully updated!**\n\n**New Message:**\n{raw_text}",
+        f"✅ <b>{setting_name} successfully updated!</b>\n\n"
+        f"<b>New Message:</b>\n{raw_text}",
         disable_web_page_preview=True,
+        parse_mode=enums.ParseMode.HTML,
     )
 
 
 async def process_image_setting(
     client: Client, message: Message, var_name: str, setting_name: str
 ):
-    if len(message.command) > 1 and message.command[1].lower() == "off":
+    if len(message.command) > 1 and message.command[1].strip().lower() in [
+        "off",
+        "reset",
+        "clear",
+        "none",
+    ]:
         await save_msg_data(var_name, None)
         return await message.reply_text(
-            f"✅ **{setting_name} has been REMOVED.**\nSystem will use the default image."
+            f"✅ <b>{setting_name} has been REMOVED.</b>\nSystem will now use the default image.",
+            parse_mode=enums.ParseMode.HTML,
         )
 
     if not message.reply_to_message or not message.reply_to_message.photo:
         return await message.reply_text(
-            f"⚙️ **Usage:**\nReply to a photo with `/{message.command[0]}` to set it, or use `/{message.command[0]} off` to disable."
+            f"⚙️ <b>Usage:</b>\n"
+            f"• Reply to a photo with <code>/{message.command[0]}</code> to set it.\n"
+            f"• Or use <code>/{message.command[0]} off</code> to disable.",
+            parse_mode=enums.ParseMode.HTML,
         )
 
-    status = await message.reply_text("⏳ **Uploading to Cloud...**")
+    status = await message.reply_text(
+        "⏳ <b>Uploading to Cloud...</b>", parse_mode=enums.ParseMode.HTML
+    )
     url = await upload_image_safely(client, message.reply_to_message)
     if url:
         await save_msg_data(var_name, url)
-        await status.edit_text(f"✅ **{setting_name} updated to Cloud Image!**")
+        await status.edit_text(
+            f"✅ <b>{setting_name} updated to Cloud Image!</b>",
+            parse_mode=enums.ParseMode.HTML,
+        )
     else:
         photo_id = message.reply_to_message.photo.file_id
         await save_msg_data(var_name, photo_id)
         await status.edit_text(
-            f"⚠️ Cloud upload failed. **{setting_name} saved as Telegram File ID!**"
+            f"⚠️ Cloud upload failed. <b>{setting_name} saved as Telegram File ID!</b>",
+            parse_mode=enums.ParseMode.HTML,
         )
 
 
+# ============================================================
+# 🎯 COMMAND HANDLERS
+# ============================================================
 @Client.on_message(filters.command("infomsg") & admin_filter)
 async def set_info_msg(bot: Client, message: Message):
     await process_text_setting(message, "INFO_MSG", "Info Message")
