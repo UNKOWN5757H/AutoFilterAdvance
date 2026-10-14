@@ -131,7 +131,8 @@ Seasons and Episodes are automatically collapsed into clean "Season X" folders.
 <b>🧼 Clean Filename Settings:</b>
 Control what words are removed from inline button filenames.
 • <code>/setcleanfilename [word1, word2, @channel]</code> - Set words to remove.
-• <code>/defaultcleanfilename</code> - Revert to standard repo default (removes mkv, mp4, sandalwood).
+• <code>/defaultcleanfilename</code> - list clean file words.
+• <code>/listcleanfilename</code> - Revert to standard repo default (removes mkv, mp4, sandalwood).
 • <code>/remcleanfilename</code> - Disable clean filename completely.
 • <code>/autotranslate</code> - enable or disable.
 • <code>/enautotranslate</code> - enable auto translate. 
