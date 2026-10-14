@@ -1,12 +1,18 @@
 import asyncio
+import html
 import re
 import time
 from logging import ERROR, getLogger
 
 from motor.motor_asyncio import AsyncIOMotorClient
 from pyrogram import Client, enums, filters
-from pyrogram.errors import FloodWait, MessageNotModified
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
+from pyrogram.errors import FloodWait, MessageNotModified, QueryIdInvalid
+from pyrogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 
 import info
 from database.ia_filterdb import Media as _Media
@@ -30,6 +36,11 @@ except Exception as e:
     logger.error(f"Failed to init Deletion Settings DB: {e}")
 
 
+def get_media_collection():
+    """Safely returns the underlying Motor collection whether Media is a umongo Document or raw collection."""
+    return getattr(_Media, "collection", _Media)
+
+
 async def get_del_setting(key: str, default: int) -> int:
     if _del_db is not None:
         doc = await _del_db.find_one({"_id": "timers"})
@@ -40,6 +51,9 @@ async def get_del_setting(key: str, default: int) -> int:
 
 async def save_del_setting(key: str, value: int):
     setattr(info, key, value)
+    if key == "FILE_AUTO_DELETE":
+        setattr(info, "AUTO_DELETE_TIME", value)
+        setattr(info, "AUTO_DELETE", value > 0)
     if _del_db is not None:
         await _del_db.update_one({"_id": "timers"}, {"$set": {key: value}}, upsert=True)
 
@@ -51,10 +65,16 @@ def get_admin_list():
     raw_admins = getattr(info, "ADMINS", [])
     if isinstance(raw_admins, (str, int)):
         raw_admins = str(raw_admins).replace(",", " ").split()
+    elif isinstance(raw_admins, (list, tuple, set)):
+        raw_admins = list(raw_admins)
+    else:
+        raw_admins = []
     return [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
 
 
-async def is_user_admin(client: Client, message: Message):
+async def is_user_admin(client: Client, message: Message) -> bool:
+    if not message:
+        return False
     admin_list = get_admin_list()
 
     # 1. Global Admin Check (Direct User)
@@ -70,11 +90,9 @@ async def is_user_admin(client: Client, message: Message):
         enums.ChatType.GROUP,
         enums.ChatType.SUPERGROUP,
     ]:
-        # If the sender is the group itself, it's a Group Anonymous Admin
         if message.sender_chat and message.sender_chat.id == message.chat.id:
             return True
 
-        # If it's a Normal Admin in this group
         if message.from_user:
             try:
                 member = await client.get_chat_member(
@@ -132,7 +150,6 @@ async def countdown_live_worker(client: Client):
                         await _countdown_col.delete_one({"_id": task["_id"]})
                         continue
 
-                    # Update button interval (every 30 seconds to respect Telegram rate limits)
                     last_update = task.get("last_updated", 0)
                     if now - last_update >= 30:
                         timer_label = format_countdown_string(remaining)
@@ -140,16 +157,20 @@ async def countdown_live_worker(client: Client):
 
                         new_keyboard = []
                         for row in original_buttons:
-                            new_keyboard.append(
-                                [
-                                    InlineKeyboardButton(
-                                        b["text"],
-                                        url=b.get("url"),
-                                        callback_data=b.get("callback_data"),
+                            btn_row = []
+                            for b in row:
+                                if b.get("url"):
+                                    btn_row.append(
+                                        InlineKeyboardButton(b["text"], url=b["url"])
                                     )
-                                    for b in row
-                                ]
-                            )
+                                elif b.get("callback_data"):
+                                    btn_row.append(
+                                        InlineKeyboardButton(
+                                            b["text"], callback_data=b["callback_data"]
+                                        )
+                                    )
+                            if btn_row:
+                                new_keyboard.append(btn_row)
                         new_keyboard.append(
                             [
                                 InlineKeyboardButton(
@@ -168,7 +189,9 @@ async def countdown_live_worker(client: Client):
                                 {"_id": task["_id"]}, {"$set": {"last_updated": now}}
                             )
                         except MessageNotModified:
-                            pass
+                            await _countdown_col.update_one(
+                                {"_id": task["_id"]}, {"$set": {"last_updated": now}}
+                            )
                         except FloodWait as e:
                             await asyncio.sleep(e.value + 1)
                         except Exception:
@@ -178,11 +201,17 @@ async def countdown_live_worker(client: Client):
         await asyncio.sleep(10)
 
 
-@Client.on_message(group=-99)
+@Client.on_message(filters.all, group=-99)
 async def start_countdown_worker(client: Client, message: Message):
     global _COUNTDOWN_WORKER_STARTED
     if not _COUNTDOWN_WORKER_STARTED:
         _COUNTDOWN_WORKER_STARTED = True
+        try:
+            saved_timer = await get_del_setting("FILE_AUTO_DELETE", 1800)
+            setattr(info, "FILE_AUTO_DELETE", saved_timer)
+            setattr(info, "AUTO_DELETE_TIME", saved_timer)
+        except Exception:
+            pass
         asyncio.create_task(countdown_live_worker(client))
 
 
@@ -211,25 +240,28 @@ async def schedule_file_with_countdown(
             "chat_id": sent_message.chat.id,
             "message_id": sent_message.id,
             "delete_at": now + delay_seconds,
-            "last_updated": now,
+            "last_updated": 0,
             "buttons": serialized_btns,
         }
     )
 
 
-@Client.on_callback_query(filters.regex("^noop_countdown$"))
-async def noop_countdown_cb(client: Client, query):
-    await query.answer(
-        "⚠️ This file will be automatically deleted when the timer ends. Forward or save it now!",
-        show_alert=True,
-    )
+@Client.on_callback_query(filters.regex(r"^noop_countdown$"))
+async def noop_countdown_cb(client: Client, query: CallbackQuery):
+    try:
+        await query.answer(
+            "⚠️ This file will be automatically deleted when the timer ends. Forward or save it now!",
+            show_alert=True,
+        )
+    except QueryIdInvalid:
+        pass
 
 
 # ============================================================
 # 🧹 DUPLICATE FILE PURGER ENGINE (/purgeduplicates)
 # ============================================================
 def get_resolution_score(filename: str) -> int:
-    name = filename.lower()
+    name = (filename or "").lower()
     if any(q in name for q in ["2160p", "4k", "uhd"]):
         return 4
     if any(q in name for q in ["1440p", "2k"]):
@@ -243,8 +275,17 @@ def get_resolution_score(filename: str) -> int:
 
 @Client.on_message(filters.command("purgeduplicates") & admin_filter)
 async def purge_duplicates_cmd(client: Client, message: Message):
+    media_col = get_media_collection()
+    if media_col is None:
+        return await message.reply_text(
+            "❌ <b>Media database collection is unavailable.</b>",
+            parse_mode=enums.ParseMode.HTML,
+        )
+
     status = await message.reply_text(
-        "🔍 **Scanning database for duplicate files...**\nThis might take some time on large databases."
+        "🔍 <b>Scanning database for duplicate files...</b>\n"
+        "<i>This might take some time on large databases.</i>",
+        parse_mode=enums.ParseMode.HTML,
     )
 
     try:
@@ -265,23 +306,24 @@ async def purge_duplicates_cmd(client: Client, message: Message):
             {"$match": {"count": {"$gt": 1}}},
         ]
 
-        cursor = _Media.collection.aggregate(pipeline)
+        cursor = media_col.aggregate(pipeline, allowDiskUse=True)
         duplicate_groups = await cursor.to_list(length=None)
 
         if not duplicate_groups:
             return await status.edit_text(
-                "✅ **Database is squeaky clean!** No duplicate files found."
+                "✅ <b>Database is squeaky clean!</b> No duplicate files found.",
+                parse_mode=enums.ParseMode.HTML,
             )
 
         total_duplicates = 0
         deleted_ids = []
 
         for group in duplicate_groups:
-            docs = group["docs"]
+            docs = group.get("docs", [])
             docs.sort(
                 key=lambda d: (
                     get_resolution_score(d.get("name", "")),
-                    d.get("size", 0),
+                    d.get("size", 0) or 0,
                 ),
                 reverse=True,
             )
@@ -292,17 +334,21 @@ async def purge_duplicates_cmd(client: Client, message: Message):
 
         for i in range(0, len(deleted_ids), 500):
             batch = deleted_ids[i : i + 500]
-            await _Media.collection.delete_many({"_id": {"$in": batch}})
+            await media_col.delete_many({"_id": {"$in": batch}})
 
         await status.edit_text(
-            f"🧹 **Duplicate File Purge Completed!**\n\n"
-            f"📁 **Duplicate Sets Found:** `{len(duplicate_groups)}`\n"
-            f"🗑️ **Redundant Copies Removed:** `{total_duplicates}`\n"
-            f"✨ **Preserved:** Best quality copies (Highest resolution & bitrates)."
+            f"🧹 <b>Duplicate File Purge Completed!</b>\n\n"
+            f"📁 <b>Duplicate Sets Found:</b> <code>{len(duplicate_groups)}</code>\n"
+            f"🗑️ <b>Redundant Copies Removed:</b> <code>{total_duplicates}</code>\n"
+            f"✨ <b>Preserved:</b> Best quality copies (Highest resolution & bitrates).",
+            parse_mode=enums.ParseMode.HTML,
         )
     except Exception as e:
         logger.exception("purgeduplicates failed")
-        await status.edit_text(f"❌ **Error while purging duplicates:**\n`{e}`")
+        await status.edit_text(
+            f"❌ <b>Error while purging duplicates:</b>\n<code>{html.escape(str(e))}</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
 
 # ============================================================
@@ -310,80 +356,134 @@ async def purge_duplicates_cmd(client: Client, message: Message):
 # ============================================================
 @Client.on_message(filters.command("delete") & admin_filter)
 async def delete_single_file(bot: Client, message: Message):
+    media_col = get_media_collection()
+    if media_col is None:
+        return await message.reply_text(
+            "❌ <b>Media database collection is unavailable.</b>",
+            parse_mode=enums.ParseMode.HTML,
+        )
+
     try:
         if len(message.command) == 2:
             file_id = message.command[1].strip()
-            status_msg = await message.reply_text("🧹 **Deleting file from DB...**")
-            result = await _Media.collection.delete_one({"_id": file_id})
+            status_msg = await message.reply_text(
+                "🧹 <b>Deleting file from DB...</b>",
+                parse_mode=enums.ParseMode.HTML,
+            )
+            result = await media_col.delete_many(
+                {"$or": [{"_id": file_id}, {"file_id": file_id}]}
+            )
             if result.deleted_count:
                 return await status_msg.edit_text(
-                    f"✅ **File `{file_id}` deleted successfully.**"
+                    f"✅ <b>File <code>{html.escape(file_id)}</code> deleted successfully.</b>",
+                    parse_mode=enums.ParseMode.HTML,
                 )
-            return await status_msg.edit_text("⚠️ **File not found in database.**")
+            return await status_msg.edit_text(
+                "⚠️ <b>File not found in database.</b>",
+                parse_mode=enums.ParseMode.HTML,
+            )
 
         reply = message.reply_to_message
         if not (reply and reply.media):
             return await message.reply_text(
-                "⚙️ **Usage:**\n`/delete <file_id>`\nOr reply to a file with `/delete`"
+                "⚙️ <b>Usage:</b>\n"
+                "• <code>/delete &lt;file_id&gt;</code>\n"
+                "• Or reply to a media file with <code>/delete</code>",
+                parse_mode=enums.ParseMode.HTML,
             )
 
-        status_msg = await message.reply_text("⏳ **Processing...**")
+        status_msg = await message.reply_text(
+            "⏳ <b>Processing...</b>", parse_mode=enums.ParseMode.HTML
+        )
         media = getattr(reply, reply.media.value, None) if reply.media else None
-        if not media:
+        if not media or not hasattr(media, "file_id"):
             return await status_msg.edit_text(
-                "❌ **This is not a supported file format.**"
+                "❌ <b>This is not a supported file format.</b>",
+                parse_mode=enums.ParseMode.HTML,
             )
 
         file_id, _ = unpack_new_file_id(media.file_id)
-        res = await _Media.collection.delete_one({"_id": file_id})
+        res = await media_col.delete_many(
+            {"$or": [{"_id": file_id}, {"file_id": file_id}, {"_id": media.file_id}]}
+        )
         if res.deleted_count:
             return await status_msg.edit_text(
-                "✅ **File successfully deleted from database.**"
+                "✅ <b>File successfully deleted from database.</b>",
+                parse_mode=enums.ParseMode.HTML,
             )
 
-        file_name = re.sub(r"(_|\-|\.|\+)", " ", str(getattr(media, "file_name", "")))
-        res = await _Media.collection.delete_many(
-            {
-                "file_name": file_name,
-                "file_size": getattr(media, "file_size", 0),
-                "mime_type": getattr(media, "mime_type", ""),
-            }
-        )
+        raw_fname = str(getattr(media, "file_name", "") or "")
+        clean_fname = re.sub(r"(_|\-|\.|\+)", " ", raw_fname)
+        name_candidates = list({raw_fname, clean_fname} - {""})
 
+        query = {"file_size": getattr(media, "file_size", 0)}
+        if name_candidates:
+            query["file_name"] = {"$in": name_candidates}
+
+        res = await media_col.delete_many(query)
         if res.deleted_count:
             await status_msg.edit_text(
-                f"✅ **Deleted {res.deleted_count} duplicate files from database.**"
+                f"✅ <b>Deleted {res.deleted_count} matching file(s) from database.</b>",
+                parse_mode=enums.ParseMode.HTML,
             )
         else:
-            await status_msg.edit_text("⚠️ **File not found in database.**")
+            await status_msg.edit_text(
+                "⚠️ <b>File not found in database.</b>",
+                parse_mode=enums.ParseMode.HTML,
+            )
     except Exception as e:
         logger.exception("delete_file failed")
-        await message.reply_text(f"❌ **Error while deleting:**\n`{e}`")
+        await message.reply_text(
+            f"❌ <b>Error while deleting:</b>\n<code>{html.escape(str(e))}</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
 
 @Client.on_message(filters.command("delmulti") & admin_filter)
 async def delete_multiple_files(bot: Client, message: Message):
-    if len(message.command) < 2:
-        return await message.reply_text("⚙️ **Usage:** `/delmulti <keyword/name>`")
+    media_col = get_media_collection()
+    if media_col is None:
+        return await message.reply_text(
+            "❌ <b>Media database collection is unavailable.</b>",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
-    keyword = message.text.split(None, 1)[1]
+    if len(message.command) < 2:
+        return await message.reply_text(
+            "⚙️ <b>Usage:</b> <code>/delmulti &lt;keyword/name&gt;</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
+
+    keyword = message.text.split(None, 1)[1].strip()
+    escaped_kw = html.escape(keyword)
     status_msg = await message.reply_text(
-        f"⏳ **Searching and deleting files matching:** `{keyword}`..."
+        f"⏳ <b>Searching and deleting files matching:</b> <code>{escaped_kw}</code>...",
+        parse_mode=enums.ParseMode.HTML,
     )
 
     try:
-        query = {"file_name": {"$regex": keyword, "$options": "i"}}
-        result = await _Media.collection.delete_many(query)
+        # Build safe regex that won't crash on brackets/parentheses and matches spaces/dots/underscores
+        tokens = [re.escape(t) for t in keyword.split() if t]
+        safe_pattern = r"[\s\.\_\-\+]+".join(tokens) if tokens else re.escape(keyword)
+        query = {"file_name": {"$regex": safe_pattern, "$options": "i"}}
+        result = await media_col.delete_many(query)
 
         if result.deleted_count > 0:
             await status_msg.edit_text(
-                f"✅ **Successfully deleted `{result.deleted_count}` files matching:** `{keyword}`"
+                f"✅ <b>Successfully deleted <code>{result.deleted_count}</code> files matching:</b> <code>{escaped_kw}</code>",
+                parse_mode=enums.ParseMode.HTML,
             )
         else:
-            await status_msg.edit_text(f"⚠️ **No files found matching:** `{keyword}`")
+            await status_msg.edit_text(
+                f"⚠️ <b>No files found matching:</b> <code>{escaped_kw}</code>",
+                parse_mode=enums.ParseMode.HTML,
+            )
     except Exception as e:
         logger.exception("delete_multiple_files failed")
-        await status_msg.edit_text(f"❌ **Error while deleting files:**\n`{e}`")
+        await status_msg.edit_text(
+            f"❌ <b>Error while deleting files:</b>\n<code>{html.escape(str(e))}</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
 
 @Client.on_message(filters.command("autodelete") & admin_filter)
@@ -391,7 +491,9 @@ async def set_autodelete_timer(bot: Client, message: Message):
     current = await get_del_setting("FILE_AUTO_DELETE", 1800)
     if len(message.command) < 2:
         return await message.reply_text(
-            f"⚙️ **Usage:** `/autodelete [seconds]`\n\n⏱ **Current File Auto-Delete:** `{current}` seconds."
+            f"⚙️ <b>Usage:</b> <code>/autodelete [seconds]</code>\n\n"
+            f"⏱ <b>Current File Auto-Delete:</b> <code>{current}</code> seconds.",
+            parse_mode=enums.ParseMode.HTML,
         )
 
     try:
@@ -401,13 +503,16 @@ async def set_autodelete_timer(bot: Client, message: Message):
         await save_del_setting("FILE_AUTO_DELETE", seconds)
         if seconds == 0:
             await message.reply_text(
-                "✅ **File Auto-Delete has been DISABLED permanently.**"
+                "✅ <b>File Auto-Delete has been DISABLED permanently.</b>",
+                parse_mode=enums.ParseMode.HTML,
             )
         else:
             await message.reply_text(
-                f"✅ **File Auto-Delete permanently set to:** `{seconds}` seconds."
+                f"✅ <b>File Auto-Delete permanently set to:</b> <code>{seconds}</code> seconds.",
+                parse_mode=enums.ParseMode.HTML,
             )
     except ValueError:
         await message.reply_text(
-            "❌ **Invalid duration!** Please provide a valid positive integer (seconds)."
+            "❌ <b>Invalid duration!</b> Please provide a valid positive integer (seconds).",
+            parse_mode=enums.ParseMode.HTML,
         )
