@@ -1,6 +1,7 @@
 import ast
 import asyncio
 import difflib
+import inspect
 import math
 import re
 import time
@@ -27,7 +28,6 @@ from pyrogram.types import (
 )
 
 import info
-from database.connections_mdb import all_connections, if_active
 from database.filters_mdb import add_filter, delete_filter, find_filter, get_filters
 from database.ia_filterdb import Media as _Media
 from database.ia_filterdb import get_search_results
@@ -38,10 +38,14 @@ from utils import get_settings, get_size, parse_text_and_markup, temp
 logger = getLogger(__name__)
 logger.setLevel(ERROR)
 
+# Strong reference set so Python's garbage collector never cancels sleeping auto-delete tasks
+AUTO_DELETE_TASKS = set()
+
 # ============================================================
 # ⚡ GLOBAL CONFIG & MONGODB SETUP
 # ============================================================
 cw_db = None
+_BOT_DB = None
 try:
     _DB_CLIENT = AsyncIOMotorClient(info.DATABASE_URI)
     _BOT_DB = _DB_CLIENT[info.DATABASE_NAME]
@@ -79,8 +83,39 @@ def clean_filename(name: str, clean_words: list) -> str:
     return (name[:42] + "..") if len(name) > 45 else (name or "File")
 
 
+def get_auto_delete_timer(var_name: str = "AUTO_DELETE_TIME", default_time: int = 1800) -> int:
+    """Safely parses the auto-delete timer from info.py without throwing TypeErrors."""
+    try:
+        global_switch = getattr(info, "AUTO_DELETE", True)
+        if str(global_switch).strip().lower() in ["false", "off", "0", "no"]:
+            return 0
+        raw_val = getattr(
+            info,
+            var_name,
+            getattr(info, "AUTO_DELETE_TIME", getattr(info, "FILE_AUTO_DELETE", default_time)),
+        )
+        if isinstance(raw_val, bool):
+            return default_time if raw_val else 0
+        val = int(str(raw_val).strip())
+        return max(0, val)
+    except Exception:
+        return default_time
+
+
+def format_duration(seconds: int) -> str:
+    """Formats seconds into a clean, user-friendly string."""
+    if seconds <= 0:
+        return "0 Seconds"
+    m, s = divmod(int(seconds), 60)
+    if m > 0 and s > 0:
+        return f"{m} Minute{'s' if m != 1 else ''} {s} Second{'s' if s != 1 else ''}"
+    if m > 0:
+        return f"{m} Minute{'s' if m != 1 else ''}"
+    return f"{s} Second{'s' if s != 1 else ''}"
+
+
 # ============================================================
-# 👑 SMART AUTHORIZATION & CONNECTION ENGINE
+# 👑 SMART AUTHORIZATION & UNBREAKABLE CONNECTION ENGINE
 # ============================================================
 def get_admin_list():
     raw_admins = getattr(info, "ADMINS", [])
@@ -89,39 +124,65 @@ def get_admin_list():
     return [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
 
 
-async def is_global_admin(user_id: int):
+async def is_global_admin(user_id: int) -> bool:
     return user_id in get_admin_list()
 
 
-async def get_active_connection(user_id: str):
+async def get_active_connection(user_id: str) -> Optional[int]:
+    """Checks all possible connection tables so PM connected commands never fail."""
+    uid_str = str(user_id)
+
+    # 1. Check native active_connections collection first
+    if _BOT_DB is not None:
+        try:
+            doc = await _BOT_DB["active_connections"].find_one({"user_id": uid_str})
+            if doc and doc.get("group_id"):
+                return int(doc["group_id"])
+        except Exception:
+            pass
+
+    # 2. Check database.connections_mdb.active_connection if available
     try:
-        groupids = await all_connections(user_id)
-        if not groupids:
-            return None
-        for groupid in groupids:
-            if await if_active(user_id, str(groupid)):
-                return int(groupid)
-        return None
+        from database.connections_mdb import active_connection
+        conn = await active_connection(uid_str)
+        if conn:
+            return int(conn)
     except Exception:
-        _DB_CLIENT = AsyncIOMotorClient(info.DATABASE_URI)
-        _BOT_DB = _DB_CLIENT[info.DATABASE_NAME]
-        doc = await _BOT_DB["active_connections"].find_one({"user_id": str(user_id)})
-        if doc and "group_id" in doc:
-            return int(doc["group_id"])
-        return None
+        pass
+
+    # 3. Check database.connections_mdb (all_connections + if_active)
+    try:
+        from database.connections_mdb import all_connections, if_active
+        groupids = await all_connections(uid_str)
+        if groupids:
+            for gid in groupids:
+                if await if_active(uid_str, str(gid)):
+                    return int(gid)
+            return int(groupids[-1])
+    except Exception:
+        pass
+
+    # 4. Fallback to native connections collection
+    if _BOT_DB is not None:
+        try:
+            doc = await _BOT_DB["connections"].find_one({"user_id": uid_str})
+            if doc and doc.get("group_id"):
+                return int(doc["group_id"])
+        except Exception:
+            pass
+
+    return None
 
 
-async def get_target_chat(client: Client, message: Message):
+async def get_target_chat(client: Client, message: Message) -> Optional[int]:
     if message.chat.type == enums.ChatType.PRIVATE:
-        user_id = message.from_user.id
-        connected_chat = await get_active_connection(str(user_id))
-        if connected_chat:
-            return int(connected_chat)
-        return None
+        if not message.from_user:
+            return None
+        return await get_active_connection(str(message.from_user.id))
     return message.chat.id
 
 
-async def verify_admin(client: Client, message: Message, target_chat_id=None):
+async def verify_admin(client: Client, message: Message, target_chat_id: Optional[int] = None) -> bool:
     uid = (
         message.from_user.id
         if message.from_user
@@ -129,17 +190,19 @@ async def verify_admin(client: Client, message: Message, target_chat_id=None):
     )
     if await is_global_admin(uid):
         return True
+
     if message.chat.type == enums.ChatType.PRIVATE:
         if not target_chat_id:
             return False
         try:
-            member = await client.get_chat_member(target_chat_id, uid)
+            member = await client.get_chat_member(int(target_chat_id), uid)
             return member.status in [
                 enums.ChatMemberStatus.ADMINISTRATOR,
                 enums.ChatMemberStatus.OWNER,
             ]
         except Exception:
             return False
+
     if message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
         if message.sender_chat and message.sender_chat.id == message.chat.id:
             return True
@@ -153,6 +216,18 @@ async def verify_admin(client: Client, message: Message, target_chat_id=None):
             except Exception:
                 return False
     return False
+
+
+async def safe_save_filter(group_id, keyword, reply_text, btn, fileid, alert="[]"):
+    """Handles any parameter order of add_filter in database/filters_mdb.py."""
+    try:
+        params = list(inspect.signature(add_filter).parameters.keys())
+        if len(params) >= 6 and params[4] == "alert":
+            await add_filter(group_id, keyword, reply_text, btn, alert, fileid)
+        else:
+            await add_filter(group_id, keyword, reply_text, btn, fileid, alert)
+    except Exception:
+        await add_filter(group_id, keyword, reply_text, btn, fileid, alert)
 
 
 # ============================================================
@@ -197,11 +272,11 @@ except ImportError:
 
 
 def create_btn(text, url=None, callback_data=None, style=None):
-    kwargs = {"text": text}
+    kwargs = {"text": str(text)}
     if url:
-        kwargs["url"] = url
+        kwargs["url"] = str(url)
     if callback_data:
-        kwargs["callback_data"] = callback_data
+        kwargs["callback_data"] = str(callback_data)
     if style is not None:
         kwargs["style"] = style
     try:
@@ -250,47 +325,57 @@ async def god_tier_search(query: str) -> Tuple[list, int, int, str, bool]:
     if is_short_query:
         return [], 0, 0, query, False
 
-    sample_docs = (
-        await _Media.collection.find({}, {"file_name": 1})
-        .limit(2000)
-        .to_list(length=2000)
-    )
-    db_titles = list(
-        set(
-            [
-                sanitize_search_query(d.get("file_name", ""))
-                for d in sample_docs
-                if d.get("file_name")
-            ]
+    try:
+        sample_docs = (
+            await _Media.collection.find({}, {"file_name": 1})
+            .limit(2000)
+            .to_list(length=2000)
         )
-    )
+        db_titles = list(
+            set(
+                [
+                    sanitize_search_query(d.get("file_name", ""))
+                    for d in sample_docs
+                    if d.get("file_name")
+                ]
+            )
+        )
 
-    if matches := difflib.get_close_matches(clean_query, db_titles, n=1, cutoff=0.55):
-        corrected_query = matches[0]
-        c_files, c_offset, c_total = await get_search_results(
-            corrected_query, max_results=10, offset=0, filter=True
-        )
-        if c_files:
-            return c_files, c_offset, c_total, corrected_query, True
+        if matches := difflib.get_close_matches(clean_query, db_titles, n=1, cutoff=0.55):
+            corrected_query = matches[0]
+            c_files, c_offset, c_total = await get_search_results(
+                corrected_query, max_results=10, offset=0, filter=True
+            )
+            if c_files:
+                return c_files, c_offset, c_total, corrected_query, True
+    except Exception as e:
+        logger.error(f"Fuzzy search fallback error: {e}")
 
     return [], 0, 0, query, False
 
 
 # ============================================================
-# ⏳ SILENT AUTO-DELETE ENGINE
+# ⏳ RELIABLE AUTO-DELETE ENGINE (GROUP + PM)
 # ============================================================
-async def auto_delete_all_messages(
+async def _auto_delete_worker(
     client: Client, chat_id: int, is_pm: bool, delay: int, *messages
 ):
-    """Deletes messages silently and optionally notifies user in PM after deletion."""
+    """Sleeps for `delay` seconds, then deletes both user and bot messages."""
     await asyncio.sleep(delay)
 
-    for msg in messages:
-        if msg:
-            try:
-                await msg.delete()
-            except Exception:
-                pass
+    msg_ids = [
+        m.id for m in messages if m is not None and hasattr(m, "id") and m.id
+    ]
+    if msg_ids:
+        try:
+            await client.delete_messages(chat_id, msg_ids)
+        except Exception:
+            for m in messages:
+                if m is not None:
+                    try:
+                        await m.delete()
+                    except Exception:
+                        pass
 
     if is_pm:
         notify_text = (
@@ -316,6 +401,19 @@ async def auto_delete_all_messages(
             )
         except Exception:
             pass
+
+
+def schedule_auto_delete(
+    client: Client, chat_id: int, is_pm: bool, delay: int, *messages
+):
+    """Schedules auto-deletion and protects the task from garbage collection."""
+    if delay <= 0:
+        return
+    task = asyncio.create_task(
+        _auto_delete_worker(client, chat_id, is_pm, delay, *messages)
+    )
+    AUTO_DELETE_TASKS.add(task)
+    task.add_done_callback(AUTO_DELETE_TASKS.discard)
 
 
 async def _send_not_found(client: Client, msg: Message, img: Optional[str], text: str):
@@ -346,18 +444,13 @@ async def _send_not_found(client: Client, msg: Message, img: Optional[str], text
     except Exception:
         pass
 
-    if k_msg:
-        delete_timer = getattr(info, "AUTO_DELETE_TIME", 1800)
-        if delete_timer > 0:
-            asyncio.create_task(
-                auto_delete_all_messages(
-                    client, msg.chat.id, False, delete_timer, k_msg, msg
-                )
-            )
+    delete_timer = get_auto_delete_timer("AUTO_DELETE_TIME", 1800)
+    if delete_timer > 0 and k_msg:
+        schedule_auto_delete(client, msg.chat.id, False, delete_timer, k_msg, msg)
 
 
 # ============================================================
-# 📁 CORE AUTO FILTER ENGINE (CLEAN LINKS)
+# 📁 CORE AUTO FILTER ENGINE (USER-FRIENDLY & FAST)
 # ============================================================
 async def auto_filter(client: Client, msg: Message):
     try:
@@ -373,16 +466,15 @@ async def auto_filter(client: Client, msg: Message):
         if not search:
             return
 
-        # Ignore common conversational words
+        # Ignore common conversational greetings in groups
         if search.lower() in [
             "hello",
             "hey",
             "hlo",
             "hlw",
-            "bro",
             "ok",
+            "okay",
             "k",
-            "thank you",
             "thanks",
             "tq",
             "yes",
@@ -392,6 +484,7 @@ async def auto_filter(client: Client, msg: Message):
             "hm",
             "gm",
             "gn",
+            "good morning",
         ]:
             return
 
@@ -428,15 +521,27 @@ async def auto_filter(client: Client, msg: Message):
             reverse=True,
         )
 
+        try:
+            total_results = int(total_results)
+        except Exception:
+            total_results = len(files)
+
+        total_pages = math.ceil(total_results / 10) if total_results > 0 else 1
         pre = "filep" if settings.get("file_secure", False) else "file"
         btn = []
         bot_username = temp.U_NAME or (await client.get_me()).username or "bot"
         mention = msg.from_user.mention if msg.from_user else "User"
 
         cap = (
-            f"<b>Hᴇʏ {mention} 👋🏻\n\n🪄 Aᴜᴛᴏ-Cᴏʀʀᴇᴄᴛᴇᴅ: <del>{search.title()}</del> ➔ <code>{search_query.title()}</code>\n➤ Yᴏᴜʀ Fɪʟᴇꜱ Rᴇᴀᴅʏ Nᴏᴡ 👇</b>"
+            f"<b>Hᴇʏ {mention} 👋🏻\n\n"
+            f"🪄 Aᴜᴛᴏ-Cᴏʀʀᴇᴄᴛᴇᴅ : <del>{search.title()}</del> ➔ <code>{search_query.title()}</code>\n"
+            f"📂 Tᴏᴛᴀʟ Fɪʟᴇꜱ : <code>{total_results}</code>\n"
+            f"➤ Yᴏᴜʀ Fɪʟᴇꜱ Rᴇᴀᴅʏ Nᴏᴡ 👇</b>"
             if was_corrected
-            else f"<b>Hᴇʏ {mention} 👋🏻\n\n➤ Tɪᴛʟᴇ : <code>{search_query.title()}</code>\n➤ Yᴏᴜʀ Fɪʟᴇꜱ Rᴇᴀᴅʏ Nᴏᴡ 👇</b>"
+            else f"<b>Hᴇʏ {mention} 👋🏻\n\n"
+            f"➤ Tɪᴛʟᴇ : <code>{search_query.title()}</code>\n"
+            f"📂 Tᴏᴛᴀʟ Fɪʟᴇꜱ : <code>{total_results}</code>\n"
+            f"➤ Yᴏᴜʀ Fɪʟᴇꜱ Rᴇᴀᴅʏ Nᴏᴡ 👇</b>"
         )
 
         key = f"{msg.chat.id}-{msg.id}"
@@ -444,15 +549,14 @@ async def auto_filter(client: Client, msg: Message):
         req = msg.from_user.id if msg.from_user else 0
         clean_words = await get_clean_words()
 
-        btn.insert(
-            0,
+        btn.append(
             [
                 create_btn(
                     text="• Bᴀᴄᴋ Uᴘ Cʜᴀɴɴᴇʟ •",
                     url="https://t.me/KR_Picture",
                     style=BTN_SUCCESS,
                 )
-            ],
+            ]
         )
 
         for file in files:
@@ -474,7 +578,6 @@ async def auto_filter(client: Client, msg: Message):
 
             display_name = clean_filename(raw_name, clean_words)
             size_str = get_size(file_size)
-
             url_payload = f"https://t.me/{bot_username}?start={pre}_{file_id}"
 
             if settings.get("button", False):
@@ -489,19 +592,12 @@ async def auto_filter(client: Client, msg: Message):
                     ]
                 )
 
-        try:
-            total_results = int(total_results)
-        except Exception:
-            total_results = 0
-
-        total_pages = math.ceil(total_results / 10) if total_results > 0 else 1
-
         if offset:
             btn.append(
                 [
                     create_btn(
-                        text=f"1/{total_pages}",
-                        callback_data="pages",
+                        text=f"📄 1/{total_pages}",
+                        callback_data=f"pages#1#{total_pages}#{total_results}",
                         style=BTN_SUCCESS,
                     ),
                     create_btn(
@@ -513,7 +609,13 @@ async def auto_filter(client: Client, msg: Message):
             )
         else:
             btn.append(
-                [create_btn(text="1/1", callback_data="pages", style=BTN_SUCCESS)]
+                [
+                    create_btn(
+                        text="📄 1/1",
+                        callback_data=f"pages#1#1#{total_results}",
+                        style=BTN_SUCCESS,
+                    )
+                ]
             )
 
         final_caption, final_markup = parse_text_and_markup(
@@ -546,38 +648,60 @@ async def auto_filter(client: Client, msg: Message):
                 )
             except Exception:
                 return
-        except Exception:
+        except Exception as e:
+            logger.error(f"Failed sending auto_filter message: {e}")
             return
 
-        delete_timer = getattr(info, "AUTO_DELETE_TIME", 1800)
+        delete_timer = get_auto_delete_timer("AUTO_DELETE_TIME", 1800)
         if delete_timer > 0 and m:
-            time_str = f"{delete_timer // 60} Minutes"
-            warn_text = f"<b>📢 Please Note\n\n✅ The above file will be autodeleted in {time_str} to avoid copyright issues.\n\n✅ Please forward this file to your saved messages and start downloading from there.\n\nTᴇᴀᴍ: @KR_Picture</b>"
-
-            # 🔥 FIX: Replaced quote=True with reply_to_message_id to prevent Pyrogram version crashes 🔥
-            warn_msg = await m.reply_text(
-                warn_text, reply_to_message_id=m.id, parse_mode=enums.ParseMode.HTML
+            time_str = format_duration(delete_timer)
+            warn_text = (
+                f"<b>📢 Please Note\n\n"
+                f"✅ The above file will be autodeleted in {time_str} to avoid copyright issues.\n\n"
+                f"✅ Please forward this file to your saved messages and start downloading from there.\n\n"
+                f"Tᴇᴀᴍ: @KR_Picture</b>"
             )
-            is_pm = msg.chat.type == enums.ChatType.PRIVATE
-            asyncio.create_task(
-                auto_delete_all_messages(
-                    client, msg.chat.id, is_pm, delete_timer, msg, m, warn_msg
+            warn_msg = None
+            try:
+                warn_msg = await client.send_message(
+                    chat_id=msg.chat.id,
+                    text=warn_text,
+                    reply_to_message_id=m.id,
+                    parse_mode=enums.ParseMode.HTML,
                 )
+            except Exception:
+                pass
+
+            is_pm = msg.chat.type == enums.ChatType.PRIVATE
+            # Deletes user's message (msg) + bot's result message (m) + bot's warning message (warn_msg)
+            schedule_auto_delete(
+                client, msg.chat.id, is_pm, delete_timer, msg, m, warn_msg
             )
 
     except Exception as e:
         logger.error(f"Fatal error in auto_filter: {e}")
 
 
-@Client.on_message(filters.group & filters.text & filters.incoming)
+# ============================================================
+# ⚡ UNIFIED GROUP MESSAGE HANDLER (CUSTOM FILTERS + AUTO FILTER)
+# ============================================================
+@Client.on_message(
+    filters.group & filters.text & filters.incoming & ~filters.bot,
+    group=-1,
+)
 async def give_filter(client: Client, message: Message):
+    if not message.text or message.text.startswith(("/", "!", "#", ".", ",", "?", "@")):
+        return
+
     if getattr(info, "REPAIR_MODE", False) and not await verify_admin(
         client, message, message.chat.id
     ):
         return
+
     user_id = message.from_user.id if message.from_user else 0
     if user_id and await _plugin_db.is_banned(user_id):
         return
+
     if user_id != 0:
         if (last_req := USER_LAST_REQ.get(str(user_id))) and (
             time.time() - last_req
@@ -586,31 +710,84 @@ async def give_filter(client: Client, message: Message):
         USER_LAST_REQ.set(str(user_id), time.time())
 
     try:
+        # 1. Check if a custom manual filter matches first
+        matched_manual = await manual_filters(client, message)
+        if matched_manual:
+            return
+        # 2. Otherwise run the Movie Auto-Filter search
         await auto_filter(client, message)
     except Exception as e:
         logger.error(f"give_filter top-level error: {e}")
 
 
 # ============================================================
-# 🎛️ INLINE CALLBACK HANDLERS (PAGINATION)
+# 🎛️ INLINE CALLBACK HANDLERS (PAGINATION & PAGES)
 # ============================================================
-@Client.on_callback_query(filters.regex(r"^(next_)"))
+@Client.on_callback_query(
+    filters.regex(r"^(next_|pages|delallconfirm|delallcancel)"),
+    group=-2,
+)
 async def pagination_handler(bot: Client, query: CallbackQuery):
+    data = query.data
+
+    if data.startswith("pages"):
+        parts = data.split("#")
+        if len(parts) == 4:
+            _, cur_p, tot_p, tot_f = parts
+            return await query.answer(
+                f"📄 Page {cur_p} of {tot_p} • Total Files: {tot_f}",
+                show_alert=False,
+            )
+        return await query.answer("📄 Current Page Indicator", show_alert=False)
+
+    if data == "delallcancel":
+        await query.answer("Cancelled.")
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+        return
+
+    if data.startswith("delallconfirm#"):
+        target_chat_id = int(data.split("#")[1])
+        uid = query.from_user.id if query.from_user else 0
+        if not await is_global_admin(uid):
+            try:
+                member = await bot.get_chat_member(target_chat_id, uid)
+                if member.status not in [
+                    enums.ChatMemberStatus.ADMINISTRATOR,
+                    enums.ChatMemberStatus.OWNER,
+                ]:
+                    return await query.answer("❌ Unauthorized!", show_alert=True)
+            except Exception:
+                return await query.answer("❌ Unauthorized!", show_alert=True)
+
+        keywords = await get_filters(target_chat_id)
+        for kw in keywords:
+            await delete_filter(query.message, kw, target_chat_id)
+        await query.answer("✅ All filters deleted!", show_alert=True)
+        return await query.message.edit_text(
+            f"🗑️ **Deleted all filters for chat:** `{target_chat_id}`"
+        )
+
     try:
-        _, req, key, offset_str = query.data.split("_", 3)
+        _, req, key, offset_str = data.split("_", 3)
     except ValueError:
         return await query.answer("Invalid button data!", show_alert=True)
 
-    if int(req) not in [query.from_user.id, 0]:
+    if int(req) not in [query.from_user.id, 0] and not await is_global_admin(
+        query.from_user.id
+    ):
         return await query.answer(
-            "⚠️ That's not for you! Request your own file in the group.",
+            "⚠️ That's not for you! Request your own movie in the group.",
             show_alert=True,
         )
 
     offset = int(offset_str) if offset_str.isdigit() else 0
     if not (search := BUTTONS_CACHE.get(key)):
         return await query.answer(
-            "⌛ This search expired. Please type the movie name again!", show_alert=True
+            "⌛ This search expired. Please type the movie name again!",
+            show_alert=True,
         )
 
     files, n_offset, total = await get_search_results(
@@ -621,7 +798,9 @@ async def pagination_handler(bot: Client, query: CallbackQuery):
 
     files.sort(
         key=lambda x: (
-            x.get("file_size", 0) if isinstance(x, dict) else getattr(x, "file_size", 0)
+            x.get("file_size", 0)
+            if isinstance(x, dict)
+            else getattr(x, "file_size", 0)
         ),
         reverse=True,
     )
@@ -630,15 +809,14 @@ async def pagination_handler(bot: Client, query: CallbackQuery):
     pre = "filep" if settings.get("file_secure", False) else "file"
     clean_words = await get_clean_words()
 
-    btn.insert(
-        0,
+    btn.append(
         [
             create_btn(
                 text="• Bᴀᴄᴋ Uᴘ Cʜᴀɴɴᴇʟ •",
                 url="https://t.me/KR_Picture",
                 style=BTN_SUCCESS,
             )
-        ],
+        ]
     )
 
     for file in files:
@@ -660,7 +838,6 @@ async def pagination_handler(bot: Client, query: CallbackQuery):
 
         display_name = clean_filename(raw_name, clean_words)
         size_str = get_size(file_size)
-
         url_payload = f"https://t.me/{bot_username}?start={pre}_{file_id}"
 
         if settings.get("button", False):
@@ -680,9 +857,9 @@ async def pagination_handler(bot: Client, query: CallbackQuery):
         total = int(total)
     except Exception:
         total = 0
-    total_pages, current_page = math.ceil(total / 10) if total > 0 else 1, (
-        math.ceil(offset / 10) + 1 if offset > 0 else 1
-    )
+    total_pages = math.ceil(total / 10) if total > 0 else 1
+    current_page = math.ceil(offset / 10) + 1 if offset > 0 else 1
+    page_cb = f"pages#{current_page}#{total_pages}#{total}"
 
     if not n_offset:
         nav_row = [
@@ -692,16 +869,16 @@ async def pagination_handler(bot: Client, query: CallbackQuery):
                 style=BTN_PRIMARY,
             ),
             create_btn(
-                f"Pages {current_page} / {total_pages}",
-                callback_data="pages",
+                f"📄 {current_page}/{total_pages}",
+                callback_data=page_cb,
                 style=BTN_SUCCESS,
             ),
         ]
     elif off_set is None:
         nav_row = [
             create_btn(
-                f"{current_page} / {total_pages}",
-                callback_data="pages",
+                f"📄 {current_page}/{total_pages}",
+                callback_data=page_cb,
                 style=BTN_SUCCESS,
             ),
             create_btn(
@@ -718,8 +895,8 @@ async def pagination_handler(bot: Client, query: CallbackQuery):
                 style=BTN_PRIMARY,
             ),
             create_btn(
-                f"{current_page} / {total_pages}",
-                callback_data="pages",
+                f"📄 {current_page}/{total_pages}",
+                callback_data=page_cb,
                 style=BTN_SUCCESS,
             ),
             create_btn(
@@ -769,9 +946,9 @@ def build_keyboard(btn_str: str):
                             url=b_copy.get("url"),
                             callback_data=b_copy.get("callback_data"),
                             style={
-                                1: ButtonStyle.PRIMARY,
-                                3: ButtonStyle.SUCCESS,
-                                4: ButtonStyle.DANGER,
+                                1: BTN_PRIMARY,
+                                3: BTN_SUCCESS,
+                                4: BTN_DANGER,
                             }.get(style_val, style_val),
                         )
                     )
@@ -796,8 +973,11 @@ def parse_markdown_buttons(text: str):
             key=lambda m: m.start(),
         )
         for match in matches:
+            url_val = match.group(2).strip()
+            if not url_val.startswith(("http://", "https://", "tg://")):
+                url_val = "https://" + url_val
             row_btns.append(
-                {"text": match.group(1).strip(), "url": match.group(2).strip()}
+                {"text": match.group(1).strip(), "url": url_val}
             )
         if row_btns:
             buttons.append(row_btns)
@@ -813,9 +993,9 @@ def parse_markdown_buttons(text: str):
 
 
 # ============================================================
-# 🎯 FILTER COMMANDS (Fully Admin Protected + Auto-Delete)
+# 🎯 FILTER COMMANDS (HIGH PRIORITY GROUP=-2 SO THEY NEVER FAIL)
 # ============================================================
-@Client.on_message(filters.command("filter"))
+@Client.on_message(filters.command("filter"), group=-2)
 async def add_filter_cmd(client: Client, message: Message):
     target_chat_id = await get_target_chat(client, message)
     if not target_chat_id:
@@ -829,14 +1009,44 @@ async def add_filter_cmd(client: Client, message: Message):
 
     if not message.reply_to_message:
         return await message.reply_text(
-            "⚠️ **Reply to a message to set it as a filter.**"
+            "⚠️ **Reply to a message (text or media) to set it as a filter.**\n"
+            "⚙️ **Usage:** `/filter <keyword>`"
         )
     if len(message.command) < 2:
         return await message.reply_text("⚙️ **Usage:** `/filter <keyword>`")
 
     keyword = message.text.split(None, 1)[1].lower().strip()
     replied = message.reply_to_message
-    text, btn = parse_markdown_buttons(replied.text or replied.caption or "")
+    raw_content = (
+        replied.text.html
+        if replied.text and hasattr(replied.text, "html")
+        else (
+            replied.caption.html
+            if replied.caption and hasattr(replied.caption, "html")
+            else (replied.text or replied.caption or "")
+        )
+    )
+    text, btn = parse_markdown_buttons(raw_content)
+
+    # If the replied message already has inline buttons and no markdown buttons were parsed
+    if btn == "[]" and replied.reply_markup and replied.reply_markup.inline_keyboard:
+        existing_btns = []
+        for row in replied.reply_markup.inline_keyboard:
+            row_btns = []
+            for b in row:
+                b_dict = {"text": b.text}
+                if b.url:
+                    b_dict["url"] = b.url
+                elif b.callback_data:
+                    b_dict["callback_data"] = b.callback_data
+                st = getattr(b, "style", None)
+                if st:
+                    b_dict["style"] = st.value if hasattr(st, "value") else int(st)
+                row_btns.append(b_dict)
+            if row_btns:
+                existing_btns.append(row_btns)
+        if existing_btns:
+            btn = str(existing_btns)
 
     fileid = "None"
     for media_attr in ["photo", "video", "document", "audio", "animation", "sticker"]:
@@ -844,16 +1054,17 @@ async def add_filter_cmd(client: Client, message: Message):
             fileid = media_obj.file_id
             break
 
-    await add_filter(target_chat_id, keyword, text, btn, "[]", fileid)
+    await safe_save_filter(target_chat_id, keyword, text, btn, fileid, "[]")
     out_msg = await message.reply_text(
-        f"✅ **Filter successfully added!**\n\n**Keyword:** `{keyword}`"
+        f"✅ **Filter successfully added!**\n\n"
+        f"🔑 **Keyword:** `{keyword}`\n"
+        f"🆔 **Chat ID:** `{target_chat_id}`"
     )
-    asyncio.create_task(
-        auto_delete_all_messages(client, message.chat.id, False, 1800, message, out_msg)
-    )
+    delete_timer = get_auto_delete_timer("AUTO_DELETE_TIME", 1800)
+    schedule_auto_delete(client, message.chat.id, False, delete_timer, message, out_msg)
 
 
-@Client.on_message(filters.command("addfilter"))
+@Client.on_message(filters.command("addfilter"), group=-2)
 async def add_premade_filter_cmd(client: Client, message: Message):
     target_chat_id = await get_target_chat(client, message)
     if not target_chat_id:
@@ -885,8 +1096,9 @@ async def add_premade_filter_cmd(client: Client, message: Message):
                     btn_dict["url"] = btn.url
                 elif btn.callback_data:
                     btn_dict["callback_data"] = btn.callback_data
-                if hasattr(btn, "style") and btn.style:
-                    btn_dict["style"] = int(btn.style)
+                st = getattr(btn, "style", None)
+                if st:
+                    btn_dict["style"] = st.value if hasattr(st, "value") else int(st)
                 row_btns.append(btn_dict)
             if row_btns:
                 buttons.append(row_btns)
@@ -897,23 +1109,32 @@ async def add_premade_filter_cmd(client: Client, message: Message):
             fileid = media_obj.file_id
             break
 
-    await add_filter(
+    raw_content = (
+        replied.text.html
+        if replied.text and hasattr(replied.text, "html")
+        else (
+            replied.caption.html
+            if replied.caption and hasattr(replied.caption, "html")
+            else (replied.text or replied.caption or "")
+        )
+    )
+
+    await safe_save_filter(
         target_chat_id,
         keyword,
-        replied.text or replied.caption or "",
+        raw_content,
         str(buttons) if buttons else "[]",
-        "[]",
         fileid,
+        "[]",
     )
     out_msg = await message.reply_text(
         f"✅ **Filter with buttons added!**\n\n**Keyword:** `{keyword}`"
     )
-    asyncio.create_task(
-        auto_delete_all_messages(client, message.chat.id, False, 1800, message, out_msg)
-    )
+    delete_timer = get_auto_delete_timer("AUTO_DELETE_TIME", 1800)
+    schedule_auto_delete(client, message.chat.id, False, delete_timer, message, out_msg)
 
 
-@Client.on_message(filters.command("filterimage"))
+@Client.on_message(filters.command("filterimage"), group=-2)
 async def edit_filter_image_cmd(client: Client, message: Message):
     target_chat_id = await get_target_chat(client, message)
     if not target_chat_id:
@@ -946,16 +1167,16 @@ async def edit_filter_image_cmd(client: Client, message: Message):
 
     if fileid == "None":
         return await message.reply_text("❌ Could not extract valid media.")
-    await add_filter(target_chat_id, keyword, reply_text, btn, alert, fileid)
+
+    await safe_save_filter(target_chat_id, keyword, reply_text, btn, fileid, alert)
     out_msg = await message.reply_text(
         f"✅ **Filter image updated!**\n\n**Keyword:** `{keyword}`"
     )
-    asyncio.create_task(
-        auto_delete_all_messages(client, message.chat.id, False, 1800, message, out_msg)
-    )
+    delete_timer = get_auto_delete_timer("AUTO_DELETE_TIME", 1800)
+    schedule_auto_delete(client, message.chat.id, False, delete_timer, message, out_msg)
 
 
-@Client.on_message(filters.command(["editfiltercolur", "editfiltercolour"]))
+@Client.on_message(filters.command(["editfiltercolur", "editfiltercolour"]), group=-2)
 async def edit_filter_colour_cmd(client: Client, message: Message):
     target_chat_id = await get_target_chat(client, message)
     if not target_chat_id:
@@ -970,7 +1191,7 @@ async def edit_filter_colour_cmd(client: Client, message: Message):
     args = message.command
     if len(args) < 4:
         return await message.reply_text(
-            "❌ **Usage:** `/editfiltercolur <keyword> <button_number> <colour>`\n\n**Colours:** `green`, `red`, `blue`"
+            "❌ **Usage:** `/editfiltercolour <keyword> <button_number> <colour>`\n\n**Colours:** `green`, `red`, `blue`"
         )
 
     try:
@@ -1014,18 +1235,18 @@ async def edit_filter_colour_cmd(client: Client, message: Message):
         return await message.reply_text(
             f"❌ Button {btn_num} not found. Filter has {count} buttons."
         )
-    await add_filter(
-        target_chat_id, keyword, reply_text, str(button_data), alert, fileid
+
+    await safe_save_filter(
+        target_chat_id, keyword, reply_text, str(button_data), fileid, alert
     )
     out_msg = await message.reply_text(
         f"✅ Filter `{keyword}` Button {btn_num} colour changed to {color_str.title()}!"
     )
-    asyncio.create_task(
-        auto_delete_all_messages(client, message.chat.id, False, 1800, message, out_msg)
-    )
+    delete_timer = get_auto_delete_timer("AUTO_DELETE_TIME", 1800)
+    schedule_auto_delete(client, message.chat.id, False, delete_timer, message, out_msg)
 
 
-@Client.on_message(filters.command("delfilter"))
+@Client.on_message(filters.command(["delfilter", "stop"]), group=-2)
 async def del_filter_cmd(client: Client, message: Message):
     target_chat_id = await get_target_chat(client, message)
     if not target_chat_id:
@@ -1042,12 +1263,39 @@ async def del_filter_cmd(client: Client, message: Message):
     keyword = message.text.split(None, 1)[1].lower().strip()
     await delete_filter(message, keyword, target_chat_id)
     out_msg = await message.reply_text(f"🗑️ **Filter `{keyword}` deleted.**")
-    asyncio.create_task(
-        auto_delete_all_messages(client, message.chat.id, False, 1800, message, out_msg)
+    delete_timer = get_auto_delete_timer("AUTO_DELETE_TIME", 1800)
+    schedule_auto_delete(client, message.chat.id, False, delete_timer, message, out_msg)
+
+
+@Client.on_message(filters.command(["delall", "deleteall"]), group=-2)
+async def del_all_filters_cmd(client: Client, message: Message):
+    target_chat_id = await get_target_chat(client, message)
+    if not target_chat_id:
+        return await message.reply_text(
+            "⚠️ **No active connection!**\nPlease run `/connect <group_id>` first."
+        )
+    if not await verify_admin(client, message, target_chat_id):
+        return await message.reply_text(
+            f"❌ You are not authorized for chat: `{target_chat_id}`"
+        )
+
+    buttons = [
+        [
+            create_btn(
+                "🔥 Yes, Delete All",
+                callback_data=f"delallconfirm#{target_chat_id}",
+                style=BTN_DANGER,
+            )
+        ],
+        [create_btn("❌ Cancel", callback_data="delallcancel", style=BTN_PRIMARY)],
+    ]
+    await message.reply_text(
+        f"⚠️ **Are you sure you want to delete ALL filters in `{target_chat_id}`?**",
+        reply_markup=InlineKeyboardMarkup(buttons),
     )
 
 
-@Client.on_message(filters.command(["listfilters", "filters"]))
+@Client.on_message(filters.command(["listfilters", "filters", "viewfilters"]), group=-2)
 async def list_filters_cmd(client: Client, message: Message):
     target_chat_id = await get_target_chat(client, message)
     if not target_chat_id:
@@ -1061,13 +1309,16 @@ async def list_filters_cmd(client: Client, message: Message):
 
     keywords = await get_filters(target_chat_id)
     if not keywords:
-        return await message.reply_text("⚠️ **No active filters found.**")
+        return await message.reply_text(
+            f"⚠️ **No active filters found in `{target_chat_id}`.**"
+        )
+
     out_msg = await message.reply_text(
-        "📋 **Current Filters:**\n\n" + "\n".join([f"• `{kw}`" for kw in keywords])
+        f"📋 **Current Filters ({len(keywords)}):**\n\n"
+        + "\n".join([f"• `{kw}`" for kw in keywords])
     )
-    asyncio.create_task(
-        auto_delete_all_messages(client, message.chat.id, False, 1800, message, out_msg)
-    )
+    delete_timer = get_auto_delete_timer("AUTO_DELETE_TIME", 1800)
+    schedule_auto_delete(client, message.chat.id, False, delete_timer, message, out_msg)
 
 
 # ============================================================
@@ -1088,6 +1339,7 @@ async def send_filter_media(
             caption=reply_text,
             reply_markup=reply_markup,
             reply_to_message_id=reply_id,
+            parse_mode=enums.ParseMode.HTML,
         )
     except FloodWait as e:
         await asyncio.sleep(e.value + 1)
@@ -1101,7 +1353,11 @@ async def send_filter_media(
 
     try:
         return await client.send_cached_media(
-            chat_id, fileid, caption=reply_text, reply_markup=reply_markup
+            chat_id,
+            fileid,
+            caption=reply_text,
+            reply_markup=reply_markup,
+            parse_mode=enums.ParseMode.HTML,
         )
     except Exception:
         pass
@@ -1119,6 +1375,7 @@ async def send_filter_media(
                     arg_name: fileid,
                     "caption": reply_text,
                     "reply_markup": reply_markup,
+                    "parse_mode": enums.ParseMode.HTML,
                 }
             )
         except Exception:
@@ -1126,7 +1383,10 @@ async def send_filter_media(
 
     try:
         return await client.send_message(
-            chat_id, text=reply_text or "Here is your file:", reply_markup=reply_markup
+            chat_id,
+            text=reply_text or "<b>Here is your file:</b>",
+            reply_markup=reply_markup,
+            parse_mode=enums.ParseMode.HTML,
         )
     except Exception as err:
         logger.error(f"Media filter failed all 4 layers: {err}")
@@ -1143,11 +1403,16 @@ async def safe_send_text_filter(
             disable_web_page_preview=True,
             reply_markup=reply_markup,
             reply_to_message_id=reply_id,
+            parse_mode=enums.ParseMode.HTML,
         )
     except Exception:
         try:
             return await client.send_message(
-                chat_id, text, disable_web_page_preview=True, reply_markup=reply_markup
+                chat_id,
+                text,
+                disable_web_page_preview=True,
+                reply_markup=reply_markup,
+                parse_mode=enums.ParseMode.HTML,
             )
         except Exception as e:
             logger.error(f"Text filter failed: {e}")
@@ -1157,7 +1422,7 @@ async def safe_send_text_filter(
 # ============================================================
 # ⚡ LIVE GROUP TRIGGER HANDLER
 # ============================================================
-async def manual_filters(client: Client, message: Message, text=False):
+async def manual_filters(client: Client, message: Message, text=False) -> bool:
     if getattr(info, "REPAIR_MODE", False) and not await verify_admin(
         client, message, message.chat.id
     ):
@@ -1170,7 +1435,8 @@ async def manual_filters(client: Client, message: Message, text=False):
         ):
             group_id = active_grp
 
-    name, reply_id = text or message.text or message.caption or "", (
+    name = text or message.text or message.caption or ""
+    reply_id = (
         message.reply_to_message.id if message.reply_to_message else message.id
     )
     if not (keywords := await get_filters(group_id)):
@@ -1183,6 +1449,10 @@ async def manual_filters(client: Client, message: Message, text=False):
             flags=re.IGNORECASE,
         ):
             reply_text, btn, alert, fileid = await find_filter(group_id, keyword)
+            # Handle swapped fileid/alert from older filter entries gracefully
+            if str(fileid).strip() in ["[]", "None", ""] and str(alert).strip() not in ["[]", "None", ""]:
+                fileid, alert = alert, fileid
+
             if reply_text:
                 reply_text = reply_text.replace("\\n", "\n").replace("\\t", "\t")
                 if not reply_text.startswith("<b>") and not reply_text.startswith("**"):
@@ -1192,7 +1462,6 @@ async def manual_filters(client: Client, message: Message, text=False):
             reply_markup = (
                 InlineKeyboardMarkup(button_layout) if button_layout else None
             )
-
             fileid_str = str(fileid).strip()
 
             if not fileid or fileid_str in ["None", "[]", "", "False"]:
@@ -1209,22 +1478,12 @@ async def manual_filters(client: Client, message: Message, text=False):
                     reply_id,
                 )
 
-            if (
-                sent_msg
-                and (delete_timer := getattr(info, "BUTTON_AUTO_DELETE", 1800)) > 0
-            ):
+            delete_timer = get_auto_delete_timer("AUTO_DELETE_TIME", 1800)
+            if sent_msg and delete_timer > 0:
                 is_pm = message.chat.type == enums.ChatType.PRIVATE
-                asyncio.create_task(
-                    auto_delete_all_messages(
-                        client, message.chat.id, is_pm, delete_timer, sent_msg, message
-                    )
+                # Deletes both the user's trigger message and the bot's filter response
+                schedule_auto_delete(
+                    client, message.chat.id, is_pm, delete_timer, sent_msg, message
                 )
             return True
     return False
-
-
-@Client.on_message(filters.group & filters.text & ~filters.bot, group=5)
-async def filter_listener_hook(client: Client, message: Message):
-    if message.text.startswith("/"):
-        return
-    await manual_filters(client, message)
