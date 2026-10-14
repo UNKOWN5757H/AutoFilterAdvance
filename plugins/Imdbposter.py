@@ -300,7 +300,11 @@ async def _search_candidates(query: str, api_key=None, limit: int = 10):
             None, title_str.lower(), clean_title.lower()
         ).ratio()
         rd_str = r.get("release_date") or r.get("first_air_date") or ""
-        match_year = int(rd_str[:4]) if rd_str and len(rd_str) >= 4 and rd_str[:4].isdigit() else None
+        match_year = (
+            int(rd_str[:4])
+            if rd_str and len(rd_str) >= 4 and rd_str[:4].isdigit()
+            else None
+        )
 
         year_score = 1.0
         if year and match_year:
@@ -402,9 +406,7 @@ def _format_details_output(query: str, media_type: str, media_id: int, details: 
         )
         or "N/A",
         "kind": media_type,
-        "year": (details.get("release_date") or details.get("first_air_date") or "")[
-            :4
-        ]
+        "year": (details.get("release_date") or details.get("first_air_date") or "")[:4]
         or "N/A",
         "release_date": details.get("release_date")
         or details.get("first_air_date")
@@ -558,9 +560,7 @@ async def get_movie_detailsx(query, id=False, file=None):
     raw_rating = data.get("rating")
     try:
         parsed_rating = (
-            round(float(raw_rating), 1)
-            if raw_rating not in (None, "N/A")
-            else None
+            round(float(raw_rating), 1) if raw_rating not in (None, "N/A") else None
         )
     except (ValueError, TypeError):
         parsed_rating = None
@@ -678,14 +678,14 @@ async def imdb_search(client: Client, message: Message):
                 movie.get("year") if isinstance(movie, dict) else ""
             )
             mtype = (
-                movie.get("media_type", "movie")
-                if isinstance(movie, dict)
-                else "movie"
+                movie.get("media_type", "movie") if isinstance(movie, dict) else "movie"
             )
             type_icon = "📺" if mtype == "tv" else "🎬"
 
             if m_id:
-                label = f"{type_icon} {title} ({year})" if year else f"{type_icon} {title}"
+                label = (
+                    f"{type_icon} {title} ({year})" if year else f"{type_icon} {title}"
+                )
                 buttons.append(
                     [
                         InlineKeyboardButton(
@@ -701,9 +701,7 @@ async def imdb_search(client: Client, message: Message):
                 parse_mode=enums.ParseMode.HTML,
             )
 
-        buttons.append(
-            [InlineKeyboardButton("🔐 Close", callback_data="imdb#close")]
-        )
+        buttons.append([InlineKeyboardButton("🔐 Close", callback_data="imdb#close")])
         await wait_msg.edit_text(
             f"🎥 <b>Found {len(buttons) - 1} result(s) for:</b> <code>{html.escape(query)}</code>\n"
             f"👇 <i>Select a title below to generate its poster & details:</i>",
@@ -750,11 +748,7 @@ async def imdb_callback(client: Client, query: CallbackQuery):
             url = imdb.get("url", "https://www.themoviedb.org/")
 
         buttons = [
-            [
-                InlineKeyboardButton(
-                    f"🔗 {imdb.get('title', 'View Link')}", url=url
-                )
-            ],
+            [InlineKeyboardButton(f"🔗 {imdb.get('title', 'View Link')}", url=url)],
             [InlineKeyboardButton("🔐 Close", callback_data="imdb#close")],
         ]
 
