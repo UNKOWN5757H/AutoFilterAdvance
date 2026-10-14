@@ -1,8 +1,10 @@
 import asyncio
+import html
 import os
 import platform
 import shutil
 import sys
+import time
 from logging import ERROR, getLogger
 
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -10,7 +12,10 @@ from pyrogram import Client, enums, filters
 from pyrogram.errors import (
     FloodWait,
     InputUserDeactivated,
+    MessageNotModified,
     PeerIdInvalid,
+    QueryIdInvalid,
+    UserDeactivated,
     UserDeactivatedBan,
     UserIsBlocked,
 )
@@ -22,40 +27,93 @@ from pyrogram.types import (
 )
 
 import info
-from database.connections_mdb import (
-    add_connection,
-    all_connections,
-    delete_connection,
-    if_active,
-)
-from database.ia_filterdb import Media as _Media
-from database.plugin_dbs import plugin_db as _plugin_db
 from database.users_chats_db import db as _db
+from utils import temp
 
-logger = getLogger(__name__)
-logger.setLevel(ERROR)
+# Safe optional imports so missing modules never break plugin loading
+try:
+    from database.connections_mdb import (
+        add_connection as _std_add_connection,
+        all_connections as _std_all_connections,
+        delete_connection as _std_delete_connection,
+        if_active as _std_if_active,
+        make_active as _std_make_active,
+        make_inactive as _std_make_inactive,
+    )
+except ImportError:
+    _std_add_connection = None
+    _std_all_connections = None
+    _std_delete_connection = None
+    _std_if_active = None
+    _std_make_active = None
+    _std_make_inactive = None
+
+try:
+    from database.ia_filterdb import Media as _Media
+except ImportError:
+    _Media = None
+
+try:
+    from database.plugin_dbs import plugin_db as _plugin_db
+except ImportError:
+    _plugin_db = None
 
 try:
     import psutil
 except ImportError:
     psutil = None
 
+logger = getLogger(__name__)
+logger.setLevel(ERROR)
+
+if not hasattr(info, "REPAIR_MODE"):
+    info.REPAIR_MODE = False
 
 # ============================================================
-# 👑 SMART AUTHORIZATION & UNBREAKABLE FALLBACKS
+# ⚙️ MONGODB FALLBACK COLLECTIONS
+# ============================================================
+_DB_CLIENT = None
+_BOT_DB = None
+_active_conn_col = None
+_std_conn_col = None
+_ban_col = None
+
+try:
+    _DB_CLIENT = AsyncIOMotorClient(info.DATABASE_URI)
+    _BOT_DB = _DB_CLIENT[info.DATABASE_NAME]
+    _active_conn_col = _BOT_DB["active_connections"]
+    _std_conn_col = _BOT_DB["CONNECTION"]
+    _ban_col = _BOT_DB["banned_users"]
+except Exception as e:
+    logger.error(f"Failed to init admincore fallback DB: {e}")
+
+# Flag to allow cancelling long-running /cleanusers task
+_CLEAN_USERS_CANCEL = False
+
+
+# ============================================================
+# 👑 SMART AUTHORIZATION
 # ============================================================
 def get_admin_list():
     raw_admins = getattr(info, "ADMINS", [])
     if isinstance(raw_admins, (str, int)):
         raw_admins = str(raw_admins).replace(",", " ").split()
+    elif isinstance(raw_admins, (list, tuple, set)):
+        raw_admins = list(raw_admins)
+    else:
+        raw_admins = []
     return [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
 
 
-async def is_global_admin(user_id: int):
-    return user_id in get_admin_list()
+async def is_global_admin(user_id: int) -> bool:
+    if not user_id:
+        return False
+    return int(user_id) in get_admin_list()
 
 
-async def quick_admin_check(client: Client, message: Message):
+async def quick_admin_check(client: Client, message: Message) -> bool:
+    if not message:
+        return False
     uid = (
         message.from_user.id
         if message.from_user
@@ -63,7 +121,10 @@ async def quick_admin_check(client: Client, message: Message):
     )
     if await is_global_admin(uid):
         return True
-    if message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
+    if message.chat and message.chat.type in [
+        enums.ChatType.GROUP,
+        enums.ChatType.SUPERGROUP,
+    ]:
         if message.sender_chat and message.sender_chat.id == message.chat.id:
             return True
         if message.from_user:
@@ -78,40 +139,218 @@ async def quick_admin_check(client: Client, message: Message):
     return False
 
 
-# UNBREAKABLE CONNECTION ACTIVATOR
-async def safe_make_active(user_id: str, group_id: str):
-    try:
-        from database.connections_mdb import make_active
-
-        await make_active(str(user_id), str(group_id))
-    except ImportError:
-        _DB_CLIENT = AsyncIOMotorClient(info.DATABASE_URI)
-        _BOT_DB = _DB_CLIENT[info.DATABASE_NAME]
-        await _BOT_DB["active_connections"].update_one(
-            {"user_id": str(user_id)},
-            {"$set": {"group_id": str(group_id)}},
-            upsert=True,
-        )
-
-
-if not hasattr(info, "REPAIR_MODE"):
-    info.REPAIR_MODE = False
-
-
-def get_size_str(bytes_size):
-    if not bytes_size:
+def get_size_str(bytes_size) -> str:
+    if not bytes_size or bytes_size < 0:
         return "0.00 B"
+    size = float(bytes_size)
     for unit in ["B", "KB", "MB", "GB", "TB"]:
-        if bytes_size < 1024.0:
-            return f"{bytes_size:.2f} {unit}"
-        bytes_size /= 1024.0
-    return f"{bytes_size:.2f} PB"
+        if size < 1024.0:
+            return f"{size:.2f} {unit}"
+        size /= 1024.0
+    return f"{size:.2f} PB"
+
+
+async def get_total_files_count() -> int:
+    if _Media is None:
+        return 0
+    try:
+        col = getattr(_Media, "collection", _Media)
+        return await col.count_documents({})
+    except Exception:
+        try:
+            return await _Media.count_documents({})
+        except Exception:
+            return 0
 
 
 # ============================================================
-# 🔗 CONNECTION COMMANDS (100% NATIVE & FLAWLESS)
+# 🔗 UNIFIED CONNECTION ENGINE (SYNCS ALL SCHEMAS)
 # ============================================================
-@Client.on_message(filters.command("connect"))
+async def safe_add_connection(group_id: str, user_id: str) -> bool:
+    uid, gid = str(user_id), str(group_id)
+    added = False
+    if callable(_std_add_connection):
+        try:
+            added = bool(await _std_add_connection(gid, uid))
+        except Exception as e:
+            logger.error(f"std add_connection error: {e}")
+
+    if _std_conn_col is not None:
+        try:
+            await _std_conn_col.update_one(
+                {"_id": uid},
+                {
+                    "$addToSet": {
+                        "group_details": {"group_id": gid},
+                        "group_ids": gid,
+                    },
+                    "$set": {"active_group": gid},
+                },
+                upsert=True,
+            )
+            added = True
+        except Exception:
+            pass
+
+    await safe_make_active(uid, gid)
+    return added
+
+
+async def safe_make_active(user_id: str, group_id: str):
+    uid, gid = str(user_id), str(group_id)
+    if callable(_std_make_active):
+        try:
+            await _std_make_active(uid, gid)
+        except Exception:
+            pass
+    if _std_conn_col is not None:
+        try:
+            await _std_conn_col.update_one(
+                {"_id": uid}, {"$set": {"active_group": gid}}, upsert=True
+            )
+        except Exception:
+            pass
+    if _active_conn_col is not None:
+        try:
+            await _active_conn_col.update_one(
+                {"user_id": uid},
+                {"$set": {"group_id": gid, "active_group": gid}},
+                upsert=True,
+            )
+        except Exception:
+            pass
+
+
+async def safe_make_inactive(user_id: str):
+    uid = str(user_id)
+    if callable(_std_make_inactive):
+        try:
+            await _std_make_inactive(uid)
+        except Exception:
+            pass
+    if _std_conn_col is not None:
+        try:
+            await _std_conn_col.update_one(
+                {"_id": uid}, {"$set": {"active_group": None}}
+            )
+        except Exception:
+            pass
+    if _active_conn_col is not None:
+        try:
+            await _active_conn_col.delete_one({"user_id": uid})
+        except Exception:
+            pass
+
+
+async def safe_delete_connection(user_id: str, group_id: str) -> bool:
+    uid, gid = str(user_id), str(group_id)
+    deleted = False
+    if callable(_std_delete_connection):
+        try:
+            deleted = bool(await _std_delete_connection(uid, gid))
+        except Exception:
+            pass
+
+    if _std_conn_col is not None:
+        try:
+            doc = await _std_conn_col.find_one({"_id": uid})
+            if doc:
+                await _std_conn_col.update_one(
+                    {"_id": uid},
+                    {
+                        "$pull": {
+                            "group_details": {"group_id": gid},
+                            "group_ids": gid,
+                        }
+                    },
+                )
+                if str(doc.get("active_group")) == gid:
+                    await _std_conn_col.update_one(
+                        {"_id": uid}, {"$set": {"active_group": None}}
+                    )
+                deleted = True
+        except Exception:
+            pass
+
+    if _active_conn_col is not None:
+        try:
+            res = await _active_conn_col.delete_many(
+                {"user_id": uid, "group_id": gid}
+            )
+            if res.deleted_count:
+                deleted = True
+        except Exception:
+            pass
+
+    return deleted
+
+
+async def safe_all_connections(user_id: str) -> list:
+    uid = str(user_id)
+    groups = []
+    if callable(_std_all_connections):
+        try:
+            res = await _std_all_connections(uid)
+            if res:
+                groups.extend([str(g) for g in res if g])
+        except Exception:
+            pass
+
+    if _std_conn_col is not None:
+        try:
+            doc = await _std_conn_col.find_one({"_id": uid})
+            if doc:
+                for item in doc.get("group_details", []):
+                    if isinstance(item, dict) and item.get("group_id"):
+                        groups.append(str(item["group_id"]))
+                for gid in doc.get("group_ids", []):
+                    if gid:
+                        groups.append(str(gid))
+                if doc.get("active_group"):
+                    groups.append(str(doc["active_group"]))
+        except Exception:
+            pass
+
+    if _active_conn_col is not None:
+        try:
+            doc = await _active_conn_col.find_one({"user_id": uid})
+            if doc and doc.get("group_id"):
+                groups.append(str(doc["group_id"]))
+        except Exception:
+            pass
+
+    return list(dict.fromkeys(groups))
+
+
+async def safe_if_active(user_id: str, group_id: str) -> bool:
+    uid, gid = str(user_id), str(group_id)
+    if callable(_std_if_active):
+        try:
+            if await _std_if_active(uid, gid):
+                return True
+        except Exception:
+            pass
+    if _std_conn_col is not None:
+        try:
+            doc = await _std_conn_col.find_one({"_id": uid})
+            if doc and str(doc.get("active_group")) == gid:
+                return True
+        except Exception:
+            pass
+    if _active_conn_col is not None:
+        try:
+            doc = await _active_conn_col.find_one({"user_id": uid})
+            if doc and str(doc.get("group_id")) == gid:
+                return True
+        except Exception:
+            pass
+    return False
+
+
+# ============================================================
+# 🔗 CONNECTION COMMANDS & CALLBACKS
+# ============================================================
+@Client.on_message(filters.command("connect") & filters.incoming)
 async def addconnection_cmd(client: Client, message: Message):
     uid = str(
         message.from_user.id
@@ -119,15 +358,21 @@ async def addconnection_cmd(client: Client, message: Message):
         else getattr(message.sender_chat, "id", 0)
     )
     if not await quick_admin_check(client, message):
-        return await message.reply_text("❌ **Unauthorized:** Admin access required.")
+        return await message.reply_text(
+            "❌ <b>Unauthorized:</b> Admin access required.",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
     if message.chat.type == enums.ChatType.PRIVATE:
         if len(message.command) < 2:
-            return await message.reply_text("⚠️ **Usage in PM:** `/connect <group_id>`")
+            return await message.reply_text(
+                "⚠️ <b>Usage in PM:</b> <code>/connect &lt;group_id&gt;</code>",
+                parse_mode=enums.ParseMode.HTML,
+            )
         group_id = message.command[1].strip()
         try:
             chat = await client.get_chat(int(group_id))
-            title = chat.title
+            title = html.escape(chat.title or "Group")
             if not await is_global_admin(int(uid)):
                 member = await client.get_chat_member(int(group_id), int(uid))
                 if member.status not in [
@@ -135,29 +380,28 @@ async def addconnection_cmd(client: Client, message: Message):
                     enums.ChatMemberStatus.OWNER,
                 ]:
                     return await message.reply_text(
-                        f"❌ You are not an Admin in `{title}`"
+                        f"❌ You are not an Admin in <code>{title}</code>",
+                        parse_mode=enums.ParseMode.HTML,
                     )
         except Exception as e:
             return await message.reply_text(
-                f"❌ Invalid Group ID or I'm not in that group!\nError: `{e}`"
+                f"❌ Invalid Group ID or I'm not in that group!\n<b>Error:</b> <code>{html.escape(str(e))}</code>",
+                parse_mode=enums.ParseMode.HTML,
             )
     else:
         group_id = str(message.chat.id)
-        title = message.chat.title
+        title = html.escape(message.chat.title or "Group")
 
-    if await add_connection(group_id, uid):
-        await safe_make_active(uid, group_id)
-        await message.reply_text(
-            f"✅ **Successfully connected & activated:**\n`{title}`\n\nYou can now manage this group from my PM!"
-        )
-    else:
-        await safe_make_active(uid, group_id)
-        await message.reply_text(
-            f"⚠️ You were already connected to `{title}`.\n✅ It has been set as your **Active** connection!"
-        )
+    await safe_add_connection(group_id, uid)
+    await message.reply_text(
+        f"✅ <b>Successfully connected & activated:</b>\n"
+        f"📢 <code>{title}</code> (<code>{group_id}</code>)\n\n"
+        f"You can now manage this group directly from my PM!",
+        parse_mode=enums.ParseMode.HTML,
+    )
 
 
-@Client.on_message(filters.command("disconnect"))
+@Client.on_message(filters.command("disconnect") & filters.incoming)
 async def deleteconnection_cmd(client: Client, message: Message):
     uid = str(
         message.from_user.id
@@ -165,101 +409,164 @@ async def deleteconnection_cmd(client: Client, message: Message):
         else getattr(message.sender_chat, "id", 0)
     )
     if not await quick_admin_check(client, message):
-        return await message.reply_text("❌ **Unauthorized:** Admin access required.")
+        return await message.reply_text(
+            "❌ <b>Unauthorized:</b> Admin access required.",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
     if message.chat.type == enums.ChatType.PRIVATE:
         if len(message.command) < 2:
             return await message.reply_text(
-                "⚠️ **Usage in PM:** `/disconnect <group_id>`\nOr use `/connections` to manage them."
+                "⚠️ <b>Usage in PM:</b> <code>/disconnect &lt;group_id&gt;</code>\n"
+                "Or use <code>/connections</code> to manage them interactively.",
+                parse_mode=enums.ParseMode.HTML,
             )
         group_id = message.command[1].strip()
     else:
         group_id = str(message.chat.id)
 
-    if await delete_connection(uid, group_id):
-        await message.reply_text(f"✅ **Successfully disconnected from:** `{group_id}`")
+    if await safe_delete_connection(uid, group_id):
+        await message.reply_text(
+            f"✅ <b>Successfully disconnected from:</b> <code>{html.escape(group_id)}</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
     else:
-        await message.reply_text("⚠️ This chat isn't in your connections list!")
+        await message.reply_text(
+            "⚠️ This chat isn't in your connections list!",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
 
-@Client.on_message(filters.command("connections") & filters.private)
+@Client.on_message(filters.command("connections") & filters.private & filters.incoming)
 async def connections_cmd(client: Client, message: Message):
+    if not message.from_user:
+        return
     uid = str(message.from_user.id)
-    groups = await all_connections(uid)
+    groups = await safe_all_connections(uid)
 
     if not groups:
         return await message.reply_text(
-            "⚠️ **No active connections!**\nUse `/connect <group_id>` to add one."
+            "⚠️ <b>No active connections!</b>\nUse <code>/connect &lt;group_id&gt;</code> to add one.",
+            parse_mode=enums.ParseMode.HTML,
         )
 
     await generate_connections_menu(client, message, uid, is_edit=False)
 
 
-@Client.on_callback_query(filters.regex(r"^(groupcb|connectcb|disconnectcb|backcb)"))
+@Client.on_callback_query(
+    filters.regex(r"^(groupcb|connectcb|inactcb|disconnectcb|backcb|conn_close)")
+)
 async def connection_callbacks(client: Client, query: CallbackQuery):
     data = query.data
     uid = str(query.from_user.id)
 
-    if data.startswith("groupcb"):
-        group_id = data.split(":")[1]
-        try:
-            title = (await client.get_chat(int(group_id))).title
-        except Exception:
-            title = "Unknown Group"
+    try:
+        if data == "conn_close":
+            await query.answer("Closed!")
+            return await query.message.delete()
 
-        buttons = [
-            [
+        if data.startswith("groupcb:"):
+            group_id = data.split(":", 1)[1]
+            await query.answer()
+            try:
+                chat_obj = await client.get_chat(int(group_id))
+                title = html.escape(chat_obj.title or "Unknown Group")
+            except Exception:
+                title = "Unknown Group"
+
+            is_act = await safe_if_active(uid, group_id)
+            status_str = "🟢 ACTIVE" if is_act else "⚪️ INACTIVE"
+
+            toggle_btn = (
                 InlineKeyboardButton(
+                    "📴 Make Inactive", callback_data=f"inactcb:{group_id}"
+                )
+                if is_act
+                else InlineKeyboardButton(
                     "✅ Make Active", callback_data=f"connectcb:{group_id}"
                 )
-            ],
-            [
-                InlineKeyboardButton(
-                    "🗑️ Disconnect", callback_data=f"disconnectcb:{group_id}"
-                )
-            ],
-            [InlineKeyboardButton("🔙 Back to List", callback_data="backcb")],
-        ]
-        await query.message.edit_text(
-            f"⚙️ **Manage Connection:**\n`{title}`\n🆔 `{group_id}`",
-            reply_markup=InlineKeyboardMarkup(buttons),
-        )
+            )
 
-    elif data.startswith("connectcb"):
-        group_id = data.split(":")[1]
-        await safe_make_active(uid, group_id)
-        await query.answer("✅ Connection Activated!", show_alert=True)
-        await generate_connections_menu(client, query.message, uid, is_edit=True)
+            buttons = [
+                [toggle_btn],
+                [
+                    InlineKeyboardButton(
+                        "🗑️ Disconnect", callback_data=f"disconnectcb:{group_id}"
+                    )
+                ],
+                [
+                    InlineKeyboardButton("🔙 Back to List", callback_data="backcb"),
+                    InlineKeyboardButton("🔐 Close", callback_data="conn_close"),
+                ],
+            ]
+            await query.message.edit_text(
+                f"⚙️ <b>Manage Connection:</b>\n\n"
+                f"📢 <b>Group:</b> <code>{title}</code>\n"
+                f"🆔 <b>ID:</b> <code>{group_id}</code>\n"
+                f"📡 <b>Status:</b> <code>{status_str}</code>",
+                reply_markup=InlineKeyboardMarkup(buttons),
+                parse_mode=enums.ParseMode.HTML,
+            )
 
-    elif data.startswith("disconnectcb"):
-        group_id = data.split(":")[1]
-        await delete_connection(uid, group_id)
-        await query.answer("🗑️ Connection Deleted!", show_alert=True)
-        await generate_connections_menu(client, query.message, uid, is_edit=True)
+        elif data.startswith("connectcb:"):
+            group_id = data.split(":", 1)[1]
+            await safe_make_active(uid, group_id)
+            await query.answer("✅ Connection Activated!", show_alert=True)
+            await generate_connections_menu(client, query.message, uid, is_edit=True)
 
-    elif data == "backcb":
-        await generate_connections_menu(client, query.message, uid, is_edit=True)
+        elif data.startswith("inactcb:"):
+            await safe_make_inactive(uid)
+            await query.answer("📴 Connection Deactivated!", show_alert=True)
+            await generate_connections_menu(client, query.message, uid, is_edit=True)
+
+        elif data.startswith("disconnectcb:"):
+            group_id = data.split(":", 1)[1]
+            await safe_delete_connection(uid, group_id)
+            await query.answer("🗑️ Connection Deleted!", show_alert=True)
+            await generate_connections_menu(client, query.message, uid, is_edit=True)
+
+        elif data == "backcb":
+            await query.answer()
+            await generate_connections_menu(client, query.message, uid, is_edit=True)
+    except MessageNotModified:
+        pass
+    except QueryIdInvalid:
+        pass
+    except Exception as e:
+        logger.error(f"Connection callback error: {e}")
 
 
-async def generate_connections_menu(client, message, uid, is_edit=True):
-    groupids = await all_connections(uid)
+async def generate_connections_menu(
+    client: Client, message: Message, uid: str, is_edit: bool = True
+):
+    groupids = await safe_all_connections(uid)
     if not groupids:
-        text = "⚠️ **No active connections!**\nUse `/connect <group_id>` to add one."
+        text = (
+            "⚠️ <b>No active connections!</b>\n"
+            "Use <code>/connect &lt;group_id&gt;</code> to add one."
+        )
+        markup = InlineKeyboardMarkup(
+            [[InlineKeyboardButton("🔐 Close", callback_data="conn_close")]]
+        )
         if is_edit:
-            return await message.edit_text(text)
-        else:
-            return await message.reply_text(text)
+            return await message.edit_text(
+                text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
+            )
+        return await message.reply_text(
+            text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
+        )
 
     buttons = []
     for gid in groupids:
         try:
-            title = (await client.get_chat(int(gid))).title
-            is_act = await if_active(uid, str(gid))
+            chat_obj = await client.get_chat(int(gid))
+            title = chat_obj.title or f"Group {gid}"
+            is_act = await safe_if_active(uid, str(gid))
             prefix = "🟢" if is_act else "⚪️"
             buttons.append(
                 [
                     InlineKeyboardButton(
-                        f"{prefix} {title}", callback_data=f"groupcb:{gid}"
+                        f"{prefix} {title[:32]}", callback_data=f"groupcb:{gid}"
                     )
                 ]
             )
@@ -272,30 +579,45 @@ async def generate_connections_menu(client, message, uid, is_edit=True):
                 ]
             )
 
-    text = "🔗 **Your Connected Groups:**\n\n*(Click a group to Activate or Disconnect it)*"
+    buttons.append([InlineKeyboardButton("🔐 Close", callback_data="conn_close")])
+    text = (
+        "🔗 <b>Your Connected Groups:</b>\n\n"
+        "<i>(Click a group below to Activate, Deactivate, or Disconnect it)</i>"
+    )
     if is_edit:
-        await message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
+        await message.edit_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode=enums.ParseMode.HTML,
+        )
     else:
-        await message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
+        await message.reply_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode=enums.ParseMode.HTML,
+        )
 
 
 # ============================================================
-# ℹ️ INFO COMMAND
+# ℹ️ USER INFO COMMAND
 # ============================================================
-@Client.on_message(filters.command("info"))
+@Client.on_message(filters.command(["info", "id"]) & filters.incoming)
 async def who_is(client: Client, message: Message):
-    if not await quick_admin_check(client, message):
-        return
-    status = await message.reply_text("🔍 Fetching user info...")
+    is_admin = await quick_admin_check(client, message)
+    status = await message.reply_text(
+        "🔍 <b>Fetching user info...</b>", parse_mode=enums.ParseMode.HTML
+    )
 
     try:
         user = None
         if message.reply_to_message and message.reply_to_message.from_user:
             user = message.reply_to_message.from_user
-        elif len(message.command) > 1:
-            target = message.text.split(None, 1)[1]
+        elif len(message.command) > 1 and is_admin:
+            target = message.text.split(None, 1)[1].strip()
             try:
-                user = await client.get_users(target)
+                user = await client.get_users(
+                    int(target) if target.lstrip("-").isdigit() else target
+                )
             except Exception:
                 pass
 
@@ -303,16 +625,23 @@ async def who_is(client: Client, message: Message):
             user = message.from_user
         if not user:
             return await status.edit_text(
-                "⚠️ No valid user found. *(Anonymous admins must reply to a user or provide an ID)*"
+                f"🆔 <b>Chat ID:</b> <code>{message.chat.id}</code>\n"
+                "⚠️ <i>Reply to a user or provide a User ID to inspect user details.</i>",
+                parse_mode=enums.ParseMode.HTML,
             )
 
+        first_name = html.escape(user.first_name or "None")
+        last_name = html.escape(user.last_name or "None")
+        username = f"@{html.escape(user.username)}" if user.username else "None"
+
         text = (
-            f"<b>👤 First Name:</b> {user.first_name}\n"
-            f"<b>🧾 Last Name:</b> {user.last_name or 'None'}\n"
+            f"<b>👤 First Name:</b> {first_name}\n"
+            f"<b>🧾 Last Name:</b> {last_name}\n"
             f"<b>🆔 Telegram ID:</b> <code>{user.id}</code>\n"
+            f"<b>💬 Chat ID:</b> <code>{message.chat.id}</code>\n"
             f"<b>🌐 Data Centre:</b> <code>{user.dc_id or 'N/A'}</code>\n"
-            f"<b>💬 Username:</b> @{user.username or 'None'}\n"
-            f"<b>🔗 User Link:</b> <a href='tg://user?id={user.id}'>Click Here</a>\n"
+            f"<b>🔗 Username:</b> {username}\n"
+            f"<b>✨ Mention:</b> <a href='tg://user?id={user.id}'>Click Here</a>\n"
         )
 
         if message.chat.type in (
@@ -327,9 +656,30 @@ async def who_is(client: Client, message: Message):
             except Exception:
                 pass
 
-        markup = InlineKeyboardMarkup(
-            [[InlineKeyboardButton("🔐 Close", callback_data="close_data")]]
-        )
+        btn_rows = []
+        uid_caller = message.from_user.id if message.from_user else 0
+        if await is_global_admin(uid_caller) and not await is_global_admin(user.id):
+            banned = await check_user_banned(user.id)
+            if banned:
+                btn_rows.append(
+                    [
+                        InlineKeyboardButton(
+                            "✅ Unban User", callback_data=f"adm_unban:{user.id}"
+                        )
+                    ]
+                )
+            else:
+                btn_rows.append(
+                    [
+                        InlineKeyboardButton(
+                            "🚫 Ban User", callback_data=f"adm_ban:{user.id}"
+                        )
+                    ]
+                )
+
+        btn_rows.append([InlineKeyboardButton("🔐 Close", callback_data="close_data")])
+        markup = InlineKeyboardMarkup(btn_rows)
+
         if user.photo:
             try:
                 await message.reply_photo(
@@ -338,25 +688,68 @@ async def who_is(client: Client, message: Message):
                     reply_markup=markup,
                     parse_mode=enums.ParseMode.HTML,
                 )
+                await status.delete()
+                return
             except Exception:
-                await message.reply_text(
-                    text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
-                )
-        else:
-            await message.reply_text(
-                text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
-            )
+                pass
 
-        await status.delete()
+        await status.edit_text(
+            text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
+        )
     except Exception as e:
         logger.error(f"Info Command Error: {e}")
-        await status.edit_text("❌ An error occurred while fetching user data.")
+        await status.edit_text(
+            "❌ <b>An error occurred while fetching user data.</b>",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
 
 # ============================================================
-# ⚙️ ADMIN SETTINGS & MANAGEMENT
+# ⚙️ INTERACTIVE ADMIN SETTINGS & REPAIR MODE
 # ============================================================
-@Client.on_message(filters.command("repairmode"))
+def _build_admin_settings_panel() -> tuple[str, InlineKeyboardMarkup]:
+    repair_on = bool(getattr(info, "REPAIR_MODE", False))
+    fsub_on = bool(getattr(info, "IS_FSUB_ENABLED", True))
+
+    repair_status = "🟢 ENABLED" if repair_on else "🔴 DISABLED"
+    fsub_status = "🟢 ENABLED" if fsub_on else "🔴 DISABLED"
+    auth_ch = html.escape(str(getattr(info, "AUTH_CHANNEL", None) or "❌ Not Set"))
+    req_ch = html.escape(str(getattr(info, "REQ_CHANNEL", None) or "❌ Not Set"))
+    admin_count = len(get_admin_list())
+
+    text = (
+        "⚙️ <b>Current Admin Settings Dashboard</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"🛠️ <b>Repair Mode:</b> <code>{repair_status}</code>\n"
+        f"🔐 <b>Force Subscribe:</b> <code>{fsub_status}</code>\n\n"
+        f"📢 <b>Main FSub Channel:</b> <code>{auth_ch}</code>\n"
+        f"📨 <b>Request FSub Channel:</b> <code>{req_ch}</code>\n\n"
+        f"👥 <b>Total Admins Configured:</b> <code>{admin_count}</code>\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        "💡 <i>Use the buttons below to toggle settings live.</i>"
+    )
+
+    repair_btn_lbl = "🔴 Disable Repair Mode" if repair_on else "🟢 Enable Repair Mode"
+    fsub_btn_lbl = "🔴 Disable ForceSub" if fsub_on else "🟢 Enable ForceSub"
+
+    markup = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    repair_btn_lbl, callback_data="admset:toggle_repair"
+                )
+            ],
+            [InlineKeyboardButton(fsub_btn_lbl, callback_data="admset:toggle_fsub")],
+            [
+                InlineKeyboardButton("🔄 Refresh", callback_data="admset:refresh"),
+                InlineKeyboardButton("🔐 Close", callback_data="admset:close"),
+            ],
+        ]
+    )
+    return text, markup
+
+
+@Client.on_message(filters.command("repairmode") & filters.incoming)
 async def toggle_repair_mode(bot: Client, message: Message):
     uid = (
         message.from_user.id
@@ -365,7 +758,8 @@ async def toggle_repair_mode(bot: Client, message: Message):
     )
     if not await is_global_admin(uid):
         return await message.reply_text(
-            "❌ **Unauthorized:** You must be a Global Bot Admin."
+            "❌ <b>Unauthorized:</b> You must be a Global Bot Admin.",
+            parse_mode=enums.ParseMode.HTML,
         )
 
     if len(message.command) > 1:
@@ -379,16 +773,16 @@ async def toggle_repair_mode(bot: Client, message: Message):
     else:
         info.REPAIR_MODE = not getattr(info, "REPAIR_MODE", False)
 
-    status = "🟢 **ENABLED**" if info.REPAIR_MODE else "🔴 **DISABLED**"
-    text = f"🛠️ **Repair Mode is now {status}**\n\n"
+    status = "🟢 <b>ENABLED</b>" if info.REPAIR_MODE else "🔴 <b>DISABLED</b>"
+    text = f"🛠️ <b>Repair Mode is now {status}</b>\n\n"
     if info.REPAIR_MODE:
-        text += "⚠️ *The bot is now in maintenance mode. It will NOT send any files to users until this is disabled.*"
+        text += "⚠️ <i>The bot is now in maintenance mode. It will NOT send any files to users until this is disabled.</i>"
     else:
-        text += "✅ *The bot has returned to normal operation and will process file requests.*"
-    await message.reply_text(text)
+        text += "✅ <i>The bot has returned to normal operation and will process file requests.</i>"
+    await message.reply_text(text, parse_mode=enums.ParseMode.HTML)
 
 
-@Client.on_message(filters.command("adminsettings"))
+@Client.on_message(filters.command("adminsettings") & filters.incoming)
 async def show_admin_settings(bot: Client, message: Message):
     uid = (
         message.from_user.id
@@ -397,25 +791,56 @@ async def show_admin_settings(bot: Client, message: Message):
     )
     if not await is_global_admin(uid):
         return await message.reply_text(
-            "❌ **Unauthorized:** You must be a Global Bot Admin."
+            "❌ <b>Unauthorized:</b> You must be a Global Bot Admin.",
+            parse_mode=enums.ParseMode.HTML,
         )
 
-    repair_status = (
-        "🟢 ENABLED" if getattr(info, "REPAIR_MODE", False) else "🔴 DISABLED"
-    )
-    fsub_status = (
-        "🟢 ENABLED" if getattr(info, "IS_FSUB_ENABLED", True) else "🔴 DISABLED"
+    text, markup = _build_admin_settings_panel()
+    await message.reply_text(
+        text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
     )
 
-    text = "⚙️ **Current Admin Settings Dashboard**\n━━━━━━━━━━━━━━━━━━━━━\n\n"
-    text += f"🛠️ **Repair Mode:** {repair_status}\n🔐 **Force Subscribe:** {fsub_status}\n\n"
-    text += f"📢 **Main FSub Channel:** <code>{getattr(info, 'AUTH_CHANNEL', '❌ Not Set')}</code>\n"
-    text += f"📨 **Request FSub Channel:** <code>{getattr(info, 'REQ_CHANNEL', '❌ Not Set')}</code>\n\n"
-    text += f"👥 **Total Admins Configured:** `{len(getattr(info, 'ADMINS', []))}`\n━━━━━━━━━━━━━━━━━━━━━\n💡 *Use commands like /repairmode to toggle values.*"
-    await message.reply_text(text)
+
+@Client.on_callback_query(
+    filters.regex(r"^admset:(toggle_repair|toggle_fsub|refresh|close)$")
+)
+async def admin_settings_cb(client: Client, query: CallbackQuery):
+    if not await is_global_admin(query.from_user.id):
+        return await query.answer("❌ Unauthorized: Global Admin only!", show_alert=True)
+
+    action = query.matches[0].group(1)
+    try:
+        if action == "close":
+            await query.answer("Closed!")
+            return await query.message.delete()
+        elif action == "toggle_repair":
+            info.REPAIR_MODE = not getattr(info, "REPAIR_MODE", False)
+            await query.answer(
+                f"🛠️ Repair Mode {'ENABLED' if info.REPAIR_MODE else 'DISABLED'}!",
+                show_alert=True,
+            )
+        elif action == "toggle_fsub":
+            info.IS_FSUB_ENABLED = not getattr(info, "IS_FSUB_ENABLED", True)
+            await query.answer(
+                f"🔐 Force Subscribe {'ENABLED' if info.IS_FSUB_ENABLED else 'DISABLED'}!",
+                show_alert=True,
+            )
+        else:
+            await query.answer("Refreshed!")
+
+        text, markup = _build_admin_settings_panel()
+        await query.message.edit_text(
+            text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
+        )
+    except MessageNotModified:
+        pass
+    except QueryIdInvalid:
+        pass
+    except Exception as e:
+        logger.error(f"Admin settings callback error: {e}")
 
 
-@Client.on_message(filters.command("leave"))
+@Client.on_message(filters.command("leave") & filters.incoming)
 async def leave_chat(bot: Client, message: Message):
     uid = (
         message.from_user.id
@@ -423,22 +848,108 @@ async def leave_chat(bot: Client, message: Message):
         else getattr(message.sender_chat, "id", 0)
     )
     if not await is_global_admin(uid):
-        return await message.reply_text("❌ **Unauthorized.**")
+        return await message.reply_text(
+            "❌ <b>Unauthorized.</b>", parse_mode=enums.ParseMode.HTML
+        )
 
     if len(message.command) == 1:
-        return await message.reply_text("⚠️ Usage: `/leave <chat_id>`")
+        return await message.reply_text(
+            "⚠️ <b>Usage:</b> <code>/leave &lt;chat_id&gt;</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
     try:
-        chat_id = int(message.command[1])
+        chat_id = int(message.command[1].strip())
         await bot.leave_chat(chat_id)
-        await message.reply_text(f"✅ Left the chat `{chat_id}` successfully.")
+        await message.reply_text(
+            f"✅ Left the chat <code>{chat_id}</code> successfully.",
+            parse_mode=enums.ParseMode.HTML,
+        )
     except Exception as e:
-        await message.reply_text(f"⚠️ Error: `{e}`")
+        await message.reply_text(
+            f"⚠️ <b>Error:</b> <code>{html.escape(str(e))}</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
 
 # ============================================================
-# 🚫 BAN SYSTEM
+# 🚫 UNBREAKABLE BAN SYSTEM (MULTI-DB SYNC)
 # ============================================================
-@Client.on_message(filters.command("ban"))
+async def check_user_banned(user_id: int) -> bool:
+    uid = int(user_id)
+    if hasattr(temp, "BANNED_USERS") and uid in temp.BANNED_USERS:
+        return True
+    if _plugin_db is not None and hasattr(_plugin_db, "is_banned"):
+        try:
+            if await _plugin_db.is_banned(uid):
+                return True
+        except Exception:
+            pass
+    if _ban_col is not None:
+        try:
+            doc = await _ban_col.find_one({"_id": uid})
+            if doc:
+                return True
+        except Exception:
+            pass
+    return False
+
+
+async def perform_ban_user(user_id: int):
+    uid = int(user_id)
+    if hasattr(temp, "BANNED_USERS") and isinstance(temp.BANNED_USERS, list):
+        if uid not in temp.BANNED_USERS:
+            temp.BANNED_USERS.append(uid)
+    if _plugin_db is not None and hasattr(_plugin_db, "ban_user"):
+        try:
+            await _plugin_db.ban_user(uid)
+        except Exception:
+            pass
+    if _ban_col is not None:
+        try:
+            await _ban_col.update_one(
+                {"_id": uid}, {"$set": {"banned_at": int(time.time())}}, upsert=True
+            )
+        except Exception:
+            pass
+
+
+async def perform_unban_user(user_id: int):
+    uid = int(user_id)
+    if hasattr(temp, "BANNED_USERS") and uid in temp.BANNED_USERS:
+        try:
+            temp.BANNED_USERS.remove(uid)
+        except ValueError:
+            pass
+    if _plugin_db is not None and hasattr(_plugin_db, "unban_user"):
+        try:
+            await _plugin_db.unban_user(uid)
+        except Exception:
+            pass
+    if _ban_col is not None:
+        try:
+            await _ban_col.delete_one({"_id": uid})
+        except Exception:
+            pass
+
+
+async def get_total_banned_count() -> int:
+    counts = []
+    if _plugin_db is not None and hasattr(_plugin_db, "get_ban_count"):
+        try:
+            counts.append(int(await _plugin_db.get_ban_count()))
+        except Exception:
+            pass
+    if _ban_col is not None:
+        try:
+            counts.append(int(await _ban_col.count_documents({})))
+        except Exception:
+            pass
+    if hasattr(temp, "BANNED_USERS"):
+        counts.append(len(temp.BANNED_USERS))
+    return max(counts) if counts else 0
+
+
+@Client.on_message(filters.command("ban") & filters.incoming)
 async def ban_user_cmd(bot: Client, message: Message):
     uid = (
         message.from_user.id
@@ -446,39 +957,62 @@ async def ban_user_cmd(bot: Client, message: Message):
         else getattr(message.sender_chat, "id", 0)
     )
     if not await is_global_admin(uid):
-        return await message.reply_text("❌ **Unauthorized: Global Admin Only.**")
+        return await message.reply_text(
+            "❌ <b>Unauthorized: Global Admin Only.</b>",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
     user_id = None
     if message.reply_to_message and message.reply_to_message.from_user:
         user_id = message.reply_to_message.from_user.id
     elif len(message.command) > 1:
         try:
-            user_id = int(message.command[1])
+            user_id = int(message.command[1].strip())
         except ValueError:
             pass
 
     if not user_id:
         return await message.reply_text(
-            "⚙️ **Usage:** `/ban [user_id]` or reply to a user."
+            "⚙️ <b>Usage:</b> <code>/ban [user_id]</code> or reply to a user.",
+            parse_mode=enums.ParseMode.HTML,
         )
 
     try:
         if await is_global_admin(user_id):
             return await message.reply_text(
-                "❌ **You cannot ban a bot administrator!**"
+                "❌ <b>You cannot ban a bot administrator!</b>",
+                parse_mode=enums.ParseMode.HTML,
             )
-        if user_id == bot.me.id:
-            return await message.reply_text("❌ **I cannot ban myself!**")
+        bot_id = bot.me.id if getattr(bot, "me", None) else (await bot.get_me()).id
+        if user_id == bot_id:
+            return await message.reply_text(
+                "❌ <b>I cannot ban myself!</b>", parse_mode=enums.ParseMode.HTML
+            )
 
-        await _plugin_db.ban_user(user_id)
+        await perform_ban_user(user_id)
+        markup = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "✅ Unban User", callback_data=f"adm_unban:{user_id}"
+                    )
+                ]
+            ]
+        )
         await message.reply_text(
-            f"🚫 **User `{user_id}` has been successfully BANNED.**\nThey can no longer use this bot."
+            f"🚫 <b>User <code>{user_id}</code> has been successfully BANNED.</b>\n"
+            f"They can no longer use this bot.",
+            reply_markup=markup,
+            parse_mode=enums.ParseMode.HTML,
         )
     except Exception as e:
-        await message.reply_text(f"❌ **Error:** `{e}`")
+        await message.reply_text(
+            f"❌ <b>Error:</b> <code>{html.escape(str(e))}</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
 
-@Client.on_message(filters.command("unban"))
+@Client.on_message(filters.command("unban") & filters.incoming)
 async def unban_user_cmd(bot: Client, message: Message):
     uid = (
         message.from_user.id
@@ -486,36 +1020,85 @@ async def unban_user_cmd(bot: Client, message: Message):
         else getattr(message.sender_chat, "id", 0)
     )
     if not await is_global_admin(uid):
-        return await message.reply_text("❌ **Unauthorized: Global Admin Only.**")
+        return await message.reply_text(
+            "❌ <b>Unauthorized: Global Admin Only.</b>",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
     user_id = None
     if message.reply_to_message and message.reply_to_message.from_user:
         user_id = message.reply_to_message.from_user.id
     elif len(message.command) > 1:
         try:
-            user_id = int(message.command[1])
+            user_id = int(message.command[1].strip())
         except ValueError:
             pass
 
     if not user_id:
         return await message.reply_text(
-            "⚙️ **Usage:** `/unban [user_id]` or reply to a user."
+            "⚙️ <b>Usage:</b> <code>/unban [user_id]</code> or reply to a user.",
+            parse_mode=enums.ParseMode.HTML,
         )
 
     try:
-        if not await _plugin_db.is_banned(user_id):
+        if not await check_user_banned(user_id):
             return await message.reply_text(
-                f"⚠️ **User `{user_id}` is not currently banned.**"
+                f"⚠️ <b>User <code>{user_id}</code> is not currently banned.</b>",
+                parse_mode=enums.ParseMode.HTML,
             )
-        await _plugin_db.unban_user(user_id)
+        await perform_unban_user(user_id)
         await message.reply_text(
-            f"✅ **User `{user_id}` has been successfully UNBANNED.**"
+            f"✅ <b>User <code>{user_id}</code> has been successfully UNBANNED.</b>",
+            parse_mode=enums.ParseMode.HTML,
         )
     except Exception as e:
-        await message.reply_text(f"❌ **Error:** `{e}`")
+        await message.reply_text(
+            f"❌ <b>Error:</b> <code>{html.escape(str(e))}</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
 
-@Client.on_message(filters.command("bannedusers"))
+@Client.on_callback_query(filters.regex(r"^adm_(ban|unban):(\d+)$"))
+async def inline_ban_unban_cb(client: Client, query: CallbackQuery):
+    if not await is_global_admin(query.from_user.id):
+        return await query.answer("❌ Unauthorized: Global Admin only!", show_alert=True)
+
+    action, raw_uid = query.matches[0].group(1), int(query.matches[0].group(2))
+    if action == "ban":
+        if await is_global_admin(raw_uid):
+            return await query.answer("❌ Cannot ban an admin!", show_alert=True)
+        await perform_ban_user(raw_uid)
+        await query.answer(f"🚫 User {raw_uid} banned!", show_alert=True)
+        await query.message.edit_reply_markup(
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "✅ Unban User", callback_data=f"adm_unban:{raw_uid}"
+                        )
+                    ],
+                    [InlineKeyboardButton("🔐 Close", callback_data="close_data")],
+                ]
+            )
+        )
+    else:
+        await perform_unban_user(raw_uid)
+        await query.answer(f"✅ User {raw_uid} unbanned!", show_alert=True)
+        await query.message.edit_reply_markup(
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "🚫 Ban User", callback_data=f"adm_ban:{raw_uid}"
+                        )
+                    ],
+                    [InlineKeyboardButton("🔐 Close", callback_data="close_data")],
+                ]
+            )
+        )
+
+
+@Client.on_message(filters.command("bannedusers") & filters.incoming)
 async def check_banned_users(bot: Client, message: Message):
     uid = (
         message.from_user.id
@@ -523,19 +1106,27 @@ async def check_banned_users(bot: Client, message: Message):
         else getattr(message.sender_chat, "id", 0)
     )
     if not await is_global_admin(uid):
-        return await message.reply_text("❌ **Unauthorized.**")
+        return await message.reply_text(
+            "❌ <b>Unauthorized.</b>", parse_mode=enums.ParseMode.HTML
+        )
 
     try:
-        count = await _plugin_db.get_ban_count()
-        await message.reply_text(f"📊 **Total Banned Users:** `{count}`")
+        count = await get_total_banned_count()
+        await message.reply_text(
+            f"📊 <b>Total Banned Users:</b> <code>{count}</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
     except Exception as e:
-        await message.reply_text(f"❌ **Error:** `{e}`")
+        await message.reply_text(
+            f"❌ <b>Error:</b> <code>{html.escape(str(e))}</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
 
 # ============================================================
 # 📜 LOGS & SERVER COMMANDS
 # ============================================================
-@Client.on_message(filters.command("logs"), group=3)
+@Client.on_message(filters.command("logs") & filters.incoming)
 async def get_logs_cmd(bot: Client, message: Message):
     uid = (
         message.from_user.id
@@ -547,17 +1138,50 @@ async def get_logs_cmd(bot: Client, message: Message):
     log_file = "TelegramBot.log"
     if not os.path.exists(log_file):
         return await message.reply_text(
-            "⚠️ **Log file not found!** No errors recorded yet."
+            "⚠️ <b>Log file not found!</b> No errors recorded yet.",
+            parse_mode=enums.ParseMode.HTML,
         )
     try:
         await message.reply_document(
-            document=log_file, caption="📜 **Here are the latest bot logs.**"
+            document=log_file,
+            caption="📜 <b>Here are the latest bot logs.</b>",
+            parse_mode=enums.ParseMode.HTML,
         )
     except Exception as e:
-        await message.reply_text(f"❌ **Failed to send logs:**\n`{e}`")
+        await message.reply_text(
+            f"❌ <b>Failed to send logs:</b>\n<code>{html.escape(str(e))}</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
 
-@Client.on_message(filters.command("server"), group=3)
+async def _build_server_stats_text() -> str:
+    text = "🖥 <b>Server Statistics</b>\n━━━━━━━━━━━━━━\n"
+    if psutil:
+        cpu_pct = await asyncio.to_thread(psutil.cpu_percent, 0.2)
+        ram = psutil.virtual_memory()
+        text += (
+            f"🧠 <b>CPU Usage:</b> <code>{cpu_pct}%</code>\n"
+            f"📉 <b>RAM Usage:</b> <code>{ram.percent}%</code>\n"
+            f"💾 <b>RAM Total:</b> <code>{get_size_str(ram.total)}</code>\n"
+            f"💿 <b>RAM Free:</b> <code>{get_size_str(ram.available)}</code>\n\n"
+        )
+    else:
+        text += (
+            f"🧠 <b>CPU Cores:</b> <code>{os.cpu_count()}</code>\n"
+            f"💻 <b>OS System:</b> <code>{platform.system()} {platform.release()}</code>\n\n"
+        )
+
+    total, used, free = shutil.disk_usage("/")
+    text += (
+        f"💽 <b>Disk Total:</b> <code>{get_size_str(total)}</code>\n"
+        f"📀 <b>Disk Used:</b> <code>{get_size_str(used)}</code> (<code>{(used / total) * 100:.1f}%</code>)\n"
+        f"💿 <b>Disk Free:</b> <code>{get_size_str(free)}</code>\n"
+        "━━━━━━━━━━━━━━"
+    )
+    return text
+
+
+@Client.on_message(filters.command("server") & filters.incoming)
 async def server_stats_cmd(bot: Client, message: Message):
     uid = (
         message.from_user.id
@@ -565,22 +1189,50 @@ async def server_stats_cmd(bot: Client, message: Message):
         else getattr(message.sender_chat, "id", 0)
     )
     if not await is_global_admin(uid):
-        return await message.reply_text("❌ **Unauthorized.**")
+        return await message.reply_text(
+            "❌ <b>Unauthorized.</b>", parse_mode=enums.ParseMode.HTML
+        )
 
-    msg = await message.reply_text("⏳ **Fetching server statistics...**")
-    text = "🖥 **Server Statistics**\n━━━━━━━━━━━━━━\n"
-    if psutil:
-        cpu_pct, ram = psutil.cpu_percent(interval=0.5), psutil.virtual_memory()
-        text += f"🧠 **CPU Usage:** `{cpu_pct}%`\n📉 **RAM Usage:** `{ram.percent}%`\n💾 **RAM Total:** `{get_size_str(ram.total)}`\n💿 **RAM Free:** `{get_size_str(ram.available)}`\n\n"
-    else:
-        text += f"🧠 **CPU Cores:** `{os.cpu_count()}`\n💻 **OS System:** `{platform.system()} {platform.release()}`\n\n"
+    msg = await message.reply_text(
+        "⏳ <b>Fetching server statistics...</b>", parse_mode=enums.ParseMode.HTML
+    )
+    text = await _build_server_stats_text()
+    markup = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("🔄 Refresh", callback_data="srv_refresh"),
+                InlineKeyboardButton("🔐 Close", callback_data="close_data"),
+            ]
+        ]
+    )
+    await msg.edit_text(
+        text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
+    )
 
-    total, used, free = shutil.disk_usage("/")
-    text += f"💽 **Disk Total:** `{get_size_str(total)}`\n📀 **Disk Used:** `{get_size_str(used)}` (`{(used/total)*100:.1f}%`)\n💿 **Disk Free:** `{get_size_str(free)}`\n━━━━━━━━━━━━━━"
-    await msg.edit_text(text)
+
+@Client.on_callback_query(filters.regex(r"^srv_refresh$"))
+async def server_refresh_cb(client: Client, query: CallbackQuery):
+    if not await is_global_admin(query.from_user.id):
+        return await query.answer("❌ Unauthorized.", show_alert=True)
+    await query.answer("Refreshing server stats...")
+    text = await _build_server_stats_text()
+    markup = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("🔄 Refresh", callback_data="srv_refresh"),
+                InlineKeyboardButton("🔐 Close", callback_data="close_data"),
+            ]
+        ]
+    )
+    try:
+        await query.message.edit_text(
+            text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
+        )
+    except MessageNotModified:
+        pass
 
 
-@Client.on_message(filters.command("restart"), group=3)
+@Client.on_message(filters.command("restart") & filters.incoming)
 async def restart_bot_cmd(bot: Client, message: Message):
     uid = (
         message.from_user.id
@@ -588,24 +1240,37 @@ async def restart_bot_cmd(bot: Client, message: Message):
         else getattr(message.sender_chat, "id", 0)
     )
     if not await is_global_admin(uid):
-        return await message.reply_text("❌ **Unauthorized.**")
+        return await message.reply_text(
+            "❌ <b>Unauthorized.</b>", parse_mode=enums.ParseMode.HTML
+        )
 
     await message.reply_text(
-        "⚠️ **Are you sure you want to restart the bot?**",
+        "⚠️ <b>Are you sure you want to restart the bot?</b>",
         reply_markup=InlineKeyboardMarkup(
-            [[InlineKeyboardButton("✅ Confirm Restart", callback_data="util_restart")]]
+            [
+                [
+                    InlineKeyboardButton(
+                        "✅ Confirm Restart", callback_data="util_restart"
+                    ),
+                    InlineKeyboardButton("❌ Cancel", callback_data="close_data"),
+                ]
+            ]
         ),
+        parse_mode=enums.ParseMode.HTML,
     )
 
 
-@Client.on_callback_query(filters.regex("^util_restart$"), group=3)
+@Client.on_callback_query(filters.regex(r"^util_restart$"))
 async def confirm_restart_cb(bot: Client, query: CallbackQuery):
     uid = query.from_user.id
     if not await is_global_admin(uid):
         return await query.answer("❌ Unauthorized.", show_alert=True)
 
     await query.answer("♻️ Restarting...", show_alert=True)
-    msg = await query.edit_message_text("♻️ **Bot is restarting... Please wait.**")
+    msg = await query.edit_message_text(
+        "♻️ <b>Bot is restarting... Please wait.</b>",
+        parse_mode=enums.ParseMode.HTML,
+    )
     try:
         with open("restart.txt", "w") as f:
             f.write(f"{msg.chat.id}\n{msg.id}")
@@ -617,7 +1282,21 @@ async def confirm_restart_cb(bot: Client, query: CallbackQuery):
 # ============================================================
 # 📊 BOT DATABASE STATS & CLEANUP
 # ============================================================
-@Client.on_message(filters.command(["stats", "total"]), group=3)
+async def _build_db_stats_text() -> str:
+    total_users = await _db.total_users_count()
+    total_chats = await _db.total_chat_count()
+    total_files = await get_total_files_count()
+    db_size = await _db.get_db_size()
+    return (
+        f"📊 <b>Bot Database Statistics</b>\n━━━━━━━━━━━━━━\n"
+        f"👥 <b>Total Users:</b> <code>{total_users}</code>\n"
+        f"🏘 <b>Total Groups:</b> <code>{total_chats}</code>\n"
+        f"📁 <b>Total Files:</b> <code>{total_files}</code>\n"
+        f"💾 <b>DB Size:</b> <code>{get_size_str(db_size)}</code>\n━━━━━━━━━━━━━━"
+    )
+
+
+@Client.on_message(filters.command(["stats", "total"]) & filters.incoming)
 async def bot_stats_cmd(bot: Client, message: Message):
     uid = (
         message.from_user.id
@@ -625,40 +1304,80 @@ async def bot_stats_cmd(bot: Client, message: Message):
         else getattr(message.sender_chat, "id", 0)
     )
     if not await is_global_admin(uid):
-        return await message.reply_text("❌ **Unauthorized.**")
+        return await message.reply_text(
+            "❌ <b>Unauthorized.</b>", parse_mode=enums.ParseMode.HTML
+        )
 
-    status_msg = await message.reply_text("⏳ **Fetching Database Stats...**")
+    status_msg = await message.reply_text(
+        "⏳ <b>Fetching Database Stats...</b>", parse_mode=enums.ParseMode.HTML
+    )
     try:
-        total_users, total_chats, total_files, db_size = (
-            await _db.total_users_count(),
-            await _db.total_chat_count(),
-            await _Media.count_documents({}),
-            await _db.get_db_size(),
+        stats_text = await _build_db_stats_text()
+        markup = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "🔄 Refresh", callback_data="adm_stats_refresh"
+                    ),
+                    InlineKeyboardButton("🔐 Close", callback_data="close_data"),
+                ]
+            ]
         )
-        stats_text = (
-            f"📊 **Bot Database Statistics**\n━━━━━━━━━━━━━━\n"
-            f"👥 **Total Users:** `{total_users}`\n"
-            f"🏘 **Total Groups:** `{total_chats}`\n"
-            f"📁 **Total Files:** `{total_files}`\n"
-            f"💾 **DB Size:** `{get_size_str(db_size)}`\n━━━━━━━━━━━━━━"
+        await status_msg.edit_text(
+            stats_text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
         )
-        await status_msg.edit_text(stats_text)
     except Exception as e:
-        await status_msg.edit_text(f"❌ **Error fetching stats:** `{e}`")
+        await status_msg.edit_text(
+            f"❌ <b>Error fetching stats:</b> <code>{html.escape(str(e))}</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
 
-@Client.on_message(filters.command("cleanusers"), group=3)
+@Client.on_callback_query(filters.regex(r"^adm_stats_refresh$"))
+async def adm_stats_refresh_cb(client: Client, query: CallbackQuery):
+    if not await is_global_admin(query.from_user.id):
+        return await query.answer("❌ Unauthorized.", show_alert=True)
+    await query.answer("Refreshing stats...")
+    try:
+        stats_text = await _build_db_stats_text()
+        markup = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "🔄 Refresh", callback_data="adm_stats_refresh"
+                    ),
+                    InlineKeyboardButton("🔐 Close", callback_data="close_data"),
+                ]
+            ]
+        )
+        await query.message.edit_text(
+            stats_text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
+        )
+    except MessageNotModified:
+        pass
+
+
+@Client.on_message(filters.command("cleanusers") & filters.incoming)
 async def clean_users_cmd(bot: Client, message: Message):
+    global _CLEAN_USERS_CANCEL
     uid = (
         message.from_user.id
         if message.from_user
         else getattr(message.sender_chat, "id", 0)
     )
     if not await is_global_admin(uid):
-        return await message.reply_text("❌ **Unauthorized.**")
+        return await message.reply_text(
+            "❌ <b>Unauthorized.</b>", parse_mode=enums.ParseMode.HTML
+        )
 
+    _CLEAN_USERS_CANCEL = False
+    cancel_kb = InlineKeyboardMarkup(
+        [[InlineKeyboardButton("🛑 Stop Cleaning", callback_data="cancel_cleanusers")]]
+    )
     status_msg = await message.reply_text(
-        "⏳ **Starting Deep Clean...** (This is a safe background process)"
+        "⏳ <b>Starting Deep Clean...</b> (Scanning dead/blocked accounts)",
+        reply_markup=cancel_kb,
+        parse_mode=enums.ParseMode.HTML,
     )
 
     try:
@@ -669,7 +1388,10 @@ async def clean_users_cmd(bot: Client, message: Message):
             else list(users_cursor)
         )
     except Exception as e:
-        return await status_msg.edit_text(f"❌ **Failed to fetch users:** `{e}`")
+        return await status_msg.edit_text(
+            f"❌ <b>Failed to fetch users:</b> <code>{html.escape(str(e))}</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
     active, blocked, total_users = 0, 0, len(users)
 
@@ -678,43 +1400,76 @@ async def clean_users_cmd(bot: Client, message: Message):
         if not user_id:
             return "blocked"
         try:
-            await bot.send_chat_action(user_id, enums.ChatAction.TYPING)
+            await bot.send_chat_action(int(user_id), enums.ChatAction.TYPING)
             return "active"
         except FloodWait as e:
             await asyncio.sleep(e.value + 1)
             return "active"
-        except (UserIsBlocked, InputUserDeactivated, PeerIdInvalid, UserDeactivatedBan):
-            await _db.delete_user(user_id)
+        except (
+            UserIsBlocked,
+            InputUserDeactivated,
+            UserDeactivated,
+            PeerIdInvalid,
+            UserDeactivatedBan,
+        ):
+            try:
+                await _db.delete_user(int(user_id))
+            except Exception:
+                pass
             return "blocked"
         except Exception:
             return "active"
 
     for i in range(0, total_users, 30):
+        if _CLEAN_USERS_CANCEL:
+            return await status_msg.edit_text(
+                f"🛑 <b>Deep Clean Stopped by Admin!</b>\n\n"
+                f"🟢 <b>Active Scanned:</b> <code>{active}</code>\n"
+                f"🔴 <b>Dead Removed So Far:</b> <code>{blocked}</code>",
+                parse_mode=enums.ParseMode.HTML,
+            )
+
         chunk = users[i : i + 30]
         results = await asyncio.gather(*[check_user(u) for u in chunk])
 
         active += results.count("active")
         blocked += results.count("blocked")
 
-        if (i + len(chunk)) % 300 == 0 or (i + len(chunk)) == total_users:
+        if (i + len(chunk)) % 150 == 0 or (i + len(chunk)) == total_users:
             try:
                 await status_msg.edit_text(
-                    f"⏳ **Cleaning Database...**\nScanned: `{i + len(chunk)} / {total_users}`"
+                    f"⏳ <b>Cleaning Database...</b>\n"
+                    f"📊 <b>Scanned:</b> <code>{i + len(chunk)} / {total_users}</code>\n"
+                    f"🟢 <b>Active:</b> <code>{active}</code> | 🔴 <b>Removed:</b> <code>{blocked}</code>",
+                    reply_markup=cancel_kb,
+                    parse_mode=enums.ParseMode.HTML,
                 )
             except Exception:
                 pass
-        await asyncio.sleep(2)
+        await asyncio.sleep(1.5)
 
     await status_msg.edit_text(
-        f"✅ **Deep Clean Completed!**\n\n🟢 **Active Users Kept:** `{active}`\n🔴 **Dead Accounts Removed:** `{blocked}`"
+        f"✅ <b>Deep Clean Completed!</b>\n\n"
+        f"🟢 <b>Active Users Kept:</b> <code>{active}</code>\n"
+        f"🔴 <b>Dead Accounts Removed:</b> <code>{blocked}</code>",
+        parse_mode=enums.ParseMode.HTML,
     )
+
+
+@Client.on_callback_query(filters.regex(r"^cancel_cleanusers$"))
+async def cancel_cleanusers_cb(client: Client, query: CallbackQuery):
+    global _CLEAN_USERS_CANCEL
+    if not await is_global_admin(query.from_user.id):
+        return await query.answer("❌ Unauthorized.", show_alert=True)
+    _CLEAN_USERS_CANCEL = True
+    await query.answer("🛑 Stopping user cleanup...", show_alert=True)
 
 
 # ============================================================
 # 🔥 DATABASE WIPE COMMANDS
 # ============================================================
 @Client.on_message(
-    filters.command(["clearfiles", "clearusers", "clearfsubusers"]), group=3
+    filters.command(["clearfiles", "clearusers", "clearfsubusers"]) & filters.incoming
 )
 async def wipe_prompt_cmd(bot: Client, message: Message):
     uid = (
@@ -723,15 +1478,17 @@ async def wipe_prompt_cmd(bot: Client, message: Message):
         else getattr(message.sender_chat, "id", 0)
     )
     if not await is_global_admin(uid):
-        return await message.reply_text("❌ **Unauthorized.**")
+        return await message.reply_text(
+            "❌ <b>Unauthorized.</b>", parse_mode=enums.ParseMode.HTML
+        )
 
-    cmd = message.command[0]
+    cmd = message.command[0].lower()
     action = (
         "files" if cmd == "clearfiles" else "users" if cmd == "clearusers" else "fsub"
     )
 
     await message.reply_text(
-        f"⚠️ **WARNING!** ⚠️\nDelete **ALL** {action} in your database?",
+        f"⚠️ <b>WARNING!</b> ⚠️\nAre you sure you want to permanently delete <b>ALL {action.upper()}</b> in your database?",
         reply_markup=InlineKeyboardMarkup(
             [
                 [
@@ -743,10 +1500,11 @@ async def wipe_prompt_cmd(bot: Client, message: Message):
                 [InlineKeyboardButton("❌ Cancel", callback_data="close_data")],
             ]
         ),
+        parse_mode=enums.ParseMode.HTML,
     )
 
 
-@Client.on_callback_query(filters.regex(r"^nuke_(files|users|fsub)$"), group=3)
+@Client.on_callback_query(filters.regex(r"^nuke_(files|users|fsub)$"))
 async def nuke_callbacks(bot: Client, query: CallbackQuery):
     uid = query.from_user.id
     if not await is_global_admin(uid):
@@ -754,28 +1512,47 @@ async def nuke_callbacks(bot: Client, query: CallbackQuery):
 
     await query.answer("Processing request...", show_alert=False)
     action = query.data.split("_")[1]
-    await query.message.edit_text("⏳ **Executing request... This may take a moment.**")
+    await query.message.edit_text(
+        "⏳ <b>Executing request... This may take a moment.</b>",
+        parse_mode=enums.ParseMode.HTML,
+    )
 
     try:
         if action == "files":
+            if _Media is None:
+                return await query.message.edit_text(
+                    "❌ <b>Media collection unavailable.</b>",
+                    parse_mode=enums.ParseMode.HTML,
+                )
             collection = getattr(_Media, "collection", _Media)
             res = await collection.delete_many({})
             count = getattr(res, "deleted_count", "All")
             await query.message.edit_text(
-                f"✅ **Database Wiped!**\n🗑 **Deleted Files:** `{count}`"
+                f"✅ <b>Database Wiped!</b>\n🗑 <b>Deleted Files:</b> <code>{count}</code>",
+                parse_mode=enums.ParseMode.HTML,
             )
         elif action == "users":
             collection = getattr(_db, "col", _db)
             res = await collection.delete_many({})
             count = getattr(res, "deleted_count", "All")
             await query.message.edit_text(
-                f"✅ **Database Wiped!**\n🗑 **Deleted Users:** `{count}`"
+                f"✅ <b>Database Wiped!</b>\n🗑 <b>Deleted Users:</b> <code>{count}</code>",
+                parse_mode=enums.ParseMode.HTML,
             )
         elif action == "fsub":
-            await _plugin_db.clear_fsub_users()
+            if _plugin_db is not None and hasattr(_plugin_db, "clear_fsub_users"):
+                await _plugin_db.clear_fsub_users()
+            elif _BOT_DB is not None:
+                for col_name in await _BOT_DB.list_collection_names():
+                    if "fsub" in col_name.lower() or "join_req" in col_name.lower():
+                        await _BOT_DB[col_name].delete_many({})
             await query.message.edit_text(
-                "✅ **Force Subscribe Database has been completely cleared.**"
+                "✅ <b>Force Subscribe Database has been completely cleared.</b>",
+                parse_mode=enums.ParseMode.HTML,
             )
     except Exception as e:
         logger.exception(f"Error during nuke_{action}")
-        await query.message.edit_text(f"❌ **Error occurred:**\n`{e}`")
+        await query.message.edit_text(
+            f"❌ <b>Error occurred:</b>\n<code>{html.escape(str(e))}</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
