@@ -204,7 +204,9 @@ async def _build_reaction_panel() -> tuple[str, InlineKeyboardMarkup]:
             ],
             [
                 InlineKeyboardButton("❤️ Heart Mode", callback_data="react_ctl:heart"),
-                InlineKeyboardButton("🎲 Random Mode", callback_data="react_ctl:random"),
+                InlineKeyboardButton(
+                    "🎲 Random Mode", callback_data="react_ctl:random"
+                ),
             ],
             [InlineKeyboardButton("🔐 Close", callback_data="react_ctl:close")],
         ]
@@ -233,9 +235,7 @@ async def disable_react(bot: Client, message: Message):
 @Client.on_message(filters.command(["reaction", "autoreaction"]) & admin_filter)
 async def reaction_panel_cmd(bot: Client, message: Message):
     text, markup = await _build_reaction_panel()
-    await message.reply_text(
-        text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
-    )
+    await message.reply_text(text, reply_markup=markup, parse_mode=enums.ParseMode.HTML)
 
 
 @Client.on_callback_query(filters.regex(r"^react_ctl:(on|off|heart|random|close)$"))
