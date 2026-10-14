@@ -8,7 +8,7 @@ import re
 import time
 import unicodedata
 from logging import ERROR, getLogger
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from motor.motor_asyncio import AsyncIOMotorClient
 from pyrogram import Client, enums, filters
@@ -132,11 +132,9 @@ QUAL_PATTERNS: Dict[str, re.Pattern] = {
 }
 
 # ============================================================
-# 🔤 FEATURE 12: INDIAN SCRIPT-TO-ENGLISH TRANSLITERATION ENGINE
-# (Kannada, Hindi/Marathi/Nepali, Telugu, Tamil, Malayalam)
+# 🔤 INDIAN SCRIPT-TO-ENGLISH TRANSLITERATION ENGINE
 # ============================================================
 _INDIC_ACRONYM_MAP: Dict[str, str] = {
-    # Kannada acronyms & popular direct movie mappings
     "ಕೆಜಿಎಫ್": "kgf",
     "ಕೆ.ಜಿ.ಎಫ್": "kgf",
     "ಕಾಂತಾರ": "kantara",
@@ -150,7 +148,6 @@ _INDIC_ACRONYM_MAP: Dict[str, str] = {
     "ಆರ್ ಆರ್ ಆರ್": "rrr",
     "ಆರ್.ಆರ್.ಆರ್": "rrr",
     "ಎನ್ ಟಿ ಆರ್": "ntr",
-    # Hindi / Devanagari acronyms & popular titles
     "केजीएफ": "kgf",
     "के.जी.एफ": "kgf",
     "कांतारा": "kantara",
@@ -160,7 +157,6 @@ _INDIC_ACRONYM_MAP: Dict[str, str] = {
     "जवान": "jawan",
     "पठान": "pathaan",
     "सालार": "salaar",
-    # Telugu / Tamil / Malayalam popular acronyms
     "കെജിഎഫ്": "kgf",
     "கேஜிஎப்": "kgf",
     "కేజీఎఫ్": "kgf",
@@ -269,15 +265,10 @@ _MALAYALAM_CHILLU: Dict[int, str] = {
 
 
 def has_indic_script(text: str) -> bool:
-    """Returns True if text contains any Indian script characters (U+0900 to U+0D7F)."""
     return any(0x0900 <= ord(ch) <= 0x0D7F for ch in text)
 
 
 def transliterate_indic_to_english(text: str) -> str:
-    """
-    Converts Kannada, Hindi/Marathi/Nepali, Telugu, Tamil, Malayalam, Gujarati,
-    Bengali, and Punjabi script words into clean English phonetic text.
-    """
     if not text or not has_indic_script(text):
         return text
 
@@ -296,71 +287,59 @@ def transliterate_indic_to_english(text: str) -> str:
         if 0x0900 <= cp <= 0x0D7F:
             offset = cp & 0x7F
 
-            # Indic digits (0x66 - 0x6F)
             if 0x66 <= offset <= 0x6F:
                 out.append(str(offset - 0x66))
                 i += 1
                 continue
 
-            # Malayalam Chillu letters
             if (cp & 0xFF80) == 0x0D00 and offset in _MALAYALAM_CHILLU:
                 out.append(_MALAYALAM_CHILLU[offset])
                 i += 1
                 continue
 
-            # Anusvara / Chandrabindu (ം / ಂ / ं / ం / ং) -> 'n' or 'm' depending on following consonant
             if offset in (0x01, 0x02):
                 next_offset = (
                     (ord(norm_text[i + 1]) & 0x7F)
                     if (i + 1 < n and 0x0900 <= ord(norm_text[i + 1]) <= 0x0D7F)
                     else 0
                 )
-                if 0x2A <= next_offset <= 0x2E:  # Labial (p, ph, b, bh, m)
-                    out.append("m")
-                elif next_offset == 0:
+                if 0x2A <= next_offset <= 0x2E or next_offset == 0:
                     out.append("m")
                 else:
                     out.append("n")
                 i += 1
                 continue
 
-            # Visarga (ಃ / ः)
             if offset == 0x03:
                 out.append("h")
                 i += 1
                 continue
 
-            # Independent Vowels
             if offset in _INDIC_OFFSET_VOWELS:
                 out.append(_INDIC_OFFSET_VOWELS[offset])
                 i += 1
                 continue
 
-            # Consonants
             if offset in _INDIC_OFFSET_CONSONANTS:
                 base_c = _INDIC_OFFSET_CONSONANTS[offset]
                 next_cp = ord(norm_text[i + 1]) if (i + 1) < n else 0
                 next_off = (next_cp & 0x7F) if (0x0900 <= next_cp <= 0x0D7F) else -1
 
-                # Handle Nukta (0x3C)
                 if next_off == 0x3C:
                     i += 1
                     next_cp = ord(norm_text[i + 1]) if (i + 1) < n else 0
                     next_off = (next_cp & 0x7F) if (0x0900 <= next_cp <= 0x0D7F) else -1
 
-                # Virama / Halant (್ / ् / ్ / ் / ്) -> suppresses inherent 'a'
                 if next_off == 0x4D:
                     out.append(base_c)
                     i += 2
                     continue
 
-                # Dependent Vowel Sign (Matra)
                 if next_off in _INDIC_OFFSET_MATRAS:
                     out.append(base_c + _INDIC_OFFSET_MATRAS[next_off])
                     i += 2
                     continue
 
-                # Inherent vowel 'a' (with smart word-end schwa handling for Hindi/Devanagari)
                 is_devanagari = (cp & 0xFF80) == 0x0900
                 is_word_end = (i + 1 == n) or not (0x0900 <= next_cp <= 0x0D7F)
                 if is_devanagari and is_word_end and len(out) > 0:
@@ -370,7 +349,6 @@ def transliterate_indic_to_english(text: str) -> str:
                 i += 1
                 continue
 
-            # Stray Matra if any
             if offset in _INDIC_OFFSET_MATRAS:
                 out.append(_INDIC_OFFSET_MATRAS[offset])
                 i += 1
@@ -382,20 +360,16 @@ def transliterate_indic_to_english(text: str) -> str:
             i += 1
 
     result = "".join(out)
-    result = re.sub(r"\s+", " ", result).strip().lower()
-    return result
+    return re.sub(r"\s+", " ", result).strip().lower()
 
 
 def generate_phonetic_variants(translit_str: str) -> List[str]:
-    """Generates both standard and simplified vowel/aspirated variants (e.g. kaantaara -> kantara)."""
     if not translit_str:
         return []
     variants = [translit_str]
-    # 1. Collapse double vowels (aa -> a, ee -> i/e, oo -> u)
     v1 = translit_str.replace("aa", "a").replace("ee", "i").replace("oo", "u")
     if v1 not in variants:
         variants.append(v1)
-    # 2. Drop trailing 'a' at the end of words (e.g. vikrama -> vikram, pushpaa -> pushpa)
     v2_words = [(w[:-1] if len(w) > 4 and w.endswith("a") else w) for w in v1.split()]
     v2 = " ".join(v2_words)
     if v2 and v2 not in variants:
@@ -418,18 +392,26 @@ except ImportError:
 
 _SEND_MSG_PARAMS = set(inspect.signature(Client.send_message).parameters.keys())
 
+BTN_PRIMARY = None
+BTN_SUCCESS = None
+BTN_DANGER = None
+_SUPPORTS_BTN_STYLE = False
+
 try:
     from pyrogram.enums import ButtonStyle
 
-    BTN_PRIMARY = getattr(ButtonStyle, "PRIMARY", 1)
-    BTN_SUCCESS = getattr(ButtonStyle, "SUCCESS", 3)
-    BTN_DANGER = getattr(ButtonStyle, "DANGER", 4)
-except ImportError:
-    BTN_PRIMARY, BTN_SUCCESS, BTN_DANGER = 1, 3, 4
+    if "style" in inspect.signature(InlineKeyboardButton.__init__).parameters:
+        BTN_PRIMARY = getattr(ButtonStyle, "PRIMARY", None)
+        BTN_SUCCESS = getattr(ButtonStyle, "SUCCESS", None)
+        BTN_DANGER = getattr(ButtonStyle, "DANGER", None)
+        _SUPPORTS_BTN_STYLE = True
+except (ImportError, ValueError, TypeError):
+    BTN_PRIMARY = BTN_SUCCESS = BTN_DANGER = None
+    _SUPPORTS_BTN_STYLE = False
 
 
-def _normalize_style(style):
-    if style is None:
+def _normalize_style(style: Any) -> Any:
+    if style is None or not _SUPPORTS_BTN_STYLE:
         return None
     if hasattr(style, "value"):
         return style
@@ -438,12 +420,18 @@ def _normalize_style(style):
             1: BTN_PRIMARY,
             3: BTN_SUCCESS,
             4: BTN_DANGER,
-        }.get(style, style)
+        }.get(style, None)
     return style
 
 
-def create_btn(text, url=None, callback_data=None, style=None):
-    kwargs = {"text": str(text)}
+def create_btn(
+    text: str,
+    url: Optional[str] = None,
+    callback_data: Optional[str] = None,
+    style: Any = None,
+) -> InlineKeyboardButton:
+    """Creates an InlineKeyboardButton safely. Pass style=None for no colour."""
+    kwargs: Dict[str, Any] = {"text": str(text)}
     if url:
         kwargs["url"] = str(url).strip()
     elif callback_data:
@@ -475,7 +463,7 @@ except Exception as e:
 
 DEFAULT_CLEAN_WORDS = ["sandalwood", "mkv", "mp4", "avi", "webm", "zip", "rar"]
 _CLEAN_WORDS_CACHE: Tuple[float, list] = (0.0, DEFAULT_CLEAN_WORDS)
-_FEATURE_FLAGS_CACHE: Dict[str, any] = {
+_FEATURE_FLAGS_CACHE: Dict[str, Any] = {
     "ts": 0.0,
     "autotranslate": True,
     "multichoice": True,
@@ -483,7 +471,6 @@ _FEATURE_FLAGS_CACHE: Dict[str, any] = {
 
 
 async def get_feature_flags(force_refresh: bool = False) -> Tuple[bool, bool]:
-    """Returns (autotranslate_enabled, multichoice_enabled) with 60s in-memory cache."""
     now = time.time()
     if not force_refresh and (now - _FEATURE_FLAGS_CACHE["ts"]) < 60:
         return (
@@ -508,7 +495,6 @@ async def get_feature_flags(force_refresh: bool = False) -> Tuple[bool, bool]:
 
 
 async def set_feature_flag(key: str, value: bool):
-    """Saves 'autotranslate' or 'multichoice' state permanently in MongoDB and updates cache."""
     _FEATURE_FLAGS_CACHE[key] = bool(value)
     _FEATURE_FLAGS_CACHE["ts"] = time.time()
     if pm_feat_db is not None:
@@ -554,40 +540,86 @@ def clean_filename(name: str, clean_words: list) -> str:
     return (name[:42] + "..") if len(name) > 45 else (name or "File")
 
 
-def get_auto_delete_timer(
-    var_name: str = "AUTO_DELETE_TIME", default_time: int = 1800
+async def resolve_auto_delete_timer(
+    chat_id: Optional[int] = None, default_time: int = 300
 ) -> int:
-    """Safely parses the auto-delete timer from info.py without throwing TypeErrors."""
+    """
+    Reliably resolves the auto-delete timer in seconds across group settings,
+    bot_settings DB, plugin_db, temp, and info.py so auto-delete never fails.
+    """
+    # 1. Check group-specific settings first
+    if chat_id:
+        try:
+            g_set = await get_settings(chat_id) or {}
+            if g_set.get("auto_delete") is False:
+                return 0
+            for k in (
+                "button_del",
+                "buttondel",
+                "button_auto_delete",
+                "auto_delete_time",
+                "autodelete",
+            ):
+                val = g_set.get(k)
+                if val is not None and not isinstance(val, bool):
+                    parsed = int(str(val).strip())
+                    if parsed >= 0:
+                        return parsed
+        except Exception:
+            pass
+
+    # 2. Check global bot_settings from custom_settings / MongoDB
     try:
-        global_switch = getattr(info, "AUTO_DELETE", True)
-        if str(global_switch).strip().lower() in ["false", "off", "0", "no"]:
-            return 0
-        raw_val = getattr(
-            info,
-            var_name,
-            getattr(
-                info,
-                "AUTO_DELETE_TIME",
-                getattr(info, "FILE_AUTO_DELETE", default_time),
-            ),
-        )
-        if isinstance(raw_val, bool):
-            return default_time if raw_val else 0
-        val = int(str(raw_val).strip())
-        return max(0, val)
+        b_set = await get_bot_settings() or {}
+        for k in (
+            "button_del",
+            "buttondel",
+            "button_auto_delete",
+            "auto_delete_time",
+            "autodelete",
+        ):
+            val = b_set.get(k)
+            if val is not None and not isinstance(val, bool):
+                parsed = int(str(val).strip())
+                if parsed >= 0:
+                    return parsed
     except Exception:
-        return default_time
+        pass
 
+    # 3. Check _plugin_db if available
+    if _plugin_db is not None:
+        for attr_name in ("get_buttondel", "get_autodelete"):
+            if hasattr(_plugin_db, attr_name):
+                try:
+                    val = await getattr(_plugin_db, attr_name)()
+                    if val is not None and not isinstance(val, bool):
+                        parsed = int(str(val).strip())
+                        if parsed >= 0:
+                            return parsed
+                except Exception:
+                    pass
 
-def format_duration(seconds: int) -> str:
-    if seconds <= 0:
-        return "0 Seconds"
-    m, s = divmod(int(seconds), 60)
-    if m > 0 and s > 0:
-        return f"{m} Minute{'s' if m != 1 else ''} {s} Second{'s' if s != 1 else ''}"
-    if m > 0:
-        return f"{m} Minute{'s' if m != 1 else ''}"
-    return f"{s} Second{'s' if s != 1 else ''}"
+    # 4. Check runtime temp & info.py variables
+    for source in (temp, info):
+        for k in (
+            "BUTTON_AUTO_DELETE",
+            "BUTTON_DEL",
+            "BUTTON_DELETE_TIME",
+            "AUTO_DELETE_TIME",
+            "FILE_AUTO_DELETE",
+            "IMDB_DELETETIME",
+            "AUTO_DELETE",
+        ):
+            val = getattr(source, k, None)
+            if val is not None and not isinstance(val, bool):
+                try:
+                    parsed = int(str(val).strip())
+                    if parsed > 0:
+                        return 300 if parsed < 10 else parsed
+                except Exception:
+                    continue
+
+    return default_time
 
 
 # ============================================================
@@ -624,7 +656,6 @@ async def is_user_banned(user_id: int) -> bool:
 
 
 async def get_active_connection(user_id: str) -> Optional[int]:
-    """Checks all possible connection tables so PM connected commands never fail."""
     uid_str = str(user_id)
 
     if _BOT_DB is not None:
@@ -714,7 +745,6 @@ async def verify_admin(
 
 
 async def safe_save_filter(group_id, keyword, reply_text, btn, fileid, alert="[]"):
-    """Handles any parameter order of add_filter in database/filters_mdb.py."""
     try:
         params = list(inspect.signature(add_filter).parameters.keys())
         if len(params) >= 6 and params[4] == "alert":
@@ -730,17 +760,17 @@ async def safe_save_filter(group_id, keyword, reply_text, btn, fileid, alert="[]
 # ============================================================
 class TTLCache:
     def __init__(self, maxsize: int = 2000, ttl: int = 1800):
-        self._data: Dict[str, Tuple[float, any]] = {}
+        self._data: Dict[str, Tuple[float, Any]] = {}
         self._maxsize, self._ttl = maxsize, ttl
 
-    def set(self, key: str, value: any):
+    def set(self, key: str, value: Any):
         self._cleanup()
         if len(self._data) >= self._maxsize:
             oldest_key = min(self._data, key=lambda k: self._data[k][0])
             self._data.pop(oldest_key, None)
         self._data[key] = (time.time() + self._ttl, value)
 
-    def get(self, key: str) -> Optional[any]:
+    def get(self, key: str) -> Optional[Any]:
         if not (item := self._data.get(key)):
             return None
         if time.time() > item[0]:
@@ -821,7 +851,6 @@ def sanitize_search_query(text: str, allow_translit: bool = True) -> str:
 
 
 def extract_inline_lang_and_qual(raw_text: str) -> Tuple[Optional[str], Optional[str]]:
-    """Detects if the user typed a language or quality directly in their search query."""
     detected_lang = None
     detected_qual = None
     for code, pattern in LANG_PATTERNS.items():
@@ -862,7 +891,6 @@ def _file_text(file_obj) -> str:
 
 
 def _score_file_relevance(file_obj, query_str: str) -> Tuple[int, int]:
-    """Ranks exact title/token matches first, then largest file size."""
     fname = str(
         file_obj.get("file_name", "")
         if isinstance(file_obj, dict)
@@ -890,10 +918,6 @@ def _score_file_relevance(file_obj, query_str: str) -> Tuple[int, int]:
 async def smart_filtered_search(
     base_query: str, state: dict, max_results: int = 10, offset: int = 0
 ) -> Tuple[list, int, int]:
-    """
-    Fetches filtered results for Language & Quality with deep alias matching
-    (e.g. 'kan' or 'kannada', '2160p' or '4k') so valid files are never missed.
-    """
     lang_code = state.get("lang")
     qual_val = state.get("qual")
 
@@ -904,7 +928,6 @@ async def smart_filtered_search(
         files.sort(key=lambda x: _score_file_relevance(x, base_query), reverse=True)
         return files, next_offset, total
 
-    # 1. Try direct combined query first
     effective_query = build_effective_search_query(base_query, state)
     direct_files, next_offset, total = await safe_search_db(
         effective_query, max_results=max_results, offset=offset
@@ -915,7 +938,6 @@ async def smart_filtered_search(
         )
         return direct_files, next_offset, total
 
-    # 2. Deep scan fallback on base_query pool (catches short tags like 'Kan', 'Tam', '4K', captions)
     pool, _, _ = await safe_search_db(base_query, max_results=250, offset=0)
     if not pool:
         return [], 0, 0
@@ -942,12 +964,10 @@ async def smart_filtered_search(
 
 
 def _extract_clean_movie_title(raw_filename: str) -> str:
-    """Extracts a concise, clean movie title (with year if present) from a raw DB filename."""
     if not raw_filename:
         return ""
     s = re.sub(r"https?://\S+|t\.me/\S+|@\w+|\[[^\]]*\]|\([^)]*\)", " ", raw_filename)
     s = re.sub(r"[_.-]", " ", s)
-    # Cut off at common quality/codec/language markers so only the movie title remains
     s = re.split(
         r"(?i)\b(4320p|2160p|1440p|1080p|720p|540p|480p|360p|240p|144p|4k|2k|8k|hdrip|web-?dl|webrip|bluray|brrip|dvdrip|camrip|hdts|predvd|x264|x265|hevc|avc|aac|ddp?5|atmos|dual\s*audio|multi\s*audio|kannada|tulu|telugu|tamil|malayalam|hindi|english|marathi|gujarati|bengali|punjabi|nepali|esub|subtitles|mkv|mp4|avi)\b",
         s,
@@ -961,7 +981,6 @@ def _extract_clean_movie_title(raw_filename: str) -> str:
 
 
 async def get_cached_db_titles() -> List[str]:
-    """Returns a cached list of clean unique movie titles from the database."""
     db_titles = FUZZY_TITLES_CACHE.get("titles")
     if db_titles is not None:
         return db_titles
@@ -992,25 +1011,19 @@ async def get_cached_db_titles() -> List[str]:
 
 
 # ============================================================
-# 💡 FEATURE 10: "DID YOU MEAN?" MULTI-CHOICE SUGGESTIONS FINDER
+# 💡 "DID YOU MEAN?" MULTI-CHOICE SUGGESTIONS FINDER
 # ============================================================
 def _consonant_skeleton(s: str) -> str:
-    """Removes vowels so 'kntra' == 'kantara' and 'kgff' == 'kgf'."""
     s_clean = re.sub(r"[^a-z0-9]", "", s.lower())
     s_clean = re.sub(r"(.)\1+", r"\1", s_clean)
     if len(s_clean) <= 2:
         return s_clean
-    skel = s_clean[0] + re.sub(r"[aeiou]", "", s_clean[1:])
-    return skel
+    return s_clean[0] + re.sub(r"[aeiou]", "", s_clean[1:])
 
 
 async def get_did_you_mean_suggestions(
     query: str, max_suggestions: int = 5, allow_translit: bool = True
 ) -> List[str]:
-    """
-    Finds the top 3-5 closest movie titles in the database when a user's spelling
-    is far off (e.g., 'Kntra', 'Kgff', or transliterated Indic text).
-    """
     clean_q = sanitize_search_query(query, allow_translit=allow_translit)
     if not clean_q:
         return []
@@ -1030,10 +1043,8 @@ async def get_did_you_mean_suggestions(
         if not t_lower:
             continue
 
-        # 1. Standard sequence similarity
         ratio = difflib.SequenceMatcher(None, q_lower, t_lower).ratio()
 
-        # 2. First-word / token similarity
         t_tokens = t_lower.split()
         first_word_ratio = (
             difflib.SequenceMatcher(None, q_tokens[0], t_tokens[0]).ratio()
@@ -1041,7 +1052,6 @@ async def get_did_you_mean_suggestions(
             else 0.0
         )
 
-        # 3. Consonant skeleton similarity (catches 'kntra' -> 'kantara', 'kgff' -> 'kgf')
         t_skel = _consonant_skeleton(
             t_tokens[0] if len(q_tokens) == 1 and t_tokens else t_lower
         )
@@ -1051,7 +1061,6 @@ async def get_did_you_mean_suggestions(
             else 0.0
         )
 
-        # 4. Prefix bonus
         prefix_bonus = (
             0.15 if (t_lower.startswith(q_lower[:3]) and len(q_lower) >= 3) else 0.0
         )
@@ -1090,7 +1099,6 @@ async def get_did_you_mean_suggestions(
 async def god_tier_search(
     query: str, allow_translit: bool = True
 ) -> Tuple[list, int, int, str, bool]:
-    # Check if user typed in Kannada, Hindi, Tamil, Telugu, Malayalam, etc.
     was_transliterated = bool(allow_translit and has_indic_script(query))
     translit_variants = (
         generate_phonetic_variants(transliterate_indic_to_english(query))
@@ -1102,7 +1110,6 @@ async def god_tier_search(
     if not clean_query and not translit_variants:
         return [], 0, 0, query, False
 
-    # 0. If user typed in Indic script and Auto-Translate is ON, test all phonetic variants first
     if translit_variants:
         for variant in translit_variants:
             v_clean = sanitize_search_query(variant, allow_translit=False)
@@ -1119,13 +1126,11 @@ async def god_tier_search(
 
     is_short_query = len(clean_query) <= 2
 
-    # 1. Primary search with sanitized query
     files, offset, total = await safe_search_db(clean_query, max_results=10, offset=0)
     if files:
         files.sort(key=lambda x: _score_file_relevance(x, clean_query), reverse=True)
         return files, offset, total, clean_query, was_transliterated
 
-    # 2. Fallback to raw alphanumeric query if different from sanitized query
     raw_alnum = re.sub(r"[^a-zA-Z0-9]", " ", query.lower())
     raw_alnum = re.sub(r"\s+", " ", raw_alnum).strip()
     if raw_alnum and raw_alnum != clean_query:
@@ -1134,7 +1139,6 @@ async def god_tier_search(
             files.sort(key=lambda x: _score_file_relevance(x, raw_alnum), reverse=True)
             return files, offset, total, raw_alnum, was_transliterated
 
-    # 3. Strip trailing year if user typed a year that isn't in the DB filename
     no_year_query = re.sub(r"\b(19\d{2}|20\d{2})\b", "", clean_query).strip()
     no_year_query = re.sub(r"\s+", " ", no_year_query)
     if no_year_query and no_year_query != clean_query and len(no_year_query) > 2:
@@ -1150,7 +1154,6 @@ async def god_tier_search(
     if is_short_query:
         return [], 0, 0, query, False
 
-    # 4. High-confidence Fuzzy Auto-Correction
     try:
         db_titles = await get_cached_db_titles()
         if matches := difflib.get_close_matches(
@@ -1174,6 +1177,7 @@ async def god_tier_search(
 
 # ============================================================
 # 🧩 KEYBOARD BUILDER FOR AUTO-FILTER RESULTS
+# (ONLY 4 SPECIFIED BUTTONS HAVE BLUE COLOUR: BTN_PRIMARY)
 # ============================================================
 async def build_result_buttons(
     files: list,
@@ -1196,6 +1200,7 @@ async def build_result_buttons(
     qual_btn_text = f"🎥 {active_qual}" if active_qual else "🎥 Quality"
 
     btn = [
+        # 1. Blue button: 🎖️Lᴀᴛᴇsᴛ Mᴏᴠɪᴇ Uᴘᴅᴀᴛᴇs🎖️
         [
             create_btn(
                 text="🎖️Lᴀᴛᴇsᴛ Mᴏᴠɪᴇ Uᴘᴅᴀᴛᴇs🎖️",
@@ -1203,38 +1208,33 @@ async def build_result_buttons(
                 style=BTN_PRIMARY,
             )
         ],
+        # No colour on Language, Quality, 🎞, 🔞 buttons
         [
             create_btn(
                 text=lang_btn_text,
                 callback_data=f"flang#{req}#{key}",
-                style=BTN_SUCCESS if active_lang else BTN_PRIMARY,
             ),
             create_btn(
                 text=qual_btn_text,
                 callback_data=f"fqual#{req}#{key}",
-                style=BTN_SUCCESS if active_qual else BTN_PRIMARY,
             ),
             create_btn(
                 text="🎞",
                 url=EXTRA_BTN_1_URL,
-                style=BTN_PRIMARY,
             ),
             create_btn(
                 text="🔞",
                 url=EXTRA_BTN_2_URL,
-                style=BTN_PRIMARY,
             ),
         ],
     ]
 
-    # When a language or quality filter is applied, show a Back button to restore original normal results
     if has_active_filter:
         btn.append(
             [
                 create_btn(
                     text="⬅️ Back to Normal Results",
                     callback_data=f"freset#{req}#{key}",
-                    style=BTN_DANGER,
                 )
             ]
         )
@@ -1286,13 +1286,14 @@ async def build_result_buttons(
     )
     page_cb = f"pages#{current_page}#{total_pages}#{total_results}"
 
+    # 2, 3, 4. Blue buttons: ⬅️ BACK, 📄 1/1, NEXT ➡️
     if not offset and off_set is None:
         btn.append(
             [
                 create_btn(
                     text=f"📄 {current_page}/{total_pages}",
                     callback_data=page_cb,
-                    style=BTN_SUCCESS,
+                    style=BTN_PRIMARY,
                 )
             ]
         )
@@ -1307,7 +1308,7 @@ async def build_result_buttons(
                 create_btn(
                     f"📄 {current_page}/{total_pages}",
                     callback_data=page_cb,
-                    style=BTN_SUCCESS,
+                    style=BTN_PRIMARY,
                 ),
             ]
         )
@@ -1317,7 +1318,7 @@ async def build_result_buttons(
                 create_btn(
                     f"📄 {current_page}/{total_pages}",
                     callback_data=page_cb,
-                    style=BTN_SUCCESS,
+                    style=BTN_PRIMARY,
                 ),
                 create_btn(
                     "NEXT ➡️",
@@ -1337,7 +1338,7 @@ async def build_result_buttons(
                 create_btn(
                     f"📄 {current_page}/{total_pages}",
                     callback_data=page_cb,
-                    style=BTN_SUCCESS,
+                    style=BTN_PRIMARY,
                 ),
                 create_btn(
                     "NEXT ➡️",
@@ -1353,22 +1354,49 @@ async def build_result_buttons(
 # ============================================================
 # ⏳ RELIABLE AUTO-DELETE ENGINE (GROUP + PM)
 # ============================================================
+async def _delete_single_message(
+    client: Client, chat_id: int, msg_obj: Optional[Message]
+):
+    """Deletes a single message reliably with FloodWait & fallback handling."""
+    if msg_obj is None:
+        return
+    msg_id = getattr(msg_obj, "id", None) or getattr(msg_obj, "message_id", None)
+    try:
+        await msg_obj.delete()
+        return
+    except FloodWait as e:
+        await asyncio.sleep(e.value + 1)
+        try:
+            await msg_obj.delete()
+            return
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+    if msg_id:
+        try:
+            await client.delete_messages(chat_id=chat_id, message_ids=msg_id)
+        except FloodWait as e:
+            await asyncio.sleep(e.value + 1)
+            try:
+                await client.delete_messages(chat_id=chat_id, message_ids=msg_id)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+
 async def _auto_delete_worker(
     client: Client, chat_id: int, is_pm: bool, delay: int, *messages
 ):
     await asyncio.sleep(delay)
 
-    msg_ids = [m.id for m in messages if m is not None and hasattr(m, "id") and m.id]
-    if msg_ids:
-        try:
-            await client.delete_messages(chat_id, msg_ids)
-        except Exception:
-            for m in messages:
-                if m is not None:
-                    try:
-                        await m.delete()
-                    except Exception:
-                        pass
+    # Delete each message individually so a permission restriction on a user's message
+    # never blocks deleting the bot's own auto-filter message!
+    for m in messages:
+        if m is not None:
+            await _delete_single_message(client, chat_id, m)
 
     if is_pm:
         notify_text = (
@@ -1380,7 +1408,6 @@ async def _auto_delete_worker(
                     create_btn(
                         "Movie Request 📝",
                         url="https://t.me/Sandalwood_Kannada_Group",
-                        style=BTN_SUCCESS,
                     )
                 ]
             ]
@@ -1421,7 +1448,6 @@ async def _send_not_found(
     req = msg.from_user.id if msg.from_user else 0
     key = f"{msg.chat.id}-{msg.id}"
 
-    # Check if Multi-Choice ("Did You Mean?") is enabled and finds suggestions
     suggestions = (
         await get_did_you_mean_suggestions(
             raw_search, max_suggestions=5, allow_translit=autotranslate_on
@@ -1446,7 +1472,6 @@ async def _send_not_found(
                 create_btn(
                     text=f"🎬 {sug_title.title()}",
                     callback_data=f"dym#{req}#{key}#{idx}",
-                    style=BTN_SUCCESS,
                 )
             )
             if len(row) == 2:
@@ -1506,13 +1531,13 @@ async def _send_not_found(
         except Exception:
             pass
 
-    delete_timer = get_auto_delete_timer("AUTO_DELETE_TIME", 1800)
+    delete_timer = await resolve_auto_delete_timer(msg.chat.id, default_time=300)
     if delete_timer > 0 and k_msg:
         schedule_auto_delete(client, msg.chat.id, False, delete_timer, k_msg, msg)
 
 
 # ============================================================
-# 📁 CORE AUTO FILTER ENGINE (CLEAN, FAST & NO EXTRA WARNING MSG)
+# 📁 CORE AUTO FILTER ENGINE
 # ============================================================
 async def auto_filter(client: Client, msg: Message):
     try:
@@ -1527,7 +1552,6 @@ async def auto_filter(client: Client, msg: Message):
         if not search:
             return
 
-        # Ignore common conversational greetings in groups
         if search.lower() in [
             "hello",
             "hey",
@@ -1554,7 +1578,6 @@ async def auto_filter(client: Client, msg: Message):
 
         autotranslate_on, multichoice_on = await get_feature_flags()
 
-        # If user typed in Indic script while Auto-Translate is disabled, skip transliteration
         if has_indic_script(search) and not autotranslate_on:
             try:
                 b_set = await get_bot_settings() or {}
@@ -1585,7 +1608,6 @@ async def auto_filter(client: Client, msg: Message):
         except Exception:
             settings = {}
 
-        # Detect if user explicitly included a language or quality in their search text
         inline_lang, inline_qual = extract_inline_lang_and_qual(search)
 
         cache_key = f"{search.lower()}|at:{int(autotranslate_on)}"
@@ -1622,8 +1644,6 @@ async def auto_filter(client: Client, msg: Message):
         key = f"{msg.chat.id}-{msg.id}"
         BUTTONS_CACHE.set(key, search_query)
 
-        # If user typed a language or quality in their query (e.g. "Kantara Kannada 1080p"),
-        # pre-filter if matching files exist, while keeping "Back to Normal Results" available!
         if inline_lang or inline_qual:
             inline_state = {"lang": inline_lang, "qual": inline_qual}
             f_files, f_offset, f_total = await smart_filtered_search(
@@ -1732,10 +1752,10 @@ async def auto_filter(client: Client, msg: Message):
             logger.error(f"Failed sending auto_filter message: {e}")
             return
 
-        # Silently auto-delete user query (msg) and bot results (m) without sending any extra warning text
-        delete_timer = get_auto_delete_timer("AUTO_DELETE_TIME", 1800)
+        # Auto-delete bot result message (m) first, then user message (msg)
+        delete_timer = await resolve_auto_delete_timer(msg.chat.id, default_time=300)
         if delete_timer > 0 and m:
-            schedule_auto_delete(client, msg.chat.id, False, delete_timer, msg, m)
+            schedule_auto_delete(client, msg.chat.id, False, delete_timer, m, msg)
 
     except Exception as e:
         logger.error(f"Fatal error in auto_filter: {e}")
@@ -1766,11 +1786,9 @@ async def give_filter(client: Client, message: Message):
         USER_LAST_REQ.set(str(user_id), time.time())
 
     try:
-        # 1. Check if a custom manual filter matches first
         matched_manual = await manual_filters(client, message)
         if matched_manual:
             return
-        # 2. Otherwise run the Movie Auto-Filter search
         await auto_filter(client, message)
     except Exception as e:
         logger.error(f"give_filter top-level error: {e}")
@@ -1788,12 +1806,10 @@ def _build_feature_toggle_markup(
                 create_btn(
                     text=f"{'✅ ' if is_enabled else ''}Enable",
                     callback_data=f"pmfeat#{feat_key}#on",
-                    style=BTN_SUCCESS if is_enabled else BTN_PRIMARY,
                 ),
                 create_btn(
                     text=f"{'🚫 ' if not is_enabled else ''}Disable",
                     callback_data=f"pmfeat#{feat_key}#off",
-                    style=BTN_DANGER if not is_enabled else BTN_PRIMARY,
                 ),
             ]
         ]
@@ -1840,8 +1856,8 @@ async def autotranslate_cmd_handler(client: Client, message: Message):
         reply_markup=_build_feature_toggle_markup("autotranslate", new_state),
         parse_mode=enums.ParseMode.HTML,
     )
-    delete_timer = get_auto_delete_timer("AUTO_DELETE_TIME", 1800)
-    schedule_auto_delete(client, message.chat.id, False, delete_timer, message, out_msg)
+    delete_timer = await resolve_auto_delete_timer(message.chat.id, default_time=300)
+    schedule_auto_delete(client, message.chat.id, False, delete_timer, out_msg, message)
 
 
 @Client.on_message(
@@ -1884,8 +1900,8 @@ async def multichoice_cmd_handler(client: Client, message: Message):
         reply_markup=_build_feature_toggle_markup("multichoice", new_state),
         parse_mode=enums.ParseMode.HTML,
     )
-    delete_timer = get_auto_delete_timer("AUTO_DELETE_TIME", 1800)
-    schedule_auto_delete(client, message.chat.id, False, delete_timer, message, out_msg)
+    delete_timer = await resolve_auto_delete_timer(message.chat.id, default_time=300)
+    schedule_auto_delete(client, message.chat.id, False, delete_timer, out_msg, message)
 
 
 @Client.on_callback_query(filters.regex(r"^pmfeat#"), group=-2)
@@ -1964,7 +1980,7 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
             show_alert=True,
         )
 
-    # 💡 FEATURE 10 CALLBACK: User clicked a "Did You Mean?" movie suggestion button
+    # 💡 User clicked a "Did You Mean?" movie suggestion button
     if action == "dym":
         try:
             sug_idx = int(parts[3])
@@ -2045,19 +2061,17 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
 
     state = get_filter_state(key)
 
-    # 1. Open Language Selection Menu (2 Buttons Per Row)
+    # 1. Open Language Selection Menu (No button colours)
     if action == "flang":
         cur_lang = state.get("lang")
         btn_rows = []
         row = []
         for lang_name, lang_code in LANGUAGES_LIST:
             label = f"✅ {lang_name}" if cur_lang == lang_code else lang_name
-            style = BTN_SUCCESS if cur_lang == lang_code else BTN_PRIMARY
             row.append(
                 create_btn(
                     text=label,
                     callback_data=f"setlang#{req}#{key}#{lang_code}",
-                    style=style,
                 )
             )
             if len(row) == 2:
@@ -2071,7 +2085,6 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
                 create_btn(
                     text="⬅️ Back",
                     callback_data=f"freset#{req}#{key}",
-                    style=BTN_DANGER,
                 )
             ]
         )
@@ -2084,19 +2097,17 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
             pass
         return await query.answer("🔊 Select your preferred language:")
 
-    # 2. Open Quality Selection Menu (2 Buttons Per Row)
+    # 2. Open Quality Selection Menu (No button colours)
     if action == "fqual":
         cur_qual = state.get("qual")
         btn_rows = []
         row = []
         for qual_val in QUALITIES_LIST:
             label = f"✅ {qual_val}" if cur_qual == qual_val else qual_val
-            style = BTN_SUCCESS if cur_qual == qual_val else BTN_PRIMARY
             row.append(
                 create_btn(
                     text=label,
                     callback_data=f"setqual#{req}#{key}#{qual_val}",
-                    style=style,
                 )
             )
             if len(row) == 2:
@@ -2110,7 +2121,6 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
                 create_btn(
                     text="⬅️ Back",
                     callback_data=f"freset#{req}#{key}",
-                    style=BTN_DANGER,
                 )
             ]
         )
@@ -2153,7 +2163,6 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
             show_alert=True,
         )
 
-    # Save valid state
     set_filter_state(key, lang=new_lang, qual=new_qual)
 
     settings = await get_settings(query.message.chat.id) or {}
@@ -2311,7 +2320,7 @@ async def pagination_handler(bot: Client, query: CallbackQuery):
 
 
 # ============================================================
-# 🎨 KEYBOARD AND BUTTON PARSERS
+# 🎨 KEYBOARD AND BUTTON PARSERS (MANUAL FILTERS)
 # ============================================================
 def build_keyboard(btn_str: str):
     if not btn_str or btn_str in ["[]", "None", "False", ""]:
@@ -2412,7 +2421,6 @@ async def add_filter_cmd(client: Client, message: Message):
     )
     text, btn = parse_markdown_buttons(raw_content)
 
-    # If the replied message already has inline buttons and no markdown buttons were parsed
     if btn == "[]" and replied.reply_markup and replied.reply_markup.inline_keyboard:
         existing_btns = []
         for row in replied.reply_markup.inline_keyboard:
@@ -2445,8 +2453,8 @@ async def add_filter_cmd(client: Client, message: Message):
         f"🆔 <b>Chat ID:</b> <code>{target_chat_id}</code>",
         parse_mode=enums.ParseMode.HTML,
     )
-    delete_timer = get_auto_delete_timer("AUTO_DELETE_TIME", 1800)
-    schedule_auto_delete(client, message.chat.id, False, delete_timer, message, out_msg)
+    delete_timer = await resolve_auto_delete_timer(message.chat.id, default_time=300)
+    schedule_auto_delete(client, message.chat.id, False, delete_timer, out_msg, message)
 
 
 @Client.on_message(filters.command("addfilter") & filters.incoming, group=-2)
@@ -2522,8 +2530,8 @@ async def add_premade_filter_cmd(client: Client, message: Message):
         f"✅ <b>Filter with buttons added!</b>\n\n<b>Keyword:</b> <code>{html.escape(keyword)}</code>",
         parse_mode=enums.ParseMode.HTML,
     )
-    delete_timer = get_auto_delete_timer("AUTO_DELETE_TIME", 1800)
-    schedule_auto_delete(client, message.chat.id, False, delete_timer, message, out_msg)
+    delete_timer = await resolve_auto_delete_timer(message.chat.id, default_time=300)
+    schedule_auto_delete(client, message.chat.id, False, delete_timer, out_msg, message)
 
 
 @Client.on_message(filters.command("filterimage") & filters.incoming, group=-2)
@@ -2576,8 +2584,8 @@ async def edit_filter_image_cmd(client: Client, message: Message):
         f"✅ <b>Filter image updated!</b>\n\n<b>Keyword:</b> <code>{html.escape(keyword)}</code>",
         parse_mode=enums.ParseMode.HTML,
     )
-    delete_timer = get_auto_delete_timer("AUTO_DELETE_TIME", 1800)
-    schedule_auto_delete(client, message.chat.id, False, delete_timer, message, out_msg)
+    delete_timer = await resolve_auto_delete_timer(message.chat.id, default_time=300)
+    schedule_auto_delete(client, message.chat.id, False, delete_timer, out_msg, message)
 
 
 @Client.on_message(
@@ -2666,8 +2674,8 @@ async def edit_filter_colour_cmd(client: Client, message: Message):
         f"✅ <b>Filter <code>{html.escape(keyword)}</code> Button {btn_num} colour changed to {color_str.title()}!</b>",
         parse_mode=enums.ParseMode.HTML,
     )
-    delete_timer = get_auto_delete_timer("AUTO_DELETE_TIME", 1800)
-    schedule_auto_delete(client, message.chat.id, False, delete_timer, message, out_msg)
+    delete_timer = await resolve_auto_delete_timer(message.chat.id, default_time=300)
+    schedule_auto_delete(client, message.chat.id, False, delete_timer, out_msg, message)
 
 
 @Client.on_message(filters.command(["delfilter", "stop"]) & filters.incoming, group=-2)
@@ -2695,8 +2703,8 @@ async def del_filter_cmd(client: Client, message: Message):
         f"🗑️ <b>Filter <code>{html.escape(keyword)}</code> deleted.</b>",
         parse_mode=enums.ParseMode.HTML,
     )
-    delete_timer = get_auto_delete_timer("AUTO_DELETE_TIME", 1800)
-    schedule_auto_delete(client, message.chat.id, False, delete_timer, message, out_msg)
+    delete_timer = await resolve_auto_delete_timer(message.chat.id, default_time=300)
+    schedule_auto_delete(client, message.chat.id, False, delete_timer, out_msg, message)
 
 
 @Client.on_message(
@@ -2720,10 +2728,9 @@ async def del_all_filters_cmd(client: Client, message: Message):
             create_btn(
                 "🔥 Yes, Delete All",
                 callback_data=f"delallconfirm#{target_chat_id}",
-                style=BTN_DANGER,
             )
         ],
-        [create_btn("❌ Cancel", callback_data="delallcancel", style=BTN_PRIMARY)],
+        [create_btn("❌ Cancel", callback_data="delallcancel")],
     ]
     await message.reply_text(
         f"⚠️ <b>Are you sure you want to delete ALL filters in <code>{target_chat_id}</code>?</b>",
@@ -2761,8 +2768,8 @@ async def list_filters_cmd(client: Client, message: Message):
         + "\n".join([f"• <code>{html.escape(str(kw))}</code>" for kw in keywords]),
         parse_mode=enums.ParseMode.HTML,
     )
-    delete_timer = get_auto_delete_timer("AUTO_DELETE_TIME", 1800)
-    schedule_auto_delete(client, message.chat.id, False, delete_timer, message, out_msg)
+    delete_timer = await resolve_auto_delete_timer(message.chat.id, default_time=300)
+    schedule_auto_delete(client, message.chat.id, False, delete_timer, out_msg, message)
 
 
 # ============================================================
@@ -2907,7 +2914,6 @@ async def manual_filters(client: Client, message: Message, text=False) -> bool:
             flags=re.IGNORECASE,
         ):
             reply_text, btn, alert, fileid = await find_filter(group_id, keyword)
-            # Handle swapped fileid/alert from older filter entries gracefully
             if str(fileid).strip() in ["[]", "None", ""] and str(alert).strip() not in [
                 "[]",
                 "None",
@@ -2947,7 +2953,9 @@ async def manual_filters(client: Client, message: Message, text=False) -> bool:
                 )
 
             if sent_msg:
-                delete_timer = get_auto_delete_timer("AUTO_DELETE_TIME", 1800)
+                delete_timer = await resolve_auto_delete_timer(
+                    message.chat.id, default_time=300
+                )
                 if delete_timer > 0:
                     is_pm = message.chat.type == enums.ChatType.PRIVATE
                     schedule_auto_delete(
