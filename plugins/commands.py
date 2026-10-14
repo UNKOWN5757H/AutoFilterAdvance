@@ -31,7 +31,7 @@ from pyrogram.types import (
     Message,
 )
 
-# Ensure typing aliases exist in builtins before importing plugins.fsub
+# Ensure typing aliases exist in builtins before importing other plugins
 for _t_name, _t_obj in (
     ("Tuple", Tuple),
     ("List", List),
@@ -54,7 +54,7 @@ from utils import get_size, is_subscribed, temp
 logger = getLogger(__name__)
 logger.setLevel(ERROR)
 
-# Safe optional imports to prevent plugin load crashes
+# Safe optional imports
 try:
     from database.ia_filterdb import Media
 except Exception:
@@ -79,6 +79,111 @@ except Exception:
 LOG_FILE = "TelegramBot.log"
 MESSAGE_EMOJI_PLANE = '<tg-emoji emoji-id="5875465628285931233">✈️</tg-emoji> Telegram'
 MESSAGE_EMOJI_LINK = '<tg-emoji emoji-id="5877465816030515018">🔗</tg-emoji> Link'
+
+# ============================================================
+# 🛡️ PYROGRAM v2.2.26 (LAYER 230) COMPATIBILITY ENGINE
+# ============================================================
+try:
+    from pyrogram.types import LinkPreviewOptions
+except ImportError:
+    LinkPreviewOptions = None
+
+try:
+    from pyrogram.types import ReplyParameters
+except ImportError:
+    ReplyParameters = None
+
+_SEND_MSG_PARAMS = set(inspect.signature(Client.send_message).parameters.keys())
+_REPLY_PARAMS = set(inspect.signature(Message.reply_text).parameters.keys())
+_EDIT_PARAMS = set(inspect.signature(Message.edit_text).parameters.keys())
+
+
+def _prepare_compat_kwargs(
+    kwargs: dict, supported_params: set, disable_preview: Optional[bool] = None
+) -> dict:
+    clean_kw = dict(kwargs)
+    explicit_disable = clean_kw.pop("disable_web_page_preview", disable_preview)
+
+    if explicit_disable is not None:
+        if "disable_web_page_preview" in supported_params:
+            clean_kw["disable_web_page_preview"] = bool(explicit_disable)
+        elif (
+            "link_preview_options" in supported_params
+            and LinkPreviewOptions is not None
+        ):
+            try:
+                clean_kw["link_preview_options"] = LinkPreviewOptions(
+                    is_disabled=bool(explicit_disable)
+                )
+            except Exception:
+                pass
+
+    if "reply_to_message_id" in clean_kw:
+        rep_id = clean_kw.pop("reply_to_message_id")
+        if rep_id:
+            if "reply_to_message_id" in supported_params:
+                clean_kw["reply_to_message_id"] = rep_id
+            elif (
+                "reply_parameters" in supported_params
+                and ReplyParameters is not None
+            ):
+                try:
+                    clean_kw["reply_parameters"] = ReplyParameters(message_id=rep_id)
+                except Exception:
+                    pass
+
+    return clean_kw
+
+
+async def safe_reply_text(
+    message: Message, text: str, disable_web_page_preview: bool = True, **kwargs
+):
+    compat_kw = _prepare_compat_kwargs(
+        kwargs, _REPLY_PARAMS, disable_preview=disable_web_page_preview
+    )
+    try:
+        return await message.reply_text(text, **compat_kw)
+    except TypeError:
+        compat_kw.pop("disable_web_page_preview", None)
+        compat_kw.pop("link_preview_options", None)
+        compat_kw.pop("reply_parameters", None)
+        compat_kw.pop("reply_to_message_id", None)
+        return await message.reply_text(text, **compat_kw)
+
+
+async def safe_edit_text(
+    message: Message, text: str, disable_web_page_preview: bool = True, **kwargs
+):
+    compat_kw = _prepare_compat_kwargs(
+        kwargs, _EDIT_PARAMS, disable_preview=disable_web_page_preview
+    )
+    try:
+        return await message.edit_text(text, **compat_kw)
+    except TypeError:
+        compat_kw.pop("disable_web_page_preview", None)
+        compat_kw.pop("link_preview_options", None)
+        return await message.edit_text(text, **compat_kw)
+
+
+async def safe_send_message(
+    client: Client,
+    chat_id: int,
+    text: str,
+    disable_web_page_preview: Optional[bool] = True,
+    **kwargs,
+):
+    compat_kw = _prepare_compat_kwargs(
+        kwargs, _SEND_MSG_PARAMS, disable_preview=disable_web_page_preview
+    )
+    try:
+        return await client.send_message(chat_id=chat_id, text=text, **compat_kw)
+    except TypeError:
+        compat_kw.pop("disable_web_page_preview", None)
+        compat_kw.pop("link_preview_options", None)
+        compat_kw.pop("reply_parameters", None)
+        compat_kw.pop("reply_to_message_id", None)
+        return await client.send_message(chat_id=chat_id, text=text, **compat_kw)
+
 
 # ============================================================
 # 🎨 SAFE TELEGRAM BUTTON STYLE DETECTION
@@ -148,6 +253,10 @@ def get_admin_list():
     raw_admins = getattr(info, "ADMINS", [])
     if isinstance(raw_admins, (str, int)):
         raw_admins = str(raw_admins).replace(",", " ").split()
+    elif isinstance(raw_admins, (list, tuple, set)):
+        raw_admins = list(raw_admins)
+    else:
+        raw_admins = []
     return [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
 
 
@@ -158,7 +267,11 @@ async def is_global_admin(user_id: int) -> bool:
 
 
 async def is_user_banned(user_id: int) -> bool:
-    if not user_id or _plugin_db is None or not hasattr(_plugin_db, "is_banned"):
+    if not user_id:
+        return False
+    if hasattr(temp, "BANNED_USERS") and int(user_id) in temp.BANNED_USERS:
+        return True
+    if _plugin_db is None or not hasattr(_plugin_db, "is_banned"):
         return False
     try:
         return bool(await _plugin_db.is_banned(user_id))
@@ -307,13 +420,13 @@ def get_html_text(message: Message):
 def parse_timer(var_name: str, default_time: int = 1800) -> int:
     try:
         global_switch = getattr(info, "AUTO_DELETE", True)
-        if str(global_switch).strip().lower() in ["false", "off", "0"]:
+        if str(global_switch).strip().lower() in ["false", "off", "0", "no"]:
             return 0
         val = getattr(info, "AUTO_DELETE_TIME", getattr(info, var_name, default_time))
         if isinstance(val, bool):
             return 1800 if val else 0
-        parsed_time = int(val)
-        return 1800 if 0 < parsed_time < 10 else parsed_time
+        parsed_time = int(str(val).strip())
+        return 1800 if 0 < parsed_time < 10 else max(0, parsed_time)
     except Exception:
         return 1800
 
@@ -336,18 +449,26 @@ async def run_force_sub(client: Client, message: Message, file_id=False, mode=Fa
 # ============================================================
 # ⏳ SILENT AUTO-DELETE ENGINE
 # ============================================================
+AUTO_DELETE_TASKS = set()
+
+
 async def auto_delete_all_messages(
     client: Client, chat_id: int, is_pm: bool, delay: int, *messages
 ):
     """Deletes messages silently and notifies the user in PM after deletion."""
     await asyncio.sleep(delay)
 
-    for msg in messages:
-        if msg:
-            try:
-                await msg.delete()
-            except Exception:
-                pass
+    msg_ids = [m.id for m in messages if m is not None and hasattr(m, "id") and m.id]
+    if msg_ids:
+        try:
+            await client.delete_messages(chat_id, msg_ids)
+        except Exception:
+            for msg in messages:
+                if msg:
+                    try:
+                        await msg.delete()
+                    except Exception:
+                        pass
 
     if is_pm:
         notify_text = (
@@ -365,7 +486,8 @@ async def auto_delete_all_messages(
             ]
         )
         try:
-            await client.send_message(
+            await safe_send_message(
+                client,
                 chat_id,
                 text=notify_text,
                 reply_markup=markup,
@@ -373,6 +495,18 @@ async def auto_delete_all_messages(
             )
         except Exception:
             pass
+
+
+def schedule_pm_auto_delete(
+    client: Client, chat_id: int, is_pm: bool, delay: int, *messages
+):
+    if delay <= 0:
+        return
+    task = asyncio.create_task(
+        auto_delete_all_messages(client, chat_id, is_pm, delay, *messages)
+    )
+    AUTO_DELETE_TASKS.add(task)
+    task.add_done_callback(AUTO_DELETE_TASKS.discard)
 
 
 # ============================================================
@@ -484,7 +618,7 @@ async def get_about_keyboard():
 async def transition_ui_message(
     client: Client, msg_obj: Message, text: str, keyboard, img=None
 ):
-    """Smoothly transitions between photo and text messages while handling caption length limits."""
+    """Smoothly transitions between photo and text messages on Pyrogram v2.2.26+."""
     has_media = bool(
         msg_obj.photo or msg_obj.video or msg_obj.document or msg_obj.animation
     )
@@ -524,7 +658,8 @@ async def transition_ui_message(
                     return
                 except MediaCaptionTooLong:
                     pass
-            await client.send_message(
+            await safe_send_message(
+                client,
                 chat_id=msg_obj.chat.id,
                 text=text,
                 reply_markup=keyboard,
@@ -536,17 +671,19 @@ async def transition_ui_message(
             except Exception:
                 pass
         else:
-            await msg_obj.edit_text(
+            await safe_edit_text(
+                msg_obj,
                 text=text,
                 reply_markup=keyboard,
                 parse_mode=enums.ParseMode.HTML,
                 disable_web_page_preview=True,
             )
-    except MessageNotModified:
+    except (MessageNotModified, MessageIdInvalid):
         pass
     except MediaCaptionTooLong:
         try:
-            await client.send_message(
+            await safe_send_message(
+                client,
                 chat_id=msg_obj.chat.id,
                 text=text,
                 reply_markup=keyboard,
@@ -576,8 +713,10 @@ async def send_requested_file(
         if query:
             await query.answer("⚠️ No such file exists.", show_alert=True)
         elif reply_target:
-            await reply_target.reply_text(
-                "⚠️ No such file exists.", parse_mode=enums.ParseMode.HTML
+            await safe_reply_text(
+                reply_target,
+                "⚠️ No such file exists.",
+                parse_mode=enums.ParseMode.HTML,
             )
         return
 
@@ -683,7 +822,8 @@ async def send_requested_file(
             if query:
                 return await query.answer(f"⚠️ Error: {err}", show_alert=True)
             if reply_target:
-                return await reply_target.reply_text(
+                return await safe_reply_text(
+                    reply_target,
                     f"⚠️ <b>Error:</b>\n<code>{err}</code>",
                     parse_mode=enums.ParseMode.HTML,
                 )
@@ -707,7 +847,8 @@ async def send_requested_file(
                 f"✅ Please forward this file to your saved messages and start downloading from there.\n\n"
                 f"Tᴇᴀᴍ: @KR_Picture</b>"
             )
-            k = await client.send_message(
+            k = await safe_send_message(
+                client,
                 chat_id=user_id,
                 text=warn_text,
                 reply_to_message_id=msg.id,
@@ -715,10 +856,8 @@ async def send_requested_file(
             )
 
             if delete_timer > 0:
-                asyncio.create_task(
-                    auto_delete_all_messages(
-                        client, user_id, True, delete_timer, msg, k
-                    )
+                schedule_pm_auto_delete(
+                    client, user_id, True, delete_timer, msg, k
                 )
         except Exception as e:
             logger.error(f"Auto-delete warning failed to send: {e}")
@@ -736,7 +875,8 @@ async def start(client: Client, message: Message):
     )
 
     if getattr(info, "REPAIR_MODE", False) and not await is_global_admin(uid):
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "🛠️ <b>Bot is currently under maintenance!</b>",
             parse_mode=enums.ParseMode.HTML,
         )
@@ -749,6 +889,7 @@ async def start(client: Client, message: Message):
             me = await client.get_me()
             temp.U_NAME = me.username
             temp.B_NAME = me.first_name
+            temp.ME = me.id
         except Exception:
             pass
 
@@ -783,7 +924,8 @@ async def start(client: Client, message: Message):
                 )
             except Exception:
                 pass
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             text=final_text,
             reply_markup=final_keyboard,
             parse_mode=enums.ParseMode.HTML,
@@ -801,7 +943,8 @@ async def start(client: Client, message: Message):
         final_text, final_keyboard = safe_parse_text_and_markup(
             raw_text, await get_start_keyboard(client, uid)
         )
-        await message.reply_text(
+        await safe_reply_text(
+            message,
             final_text,
             reply_markup=final_keyboard,
             parse_mode=enums.ParseMode.HTML,
@@ -812,7 +955,8 @@ async def start(client: Client, message: Message):
             try:
                 total = await client.get_chat_members_count(message.chat.id)
                 if LOG_CHANNEL:
-                    await client.send_message(
+                    await safe_send_message(
+                        client,
                         LOG_CHANNEL,
                         script.LOG_TEXT_G.format(
                             message.chat.title, message.chat.id, total, "Unknown"
@@ -828,7 +972,8 @@ async def start(client: Client, message: Message):
         await _db.add_user(message.from_user.id, message.from_user.first_name)
         if LOG_CHANNEL:
             try:
-                await client.send_message(
+                await safe_send_message(
+                    client,
                     LOG_CHANNEL,
                     script.LOG_TEXT_P.format(
                         message.from_user.id, message.from_user.mention
@@ -862,7 +1007,8 @@ async def start(client: Client, message: Message):
                     )
                 except Exception:
                     pass
-            await message.reply_text(
+            await safe_reply_text(
+                message,
                 text=final_text,
                 reply_markup=final_keyboard,
                 parse_mode=enums.ParseMode.HTML,
@@ -879,15 +1025,17 @@ async def start(client: Client, message: Message):
 
     # 1. HANDLE DIRECT SEARCH LINKS
     if cmd_data.startswith("search_"):
-        query_str = re.sub(r"_+", " ", cmd_data.replace("search_", "", 1)).strip()
+        query_str = re.sub(r"[_+\-]+", " ", cmd_data.replace("search_", "", 1)).strip()
         try:
             from plugins.pm_filter import auto_filter
 
             message.text = query_str
+            message.command = None
             await auto_filter(client, message)
         except Exception as e:
             logger.error(f"Search interceptor failed: {e}")
-            await message.reply_text(
+            await safe_reply_text(
+                message,
                 f"🔍 <b>Search Query:</b> <code>{query_str}</code>\n\nSend this text in our group to search!",
                 parse_mode=enums.ParseMode.HTML,
             )
@@ -922,13 +1070,15 @@ async def set_clean_words(client: Client, message: Message):
         else getattr(message.sender_chat, "id", 0)
     )
     if not await is_global_admin(uid):
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "❌ <b>Unauthorized:</b> Global Bot Admin only.",
             parse_mode=enums.ParseMode.HTML,
         )
 
     if len(message.command) < 2:
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "⚠️ <b>Usage:</b> <code>/setcleanfilename word1, word2, @ChannelName</code>",
             parse_mode=enums.ParseMode.HTML,
         )
@@ -941,7 +1091,8 @@ async def set_clean_words(client: Client, message: Message):
             {"$set": {"list": words_list, "use_default": False}},
             upsert=True,
         )
-        await message.reply_text(
+        await safe_reply_text(
+            message,
             f"✅ <b>Clean Words Set Successfully!</b>\n\nThe following words will be removed from buttons:\n<code>{', '.join(words_list)}</code>",
             parse_mode=enums.ParseMode.HTML,
         )
@@ -955,7 +1106,8 @@ async def default_clean_words(client: Client, message: Message):
         else getattr(message.sender_chat, "id", 0)
     )
     if not await is_global_admin(uid):
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "❌ <b>Unauthorized:</b> Global Bot Admin only.",
             parse_mode=enums.ParseMode.HTML,
         )
@@ -964,7 +1116,8 @@ async def default_clean_words(client: Client, message: Message):
         await cw_db.update_one(
             {"id": "words"}, {"$set": {"use_default": True}}, upsert=True
         )
-        await message.reply_text(
+        await safe_reply_text(
+            message,
             "✅ <b>Reverted to Default Clean Words!</b>\n(Standard extensions and default tags will be removed).",
             parse_mode=enums.ParseMode.HTML,
         )
@@ -978,7 +1131,8 @@ async def rem_clean_words(client: Client, message: Message):
         else getattr(message.sender_chat, "id", 0)
     )
     if not await is_global_admin(uid):
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "❌ <b>Unauthorized:</b> Global Bot Admin only.",
             parse_mode=enums.ParseMode.HTML,
         )
@@ -987,7 +1141,8 @@ async def rem_clean_words(client: Client, message: Message):
         await cw_db.update_one(
             {"id": "words"}, {"$set": {"list": [], "use_default": False}}, upsert=True
         )
-        await message.reply_text(
+        await safe_reply_text(
+            message,
             "🗑️ <b>All Clean Words Removed.</b>\nFilenames will now display exactly as they are uploaded.",
             parse_mode=enums.ParseMode.HTML,
         )
@@ -1004,24 +1159,27 @@ async def set_pm_text(client: Client, message: Message):
         else getattr(message.sender_chat, "id", 0)
     )
     if not await is_global_admin(uid):
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "❌ <b>Unauthorized:</b> Global Bot Admin only.",
             parse_mode=enums.ParseMode.HTML,
         )
     try:
         text = get_html_text(message)
         if not text:
-            return await message.reply_text(
+            return await safe_reply_text(
+                message,
                 "⚙️ <b>Usage:</b> <code>/setpmtext Your Text Here</code> or reply to a message.",
                 parse_mode=enums.ParseMode.HTML,
             )
         await save_pm_settings("text", text)
-        await message.reply_text(
+        await safe_reply_text(
+            message,
             f"✅ <b>PM Text updated successfully to:</b>\n\n{text}",
             parse_mode=enums.ParseMode.HTML,
         )
     except Exception as e:
-        await message.reply_text(f"⚠️ Error: {e}")
+        await safe_reply_text(message, f"⚠️ Error: {e}")
 
 
 @Client.on_message(filters.command("rempmtext") & filters.incoming)
@@ -1032,7 +1190,8 @@ async def rem_pm_text(client: Client, message: Message):
         else getattr(message.sender_chat, "id", 0)
     )
     if not await is_global_admin(uid):
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "❌ <b>Unauthorized:</b> Global Bot Admin only.",
             parse_mode=enums.ParseMode.HTML,
         )
@@ -1040,8 +1199,10 @@ async def rem_pm_text(client: Client, message: Message):
         "text",
         "<b>🚫 Don't Message Here, Message Here Only!</b>\n\nI do not respond to direct messages in PM. Please join our official group to request and download movies.",
     )
-    await message.reply_text(
-        "✅ <b>PM Text reset to default.</b>", parse_mode=enums.ParseMode.HTML
+    await safe_reply_text(
+        message,
+        "✅ <b>PM Text reset to default.</b>",
+        parse_mode=enums.ParseMode.HTML,
     )
 
 
@@ -1053,29 +1214,34 @@ async def set_pm_image(client: Client, message: Message):
         else getattr(message.sender_chat, "id", 0)
     )
     if not await is_global_admin(uid):
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "❌ <b>Unauthorized:</b> Global Bot Admin only.",
             parse_mode=enums.ParseMode.HTML,
         )
     if not message.reply_to_message or not message.reply_to_message.photo:
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "⚙️ <b>Usage:</b> Reply to a photo with <code>/setpmimage</code>",
             parse_mode=enums.ParseMode.HTML,
         )
 
-    status = await message.reply_text(
-        "⏳ <b>Uploading to Cloud...</b>", parse_mode=enums.ParseMode.HTML
+    status = await safe_reply_text(
+        message, "⏳ <b>Uploading to Cloud...</b>", parse_mode=enums.ParseMode.HTML
     )
     url = await upload_image_safely(client, message.reply_to_message)
     if url:
         await save_pm_settings("image", url)
-        await status.edit_text(
-            "✅ <b>PM Image updated successfully!</b>", parse_mode=enums.ParseMode.HTML
+        await safe_edit_text(
+            status,
+            "✅ <b>PM Image updated successfully!</b>",
+            parse_mode=enums.ParseMode.HTML,
         )
     else:
         file_id = message.reply_to_message.photo.file_id
         await save_pm_settings("image", file_id)
-        await status.edit_text(
+        await safe_edit_text(
+            status,
             "⚠️ Cloud upload failed. <b>PM Image saved using Telegram File_ID!</b>",
             parse_mode=enums.ParseMode.HTML,
         )
@@ -1089,13 +1255,14 @@ async def rem_pm_image(client: Client, message: Message):
         else getattr(message.sender_chat, "id", 0)
     )
     if not await is_global_admin(uid):
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "❌ <b>Unauthorized:</b> Global Bot Admin only.",
             parse_mode=enums.ParseMode.HTML,
         )
     await save_pm_settings("image", None)
-    await message.reply_text(
-        "✅ <b>PM Image removed.</b>", parse_mode=enums.ParseMode.HTML
+    await safe_reply_text(
+        message, "✅ <b>PM Image removed.</b>", parse_mode=enums.ParseMode.HTML
     )
 
 
@@ -1107,19 +1274,22 @@ async def set_pm_button(client: Client, message: Message):
         else getattr(message.sender_chat, "id", 0)
     )
     if not await is_global_admin(uid):
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "❌ <b>Unauthorized:</b> Global Bot Admin only.",
             parse_mode=enums.ParseMode.HTML,
         )
     try:
         if len(message.command) < 2:
-            return await message.reply_text(
+            return await safe_reply_text(
+                message,
                 "⚙️ <b>Usage:</b> <code>/setpmbutton Text | URL | Color</code>",
                 parse_mode=enums.ParseMode.HTML,
             )
         args = message.text.split(None, 1)[1].split("|")
         if len(args) < 2:
-            return await message.reply_text(
+            return await safe_reply_text(
+                message,
                 "❌ Invalid format. Use: <code>Text | URL | Color</code>",
                 parse_mode=enums.ParseMode.HTML,
             )
@@ -1132,12 +1302,13 @@ async def set_pm_button(client: Client, message: Message):
         await save_pm_settings("button_text", btn_text)
         await save_pm_settings("button_url", btn_url)
         await save_pm_settings("button_color", btn_color)
-        await message.reply_text(
+        await safe_reply_text(
+            message,
             f"✅ <b>PM Button updated!</b>\n<b>Text:</b> {btn_text}\n<b>URL:</b> {btn_url}\n<b>Color:</b> {btn_color}",
             parse_mode=enums.ParseMode.HTML,
         )
     except Exception as e:
-        await message.reply_text(f"⚠️ Error: {e}")
+        await safe_reply_text(message, f"⚠️ Error: {e}")
 
 
 @Client.on_message(filters.command("rempmbutton") & filters.incoming)
@@ -1148,14 +1319,17 @@ async def rem_pm_button(client: Client, message: Message):
         else getattr(message.sender_chat, "id", 0)
     )
     if not await is_global_admin(uid):
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "❌ <b>Unauthorized:</b> Global Bot Admin only.",
             parse_mode=enums.ParseMode.HTML,
         )
     await save_pm_settings("button_text", None)
     await save_pm_settings("button_url", None)
-    await message.reply_text(
-        "✅ <b>PM Button removed completely.</b>", parse_mode=enums.ParseMode.HTML
+    await safe_reply_text(
+        message,
+        "✅ <b>PM Button removed completely.</b>",
+        parse_mode=enums.ParseMode.HTML,
     )
 
 
@@ -1240,14 +1414,16 @@ async def list_all_channels_cmd(client: Client, message: Message):
         else getattr(message.sender_chat, "id", 0)
     )
     if not await is_global_admin(uid):
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "❌ <b>Unauthorized:</b> Global Bot Admin only.",
             parse_mode=enums.ParseMode.HTML,
         )
 
-    status_msg = await message.reply_text("⏳ Generating link database...")
+    status_msg = await safe_reply_text(message, "⏳ Generating link database...")
     text, reply_markup = await get_channels_page(client, page=1)
-    await status_msg.edit_text(
+    await safe_edit_text(
+        status_msg,
         text,
         reply_markup=reply_markup,
         disable_web_page_preview=True,
@@ -1263,20 +1439,22 @@ async def leave_channel_cmd(client: Client, message: Message):
         else getattr(message.sender_chat, "id", 0)
     )
     if not await is_global_admin(uid):
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "❌ <b>Unauthorized:</b> Global Bot Admin only.",
             parse_mode=enums.ParseMode.HTML,
         )
 
     if len(message.command) < 2:
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "⚙️ <b>Usage:</b> <code>/leavechannel &lt;channel_id&gt;</code>",
             parse_mode=enums.ParseMode.HTML,
         )
     try:
         chat_id_int = int(message.command[1].strip())
     except ValueError:
-        return await message.reply_text("❌ Invalid Channel ID format.")
+        return await safe_reply_text(message, "❌ Invalid Channel ID format.")
 
     chat_title, tg_status, db_status = (
         "Unknown Chat",
@@ -1301,7 +1479,8 @@ async def leave_channel_cmd(client: Client, message: Message):
     except Exception as e:
         db_status = f"❌ DB Remove Error: {e}"
 
-    await message.reply_text(
+    await safe_reply_text(
+        message,
         f"🎯 <b>Operation Complete:</b>\n\n"
         f"<b>Name:</b> {chat_title}\n"
         f"<b>ID:</b> <code>{chat_id_int}</code>\n\n"
@@ -1573,10 +1752,13 @@ async def cb_handler(client: Client, query: CallbackQuery):
 # 📩 PM AUTO-REPLY ENGINE (GROUP 1 SO COMMANDS ARE NEVER BLOCKED)
 # ============================================================
 @Client.on_message(
-    filters.private & filters.text & filters.incoming & ~filters.regex(r"^/"),
+    filters.private & filters.text & filters.incoming,
     group=1,
 )
 async def pm_auto_reply(client: Client, message: Message):
+    if not message.text or message.text.startswith("/"):
+        return
+
     uid = (
         message.from_user.id
         if message.from_user
@@ -1631,7 +1813,8 @@ async def pm_auto_reply(client: Client, message: Message):
                 return
             except Exception:
                 pass
-        await message.reply_text(
+        await safe_reply_text(
+            message,
             text=text,
             reply_markup=reply_markup,
             parse_mode=enums.ParseMode.HTML,
