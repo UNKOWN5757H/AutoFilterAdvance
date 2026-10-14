@@ -665,8 +665,8 @@ async def auto_filter(client: Client, msg: Message):
         btn.append(
             [
                 create_btn(
-                    text="• Bᴀᴄᴋ Uᴘ Cʜᴀɴɴᴇʟ •",
-                    url="https://t.me/KR_Picture",
+                    text="🎖️Lᴀᴛᴇsᴛ Mᴏᴠɪᴇ Uᴘᴅᴀᴛᴇs🎖️",
+                    url="https://t.me/+8Mw-Y-fYN6hiZWZl",
                     style=BTN_SUCCESS,
                 )
             ]
@@ -915,7 +915,7 @@ async def pagination_handler(bot: Client, query: CallbackQuery):
     btn.append(
         [
             create_btn(
-                text="• Bᴀᴄᴋ Uᴘ Cʜᴀɴɴᴇʟ •",
+                text="🎖️Lᴀᴛᴇsᴛ Mᴏᴠɪᴇ Uᴘᴅᴀᴛᴇs🎖️",
                 url="https://t.me/KR_Picture",
                 style=BTN_SUCCESS,
             )
