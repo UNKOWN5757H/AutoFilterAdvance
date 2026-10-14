@@ -60,28 +60,20 @@ logger.setLevel(ERROR)
 AUTO_DELETE_TASKS = set()
 
 # ============================================================
-# 🎨 SAFE TELEGRAM BUTTON STYLE DETECTION
+# 🎨 TELEGRAM BUTTON STYLE SUPPORT
 # ============================================================
-BTN_PRIMARY = None
-BTN_SUCCESS = None
-BTN_DANGER = None
-_SUPPORTS_BTN_STYLE = False
-
 try:
     from pyrogram.enums import ButtonStyle
 
-    if "style" in inspect.signature(InlineKeyboardButton.__init__).parameters:
-        BTN_PRIMARY = getattr(ButtonStyle, "PRIMARY", None)
-        BTN_SUCCESS = getattr(ButtonStyle, "SUCCESS", None)
-        BTN_DANGER = getattr(ButtonStyle, "DANGER", None)
-        _SUPPORTS_BTN_STYLE = True
-except (ImportError, ValueError, TypeError):
-    BTN_PRIMARY = BTN_SUCCESS = BTN_DANGER = None
-    _SUPPORTS_BTN_STYLE = False
+    BTN_PRIMARY = getattr(ButtonStyle, "PRIMARY", 1)
+    BTN_SUCCESS = getattr(ButtonStyle, "SUCCESS", 3)
+    BTN_DANGER = getattr(ButtonStyle, "DANGER", 4)
+except ImportError:
+    BTN_PRIMARY, BTN_SUCCESS, BTN_DANGER = 1, 3, 4
 
 
 def _normalize_style(style):
-    if not _SUPPORTS_BTN_STYLE or style is None:
+    if style is None:
         return None
     if hasattr(style, "value"):
         return style
@@ -90,8 +82,8 @@ def _normalize_style(style):
             1: BTN_PRIMARY,
             3: BTN_SUCCESS,
             4: BTN_DANGER,
-        }.get(style, None)
-    return None
+        }.get(style, style)
+    return style
 
 
 def create_btn(text, url=None, callback_data=None, style=None):
@@ -102,7 +94,7 @@ def create_btn(text, url=None, callback_data=None, style=None):
         kwargs["callback_data"] = str(callback_data)[:64]
 
     norm_style = _normalize_style(style)
-    if _SUPPORTS_BTN_STYLE and norm_style is not None:
+    if norm_style is not None:
         kwargs["style"] = norm_style
     try:
         return InlineKeyboardButton(**kwargs)
@@ -368,21 +360,43 @@ USER_LAST_REQ = TTLCache(maxsize=5000, ttl=60)
 def sanitize_search_query(text: str) -> str:
     if not text:
         return ""
-    q = re.sub(r"https?://\S+|t\.me/\S+|@\w+", "", text.strip().lower())
+    raw_q = re.sub(r"https?://\S+|t\.me/\S+|@\w+", "", text.strip().lower())
+    basic_q = re.sub(r"[^a-zA-Z0-9]", " ", raw_q)
+    basic_q = re.sub(r"\s+", " ", basic_q).strip()
+
     q = re.sub(
         r"(?i)\b(1080p|720p|480p|2160p|4k|mkv|mp4|avi|hdrip|web-?dl|webrip|bluray|brrip|dvdrip|x264|x265|hevc|dual audio|hindi|kannada|telugu|tamil|malayalam|english|subtitles|subs|episodes|season\s*\d+|s\d+e\d+|complete)\b",
         "",
-        q,
+        raw_q,
     )
     q = re.sub(r"[^a-zA-Z0-9]", " ", q)
-    if active_stops := get_stopwords():
-        q = re.sub(
-            r"\b(" + "|".join(re.escape(w) for w in active_stops if w.strip()) + r")\b",
-            " ",
-            q,
-            flags=re.IGNORECASE,
+    try:
+        active_stops = get_stopwords()
+        if active_stops:
+            q = re.sub(
+                r"\b("
+                + "|".join(re.escape(w) for w in active_stops if w.strip())
+                + r")\b",
+                " ",
+                q,
+                flags=re.IGNORECASE,
+            )
+    except Exception:
+        pass
+    cleaned = re.sub(r"\s+", " ", q).strip()
+    return cleaned if cleaned else basic_q
+
+
+async def safe_search_db(query: str, max_results: int = 10, offset: int = 0):
+    try:
+        return await get_search_results(
+            query, max_results=max_results, offset=offset, filter=True
         )
-    return re.sub(r"\s+", " ", q).strip()
+    except TypeError:
+        return await get_search_results(query, max_results=max_results, offset=offset)
+    except Exception as e:
+        logger.error(f"DB search error for '{query}': {e}")
+        return [], 0, 0
 
 
 async def god_tier_search(query: str) -> Tuple[list, int, int, str, bool]:
@@ -392,15 +406,27 @@ async def god_tier_search(query: str) -> Tuple[list, int, int, str, bool]:
 
     is_short_query = len(clean_query) <= 2
 
-    files, offset, total = await get_search_results(
-        clean_query, max_results=10, offset=0, filter=True
+    # 1. Primary search with sanitized query
+    files, offset, total = await safe_search_db(
+        clean_query, max_results=10, offset=0
     )
     if files:
         return files, offset, total, clean_query, False
 
+    # 2. Fallback to raw alphanumeric query if different from sanitized query
+    raw_alnum = re.sub(r"[^a-zA-Z0-9]", " ", query.lower())
+    raw_alnum = re.sub(r"\s+", " ", raw_alnum).strip()
+    if raw_alnum and raw_alnum != clean_query:
+        files, offset, total = await safe_search_db(
+            raw_alnum, max_results=10, offset=0
+        )
+        if files:
+            return files, offset, total, raw_alnum, False
+
     if is_short_query:
         return [], 0, 0, query, False
 
+    # 3. Fuzzy search fallback for typos
     try:
         media_col = getattr(_Media, "collection", _Media)
         sample_docs = (
@@ -420,8 +446,8 @@ async def god_tier_search(query: str) -> Tuple[list, int, int, str, bool]:
             clean_query, db_titles, n=1, cutoff=0.55
         ):
             corrected_query = matches[0]
-            c_files, c_offset, c_total = await get_search_results(
-                corrected_query, max_results=10, offset=0, filter=True
+            c_files, c_offset, c_total = await safe_search_db(
+                corrected_query, max_results=10, offset=0
             )
             if c_files:
                 return c_files, c_offset, c_total, corrected_query, True
@@ -523,11 +549,10 @@ async def _send_not_found(client: Client, msg: Message, img: Optional[str], text
 
 
 # ============================================================
-# 📁 CORE AUTO FILTER ENGINE (USER-FRIENDLY & FAST)
+# 📁 CORE AUTO FILTER ENGINE (CLEAN, FAST & NO EXTRA WARNING MSG)
 # ============================================================
 async def auto_filter(client: Client, msg: Message):
     try:
-        b_set = await get_bot_settings()
         if (
             not msg
             or not msg.text
@@ -541,13 +566,17 @@ async def auto_filter(client: Client, msg: Message):
 
         # Ignore common conversational greetings in groups
         if search.lower() in [
+            "hi",
             "hello",
             "hey",
             "hlo",
             "hlw",
+            "bro",
+            "sir",
             "ok",
             "okay",
             "k",
+            "thank you",
             "thanks",
             "tq",
             "yes",
@@ -558,10 +587,20 @@ async def auto_filter(client: Client, msg: Message):
             "gm",
             "gn",
             "good morning",
+            "good night",
         ]:
             return
 
-        settings = await get_settings(msg.chat.id)
+        try:
+            b_set = await get_bot_settings() or {}
+        except Exception:
+            b_set = {}
+
+        try:
+            settings = await get_settings(msg.chat.id) or {}
+        except Exception:
+            settings = {}
+
         cache_key = search.lower()
         cached_data = GLOBAL_SEARCH_CACHE.get(cache_key)
 
@@ -602,7 +641,13 @@ async def auto_filter(client: Client, msg: Message):
         total_pages = math.ceil(total_results / 10) if total_results > 0 else 1
         pre = "filep" if settings.get("file_secure", False) else "file"
         btn = []
-        bot_username = temp.U_NAME or (await client.get_me()).username or "bot"
+
+        if not getattr(temp, "U_NAME", None):
+            me = await client.get_me()
+            temp.U_NAME = me.username
+            temp.B_NAME = me.first_name
+            temp.ME = me.id
+        bot_username = temp.U_NAME or "bot"
         mention = msg.from_user.mention if msg.from_user else "User"
 
         safe_orig_title = html.escape(search.title())
@@ -694,9 +739,14 @@ async def auto_filter(client: Client, msg: Message):
                 ]
             )
 
-        final_caption, final_markup = parse_text_and_markup(
-            cap, InlineKeyboardMarkup(btn)
-        )
+        default_markup = InlineKeyboardMarkup(btn)
+        try:
+            final_caption, final_markup = parse_text_and_markup(cap, default_markup)
+            final_caption = final_caption or cap
+            final_markup = final_markup or default_markup
+        except Exception:
+            final_caption, final_markup = cap, default_markup
+
         m = None
         auto_img = b_set.get("auto_img", getattr(info, "AUTO_IMG", None))
 
@@ -735,29 +785,11 @@ async def auto_filter(client: Client, msg: Message):
             logger.error(f"Failed sending auto_filter message: {e}")
             return
 
+        # Silently auto-delete user query (msg) and bot results (m) without sending any extra warning text
         delete_timer = get_auto_delete_timer("AUTO_DELETE_TIME", 1800)
         if delete_timer > 0 and m:
-            time_str = format_duration(delete_timer)
-            warn_text = (
-                f"<b>📢 Please Note\n\n"
-                f"✅ The above file will be autodeleted in {time_str} to avoid copyright issues.\n\n"
-                f"✅ Please forward this file to your saved messages and start downloading from there.\n\n"
-                f"Tᴇᴀᴍ: @KR_Picture</b>"
-            )
-            warn_msg = None
-            try:
-                warn_msg = await client.send_message(
-                    chat_id=msg.chat.id,
-                    text=warn_text,
-                    reply_to_message_id=m.id,
-                    parse_mode=enums.ParseMode.HTML,
-                )
-            except Exception:
-                pass
-
-            is_pm = msg.chat.type == enums.ChatType.PRIVATE
             schedule_auto_delete(
-                client, msg.chat.id, is_pm, delete_timer, msg, m, warn_msg
+                client, msg.chat.id, False, delete_timer, msg, m
             )
 
     except Exception as e:
@@ -767,16 +799,9 @@ async def auto_filter(client: Client, msg: Message):
 # ============================================================
 # ⚡ UNIFIED GROUP MESSAGE HANDLER (CUSTOM FILTERS + AUTO FILTER)
 # ============================================================
-@Client.on_message(
-    filters.group
-    & filters.text
-    & filters.incoming
-    & ~filters.bot
-    & ~filters.regex(r"^[/!#.,?@]"),
-    group=-1,
-)
+@Client.on_message(filters.group & filters.text & filters.incoming)
 async def give_filter(client: Client, message: Message):
-    if not message.text:
+    if not message.text or message.text.startswith(("/", "!", "#", ".", ",", "?", "@")):
         return
 
     if getattr(info, "REPAIR_MODE", False) and not await verify_admin(
@@ -791,7 +816,7 @@ async def give_filter(client: Client, message: Message):
     if user_id != 0:
         if (last_req := USER_LAST_REQ.get(str(user_id))) and (
             time.time() - last_req
-        ) < 2.0:
+        ) < 1.5:
             return
         USER_LAST_REQ.set(str(user_id), time.time())
 
@@ -877,8 +902,8 @@ async def pagination_handler(bot: Client, query: CallbackQuery):
             show_alert=True,
         )
 
-    files, n_offset, total = await get_search_results(
-        search, max_results=10, offset=offset, filter=True
+    files, n_offset, total = await safe_search_db(
+        search, max_results=10, offset=offset
     )
     if not files:
         return await query.answer("No more files found.", show_alert=True)
@@ -889,8 +914,13 @@ async def pagination_handler(bot: Client, query: CallbackQuery):
         ),
         reverse=True,
     )
-    settings = await get_settings(query.message.chat.id)
-    btn, bot_username = [], temp.U_NAME or (await bot.get_me()).username or "bot"
+    settings = await get_settings(query.message.chat.id) or {}
+    if not getattr(temp, "U_NAME", None):
+        me = await bot.get_me()
+        temp.U_NAME = me.username
+        temp.B_NAME = me.first_name
+        temp.ME = me.id
+    btn, bot_username = [], temp.U_NAME or "bot"
     pre = "filep" if settings.get("file_secure", False) else "file"
     clean_words = await get_clean_words()
 
@@ -1581,13 +1611,25 @@ async def manual_filters(client: Client, message: Message, text=False) -> bool:
             group_id = active_grp
 
     name = text or message.text or message.caption or ""
-    reply_id = message.reply_to_message.id if message.reply_to_message else message.id
-    if not (keywords := await get_filters(group_id)):
+    if not name:
         return False
 
-    for keyword in reversed(sorted(keywords, key=len)):
+    reply_id = message.reply_to_message.id if message.reply_to_message else message.id
+    try:
+        keywords = await get_filters(group_id)
+    except Exception:
+        keywords = []
+
+    if not keywords:
+        return False
+
+    for keyword in reversed(sorted(keywords, key=lambda x: len(str(x)))):
+        kw_str = str(keyword).strip()
+        if not kw_str:
+            continue
+
         if re.search(
-            r"( |^|[^\w])" + re.escape(keyword) + r"( |$|[^\w])",
+            r"( |^|[^\w])" + re.escape(kw_str) + r"( |$|[^\w])",
             name,
             flags=re.IGNORECASE,
         ):
@@ -1600,6 +1642,13 @@ async def manual_filters(client: Client, message: Message, text=False) -> bool:
             ]:
                 fileid, alert = alert, fileid
 
+            fileid_str = str(fileid).strip()
+            has_valid_file = bool(
+                fileid and fileid_str not in ["None", "[]", "", "False"]
+            )
+            if not reply_text and not has_valid_file:
+                continue
+
             if reply_text:
                 reply_text = reply_text.replace("\\n", "\n").replace("\\t", "\t")
                 if not reply_text.startswith("<b>") and not reply_text.startswith("**"):
@@ -1609,9 +1658,8 @@ async def manual_filters(client: Client, message: Message, text=False) -> bool:
             reply_markup = (
                 InlineKeyboardMarkup(button_layout) if button_layout else None
             )
-            fileid_str = str(fileid).strip()
 
-            if not fileid or fileid_str in ["None", "[]", "", "False"]:
+            if not has_valid_file:
                 sent_msg = await safe_send_text_filter(
                     client, message.chat.id, reply_text or "", reply_markup, reply_id
                 )
@@ -1625,11 +1673,12 @@ async def manual_filters(client: Client, message: Message, text=False) -> bool:
                     reply_id,
                 )
 
-            delete_timer = get_auto_delete_timer("AUTO_DELETE_TIME", 1800)
-            if sent_msg and delete_timer > 0:
-                is_pm = message.chat.type == enums.ChatType.PRIVATE
-                schedule_auto_delete(
-                    client, message.chat.id, is_pm, delete_timer, sent_msg, message
-                )
-            return True
+            if sent_msg:
+                delete_timer = get_auto_delete_timer("AUTO_DELETE_TIME", 1800)
+                if delete_timer > 0:
+                    is_pm = message.chat.type == enums.ChatType.PRIVATE
+                    schedule_auto_delete(
+                        client, message.chat.id, is_pm, delete_timer, sent_msg, message
+                    )
+                return True
     return False
