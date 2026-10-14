@@ -73,22 +73,33 @@ EXTRA_BTN_2_URL = getattr(
 # 🌐 LANGUAGES & 🎞️ QUALITIES CONFIGURATION
 # ============================================================
 LANGUAGES_LIST: List[Tuple[str, str]] = [
-    ("Kannada"), ("Tulu"),
-    ("English"), ("Hindi"),
-    ("Tamil"), ("Telugu"),
-    ("Malayalam"), ("Marathi"),
-    ("Gujarati"), ("Bengali"),
-    ("Punjabi"), ("Nepali"),
+    ("Kannada"),
+    ("Tulu"),
+    ("English"),
+    ("Hindi"),
+    ("Tamil"),
+    ("Telugu"),
+    ("Malayalam"),
+    ("Marathi"),
+    ("Gujarati"),
+    ("Bengali"),
+    ("Punjabi"),
+    ("Nepali"),
 ]
 
 LANG_MAP: Dict[str, str] = {code: name for name, code in LANGUAGES_LIST}
 
 QUALITIES_LIST: List[str] = [
-    "144p", "240p",
-    "360p", "480p",
-    "540p", "720p",
-    "1080p", "1440p",
-    "2160p", "4320p",
+    "144p",
+    "240p",
+    "360p",
+    "480p",
+    "540p",
+    "720p",
+    "1080p",
+    "1440p",
+    "2160p",
+    "4320p",
 ]
 
 # ============================================================
@@ -1141,9 +1152,7 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
 
     files.sort(
         key=lambda x: (
-            x.get("file_size", 0)
-            if isinstance(x, dict)
-            else getattr(x, "file_size", 0)
+            x.get("file_size", 0) if isinstance(x, dict) else getattr(x, "file_size", 0)
         ),
         reverse=True,
     )
