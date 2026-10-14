@@ -32,14 +32,12 @@ from utils import temp
 
 # Safe optional imports so missing modules never break plugin loading
 try:
-    from database.connections_mdb import (
-        add_connection as _std_add_connection,
-        all_connections as _std_all_connections,
-        delete_connection as _std_delete_connection,
-        if_active as _std_if_active,
-        make_active as _std_make_active,
-        make_inactive as _std_make_inactive,
-    )
+    from database.connections_mdb import add_connection as _std_add_connection
+    from database.connections_mdb import all_connections as _std_all_connections
+    from database.connections_mdb import delete_connection as _std_delete_connection
+    from database.connections_mdb import if_active as _std_if_active
+    from database.connections_mdb import make_active as _std_make_active
+    from database.connections_mdb import make_inactive as _std_make_inactive
 except ImportError:
     _std_add_connection = None
     _std_all_connections = None
@@ -274,9 +272,7 @@ async def safe_delete_connection(user_id: str, group_id: str) -> bool:
 
     if _active_conn_col is not None:
         try:
-            res = await _active_conn_col.delete_many(
-                {"user_id": uid, "group_id": gid}
-            )
+            res = await _active_conn_col.delete_many({"user_id": uid, "group_id": gid})
             if res.deleted_count:
                 deleted = True
         except Exception:
@@ -796,9 +792,7 @@ async def show_admin_settings(bot: Client, message: Message):
         )
 
     text, markup = _build_admin_settings_panel()
-    await message.reply_text(
-        text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
-    )
+    await message.reply_text(text, reply_markup=markup, parse_mode=enums.ParseMode.HTML)
 
 
 @Client.on_callback_query(
@@ -806,7 +800,9 @@ async def show_admin_settings(bot: Client, message: Message):
 )
 async def admin_settings_cb(client: Client, query: CallbackQuery):
     if not await is_global_admin(query.from_user.id):
-        return await query.answer("❌ Unauthorized: Global Admin only!", show_alert=True)
+        return await query.answer(
+            "❌ Unauthorized: Global Admin only!", show_alert=True
+        )
 
     action = query.matches[0].group(1)
     try:
@@ -1061,7 +1057,9 @@ async def unban_user_cmd(bot: Client, message: Message):
 @Client.on_callback_query(filters.regex(r"^adm_(ban|unban):(\d+)$"))
 async def inline_ban_unban_cb(client: Client, query: CallbackQuery):
     if not await is_global_admin(query.from_user.id):
-        return await query.answer("❌ Unauthorized: Global Admin only!", show_alert=True)
+        return await query.answer(
+            "❌ Unauthorized: Global Admin only!", show_alert=True
+        )
 
     action, raw_uid = query.matches[0].group(1), int(query.matches[0].group(2))
     if action == "ban":
@@ -1205,9 +1203,7 @@ async def server_stats_cmd(bot: Client, message: Message):
             ]
         ]
     )
-    await msg.edit_text(
-        text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
-    )
+    await msg.edit_text(text, reply_markup=markup, parse_mode=enums.ParseMode.HTML)
 
 
 @Client.on_callback_query(filters.regex(r"^srv_refresh$"))
