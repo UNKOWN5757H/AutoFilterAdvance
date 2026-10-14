@@ -477,9 +477,7 @@ async def current_skip_number(bot: Client, message: Message):
 # ============================================================
 # 🧭 CALLBACK HANDLERS & PROCESSORS
 # ============================================================
-@Client.on_callback_query(
-    filters.regex(r"^(idx#|idx_cancel#|idx_close)"), group=-5
-)
+@Client.on_callback_query(filters.regex(r"^(idx#|idx_cancel#|idx_close)"), group=-5)
 async def index_files(bot: Client, query: CallbackQuery):
     if not await is_cb_admin(bot, query):
         return await query.answer("❌ Unauthorized: Admin only.", show_alert=True)
@@ -492,9 +490,7 @@ async def index_files(bot: Client, query: CallbackQuery):
         try:
             _, raw_chat_id = query.data.split("#", 1)
             chat_id = (
-                int(raw_chat_id)
-                if raw_chat_id.lstrip("-").isdigit()
-                else raw_chat_id
+                int(raw_chat_id) if raw_chat_id.lstrip("-").isdigit() else raw_chat_id
             )
             if not hasattr(temp, "INDEX_CANCEL"):
                 temp.INDEX_CANCEL = {}
@@ -697,9 +693,7 @@ async def send_for_index(bot: Client, message: Message):
         await process_index_request(bot, message, chat_id, int(match.group(5)), "all")
 
 
-@Client.on_message(
-    filters.private & filters.forwarded & filters.text, group=-5
-)
+@Client.on_message(filters.private & filters.forwarded & filters.text, group=-5)
 async def pm_forward_text_indexer(bot: Client, message: Message):
     if not await is_user_admin(bot, message):
         return
