@@ -93,10 +93,7 @@ def _prepare_compat_kwargs(
         if rep_id:
             if "reply_to_message_id" in supported_params:
                 clean_kw["reply_to_message_id"] = rep_id
-            elif (
-                "reply_parameters" in supported_params
-                and ReplyParameters is not None
-            ):
+            elif "reply_parameters" in supported_params and ReplyParameters is not None:
                 try:
                     clean_kw["reply_parameters"] = ReplyParameters(message_id=rep_id)
                 except Exception:
@@ -643,9 +640,7 @@ async def _get_missing_channel_buttons(
             eligible_channels = eligible_channels[shift:] + eligible_channels[:shift]
     else:
         eligible_channels = [
-            k
-            for k, v in channels_dict.items()
-            if v.get("status", "active") == "active"
+            k for k, v in channels_dict.items() if v.get("status", "active") == "active"
         ]
 
     if not eligible_channels:
@@ -701,9 +696,7 @@ async def ForceSub(
         return True
 
     try:
-        not_joined_buttons = await _get_missing_channel_buttons(
-            bot, user.id, config
-        )
+        not_joined_buttons = await _get_missing_channel_buttons(bot, user.id, config)
 
         if not not_joined_buttons:
             await safe_add_fsub_user(user.id)
@@ -949,9 +942,7 @@ async def refresh_fsub_callback(bot: Client, query: CallbackQuery):
     channels_dict = config.get("channels", {})
 
     if not await is_global_admin(user_id) and channels_dict:
-        not_joined_buttons = await _get_missing_channel_buttons(
-            bot, user_id, config
-        )
+        not_joined_buttons = await _get_missing_channel_buttons(bot, user_id, config)
 
         if not_joined_buttons:
             await query.answer(
@@ -1374,7 +1365,8 @@ async def build_fsub_list_ui(
 
     if not channels:
         return (
-            header + f"❌ <i>No {title_prefix.lower()} ForceSub channels configured.</i>",
+            header
+            + f"❌ <i>No {title_prefix.lower()} ForceSub channels configured.</i>",
             None,
         )
 
