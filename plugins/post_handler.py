@@ -575,7 +575,9 @@ def smart_patch_imported_caption(session, old_val, new_val, is_title=False):
             session["caption"] = session["caption"].replace(str(old_val), str(new_val))
 
 
-@Client.on_message(filters.command(["edittitle", "edittittle"]) & admin_filter, group=-4)
+@Client.on_message(
+    filters.command(["edittitle", "edittittle"]) & admin_filter, group=-4
+)
 async def cmd_edit_title(client: Client, message: Message):
     uid = get_uid(message)
     session = await get_or_load_session(uid)
@@ -594,7 +596,9 @@ async def cmd_edit_title(client: Client, message: Message):
     session["movie_details"]["title"] = new_title
     smart_patch_imported_caption(session, old_title, new_title, is_title=True)
     await update_post_preview(client, uid, message.chat.id, force_resend=False)
-    await message.reply_text("✅ <b>Title updated!</b>", parse_mode=enums.ParseMode.HTML)
+    await message.reply_text(
+        "✅ <b>Title updated!</b>", parse_mode=enums.ParseMode.HTML
+    )
 
 
 @Client.on_message(filters.command(["edityear"]) & admin_filter, group=-4)
