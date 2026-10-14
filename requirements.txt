@@ -1,12 +1,14 @@
---- Core Telegram Framework ---
+#--- Core Telegram Framework ---
 ​kurigram@git+https://github.com/KurimuzonAkuma/pyrogram.git
 tgcrypto==1.2.5
 pyromod
-​--- MongoDB Async Drivers ---
+
+#​--- MongoDB Async Drivers ---
 ​pymongo[srv]4.6.3
 motor3.3.2
 dnspython==2.7.0
-​--- Data Serialization / ODM ---
+
+#​--- Data Serialization / ODM ---
 ​marshmallow3.26.2
 umongo3.1.0
 ​--- Environment & Async File Utilities ---
