@@ -1,4 +1,6 @@
 import asyncio
+import gzip
+import html
 import os
 import time
 from datetime import datetime
@@ -7,50 +9,60 @@ from logging import ERROR, getLogger
 from bson.json_util import dumps, loads
 from motor.motor_asyncio import AsyncIOMotorClient
 from pyrogram import Client, enums, filters
-from pyrogram.types import Message
+from pyrogram.errors import MessageNotModified, QueryIdInvalid
+from pyrogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 
 import info
 
 logger = getLogger(__name__)
 logger.setLevel(ERROR)
 
-_DB_CLIENT = AsyncIOMotorClient(info.DATABASE_URI)
-_BOT_DB = _DB_CLIENT[info.DATABASE_NAME]
+_DB_CLIENT = None
+_BOT_DB = None
+try:
+    _DB_CLIENT = AsyncIOMotorClient(info.DATABASE_URI)
+    _BOT_DB = _DB_CLIENT[info.DATABASE_NAME]
+except Exception as e:
+    logger.error(f"Failed to init Backup DB: {e}")
 
-BACKUP_INTERVAL = 86400
+BACKUP_INTERVAL = 86400  # 24 hours
 last_backup_time = None
 next_backup_time = None
 scheduler_running = False
+_scheduler_task: asyncio.Task | None = None
+
+# Telegram Bot API upload limit safety threshold (48 MB)
+MAX_RAW_JSON_BYTES = 48 * 1024 * 1024
 
 
 # ============================================================
 # 👑 SMART AUTHORIZATION ENGINE
 # ============================================================
 def get_admin_list():
-    admin_list = []
     raw_admins = getattr(info, "ADMINS", [])
-    if isinstance(raw_admins, int):
-        admin_list.append(raw_admins)
-    elif isinstance(raw_admins, str):
-        admin_list.extend(
-            [
-                int(x.strip())
-                for x in raw_admins.split()
-                if x.strip().replace("-", "").isdigit()
-            ]
-        )
-    elif isinstance(raw_admins, list):
-        admin_list.extend(
-            [int(x) for x in raw_admins if str(x).strip().replace("-", "").isdigit()]
-        )
-    return admin_list
+    if isinstance(raw_admins, (str, int)):
+        raw_admins = str(raw_admins).replace(",", " ").split()
+    elif isinstance(raw_admins, (list, tuple, set)):
+        raw_admins = list(raw_admins)
+    else:
+        raw_admins = []
+    return [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
 
 
-async def is_global_admin(user_id: int):
-    return user_id in get_admin_list()
+async def is_global_admin(user_id: int) -> bool:
+    if not user_id:
+        return False
+    return int(user_id) in get_admin_list()
 
 
-async def quick_admin_check(client: Client, message: Message):
+async def quick_admin_check(client: Client, message: Message) -> bool:
+    if not message:
+        return False
     uid = (
         message.from_user.id
         if message.from_user
@@ -58,7 +70,10 @@ async def quick_admin_check(client: Client, message: Message):
     )
     if await is_global_admin(uid):
         return True
-    if message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
+    if message.chat and message.chat.type in [
+        enums.ChatType.GROUP,
+        enums.ChatType.SUPERGROUP,
+    ]:
         if message.sender_chat and message.sender_chat.id == message.chat.id:
             return True
         if message.from_user:
@@ -73,144 +88,462 @@ async def quick_admin_check(client: Client, message: Message):
     return False
 
 
+async def is_callback_admin(client: Client, query: CallbackQuery) -> bool:
+    if not query or not query.from_user:
+        return False
+    if await is_global_admin(query.from_user.id):
+        return True
+    if query.message and query.message.chat and query.message.chat.type in [
+        enums.ChatType.GROUP,
+        enums.ChatType.SUPERGROUP,
+    ]:
+        try:
+            member = await client.get_chat_member(
+                query.message.chat.id, query.from_user.id
+            )
+            return member.status in [
+                enums.ChatMemberStatus.ADMINISTRATOR,
+                enums.ChatMemberStatus.OWNER,
+            ]
+        except Exception:
+            pass
+    return False
+
+
 # ============================================================
-# 🔄 AUTOMATED SCHEDULER & BACKUP LOGIC
+# ⚡ NON-BLOCKING BACKUP & RESTORE ENGINE
+# ============================================================
+def _write_backup_file_sync(backup_data: dict, base_filename: str) -> str:
+    """Serializes BSON data off the event loop and auto-compresses if over 48MB."""
+    json_str = dumps(backup_data, indent=2)
+    encoded = json_str.encode("utf-8")
+
+    if len(encoded) > MAX_RAW_JSON_BYTES:
+        gz_name = f"{base_filename}.json.gz"
+        with gzip.open(gz_name, "wb", compresslevel=6) as f:
+            f.write(encoded)
+        return gz_name
+
+    json_name = f"{base_filename}.json"
+    with open(json_name, "wb") as f:
+        f.write(encoded)
+    return json_name
+
+
+def _read_backup_file_sync(file_path: str) -> dict:
+    """Reads either .json or .json.gz backup files off the main event loop."""
+    if file_path.endswith(".gz"):
+        with gzip.open(file_path, "rt", encoding="utf-8") as f:
+            return loads(f.read())
+    with open(file_path, "r", encoding="utf-8") as f:
+        return loads(f.read())
+
+
+async def generate_backup_file(exclude_media: bool = False) -> tuple[str, int, int]:
+    """Generates a backup file and returns (file_path, total_collections, total_docs)."""
+    if _BOT_DB is None:
+        raise RuntimeError("Database connection is not initialized.")
+
+    collections = await _BOT_DB.list_collection_names()
+    backup_data = {}
+    total_colls = 0
+    total_docs = 0
+
+    media_col_name = getattr(info, "COLLECTION_NAME", "Telegram_files").lower()
+
+    for coll_name in collections:
+        if coll_name.startswith("system."):
+            continue
+        if exclude_media and coll_name.lower() in (media_col_name, "telegram_files", "media"):
+            continue
+        docs = await _BOT_DB[coll_name].find({}).to_list(length=None)
+        backup_data[coll_name] = docs
+        total_colls += 1
+        total_docs += len(docs)
+
+    prefix = "DB_Config_Backup" if exclude_media else "DB_Full_Backup"
+    base_name = f"{prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    file_path = await asyncio.to_thread(_write_backup_file_sync, backup_data, base_name)
+    return file_path, total_colls, total_docs
+
+
+# ============================================================
+# 🔄 AUTOMATED 24H SCHEDULER
 # ============================================================
 async def auto_backup_task(bot: Client):
     global last_backup_time, next_backup_time, scheduler_running
     scheduler_running = True
-    admins = get_admin_list()
-    target_admin_id = admins[0] if admins else None
 
-    while True:
-        last_backup_time = time.time()
-        next_backup_time = last_backup_time + BACKUP_INTERVAL
-        await asyncio.sleep(BACKUP_INTERVAL)
+    try:
+        while scheduler_running:
+            last_backup_time = time.time()
+            next_backup_time = last_backup_time + BACKUP_INTERVAL
+            await asyncio.sleep(BACKUP_INTERVAL)
 
-        if not _BOT_DB or not target_admin_id:
-            continue
+            if not scheduler_running:
+                break
+
+            admins = get_admin_list()
+            target_admin_id = admins[0] if admins else None
+            if _BOT_DB is None or not target_admin_id:
+                continue
+
+            file_path = None
+            try:
+                file_path, colls_cnt, docs_cnt = await generate_backup_file(
+                    exclude_media=False
+                )
+                caption = (
+                    f"🔄 <b>Automated Daily Database Backup</b>\n\n"
+                    f"📅 <b>Date:</b> <code>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</code>\n"
+                    f"📁 <b>Collections:</b> <code>{colls_cnt}</code>\n"
+                    f"📄 <b>Total Documents:</b> <code>{docs_cnt}</code>"
+                )
+                await bot.send_document(
+                    chat_id=target_admin_id,
+                    document=file_path,
+                    caption=caption,
+                    parse_mode=enums.ParseMode.HTML,
+                )
+            except Exception as e:
+                logger.error(f"Auto-backup failed: {e}")
+            finally:
+                if file_path and os.path.exists(file_path):
+                    try:
+                        os.remove(file_path)
+                    except Exception:
+                        pass
+    except asyncio.CancelledError:
+        pass
+    finally:
+        scheduler_running = False
+        next_backup_time = None
+
+
+# ============================================================
+# 🎛️ INTERACTIVE BACKUP DASHBOARD BUILDER
+# ============================================================
+async def _build_backup_dashboard() -> tuple[str, InlineKeyboardMarkup]:
+    db_name = html.escape(str(getattr(info, "DATABASE_NAME", "Unknown")))
+    colls_count = 0
+    total_docs = 0
+    size_mb = 0.0
+
+    if _BOT_DB is not None:
         try:
-            file_path = await generate_backup_file()
-            caption = f"🔄 **Automated Daily Database Backup**\n\n📅 Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-            await bot.send_document(
-                chat_id=target_admin_id, document=file_path, caption=caption
-            )
-            os.remove(file_path)
-        except Exception as e:
-            logger.error(f"Auto-backup failed: {e}")
+            stats = await _BOT_DB.command("dbstats")
+            colls_count = stats.get("collections", 0)
+            total_docs = stats.get("objects", 0)
+            size_mb = stats.get("dataSize", 0) / (1024 * 1024)
+        except Exception:
+            pass
 
+    if scheduler_running and next_backup_time:
+        rem = max(0, int(next_backup_time - time.time()))
+        h, r = divmod(rem, 3600)
+        m, s = divmod(r, 60)
+        sched_str = f"🟢 Active (Next in {h}h {m}m {s}s)"
+        sched_btn_text = "🛑 Stop Auto-Backup"
+    else:
+        sched_str = "🔴 Disabled"
+        sched_btn_text = "⏰ Enable 24h Auto-Backup"
 
-async def generate_backup_file() -> str:
-    collections = await _BOT_DB.list_collection_names()
-    backup_data = {}
-    for coll_name in collections:
-        docs = await _BOT_DB[coll_name].find({}).to_list(length=None)
-        backup_data[coll_name] = docs
+    text = (
+        f"💾 <b>Database Backup & Restore Center</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🗄️ <b>Database:</b> <code>{db_name}</code>\n"
+        f"📦 <b>Collections:</b> <code>{colls_count}</code>\n"
+        f"📄 <b>Total Documents:</b> <code>{total_docs}</code>\n"
+        f"💾 <b>Data Size:</b> <code>{size_mb:.2f} MB</code>\n"
+        f"⏰ <b>Auto-Backup:</b> <code>{sched_str}</code>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"💡 <i>To restore a backup, reply to any <code>.json</code> or <code>.json.gz</code> file with <code>/dbrestore</code>.</i>"
+    )
 
-    file_name = f"DB_Backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-    with open(file_name, "w", encoding="utf-8") as f:
-        f.write(dumps(backup_data, indent=4))
-    return file_name
+    buttons = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("📥 Full Backup", callback_data="db_bk:full"),
+                InlineKeyboardButton(
+                    "⚡ Settings Only", callback_data="db_bk:light"
+                ),
+            ],
+            [
+                InlineKeyboardButton("📊 Collection Stats", callback_data="db_bk:stats"),
+                InlineKeyboardButton(sched_btn_text, callback_data="db_bk:sched"),
+            ],
+            [
+                InlineKeyboardButton("🔄 Refresh", callback_data="db_bk:refresh"),
+                InlineKeyboardButton("🔐 Close", callback_data="db_bk:close"),
+            ],
+        ]
+    )
+    return text, buttons
 
 
 # ============================================================
-# 🛠️ DATABASE MANAGEMENT COMMANDS
+# 🛠️ DATABASE MANAGEMENT COMMANDS & CALLBACKS
 # ============================================================
-@Client.on_message(filters.command("dbbackup"))
+@Client.on_message(
+    filters.command(["backup", "dbpanel"]) & filters.incoming
+)
+async def backup_dashboard_cmd(bot: Client, message: Message):
+    if not await quick_admin_check(bot, message):
+        return await message.reply_text(
+            "❌ <b>Unauthorized:</b> Global Bot Admin only.",
+            parse_mode=enums.ParseMode.HTML,
+        )
+    text, markup = await _build_backup_dashboard()
+    await message.reply_text(
+        text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
+    )
+
+
+@Client.on_message(filters.command("dbbackup") & filters.incoming)
 async def db_backup_cmd(bot: Client, message: Message):
     if not await quick_admin_check(bot, message):
-        return await message.reply_text("❌ **Unauthorized:** Global Bot Admin only.")
+        return await message.reply_text(
+            "❌ <b>Unauthorized:</b> Global Bot Admin only.",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
-    status_msg = await message.reply_text("⏳ **Generating database backup...**")
+    exclude_media = (
+        len(message.command) > 1
+        and message.command[1].strip().lower() in ["light", "settings", "config"]
+    )
+    status_msg = await message.reply_text(
+        "⏳ <b>Generating database backup...</b>",
+        parse_mode=enums.ParseMode.HTML,
+    )
+    file_path = None
     try:
-        file_path = await generate_backup_file()
+        file_path, colls_cnt, docs_cnt = await generate_backup_file(
+            exclude_media=exclude_media
+        )
         mention = (
             message.from_user.mention
             if message.from_user
-            else (message.sender_chat.title if message.sender_chat else "Admin")
+            else (
+                html.escape(message.sender_chat.title)
+                if message.sender_chat
+                else "Admin"
+            )
         )
-        caption = f"✅ **Database Backup Complete!**\n\n📅 Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n👤 **Requested By:** {mention}"
-        await message.reply_document(document=file_path, caption=caption)
-        os.remove(file_path)
+        caption = (
+            f"✅ <b>Database Backup Complete!</b>\n\n"
+            f"📅 <b>Date:</b> <code>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</code>\n"
+            f"📁 <b>Collections:</b> <code>{colls_cnt}</code>\n"
+            f"📄 <b>Documents:</b> <code>{docs_cnt}</code>\n"
+            f"👤 <b>Requested By:</b> {mention}"
+        )
+        await message.reply_document(
+            document=file_path, caption=caption, parse_mode=enums.ParseMode.HTML
+        )
         await status_msg.delete()
     except Exception as e:
-        await status_msg.edit_text(f"⚠️ **Backup Failed!**\n\nError: `{e}`")
+        await status_msg.edit_text(
+            f"⚠️ <b>Backup Failed!</b>\n\n<b>Error:</b> <code>{html.escape(str(e))}</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
+    finally:
+        if file_path and os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except Exception:
+                pass
 
 
-@Client.on_message(filters.command("dbrestore"))
+@Client.on_message(filters.command("dbrestore") & filters.incoming)
 async def db_restore_cmd(bot: Client, message: Message):
     if not await quick_admin_check(bot, message):
-        return await message.reply_text("❌ **Unauthorized:** Global Bot Admin only.")
+        return await message.reply_text(
+            "❌ <b>Unauthorized:</b> Global Bot Admin only.",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
     if not message.reply_to_message or not message.reply_to_message.document:
         return await message.reply_text(
-            "⚙️ **Usage:**\nReply to a previously generated backup `.json` file with `/dbrestore`."
+            "⚙️ <b>Usage:</b>\nReply to a previously generated backup <code>.json</code> or <code>.json.gz</code> file with <code>/dbrestore</code>.",
+            parse_mode=enums.ParseMode.HTML,
         )
 
     doc = message.reply_to_message.document
-    if not doc.file_name.endswith(".json"):
-        return await message.reply_text("❌ **Invalid File Format!**")
+    fname = (doc.file_name or "").lower()
+    if not (fname.endswith(".json") or fname.endswith(".json.gz")):
+        return await message.reply_text(
+            "❌ <b>Invalid File Format!</b> Please reply to a <code>.json</code> or <code>.json.gz</code> backup file.",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
-    status_msg = await message.reply_text("⏳ **Restoring database...**")
+    status_msg = await message.reply_text(
+        "⏳ <b>Downloading and restoring database...</b>",
+        parse_mode=enums.ParseMode.HTML,
+    )
+    file_path = None
     try:
         file_path = await message.reply_to_message.download()
-        with open(file_path, "r", encoding="utf-8") as f:
-            backup_data = loads(f.read())
+        backup_data = await asyncio.to_thread(_read_backup_file_sync, file_path)
 
-        restored_colls = restored_docs = 0
+        if not isinstance(backup_data, dict):
+            raise ValueError("Backup file root must be a JSON object of collections.")
+
+        restored_colls = 0
+        restored_docs = 0
+
         for coll_name, docs in backup_data.items():
+            if coll_name.startswith("system.") or not isinstance(docs, list):
+                continue
+            await _BOT_DB[coll_name].delete_many({})
             if docs:
-                await _BOT_DB[coll_name].delete_many({})
-                await _BOT_DB[coll_name].insert_many(docs)
-                restored_colls += 1
+                # Insert in safe chunks of 1000 to avoid MongoDB 16MB batch size limit
+                for i in range(0, len(docs), 1000):
+                    batch = docs[i : i + 1000]
+                    await _BOT_DB[coll_name].insert_many(batch, ordered=False)
                 restored_docs += len(docs)
+            restored_colls += 1
 
-        os.remove(file_path)
         await status_msg.edit_text(
-            f"✅ **Database Restored Successfully!**\n\n📁 **Collections:** `{restored_colls}`\n📄 **Documents:** `{restored_docs}`"
+            f"✅ <b>Database Restored Successfully!</b>\n\n"
+            f"📁 <b>Collections Restored:</b> <code>{restored_colls}</code>\n"
+            f"📄 <b>Documents Restored:</b> <code>{restored_docs}</code>",
+            parse_mode=enums.ParseMode.HTML,
         )
     except Exception as e:
-        await status_msg.edit_text(f"⚠️ **Restore Failed!**\n\nError: `{e}`")
-        if "file_path" in locals() and os.path.exists(file_path):
-            os.remove(file_path)
+        await status_msg.edit_text(
+            f"⚠️ <b>Restore Failed!</b>\n\n<b>Error:</b> <code>{html.escape(str(e))}</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
+    finally:
+        if file_path and os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except Exception:
+                pass
 
 
-@Client.on_message(filters.command("dbstats"))
+async def _build_detailed_dbstats_text() -> str:
+    stats = await _BOT_DB.command("dbstats")
+    colls = await _BOT_DB.list_collection_names()
+    total_size_mb = stats.get("dataSize", 0) / (1024 * 1024)
+    db_name = html.escape(str(getattr(info, "DATABASE_NAME", "Unknown")))
+
+    text = (
+        f"📊 <b>Database Statistics</b>\n\n"
+        f"🗄️ <b>Database:</b> <code>{db_name}</code>\n"
+        f"📦 <b>Collections Count:</b> <code>{stats.get('collections', 0)}</code>\n"
+        f"📄 <b>Total Documents:</b> <code>{stats.get('objects', 0)}</code>\n"
+        f"💾 <b>Data Size:</b> <code>{total_size_mb:.2f} MB</code>\n\n"
+        f"📁 <b>Collection Breakdown:</b>\n"
+    )
+    for coll in sorted(colls):
+        if coll.startswith("system."):
+            continue
+        count = await _BOT_DB[coll].count_documents({})
+        text += f"  • <code>{html.escape(coll)}</code>: <code>{count}</code> docs\n"
+    return text
+
+
+@Client.on_message(filters.command("dbstats") & filters.incoming)
 async def db_stats_cmd(bot: Client, message: Message):
     if not await quick_admin_check(bot, message):
-        return await message.reply_text("❌ **Unauthorized:** Global Bot Admin only.")
+        return await message.reply_text(
+            "❌ <b>Unauthorized:</b> Global Bot Admin only.",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
     try:
-        stats = await _BOT_DB.command("dbstats")
-        colls = await _BOT_DB.list_collection_names()
-        total_size_mb = stats.get("dataSize", 0) / (1024 * 1024)
-
-        text = f"📊 **Database Statistics**\n\n🗄️ **Database:** `{info.DATABASE_NAME}`\n📦 **Collections Count:** `{stats.get('collections', 0)}`\n📄 **Total Documents:** `{stats.get('objects', 0)}`\n💾 **Data Size:** `{total_size_mb:.2f} MB`\n\n📁 **Collection Breakdown:**\n"
-        for coll in colls:
-            count = await _BOT_DB[coll].count_documents({})
-            text += f"  - `{coll}`: {count} docs\n"
-        await message.reply_text(text)
+        text = await _build_detailed_dbstats_text()
+        markup = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "💾 Backup Panel", callback_data="db_bk:refresh"
+                    ),
+                    InlineKeyboardButton("🔐 Close", callback_data="db_bk:close"),
+                ]
+            ]
+        )
+        await message.reply_text(
+            text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
+        )
     except Exception as e:
-        await message.reply_text(f"⚠️ **Failed to fetch stats:**\n`{e}`")
+        await message.reply_text(
+            f"⚠️ <b>Failed to fetch stats:</b>\n<code>{html.escape(str(e))}</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
 
-@Client.on_message(filters.command("dbschedule"))
+@Client.on_message(filters.command("dbschedule") & filters.incoming)
 async def db_schedule_cmd(bot: Client, message: Message):
+    global _scheduler_task, scheduler_running
     if not await quick_admin_check(bot, message):
-        return await message.reply_text("❌ **Unauthorized:** Global Bot Admin only.")
+        return await message.reply_text(
+            "❌ <b>Unauthorized:</b> Global Bot Admin only.",
+            parse_mode=enums.ParseMode.HTML,
+        )
+
+    if len(message.command) > 1 and message.command[1].lower() in [
+        "off",
+        "stop",
+        "disable",
+    ]:
+        scheduler_running = False
+        if _scheduler_task and not _scheduler_task.done():
+            _scheduler_task.cancel()
+        return await message.reply_text(
+            "🛑 <b>Auto-backup scheduler has been stopped.</b>",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
     if not scheduler_running:
-        asyncio.create_task(auto_backup_task(bot))
+        _scheduler_task = asyncio.create_task(auto_backup_task(bot))
         return await message.reply_text(
-            "✅ **Auto-backup scheduler initiated!**\nThe first automated backup will run in 24 hours."
+            "✅ <b>Auto-backup scheduler initiated!</b>\nThe automated backup will run every 24 hours.",
+            parse_mode=enums.ParseMode.HTML,
         )
 
     if next_backup_time:
-        time_left = next_backup_time - time.time()
-        hours, remainder = divmod(int(time_left), 3600)
+        time_left = max(0, int(next_backup_time - time.time()))
+        hours, remainder = divmod(time_left, 3600)
         minutes, seconds = divmod(remainder, 60)
         await message.reply_text(
-            f"⏰ **Scheduled Backup Status**\n\n🟢 **Status:** `Active`\n⏳ **Next Backup In:** `{hours}h {minutes}m {seconds}s`"
+            f"⏰ <b>Scheduled Backup Status</b>\n\n"
+            f"🟢 <b>Status:</b> <code>Active</code>\n"
+            f"⏳ <b>Next Backup In:</b> <code>{hours}h {minutes}m {seconds}s</code>",
+            parse_mode=enums.ParseMode.HTML,
         )
     else:
-        await message.reply_text("⏰ Scheduler is active but time is calculating...")
+        await message.reply_text(
+            "⏰ <b>Scheduler is active and calculating next run time...</b>",
+            parse_mode=enums.ParseMode.HTML,
+        )
+
+
+@Client.on_callback_query(
+    filters.regex(r"^db_bk:(full|light|stats|sched|refresh|close)$")
+)
+async def backup_panel_callbacks(bot: Client, query: CallbackQuery):
+    global _scheduler_task, scheduler_running
+    if not await is_callback_admin(bot, query):
+        return await query.answer("❌ Unauthorized: Admin only!", show_alert=True)
+
+    action = query.matches[0].group(1)
+    try:
+        if action == "close":
+            await query.answer("Closed!")
+            return await query.message.delete()
+
+        if action in ("full", "light"):
+            exclude_media = action == "light"
+            await query.answer(
+                "⏳ Generating backup file, please wait...", show_alert=False
+            )
+            file_path = None
+            try:
+                file_path, colls_cnt, docs_cnt = await generate_backup_file(
+                    exclude_media=exclude_media
+                )
+                label = "Settings & Users" if exclude_media else "Full Database"
+                caption = (
+                    f"✅ <b>{label} Backup Complete!</b>\n\n"
+                    f"📅 <b>Date:</b> <c
