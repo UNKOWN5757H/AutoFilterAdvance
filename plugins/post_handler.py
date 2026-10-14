@@ -1,5 +1,6 @@
 import asyncio
 import html
+import inspect
 import math
 import random
 import re
@@ -8,8 +9,8 @@ from logging import ERROR, getLogger
 
 import requests
 from motor.motor_asyncio import AsyncIOMotorClient
-from pyrogram import Client, enums, filters
-from pyrogram.errors import FloodWait, MessageNotModified
+from pyrogram import Client, StopPropagation, enums, filters
+from pyrogram.errors import FloodWait, MessageNotModified, QueryIdInvalid
 from pyrogram.types import (
     CallbackQuery,
     InlineKeyboardButton,
@@ -23,15 +24,23 @@ from utils import temp
 try:
     from plugins.Imdbposter import get_movie_detailsx
 except ImportError:
+    try:
+        from Imdbposter import get_movie_detailsx
+    except ImportError:
 
-    async def get_movie_detailsx(name: str):
-        return None
+        async def get_movie_detailsx(name: str, **kwargs):
+            return None
 
 
 try:
     from database.users_chats_db import db as _db
 except ImportError:
     _db = None
+
+try:
+    from database.connections_mdb import active_connection as _std_active_connection
+except ImportError:
+    _std_active_connection = None
 
 logger = getLogger(__name__)
 logger.setLevel(ERROR)
@@ -42,12 +51,14 @@ logger.setLevel(ERROR)
 drafts_db = None
 global_post_db = None
 _active_db = None
+_std_conn_db = None
 try:
     _DB_CLIENT = AsyncIOMotorClient(info.DATABASE_URI)
     _BOT_DB = _DB_CLIENT[info.DATABASE_NAME]
     drafts_db = _BOT_DB["post_drafts"]
     global_post_db = _BOT_DB["global_post_settings"]
     _active_db = _BOT_DB["active_connections"]
+    _std_conn_db = _BOT_DB["CONNECTION"]
 except Exception as e:
     logger.error(f"Failed to init DBs: {e}")
 
@@ -146,47 +157,67 @@ OTT_PLATFORMS = [
     "NotAvailable",
 ]
 
+# ============================================================
+# 🎨 SAFE TELEGRAM BUTTON STYLE DETECTION
+# ============================================================
+BTN_PRIMARY = None
+BTN_SECONDARY = None
+BTN_SUCCESS = None
+BTN_DANGER = None
+_SUPPORTS_BTN_STYLE = False
+
 try:
     from pyrogram.enums import ButtonStyle
 
-    BTN_PRIMARY = getattr(ButtonStyle, "PRIMARY", 1)
-    BTN_SECONDARY = getattr(ButtonStyle, "SECONDARY", 2)
-    BTN_SUCCESS = getattr(ButtonStyle, "SUCCESS", 3)
-    BTN_DANGER = getattr(ButtonStyle, "DANGER", 4)
-except ImportError:
-    BTN_PRIMARY, BTN_SECONDARY, BTN_SUCCESS, BTN_DANGER = 1, 2, 3, 4
+    if "style" in inspect.signature(InlineKeyboardButton.__init__).parameters:
+        BTN_PRIMARY = getattr(ButtonStyle, "PRIMARY", None)
+        BTN_SECONDARY = getattr(ButtonStyle, "SECONDARY", None)
+        BTN_SUCCESS = getattr(ButtonStyle, "SUCCESS", None)
+        BTN_DANGER = getattr(ButtonStyle, "DANGER", None)
+        _SUPPORTS_BTN_STYLE = True
+except (ImportError, ValueError, TypeError):
+    BTN_PRIMARY = BTN_SECONDARY = BTN_SUCCESS = BTN_DANGER = None
+    _SUPPORTS_BTN_STYLE = False
 
 
 def _normalize_style(style):
-    if style is None:
+    if not _SUPPORTS_BTN_STYLE or style is None:
         return None
     if hasattr(style, "value"):
         return style
-    try:
-        from pyrogram.enums import ButtonStyle
-
+    if isinstance(style, int):
         return {
-            1: getattr(ButtonStyle, "PRIMARY", 1),
-            2: getattr(ButtonStyle, "SECONDARY", 2),
-            3: getattr(ButtonStyle, "SUCCESS", 3),
-            4: getattr(ButtonStyle, "DANGER", 4),
-        }.get(style, style)
-    except ImportError:
-        return style
+            1: BTN_PRIMARY,
+            2: BTN_SECONDARY,
+            3: BTN_SUCCESS,
+            4: BTN_DANGER,
+        }.get(style, None)
+    if isinstance(style, str):
+        return {
+            "blue": BTN_PRIMARY,
+            "primary": BTN_PRIMARY,
+            "secondary": BTN_SECONDARY,
+            "green": BTN_SUCCESS,
+            "success": BTN_SUCCESS,
+            "red": BTN_DANGER,
+            "danger": BTN_DANGER,
+        }.get(style.lower(), None)
+    return None
 
 
 def create_btn(text, url=None, callback_data=None, style=None):
     kwargs = {"text": str(text)}
     if url:
-        kwargs["url"] = str(url)
+        kwargs["url"] = str(url).strip()
     elif callback_data:
-        kwargs["callback_data"] = str(callback_data)
+        kwargs["callback_data"] = str(callback_data)[:64]
+
     norm_style = _normalize_style(style)
-    if norm_style is not None:
+    if _SUPPORTS_BTN_STYLE and norm_style is not None:
         kwargs["style"] = norm_style
     try:
         return InlineKeyboardButton(**kwargs)
-    except TypeError:
+    except Exception:
         kwargs.pop("style", None)
         return InlineKeyboardButton(**kwargs)
 
@@ -200,7 +231,7 @@ def btn_to_dict(btn):
             "text": btn.get("text", ""),
             "url": btn.get("url"),
             "callback_data": btn.get("callback_data"),
-            "style": st,
+            "style": st if isinstance(st, (int, str)) else None,
         }
     st = getattr(btn, "style", None)
     if hasattr(st, "value"):
@@ -209,7 +240,7 @@ def btn_to_dict(btn):
         "text": getattr(btn, "text", ""),
         "url": getattr(btn, "url", None),
         "callback_data": getattr(btn, "callback_data", None),
-        "style": st,
+        "style": st if isinstance(st, (int, str)) else None,
     }
 
 
@@ -249,10 +280,42 @@ def get_admin_list():
     raw_admins = getattr(info, "ADMINS", [])
     if isinstance(raw_admins, (str, int)):
         raw_admins = str(raw_admins).replace(",", " ").split()
+    elif isinstance(raw_admins, (list, tuple, set)):
+        raw_admins = list(raw_admins)
+    else:
+        raw_admins = []
     return [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
 
 
+async def _get_connected_group_id(user_id: int) -> int | None:
+    uid_str = str(user_id)
+    if callable(_std_active_connection):
+        try:
+            conn = await _std_active_connection(uid_str)
+            if conn:
+                return int(conn)
+        except Exception:
+            pass
+    if _active_db is not None:
+        try:
+            doc = await _active_db.find_one({"user_id": uid_str})
+            if doc and doc.get("group_id"):
+                return int(doc["group_id"])
+        except Exception:
+            pass
+    if _std_conn_db is not None:
+        try:
+            doc = await _std_conn_db.find_one({"_id": uid_str})
+            if doc and doc.get("active_group"):
+                return int(doc["active_group"])
+        except Exception:
+            pass
+    return None
+
+
 async def is_user_admin(client: Client, message: Message) -> bool:
+    if not message:
+        return False
     admin_list = get_admin_list()
     if message.from_user and message.from_user.id in admin_list:
         return True
@@ -281,22 +344,21 @@ async def is_user_admin(client: Client, message: Message) -> bool:
         and message.from_user
     ):
         try:
-            if _active_db is not None:
-                doc = await _active_db.find_one({"user_id": str(message.from_user.id)})
-                if doc and doc.get("group_id"):
-                    member = await client.get_chat_member(
-                        int(doc["group_id"]), message.from_user.id
-                    )
-                    return member.status in [
-                        enums.ChatMemberStatus.ADMINISTRATOR,
-                        enums.ChatMemberStatus.OWNER,
-                    ]
+            conn_gid = await _get_connected_group_id(message.from_user.id)
+            if conn_gid:
+                member = await client.get_chat_member(conn_gid, message.from_user.id)
+                return member.status in [
+                    enums.ChatMemberStatus.ADMINISTRATOR,
+                    enums.ChatMemberStatus.OWNER,
+                ]
         except Exception:
             pass
     return False
 
 
 async def cb_user_admin(client: Client, query: CallbackQuery) -> bool:
+    if not query:
+        return False
     admin_list = get_admin_list()
     if query.from_user and query.from_user.id in admin_list:
         return True
@@ -328,23 +390,27 @@ async def cb_user_admin(client: Client, query: CallbackQuery) -> bool:
         and query.from_user
     ):
         try:
-            if _active_db is not None:
-                doc = await _active_db.find_one({"user_id": str(query.from_user.id)})
-                if doc and doc.get("group_id"):
-                    member = await client.get_chat_member(
-                        int(doc["group_id"]), query.from_user.id
-                    )
-                    return member.status in [
-                        enums.ChatMemberStatus.ADMINISTRATOR,
-                        enums.ChatMemberStatus.OWNER,
-                    ]
+            conn_gid = await _get_connected_group_id(query.from_user.id)
+            if conn_gid:
+                member = await client.get_chat_member(conn_gid, query.from_user.id)
+                return member.status in [
+                    enums.ChatMemberStatus.ADMINISTRATOR,
+                    enums.ChatMemberStatus.OWNER,
+                ]
         except Exception:
             pass
     return False
 
 
+async def _admin_filter_func(_, client: Client, message: Message) -> bool:
+    return await is_user_admin(client, message)
+
+
+admin_filter = filters.create(_admin_filter_func)
+
+
 # ============================================================
-# ⚡ STANDALONE 10-LAYER CLOUD UPLOADER
+# ⚡ STANDALONE CLOUD UPLOADER
 # ============================================================
 def _upload_sync(file_bytes):
     headers = {"User-Agent": "Mozilla/5.0"}
@@ -364,12 +430,6 @@ def _upload_sync(file_bytes):
         ("https://ttm.sh", {"file": ("img.jpg", file_bytes, "image/jpeg")}, None),
         ("https://0x0.st", {"file": ("img.jpg", file_bytes, "image/jpeg")}, None),
         (
-            "https://pixeldrain.com/api/file",
-            {"file": ("img.jpg", file_bytes, "image/jpeg")},
-            None,
-        ),
-        ("https://file.io", {"file": ("img.jpg", file_bytes, "image/jpeg")}, None),
-        (
             "https://telegra.ph/upload",
             {"file": ("img.jpg", file_bytes, "image/jpeg")},
             None,
@@ -377,16 +437,12 @@ def _upload_sync(file_bytes):
     ]:
         try:
             res = requests.post(
-                url, data=data_dict, files=files_dict, headers=headers, timeout=6
+                url, data=data_dict, files=files_dict, headers=headers, timeout=8
             )
             if res.status_code in [200, 201]:
                 if url in ["https://graph.org/upload", "https://telegra.ph/upload"]:
                     return url.rsplit("/", 1)[0] + res.json()[0]["src"]
-                elif "pixeldrain" in url and res.json().get("success"):
-                    return "https://pixeldrain.com/api/file/" + res.json()["id"]
-                elif "file.io" in url and res.json().get("success"):
-                    return res.json()["link"]
-                elif res.text.startswith("http"):
+                elif res.text.strip().startswith("http"):
                     return res.text.strip()
         except Exception:
             continue
@@ -410,30 +466,40 @@ async def upload_image_safely(client: Client, message: Message):
 _WAITING_REQUESTS = {}
 
 
-@Client.on_message(filters.group | filters.private, group=-90)
-async def custom_listener(client: Client, message: Message):
-    chat_id = message.chat.id
-    if chat_id not in _WAITING_REQUESTS:
-        return
-    # Do not swallow slash commands except /reset or /default
+async def _waiting_chat_check(_, __, message: Message) -> bool:
+    """Only activates custom_listener when a post session is actively waiting for input in this chat."""
+    if not message.chat or message.chat.id not in _WAITING_REQUESTS:
+        return False
     if (
         message.text
         and message.text.startswith("/")
         and message.text.strip().lower() not in ["/reset", "/default", "/cancel"]
     ):
+        return False
+    return True
+
+
+waiting_chat_filter = filters.create(_waiting_chat_check)
+
+
+@Client.on_message((filters.group | filters.private) & waiting_chat_filter, group=-90)
+async def custom_listener(client: Client, message: Message):
+    chat_id = message.chat.id
+    req_info = _WAITING_REQUESTS.get(chat_id)
+    if not req_info:
         return
 
     sender_id = get_uid(message)
-    expected_session_id = _WAITING_REQUESTS[chat_id]["session_id"]
+    expected_session_id = req_info["session_id"]
     if (
         sender_id == expected_session_id
         or sender_id == chat_id
         or await is_user_admin(client, message)
     ):
-        future = _WAITING_REQUESTS[chat_id]["future"]
+        future = req_info["future"]
         if not future.done():
             future.set_result(message)
-        message.stop_propagation()
+        raise StopPropagation
 
 
 async def native_listen(
@@ -509,121 +575,149 @@ def smart_patch_imported_caption(session, old_val, new_val, is_title=False):
             session["caption"] = session["caption"].replace(str(old_val), str(new_val))
 
 
-@Client.on_message(filters.command(["edittitle", "edittittle"]), group=-4)
+@Client.on_message(filters.command(["edittitle", "edittittle"]) & admin_filter, group=-4)
 async def cmd_edit_title(client: Client, message: Message):
-    if not await is_user_admin(client, message):
-        return
     uid = get_uid(message)
     session = await get_or_load_session(uid)
     if not session:
-        return await message.reply_text("⚠️ No active post session. Use `/post` first.")
+        return await message.reply_text(
+            "⚠️ <b>No active post session.</b> Use <code>/post</code> first.",
+            parse_mode=enums.ParseMode.HTML,
+        )
     if len(message.command) < 2:
-        return await message.reply_text("⚠️ Usage: `/edittitle New Title`")
+        return await message.reply_text(
+            "⚠️ <b>Usage:</b> <code>/edittitle New Title</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
     new_title = message.text.split(None, 1)[1]
     old_title = session["movie_details"].get("title", "")
     session["movie_details"]["title"] = new_title
     smart_patch_imported_caption(session, old_title, new_title, is_title=True)
     await update_post_preview(client, uid, message.chat.id, force_resend=False)
-    await message.reply_text("✅ Title updated!")
+    await message.reply_text("✅ <b>Title updated!</b>", parse_mode=enums.ParseMode.HTML)
 
 
-@Client.on_message(filters.command(["edityear"]), group=-4)
+@Client.on_message(filters.command(["edityear"]) & admin_filter, group=-4)
 async def cmd_edit_year(client: Client, message: Message):
-    if not await is_user_admin(client, message):
-        return
     uid = get_uid(message)
     session = await get_or_load_session(uid)
     if not session:
-        return await message.reply_text("⚠️ No active session.")
+        return await message.reply_text(
+            "⚠️ <b>No active session.</b>", parse_mode=enums.ParseMode.HTML
+        )
     if len(message.command) < 2:
-        return await message.reply_text("⚠️ Usage: `/edityear 2024`")
+        return await message.reply_text(
+            "⚠️ <b>Usage:</b> <code>/edityear 2024</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
     new_year = message.text.split(None, 1)[1]
     old_year = session["movie_details"].get("year", "")
     session["movie_details"]["year"] = new_year
     smart_patch_imported_caption(session, old_year, new_year)
     await update_post_preview(client, uid, message.chat.id, force_resend=False)
-    await message.reply_text("✅ Year updated!")
+    await message.reply_text("✅ <b>Year updated!</b>", parse_mode=enums.ParseMode.HTML)
 
 
-@Client.on_message(filters.command(["editlangs"]), group=-4)
+@Client.on_message(filters.command(["editlangs"]) & admin_filter, group=-4)
 async def cmd_edit_langs(client: Client, message: Message):
-    if not await is_user_admin(client, message):
-        return
     uid = get_uid(message)
     session = await get_or_load_session(uid)
     if not session:
-        return await message.reply_text("⚠️ No active session.")
+        return await message.reply_text(
+            "⚠️ <b>No active session.</b>", parse_mode=enums.ParseMode.HTML
+        )
     if len(message.command) < 2:
-        return await message.reply_text("⚠️ Usage: `/editlangs Hindi, English`")
+        return await message.reply_text(
+            "⚠️ <b>Usage:</b> <code>/editlangs Hindi, English</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
     session["custom_languages"] = [
         x.strip() for x in message.text.split(None, 1)[1].split(",") if x.strip()
     ]
     await update_post_preview(client, uid, message.chat.id, force_resend=False)
-    await message.reply_text("✅ Languages updated!")
+    await message.reply_text(
+        "✅ <b>Languages updated!</b>", parse_mode=enums.ParseMode.HTML
+    )
 
 
-@Client.on_message(filters.command(["editresolutions"]), group=-4)
+@Client.on_message(filters.command(["editresolutions"]) & admin_filter, group=-4)
 async def cmd_edit_res(client: Client, message: Message):
-    if not await is_user_admin(client, message):
-        return
     uid = get_uid(message)
     session = await get_or_load_session(uid)
     if not session:
-        return await message.reply_text("⚠️ No active session.")
+        return await message.reply_text(
+            "⚠️ <b>No active session.</b>", parse_mode=enums.ParseMode.HTML
+        )
     if len(message.command) < 2:
-        return await message.reply_text("⚠️ Usage: `/editresolutions 1080p, 720p`")
+        return await message.reply_text(
+            "⚠️ <b>Usage:</b> <code>/editresolutions 1080p, 720p</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
     session["custom_resolutions"] = [
         x.strip() for x in message.text.split(None, 1)[1].split(",") if x.strip()
     ]
     await update_post_preview(client, uid, message.chat.id, force_resend=False)
-    await message.reply_text("✅ Resolutions updated!")
+    await message.reply_text(
+        "✅ <b>Resolutions updated!</b>", parse_mode=enums.ParseMode.HTML
+    )
 
 
-@Client.on_message(filters.command(["editgenres"]), group=-4)
+@Client.on_message(filters.command(["editgenres"]) & admin_filter, group=-4)
 async def cmd_edit_gen(client: Client, message: Message):
-    if not await is_user_admin(client, message):
-        return
     uid = get_uid(message)
     session = await get_or_load_session(uid)
     if not session:
-        return await message.reply_text("⚠️ No active session.")
+        return await message.reply_text(
+            "⚠️ <b>No active session.</b>", parse_mode=enums.ParseMode.HTML
+        )
     if len(message.command) < 2:
-        return await message.reply_text("⚠️ Usage: `/editgenres Action, Drama`")
+        return await message.reply_text(
+            "⚠️ <b>Usage:</b> <code>/editgenres Action, Drama</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
     session["custom_genres"] = [
         x.strip() for x in message.text.split(None, 1)[1].split(",") if x.strip()
     ]
     await update_post_preview(client, uid, message.chat.id, force_resend=False)
-    await message.reply_text("✅ Genres updated!")
+    await message.reply_text(
+        "✅ <b>Genres updated!</b>", parse_mode=enums.ParseMode.HTML
+    )
 
 
-@Client.on_message(filters.command(["editotts"]), group=-4)
+@Client.on_message(filters.command(["editotts"]) & admin_filter, group=-4)
 async def cmd_edit_ott(client: Client, message: Message):
-    if not await is_user_admin(client, message):
-        return
     uid = get_uid(message)
     session = await get_or_load_session(uid)
     if not session:
-        return await message.reply_text("⚠️ No active session.")
+        return await message.reply_text(
+            "⚠️ <b>No active session.</b>", parse_mode=enums.ParseMode.HTML
+        )
     if len(message.command) < 2:
-        return await message.reply_text("⚠️ Usage: `/editotts Netflix, Prime`")
+        return await message.reply_text(
+            "⚠️ <b>Usage:</b> <code>/editotts Netflix, Prime</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
     session["custom_otts"] = [
         x.strip() for x in message.text.split(None, 1)[1].split(",") if x.strip()
     ]
     await update_post_preview(client, uid, message.chat.id, force_resend=False)
-    await message.reply_text("✅ OTT Platforms updated!")
+    await message.reply_text(
+        "✅ <b>OTT Platforms updated!</b>", parse_mode=enums.ParseMode.HTML
+    )
 
 
-@Client.on_message(filters.command(["editbutton"]), group=-4)
+@Client.on_message(filters.command(["editbutton"]) & admin_filter, group=-4)
 async def cmd_edit_post_button(client: Client, message: Message):
-    if not await is_user_admin(client, message):
-        return
     uid = get_uid(message)
     session = await get_or_load_session(uid)
     if not session:
-        return await message.reply_text("⚠️ No active session.")
+        return await message.reply_text(
+            "⚠️ <b>No active session.</b>", parse_mode=enums.ParseMode.HTML
+        )
     if len(message.command) < 2 or "|" not in message.text:
         return await message.reply_text(
-            "⚠️ Usage: `/editbutton 1 Download Now | https://url.com`"
+            "⚠️ <b>Usage:</b> <code>/editbutton 1 Download Now | https://url.com</code>",
+            parse_mode=enums.ParseMode.HTML,
         )
     try:
         args = message.text.split(None, 1)[1]
@@ -639,22 +733,29 @@ async def cmd_edit_post_button(client: Client, message: Message):
         session["buttons"][row_idx] = [create_btn(btn_text, url=btn_url)]
         await save_session_to_db(uid, session)
         await update_post_preview(client, uid, message.chat.id, force_resend=False)
-        await message.reply_text(f"✅ Button row {row_idx + 1} updated!")
+        await message.reply_text(
+            f"✅ <b>Button row {row_idx + 1} updated!</b>",
+            parse_mode=enums.ParseMode.HTML,
+        )
     except Exception as e:
-        await message.reply_text(f"❌ Error updating button: {e}")
+        await message.reply_text(
+            f"❌ <b>Error updating button:</b> <code>{html.escape(str(e))}</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
 
-@Client.on_message(filters.command(["editbuttoncolour"]), group=-4)
+@Client.on_message(filters.command(["editbuttoncolour"]) & admin_filter, group=-4)
 async def cmd_edit_btn_color(client: Client, message: Message):
-    if not await is_user_admin(client, message):
-        return
     uid = get_uid(message)
     session = await get_or_load_session(uid)
     if not session:
-        return await message.reply_text("⚠️ No active session.")
+        return await message.reply_text(
+            "⚠️ <b>No active session.</b>", parse_mode=enums.ParseMode.HTML
+        )
     if len(message.command) < 3:
         return await message.reply_text(
-            "⚠️ Usage: `/editbuttoncolour 1 green`\n(Colors: green, red, blue)"
+            "⚠️ <b>Usage:</b> <code>/editbuttoncolour 1 green</code>\n(Colors: green, red, blue)",
+            parse_mode=enums.ParseMode.HTML,
         )
 
     try:
@@ -664,14 +765,15 @@ async def cmd_edit_btn_color(client: Client, message: Message):
 
         if color_str not in color_map:
             return await message.reply_text(
-                "❌ Invalid color. Use green, red, or blue."
+                "❌ <b>Invalid color.</b> Use green, red, or blue.",
+                parse_mode=enums.ParseMode.HTML,
             )
         if len(session["buttons"]) > row_idx:
             new_row = [
                 create_btn(
-                    b.text,
-                    url=b.url,
-                    callback_data=b.callback_data,
+                    dict_to_btn(b).text,
+                    url=dict_to_btn(b).url,
+                    callback_data=dict_to_btn(b).callback_data,
                     style=color_map[color_str],
                 )
                 for b in session["buttons"][row_idx]
@@ -680,25 +782,33 @@ async def cmd_edit_btn_color(client: Client, message: Message):
             await save_session_to_db(uid, session)
             await update_post_preview(client, uid, message.chat.id, force_resend=False)
             await message.reply_text(
-                f"✅ Button row {row_idx + 1} color changed to {color_str}!"
+                f"✅ <b>Button row {row_idx + 1} color changed to {color_str}!</b>",
+                parse_mode=enums.ParseMode.HTML,
             )
         else:
-            await message.reply_text("❌ That button row doesn't exist.")
+            await message.reply_text(
+                "❌ <b>That button row doesn't exist.</b>",
+                parse_mode=enums.ParseMode.HTML,
+            )
     except Exception as e:
-        await message.reply_text(f"❌ Error: {e}")
+        await message.reply_text(
+            f"❌ <b>Error:</b> <code>{html.escape(str(e))}</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
 
-@Client.on_message(filters.command(["editdirect"]), group=-4)
+@Client.on_message(filters.command(["editdirect"]) & admin_filter, group=-4)
 async def cmd_edit_post_direct(client: Client, message: Message):
-    if not await is_user_admin(client, message):
-        return
     uid = get_uid(message)
     session = await get_or_load_session(uid)
     if not session:
-        return await message.reply_text("⚠️ No active session.")
+        return await message.reply_text(
+            "⚠️ <b>No active session.</b>", parse_mode=enums.ParseMode.HTML
+        )
     if len(message.command) < 2:
         return await message.reply_text(
-            "⚠️ Usage:\n`/editdirect Download Now 📥 | https://t.me/yourlink`\nOr just send text to auto-generate the link."
+            "⚠️ <b>Usage:</b>\n<code>/editdirect Download Now 📥 | https://t.me/yourlink</code>\nOr just send text to auto-generate the link.",
+            parse_mode=enums.ParseMode.HTML,
         )
 
     input_data = message.text.split(None, 1)[1].strip()
@@ -706,83 +816,112 @@ async def cmd_edit_post_direct(client: Client, message: Message):
     await handle_add_get_files(client, session, update_text_only=True)
     await save_session_to_db(uid, session)
     await update_post_preview(client, uid, message.chat.id, force_resend=False)
-    await message.reply_text("✅ Direct Search button updated!")
+    await message.reply_text(
+        "✅ <b>Direct Search button updated!</b>", parse_mode=enums.ParseMode.HTML
+    )
 
 
-@Client.on_message(filters.command("setpoststicker"), group=-4)
+@Client.on_message(filters.command("setpoststicker") & admin_filter, group=-4)
 async def set_autopost_sticker(client: Client, message: Message):
-    if not await is_user_admin(client, message):
-        return
     if not message.reply_to_message or not message.reply_to_message.sticker:
         return await message.reply_text(
-            "⚠️ **Please reply directly to a sticker** with `/setpoststicker`."
+            "⚠️ <b>Please reply directly to a sticker</b> with <code>/setpoststicker</code>.",
+            parse_mode=enums.ParseMode.HTML,
         )
     await save_global_post_settings("sticker", message.reply_to_message.sticker.file_id)
-    await message.reply_text("✅ **Post Sticker Saved Permanently!**")
+    await message.reply_text(
+        "✅ <b>Post Sticker Saved Permanently!</b>", parse_mode=enums.ParseMode.HTML
+    )
 
 
-@Client.on_message(filters.command("rempoststicker"), group=-4)
+@Client.on_message(filters.command("rempoststicker") & admin_filter, group=-4)
 async def rem_autopost_sticker(client: Client, message: Message):
-    if not await is_user_admin(client, message):
-        return
     await save_global_post_settings("sticker", None)
-    await message.reply_text("🗑️ **Auto-Post Sticker Permanently Removed.**")
+    await message.reply_text(
+        "🗑️ <b>Auto-Post Sticker Permanently Removed.</b>",
+        parse_mode=enums.ParseMode.HTML,
+    )
 
 
 # ============================================================
 # 🚀 START POST SESSION
 # ============================================================
-@Client.on_message(filters.command("post"), group=-4)
+_TMDB_BEARER_FALLBACK = (
+    "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI2ZGU3YTIyZGU1YjE5YTFjNmUyZGU5ZWEyMzE2ZmQxMCIs"
+    "Im5iZiI6MTc0NTMyMjQ2Mi41MzMsInN1YiI6IjY4MDc4MWRlYzVjODAzNWZiMDhhNjExNCIsInNjb3"
+    "BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.rMMJ2-PBIv8Y7ybxPIEpIlzTEXzuwrm9ruKxAUCAsbw"
+)
+
+
+def _search_tmdb_sync(movie_name: str, tmdb_key: str = ""):
+    headers = {}
+    if tmdb_key:
+        url = f"https://api.themoviedb.org/3/search/multi?api_key={tmdb_key}&query={urllib.parse.quote(movie_name)}"
+    else:
+        url = f"https://api.themoviedb.org/3/search/multi?query={urllib.parse.quote(movie_name)}"
+        headers = {
+            "Authorization": f"Bearer {_TMDB_BEARER_FALLBACK}",
+            "Content-Type": "application/json;charset=utf-8",
+        }
+    res = requests.get(url, headers=headers, timeout=8)
+    if res.status_code == 200:
+        return res.json().get("results", [])[:5]
+    return []
+
+
+@Client.on_message(filters.command("post") & filters.incoming, group=-4)
 async def post_command(client: Client, message: Message):
     if not await is_user_admin(client, message):
-        return await message.reply_text("❌ **Unauthorized:** Admin only.")
+        return await message.reply_text(
+            "❌ <b>Unauthorized:</b> Admin only.", parse_mode=enums.ParseMode.HTML
+        )
     if len(message.command) == 1:
         return await message.reply_text(
-            "⚠️ Please provide a movie name. Usage: `/post Vikram`"
+            "⚠️ <b>Please provide a movie name.</b>\nUsage: <code>/post Vikram</code>",
+            parse_mode=enums.ParseMode.HTML,
         )
 
     movie_name = " ".join(message.command[1:]).strip()
     user_id = get_uid(message)
-    status_msg = await message.reply_text("⏳ Searching TMDB...")
+    status_msg = await message.reply_text(
+        "⏳ <b>Searching TMDB...</b>", parse_mode=enums.ParseMode.HTML
+    )
 
-    tmdb_key = getattr(info, "TMDB_API_KEY", "")
-    if tmdb_key:
-        try:
-            url = f"https://api.themoviedb.org/3/search/multi?api_key={tmdb_key}&query={urllib.parse.quote(movie_name)}"
-            res = await asyncio.to_thread(requests.get, url, timeout=8)
-            results = res.json().get("results", [])[:5]
+    tmdb_key = getattr(info, "TMDB_API_KEY", "") or ""
+    try:
+        results = await asyncio.to_thread(_search_tmdb_sync, movie_name, tmdb_key)
+        if results:
+            buttons = []
+            TEMP_SEARCH[user_id] = []
+            for r in results:
+                title = r.get("title") or r.get("name")
+                if not title:
+                    continue
+                date = r.get("release_date") or r.get("first_air_date") or ""
+                year = date[:4] if date else ""
+                display = f"{title} ({year})" if year else title
+                search_str = f"{title} {year}".strip()
+                TEMP_SEARCH[user_id].append(search_str)
+                buttons.append(
+                    [
+                        create_btn(
+                            display,
+                            callback_data=f"p_init:{user_id}:{len(TEMP_SEARCH[user_id]) - 1}",
+                        )
+                    ]
+                )
 
-            if results:
-                buttons = []
-                TEMP_SEARCH[user_id] = []
-                for idx, r in enumerate(results):
-                    title = r.get("title") or r.get("name")
-                    if not title:
-                        continue
-                    date = r.get("release_date") or r.get("first_air_date") or ""
-                    year = date[:4] if date else ""
-                    display = f"{title} ({year})" if year else title
-                    search_str = f"{title} {year}".strip()
-                    TEMP_SEARCH[user_id].append(search_str)
-                    buttons.append(
-                        [
-                            create_btn(
-                                display,
-                                callback_data=f"p_init:{user_id}:{len(TEMP_SEARCH[user_id]) - 1}",
-                            )
-                        ]
-                    )
-
-                if buttons:
-                    buttons.append(
-                        [create_btn("❌ Cancel", callback_data=f"p_cancel:{user_id}")]
-                    )
-                    return await status_msg.edit_text(
-                        "🔍 **Found results:**\nSelect the exact movie:",
-                        reply_markup=InlineKeyboardMarkup(buttons),
-                    )
-        except Exception as e:
-            logger.error(f"TMDB Search Error: {e}")
+            if buttons:
+                buttons.append(
+                    [create_btn("❌ Cancel", callback_data=f"p_cancel:{user_id}")]
+                )
+                return await status_msg.edit_text(
+                    "🔍 <b>Found results:</b>\nSelect the exact movie:",
+                    reply_markup=InlineKeyboardMarkup(buttons),
+                    parse_mode=enums.ParseMode.HTML,
+                )
+    except Exception as e:
+        logger.error(f"TMDB Search Error: {e}")
 
     try:
         await status_msg.delete()
@@ -807,9 +946,10 @@ async def tmdb_selector_callback(client: Client, query: CallbackQuery):
         )
         TEMP_SEARCH.pop(session_uid, None)
         await query.answer("Cancelled.")
-        return await query.message.edit_text("❌ Cancelled.")
+        return await query.message.edit_text(
+            "❌ <b>Cancelled.</b>", parse_mode=enums.ParseMode.HTML
+        )
 
-    # Supports both new p_init:{user_id}:{idx} and legacy p_init:{idx}
     if len(parts) == 3:
         session_uid = int(parts[1])
         idx = int(parts[2])
@@ -848,7 +988,6 @@ async def start_post_session(
             logger.error(f"get_movie_detailsx error: {e}")
 
         if not movie_details or not isinstance(movie_details, dict):
-            # Fallback so /post NEVER fails even if TMDB/IMDB fails
             year_match = re.search(r"\b(19\d{2}|20\d{2})\b", movie_name)
             extracted_year = year_match.group(1) if year_match else ""
             clean_title = (
@@ -900,16 +1039,24 @@ async def start_post_session(
         await save_session_to_db(user_id, post_sessions[user_id])
         await update_post_preview(client, user_id, message.chat.id, force_resend=True)
     except Exception as e:
-        await client.send_message(message.chat.id, f"❌ **SESSION ERROR:**\n`{e}`")
+        await client.send_message(
+            message.chat.id,
+            f"❌ <b>SESSION ERROR:</b>\n<code>{html.escape(str(e))}</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
 
-@Client.on_message(filters.command("editpost"), group=-4)
+@Client.on_message(filters.command("editpost") & filters.incoming, group=-4)
 async def edit_post_cmd(client: Client, message: Message):
     if not await is_user_admin(client, message):
-        return await message.reply_text("❌ **Unauthorized:** Admin only.")
+        return await message.reply_text(
+            "❌ <b>Unauthorized:</b> Admin only.", parse_mode=enums.ParseMode.HTML
+        )
     try:
         if len(message.command) < 2:
-            return await message.reply_text("❌ Please provide a post link.")
+            return await message.reply_text(
+                "❌ <b>Please provide a post link.</b>", parse_mode=enums.ParseMode.HTML
+            )
         link = message.command[1].strip()
         parts = link.rstrip("/").split("/")
         chat_id = (
@@ -919,7 +1066,9 @@ async def edit_post_cmd(client: Client, message: Message):
         )
         msg_id = int(parts[-1])
 
-        status_msg = await message.reply_text("⏳ Fetching post...")
+        status_msg = await message.reply_text(
+            "⏳ <b>Fetching post...</b>", parse_mode=enums.ParseMode.HTML
+        )
         target_msg = await client.get_messages(chat_id, msg_id)
 
         poster_url, html_text, is_photo_mode = None, "", False
@@ -988,7 +1137,10 @@ async def edit_post_cmd(client: Client, message: Message):
         asyncio.create_task(expire_post_session(client, user_id, 1800))
         await update_post_preview(client, user_id, message.chat.id, force_resend=True)
     except Exception as e:
-        await message.reply_text(f"❌ Error: {e}")
+        await message.reply_text(
+            f"❌ <b>Error:</b> <code>{html.escape(str(e))}</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
 
 class SafeDict(dict):
@@ -1361,7 +1513,7 @@ async def show_target_selection(query: CallbackQuery, session_id: int, page: int
                 for x in var.replace(",", " ").split()
                 if x.strip().lstrip("-").isdigit()
             ]
-        if isinstance(var, list):
+        if isinstance(var, (list, tuple, set)):
             return [int(x) for x in var if str(x).strip().lstrip("-").isdigit()]
         if isinstance(var, int):
             return [var]
@@ -1422,7 +1574,7 @@ async def show_target_selection(query: CallbackQuery, session_id: int, page: int
         nav_row.append(
             create_btn(
                 "⬅️ Prev",
-                callback_data=f"post:target_page:{session_id}:{page-1}",
+                callback_data=f"post:target_page:{session_id}:{page - 1}",
                 style=BTN_SECONDARY,
             )
         )
@@ -1430,7 +1582,7 @@ async def show_target_selection(query: CallbackQuery, session_id: int, page: int
         nav_row.append(
             create_btn(
                 "Next ➡️",
-                callback_data=f"post:target_page:{session_id}:{page+1}",
+                callback_data=f"post:target_page:{session_id}:{page + 1}",
                 style=BTN_SECONDARY,
             )
         )
@@ -1571,19 +1723,22 @@ async def post_callbacks(client: Client, query: CallbackQuery):
                 client,
                 query,
                 session_id,
-                "📸 Send a photo or an image URL.\n*(Or type `/reset` or `blank`)*",
+                "📸 Send a photo or an image URL.\n<i>(Or type <code>/reset</code> or <code>blank</code>)</i>",
             )
             if response:
                 if response.photo:
-                    status_msg = await query.message.reply_text("⏳ Uploading image...")
-                    url, err = await upload_image_safely(client, response)
+                    status_msg = await query.message.reply_text(
+                        "⏳ <b>Uploading image...</b>", parse_mode=enums.ParseMode.HTML
+                    )
+                    url, _ = await upload_image_safely(client, response)
                     if url:
                         session["custom_poster"] = url
                         if not session.get("edit_target"):
                             session["photo_mode"] = False
                         try:
                             await status_msg.edit_text(
-                                "✅ Poster updated successfully!"
+                                "✅ <b>Poster updated successfully!</b>",
+                                parse_mode=enums.ParseMode.HTML,
                             )
                         except Exception:
                             pass
@@ -1592,7 +1747,8 @@ async def post_callbacks(client: Client, query: CallbackQuery):
                         session["photo_mode"] = True
                         try:
                             await status_msg.edit_text(
-                                "⚠️ Cloud blocked. Switched to 'Normal Image' Mode!"
+                                "⚠️ Cloud blocked. Switched to 'Normal Image' Mode!",
+                                parse_mode=enums.ParseMode.HTML,
                             )
                         except Exception:
                             pass
@@ -1614,7 +1770,7 @@ async def post_callbacks(client: Client, query: CallbackQuery):
                 client,
                 query,
                 session_id,
-                "💧 Send watermark. Send `blank` or `/reset` to remove. Send `/default` for default.",
+                "💧 Send watermark. Send <code>blank</code> or <code>/reset</code> to remove. Send <code>/default</code> for default.",
             )
             if response and response.text:
                 text_input = response.text.strip().lower()
@@ -1633,7 +1789,7 @@ async def post_callbacks(client: Client, query: CallbackQuery):
                 client,
                 query,
                 session_id,
-                "➕ Send the button layout. Format:\n`Button 1 - URL1 | Button 2 - URL2`",
+                "➕ Send the button layout. Format:\n<code>Button 1 - URL1 | Button 2 - URL2</code>",
             )
             if response and response.text:
                 new_layout = []
@@ -1677,7 +1833,7 @@ async def post_callbacks(client: Client, query: CallbackQuery):
                 client,
                 query,
                 session_id,
-                "🔗 Send the new Direct Search button text and link separated by `|`\nExample: `Download Now 📥 | https://t.me/yourlink`\n\nOr just send text to auto-generate the bot link.",
+                "🔗 Send the new Direct Search button text and link separated by <code>|</code>\nExample: <code>Download Now 📥 | https://t.me/yourlink</code>\n\nOr just send text to auto-generate the bot link.",
             )
             if response and response.text:
                 session["custom_direct_btn_text"] = response.text.strip()
@@ -1688,7 +1844,7 @@ async def post_callbacks(client: Client, query: CallbackQuery):
                 client,
                 query,
                 session_id,
-                "🎨 Send row number and color (e.g., `1 green`). Colors: green, red, blue.",
+                "🎨 Send row number and color (e.g., <code>1 green</code>). Colors: green, red, blue.",
             )
             if response and response.text:
                 try:
@@ -1703,9 +1859,9 @@ async def post_callbacks(client: Client, query: CallbackQuery):
                     if color_str in color_map and len(session["buttons"]) > row_idx:
                         session["buttons"][row_idx] = [
                             create_btn(
-                                b.text,
-                                url=b.url,
-                                callback_data=b.callback_data,
+                                dict_to_btn(b).text,
+                                url=dict_to_btn(b).url,
+                                callback_data=dict_to_btn(b).callback_data,
                                 style=color_map[color_str],
                             )
                             for b in session["buttons"][row_idx]
@@ -1724,7 +1880,8 @@ async def post_callbacks(client: Client, query: CallbackQuery):
                 await save_global_post_settings("sticker", response.sticker.file_id)
                 try:
                     await query.message.reply_text(
-                        "✅ Auto-Post Sticker Saved Permanently!"
+                        "✅ <b>Auto-Post Sticker Saved Permanently!</b>",
+                        parse_mode=enums.ParseMode.HTML,
                     )
                 except Exception:
                     pass
@@ -1749,7 +1906,7 @@ async def post_callbacks(client: Client, query: CallbackQuery):
                 client,
                 query,
                 session_id,
-                "⏰ Send schedule delay in **seconds** (e.g., `3600`). Or type `off`.",
+                "⏰ Send schedule delay in <b>seconds</b> (e.g., <code>3600</code>). Or type <code>off</code>.",
             )
             if response and response.text:
                 text_val = response.text.strip().lower()
@@ -1764,7 +1921,7 @@ async def post_callbacks(client: Client, query: CallbackQuery):
                 client,
                 query,
                 session_id,
-                "🗑️ Send auto-delete time in **seconds** (e.g., `86400`). Or type `off`.",
+                "🗑️ Send auto-delete time in <b>seconds</b> (e.g., <code>86400</code>). Or type <code>off</code>.",
             )
             if response and response.text:
                 text_val = response.text.strip().lower()
@@ -1800,7 +1957,10 @@ async def post_callbacks(client: Client, query: CallbackQuery):
             if drafts_db is not None:
                 await drafts_db.delete_one({"_id": session_id})
             try:
-                await query.message.reply_text("❌ Post creation cancelled.")
+                await query.message.reply_text(
+                    "❌ <b>Post creation cancelled.</b>",
+                    parse_mode=enums.ParseMode.HTML,
+                )
             except Exception:
                 pass
             return
@@ -1831,8 +1991,13 @@ async def post_callbacks(client: Client, query: CallbackQuery):
         await update_post_preview(
             client, session_id, query.message.chat.id, force_resend
         )
+    except QueryIdInvalid:
+        pass
     except Exception as e:
-        await query.message.reply_text(f"❌ **CALLBACK ERROR:**\n`{e}`")
+        await query.message.reply_text(
+            f"❌ <b>CALLBACK ERROR:</b>\n<code>{html.escape(str(e))}</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
 
 async def show_selection_menu(query: CallbackQuery, session_id: int, menu_type: str):
@@ -1963,13 +2128,17 @@ async def get_user_input(
         pass
 
     session = post_sessions[session_id]
-    prompt_full = f"{prompt_text}\n\n*(Send `/cancel` to abort)*"
+    prompt_full = f"{prompt_text}\n\n<i>(Send <code>/cancel</code> to abort)</i>"
     try:
         ask_msg = await query.message.reply_text(
-            prompt_full, reply_to_message_id=session.get("original_message_id")
+            prompt_full,
+            reply_to_message_id=session.get("original_message_id"),
+            parse_mode=enums.ParseMode.HTML,
         )
     except Exception:
-        ask_msg = await query.message.reply_text(prompt_full)
+        ask_msg = await query.message.reply_text(
+            prompt_full, parse_mode=enums.ParseMode.HTML
+        )
 
     try:
         response = await native_listen(client, query.message.chat.id, session_id, 120)
@@ -2005,7 +2174,7 @@ async def format_updater(
         client,
         query,
         session_id,
-        f"⚙️ Send format. Must include `{tag}`. Send `/reset` for default.",
+        f"⚙️ Send format. Must include <code>{tag}</code>. Send <code>/reset</code> for default.",
     )
     session = post_sessions[session_id]
     if response and response.text:
@@ -2013,7 +2182,10 @@ async def format_updater(
             session[format_key] = default_format
         elif tag not in response.text:
             try:
-                await query.message.reply_text(f"⚠️ Must contain `{tag}`")
+                await query.message.reply_text(
+                    f"⚠️ Must contain <code>{tag}</code>",
+                    parse_mode=enums.ParseMode.HTML,
+                )
             except Exception:
                 pass
         else:
@@ -2227,7 +2399,8 @@ async def execute_post(
     if delay > 0:
         try:
             await query.message.reply_text(
-                f"✅ **Post Scheduled!** It will automatically execute after `{delay}` seconds."
+                f"✅ <b>Post Scheduled!</b> It will automatically execute after <code>{delay}</code> seconds.",
+                parse_mode=enums.ParseMode.HTML,
             )
         except Exception:
             pass
@@ -2248,7 +2421,10 @@ async def execute_post(
         )
         if status_msg:
             try:
-                await status_msg.edit_text("✅ Post completed successfully!")
+                await status_msg.edit_text(
+                    "✅ <b>Post completed successfully!</b>",
+                    parse_mode=enums.ParseMode.HTML,
+                )
             except Exception:
                 pass
 
@@ -2278,7 +2454,7 @@ async def execute_post_all(client: Client, query: CallbackQuery, session_id: int
                 for x in var.replace(",", " ").split()
                 if x.strip().lstrip("-").isdigit()
             ]
-        if isinstance(var, list):
+        if isinstance(var, (list, tuple, set)):
             return [int(x) for x in var if str(x).strip().lstrip("-").isdigit()]
         if isinstance(var, int):
             return [var]
@@ -2292,7 +2468,9 @@ async def execute_post_all(client: Client, query: CallbackQuery, session_id: int
     all_targets = list(set(info_muc + db_muc + info_apc + db_apc))
     if not all_targets:
         try:
-            return await query.message.reply_text("❌ No channels configured.")
+            return await query.message.reply_text(
+                "❌ <b>No channels configured.</b>", parse_mode=enums.ParseMode.HTML
+            )
         except Exception:
             return
 
@@ -2300,7 +2478,8 @@ async def execute_post_all(client: Client, query: CallbackQuery, session_id: int
     if delay > 0:
         try:
             await query.message.reply_text(
-                f"✅ **Broadcast Scheduled!** Will post to `{len(all_targets)}` channels after `{delay}` seconds."
+                f"✅ <b>Broadcast Scheduled!</b> Will post to <code>{len(all_targets)}</code> channels after <code>{delay}</code> seconds.",
+                parse_mode=enums.ParseMode.HTML,
             )
         except Exception:
             pass
@@ -2316,6 +2495,8 @@ async def execute_post_all(client: Client, query: CallbackQuery, session_id: int
         await delayed_post_worker(client, session, all_targets)
         if status_msg:
             try:
-                await status_msg.edit_text("✅ **Broadcast Complete!**")
+                await status_msg.edit_text(
+                    "✅ <b>Broadcast Complete!</b>", parse_mode=enums.ParseMode.HTML
+                )
             except Exception:
                 pass
