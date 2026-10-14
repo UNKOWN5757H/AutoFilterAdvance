@@ -1,6 +1,7 @@
 import ast
 import asyncio
 import difflib
+import html
 import inspect
 import math
 import re
@@ -10,7 +11,6 @@ from typing import Dict, Optional, Tuple
 
 from motor.motor_asyncio import AsyncIOMotorClient
 from pyrogram import Client, enums, filters
-from pyrogram.enums import ButtonStyle
 from pyrogram.errors import (
     ButtonUrlInvalid,
     FloodWait,
@@ -31,15 +31,85 @@ import info
 from database.filters_mdb import add_filter, delete_filter, find_filter, get_filters
 from database.ia_filterdb import Media as _Media
 from database.ia_filterdb import get_search_results
-from database.plugin_dbs import plugin_db as _plugin_db
-from plugins.custom_settings import get_bot_settings, get_stopwords
 from utils import get_settings, get_size, parse_text_and_markup, temp
+
+# Safe optional imports
+try:
+    from database.plugin_dbs import plugin_db as _plugin_db
+except ImportError:
+    _plugin_db = None
+
+try:
+    from plugins.custom_settings import get_bot_settings, get_stopwords
+except ImportError:
+    try:
+        from custom_settings import get_bot_settings, get_stopwords
+    except ImportError:
+
+        async def get_bot_settings():
+            return {}
+
+        def get_stopwords():
+            return []
+
 
 logger = getLogger(__name__)
 logger.setLevel(ERROR)
 
 # Strong reference set so Python's garbage collector never cancels sleeping auto-delete tasks
 AUTO_DELETE_TASKS = set()
+
+# ============================================================
+# 🎨 SAFE TELEGRAM BUTTON STYLE DETECTION
+# ============================================================
+BTN_PRIMARY = None
+BTN_SUCCESS = None
+BTN_DANGER = None
+_SUPPORTS_BTN_STYLE = False
+
+try:
+    from pyrogram.enums import ButtonStyle
+
+    if "style" in inspect.signature(InlineKeyboardButton.__init__).parameters:
+        BTN_PRIMARY = getattr(ButtonStyle, "PRIMARY", None)
+        BTN_SUCCESS = getattr(ButtonStyle, "SUCCESS", None)
+        BTN_DANGER = getattr(ButtonStyle, "DANGER", None)
+        _SUPPORTS_BTN_STYLE = True
+except (ImportError, ValueError, TypeError):
+    BTN_PRIMARY = BTN_SUCCESS = BTN_DANGER = None
+    _SUPPORTS_BTN_STYLE = False
+
+
+def _normalize_style(style):
+    if not _SUPPORTS_BTN_STYLE or style is None:
+        return None
+    if hasattr(style, "value"):
+        return style
+    if isinstance(style, int):
+        return {
+            1: BTN_PRIMARY,
+            3: BTN_SUCCESS,
+            4: BTN_DANGER,
+        }.get(style, None)
+    return None
+
+
+def create_btn(text, url=None, callback_data=None, style=None):
+    kwargs = {"text": str(text)}
+    if url:
+        kwargs["url"] = str(url).strip()
+    elif callback_data:
+        kwargs["callback_data"] = str(callback_data)[:64]
+
+    norm_style = _normalize_style(style)
+    if _SUPPORTS_BTN_STYLE and norm_style is not None:
+        kwargs["style"] = norm_style
+    try:
+        return InlineKeyboardButton(**kwargs)
+    except Exception:
+        kwargs.pop("style", None)
+        return InlineKeyboardButton(**kwargs)
+
 
 # ============================================================
 # ⚡ GLOBAL CONFIG & MONGODB SETUP
@@ -109,7 +179,6 @@ def get_auto_delete_timer(
 
 
 def format_duration(seconds: int) -> str:
-    """Formats seconds into a clean, user-friendly string."""
     if seconds <= 0:
         return "0 Seconds"
     m, s = divmod(int(seconds), 60)
@@ -127,11 +196,30 @@ def get_admin_list():
     raw_admins = getattr(info, "ADMINS", [])
     if isinstance(raw_admins, (str, int)):
         raw_admins = str(raw_admins).replace(",", " ").split()
+    elif isinstance(raw_admins, (list, tuple, set)):
+        raw_admins = list(raw_admins)
+    else:
+        raw_admins = []
     return [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
 
 
 async def is_global_admin(user_id: int) -> bool:
-    return user_id in get_admin_list()
+    if not user_id:
+        return False
+    return int(user_id) in get_admin_list()
+
+
+async def is_user_banned(user_id: int) -> bool:
+    if not user_id:
+        return False
+    if hasattr(temp, "BANNED_USERS") and int(user_id) in temp.BANNED_USERS:
+        return True
+    if _plugin_db is not None and hasattr(_plugin_db, "is_banned"):
+        try:
+            return bool(await _plugin_db.is_banned(int(user_id)))
+        except Exception:
+            pass
+    return False
 
 
 async def get_active_connection(user_id: str) -> Optional[int]:
@@ -170,12 +258,12 @@ async def get_active_connection(user_id: str) -> Optional[int]:
     except Exception:
         pass
 
-    # 4. Fallback to native connections collection
+    # 4. Check CONNECTION collection directly
     if _BOT_DB is not None:
         try:
-            doc = await _BOT_DB["connections"].find_one({"user_id": uid_str})
-            if doc and doc.get("group_id"):
-                return int(doc["group_id"])
+            doc = await _BOT_DB["CONNECTION"].find_one({"_id": uid_str})
+            if doc and doc.get("active_group"):
+                return int(doc["active_group"])
         except Exception:
             pass
 
@@ -273,28 +361,6 @@ GLOBAL_SEARCH_CACHE = TTLCache(maxsize=3000, ttl=600)
 BUTTONS_CACHE = TTLCache(maxsize=3000, ttl=1800)
 USER_LAST_REQ = TTLCache(maxsize=5000, ttl=60)
 
-try:
-    BTN_PRIMARY = getattr(ButtonStyle, "PRIMARY", 1)
-    BTN_SUCCESS = getattr(ButtonStyle, "SUCCESS", 3)
-    BTN_DANGER = getattr(ButtonStyle, "DANGER", 4)
-except ImportError:
-    BTN_PRIMARY, BTN_SUCCESS, BTN_DANGER = 1, 3, 4
-
-
-def create_btn(text, url=None, callback_data=None, style=None):
-    kwargs = {"text": str(text)}
-    if url:
-        kwargs["url"] = str(url)
-    if callback_data:
-        kwargs["callback_data"] = str(callback_data)
-    if style is not None:
-        kwargs["style"] = style
-    try:
-        return InlineKeyboardButton(**kwargs)
-    except TypeError:
-        kwargs.pop("style", None)
-        return InlineKeyboardButton(**kwargs)
-
 
 # ============================================================
 # 🔮 GOD-TIER "ZERO-CLICK" FUZZY SEARCH ENGINE
@@ -336,8 +402,9 @@ async def god_tier_search(query: str) -> Tuple[list, int, int, str, bool]:
         return [], 0, 0, query, False
 
     try:
+        media_col = getattr(_Media, "collection", _Media)
         sample_docs = (
-            await _Media.collection.find({}, {"file_name": 1})
+            await media_col.find({}, {"file_name": 1})
             .limit(2000)
             .to_list(length=2000)
         )
@@ -372,7 +439,6 @@ async def god_tier_search(query: str) -> Tuple[list, int, int, str, bool]:
 async def _auto_delete_worker(
     client: Client, chat_id: int, is_pm: bool, delay: int, *messages
 ):
-    """Sleeps for `delay` seconds, then deletes both user and bot messages."""
     await asyncio.sleep(delay)
 
     msg_ids = [m.id for m in messages if m is not None and hasattr(m, "id") and m.id]
@@ -416,7 +482,6 @@ async def _auto_delete_worker(
 def schedule_auto_delete(
     client: Client, chat_id: int, is_pm: bool, delay: int, *messages
 ):
-    """Schedules auto-deletion and protects the task from garbage collection."""
     if delay <= 0:
         return
     task = asyncio.create_task(
@@ -542,14 +607,17 @@ async def auto_filter(client: Client, msg: Message):
         bot_username = temp.U_NAME or (await client.get_me()).username or "bot"
         mention = msg.from_user.mention if msg.from_user else "User"
 
+        safe_orig_title = html.escape(search.title())
+        safe_corr_title = html.escape(search_query.title())
+
         cap = (
             f"<b>Hᴇʏ {mention} 👋🏻\n\n"
-            f"🪄 Aᴜᴛᴏ-Cᴏʀʀᴇᴄᴛᴇᴅ : <del>{search.title()}</del> ➔ <code>{search_query.title()}</code>\n"
+            f"🪄 Aᴜᴛᴏ-Cᴏʀʀᴇᴄᴛᴇᴅ : <del>{safe_orig_title}</del> ➔ <code>{safe_corr_title}</code>\n"
             f"📂 Tᴏᴛᴀʟ Fɪʟᴇꜱ : <code>{total_results}</code>\n"
             f"➤ Yᴏᴜʀ Fɪʟᴇꜱ Rᴇᴀᴅʏ Nᴏᴡ 👇</b>"
             if was_corrected
             else f"<b>Hᴇʏ {mention} 👋🏻\n\n"
-            f"➤ Tɪᴛʟᴇ : <code>{search_query.title()}</code>\n"
+            f"➤ Tɪᴛʟᴇ : <code>{safe_corr_title}</code>\n"
             f"📂 Tᴏᴛᴀʟ Fɪʟᴇꜱ : <code>{total_results}</code>\n"
             f"➤ Yᴏᴜʀ Fɪʟᴇꜱ Rᴇᴀᴅʏ Nᴏᴡ 👇</b>"
         )
@@ -632,16 +700,23 @@ async def auto_filter(client: Client, msg: Message):
             cap, InlineKeyboardMarkup(btn)
         )
         m = None
-        auto_img = b_set.get("auto_img")
+        auto_img = b_set.get("auto_img", getattr(info, "AUTO_IMG", None))
 
         try:
-            if auto_img and str(auto_img).startswith("http"):
-                m = await msg.reply_photo(
-                    photo=auto_img,
-                    caption=final_caption,
-                    reply_markup=final_markup,
-                    parse_mode=enums.ParseMode.HTML,
-                )
+            if auto_img and str(auto_img).lower() != "none":
+                try:
+                    m = await msg.reply_photo(
+                        photo=auto_img,
+                        caption=final_caption,
+                        reply_markup=final_markup,
+                        parse_mode=enums.ParseMode.HTML,
+                    )
+                except Exception:
+                    m = await msg.reply_text(
+                        final_caption,
+                        reply_markup=final_markup,
+                        parse_mode=enums.ParseMode.HTML,
+                    )
             else:
                 m = await msg.reply_text(
                     final_caption,
@@ -683,7 +758,6 @@ async def auto_filter(client: Client, msg: Message):
                 pass
 
             is_pm = msg.chat.type == enums.ChatType.PRIVATE
-            # Deletes user's message (msg) + bot's result message (m) + bot's warning message (warn_msg)
             schedule_auto_delete(
                 client, msg.chat.id, is_pm, delete_timer, msg, m, warn_msg
             )
@@ -696,11 +770,15 @@ async def auto_filter(client: Client, msg: Message):
 # ⚡ UNIFIED GROUP MESSAGE HANDLER (CUSTOM FILTERS + AUTO FILTER)
 # ============================================================
 @Client.on_message(
-    filters.group & filters.text & filters.incoming & ~filters.bot,
+    filters.group
+    & filters.text
+    & filters.incoming
+    & ~filters.bot
+    & ~filters.regex(r"^[/!#.,?@]"),
     group=-1,
 )
 async def give_filter(client: Client, message: Message):
-    if not message.text or message.text.startswith(("/", "!", "#", ".", ",", "?", "@")):
+    if not message.text:
         return
 
     if getattr(info, "REPAIR_MODE", False) and not await verify_admin(
@@ -709,7 +787,7 @@ async def give_filter(client: Client, message: Message):
         return
 
     user_id = message.from_user.id if message.from_user else 0
-    if user_id and await _plugin_db.is_banned(user_id):
+    if user_id and await is_user_banned(user_id):
         return
 
     if user_id != 0:
@@ -777,7 +855,8 @@ async def pagination_handler(bot: Client, query: CallbackQuery):
             await delete_filter(query.message, kw, target_chat_id)
         await query.answer("✅ All filters deleted!", show_alert=True)
         return await query.message.edit_text(
-            f"🗑️ **Deleted all filters for chat:** `{target_chat_id}`"
+            f"🗑️ <b>Deleted all filters for chat:</b> <code>{target_chat_id}</code>",
+            parse_mode=enums.ParseMode.HTML,
         )
 
     try:
@@ -953,11 +1032,7 @@ def build_keyboard(btn_str: str):
                             text=b_copy.get("text", "Button"),
                             url=b_copy.get("url"),
                             callback_data=b_copy.get("callback_data"),
-                            style={
-                                1: BTN_PRIMARY,
-                                3: BTN_SUCCESS,
-                                4: BTN_DANGER,
-                            }.get(style_val, style_val),
+                            style=style_val,
                         )
                     )
                 else:
@@ -1001,25 +1076,31 @@ def parse_markdown_buttons(text: str):
 # ============================================================
 # 🎯 FILTER COMMANDS (HIGH PRIORITY GROUP=-2 SO THEY NEVER FAIL)
 # ============================================================
-@Client.on_message(filters.command("filter"), group=-2)
+@Client.on_message(filters.command("filter") & filters.incoming, group=-2)
 async def add_filter_cmd(client: Client, message: Message):
     target_chat_id = await get_target_chat(client, message)
     if not target_chat_id:
         return await message.reply_text(
-            "⚠️ **No active connection!**\nPlease run `/connect <group_id>` first."
+            "⚠️ <b>No active connection!</b>\nPlease run <code>/connect &lt;group_id&gt;</code> first.",
+            parse_mode=enums.ParseMode.HTML,
         )
     if not await verify_admin(client, message, target_chat_id):
         return await message.reply_text(
-            f"❌ You are not authorized for chat: `{target_chat_id}`"
+            f"❌ <b>You are not authorized for chat:</b> <code>{target_chat_id}</code>",
+            parse_mode=enums.ParseMode.HTML,
         )
 
     if not message.reply_to_message:
         return await message.reply_text(
-            "⚠️ **Reply to a message (text or media) to set it as a filter.**\n"
-            "⚙️ **Usage:** `/filter <keyword>`"
+            "⚠️ <b>Reply to a message (text or media) to set it as a filter.</b>\n"
+            "⚙️ <b>Usage:</b> <code>/filter &lt;keyword&gt;</code>",
+            parse_mode=enums.ParseMode.HTML,
         )
     if len(message.command) < 2:
-        return await message.reply_text("⚙️ **Usage:** `/filter <keyword>`")
+        return await message.reply_text(
+            "⚙️ <b>Usage:</b> <code>/filter &lt;keyword&gt;</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
     keyword = message.text.split(None, 1)[1].lower().strip()
     replied = message.reply_to_message
@@ -1062,32 +1143,39 @@ async def add_filter_cmd(client: Client, message: Message):
 
     await safe_save_filter(target_chat_id, keyword, text, btn, fileid, "[]")
     out_msg = await message.reply_text(
-        f"✅ **Filter successfully added!**\n\n"
-        f"🔑 **Keyword:** `{keyword}`\n"
-        f"🆔 **Chat ID:** `{target_chat_id}`"
+        f"✅ <b>Filter successfully added!</b>\n\n"
+        f"🔑 <b>Keyword:</b> <code>{html.escape(keyword)}</code>\n"
+        f"🆔 <b>Chat ID:</b> <code>{target_chat_id}</code>",
+        parse_mode=enums.ParseMode.HTML,
     )
     delete_timer = get_auto_delete_timer("AUTO_DELETE_TIME", 1800)
     schedule_auto_delete(client, message.chat.id, False, delete_timer, message, out_msg)
 
 
-@Client.on_message(filters.command("addfilter"), group=-2)
+@Client.on_message(filters.command("addfilter") & filters.incoming, group=-2)
 async def add_premade_filter_cmd(client: Client, message: Message):
     target_chat_id = await get_target_chat(client, message)
     if not target_chat_id:
         return await message.reply_text(
-            "⚠️ **No active connection!**\nPlease run `/connect <group_id>` first."
+            "⚠️ <b>No active connection!</b>\nPlease run <code>/connect &lt;group_id&gt;</code> first.",
+            parse_mode=enums.ParseMode.HTML,
         )
     if not await verify_admin(client, message, target_chat_id):
         return await message.reply_text(
-            f"❌ You are not authorized for chat: `{target_chat_id}`"
+            f"❌ <b>You are not authorized for chat:</b> <code>{target_chat_id}</code>",
+            parse_mode=enums.ParseMode.HTML,
         )
 
     if not message.reply_to_message:
         return await message.reply_text(
-            "⚠️ **Reply to a message containing inline buttons.**"
+            "⚠️ <b>Reply to a message containing inline buttons.</b>",
+            parse_mode=enums.ParseMode.HTML,
         )
     if len(message.command) < 2:
-        return await message.reply_text("⚙️ **Usage:** `/addfilter <keyword>`")
+        return await message.reply_text(
+            "⚙️ <b>Usage:</b> <code>/addfilter &lt;keyword&gt;</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
     keyword = message.text.split(None, 1)[1].lower().strip()
     replied = message.reply_to_message
@@ -1134,36 +1222,46 @@ async def add_premade_filter_cmd(client: Client, message: Message):
         "[]",
     )
     out_msg = await message.reply_text(
-        f"✅ **Filter with buttons added!**\n\n**Keyword:** `{keyword}`"
+        f"✅ <b>Filter with buttons added!</b>\n\n<b>Keyword:</b> <code>{html.escape(keyword)}</code>",
+        parse_mode=enums.ParseMode.HTML,
     )
     delete_timer = get_auto_delete_timer("AUTO_DELETE_TIME", 1800)
     schedule_auto_delete(client, message.chat.id, False, delete_timer, message, out_msg)
 
 
-@Client.on_message(filters.command("filterimage"), group=-2)
+@Client.on_message(filters.command("filterimage") & filters.incoming, group=-2)
 async def edit_filter_image_cmd(client: Client, message: Message):
     target_chat_id = await get_target_chat(client, message)
     if not target_chat_id:
         return await message.reply_text(
-            "⚠️ **No active connection!**\nPlease run `/connect <group_id>` first."
+            "⚠️ <b>No active connection!</b>\nPlease run <code>/connect &lt;group_id&gt;</code> first.",
+            parse_mode=enums.ParseMode.HTML,
         )
     if not await verify_admin(client, message, target_chat_id):
         return await message.reply_text(
-            f"❌ You are not authorized for chat: `{target_chat_id}`"
+            f"❌ <b>You are not authorized for chat:</b> <code>{target_chat_id}</code>",
+            parse_mode=enums.ParseMode.HTML,
         )
 
     if not message.reply_to_message or not message.reply_to_message.media:
         return await message.reply_text(
-            "⚠️ **Reply to a photo, video, or document to set the new image.**"
+            "⚠️ <b>Reply to a photo, video, or document to set the new image.</b>",
+            parse_mode=enums.ParseMode.HTML,
         )
     if len(message.command) < 2:
-        return await message.reply_text("⚙️ **Usage:** `/filterimage <keyword>`")
+        return await message.reply_text(
+            "⚙️ <b>Usage:</b> <code>/filterimage &lt;keyword&gt;</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
     keyword = message.text.split(None, 1)[1].lower().strip()
     reply_text, btn, alert, old_fileid = await find_filter(target_chat_id, keyword)
 
     if not reply_text and (not old_fileid or old_fileid == "None"):
-        return await message.reply_text(f"❌ Filter `{keyword}` not found.")
+        return await message.reply_text(
+            f"❌ <b>Filter <code>{html.escape(keyword)}</code> not found.</b>",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
     fileid = "None"
     for media_attr in ["photo", "video", "document", "audio", "animation", "sticker"]:
@@ -1172,32 +1270,41 @@ async def edit_filter_image_cmd(client: Client, message: Message):
             break
 
     if fileid == "None":
-        return await message.reply_text("❌ Could not extract valid media.")
+        return await message.reply_text(
+            "❌ <b>Could not extract valid media.</b>", parse_mode=enums.ParseMode.HTML
+        )
 
     await safe_save_filter(target_chat_id, keyword, reply_text, btn, fileid, alert)
     out_msg = await message.reply_text(
-        f"✅ **Filter image updated!**\n\n**Keyword:** `{keyword}`"
+        f"✅ <b>Filter image updated!</b>\n\n<b>Keyword:</b> <code>{html.escape(keyword)}</code>",
+        parse_mode=enums.ParseMode.HTML,
     )
     delete_timer = get_auto_delete_timer("AUTO_DELETE_TIME", 1800)
     schedule_auto_delete(client, message.chat.id, False, delete_timer, message, out_msg)
 
 
-@Client.on_message(filters.command(["editfiltercolur", "editfiltercolour"]), group=-2)
+@Client.on_message(
+    filters.command(["editfiltercolur", "editfiltercolour"]) & filters.incoming,
+    group=-2,
+)
 async def edit_filter_colour_cmd(client: Client, message: Message):
     target_chat_id = await get_target_chat(client, message)
     if not target_chat_id:
         return await message.reply_text(
-            "⚠️ **No active connection!**\nPlease run `/connect <group_id>` first."
+            "⚠️ <b>No active connection!</b>\nPlease run <code>/connect &lt;group_id&gt;</code> first.",
+            parse_mode=enums.ParseMode.HTML,
         )
     if not await verify_admin(client, message, target_chat_id):
         return await message.reply_text(
-            f"❌ You are not authorized for chat: `{target_chat_id}`"
+            f"❌ <b>You are not authorized for chat:</b> <code>{target_chat_id}</code>",
+            parse_mode=enums.ParseMode.HTML,
         )
 
     args = message.command
     if len(args) < 4:
         return await message.reply_text(
-            "❌ **Usage:** `/editfiltercolour <keyword> <button_number> <colour>`\n\n**Colours:** `green`, `red`, `blue`"
+            "❌ <b>Usage:</b> <code>/editfiltercolour &lt;keyword&gt; &lt;button_number&gt; &lt;colour&gt;</code>\n\n<b>Colours:</b> <code>green</code>, <code>red</code>, <code>blue</code>",
+            parse_mode=enums.ParseMode.HTML,
         )
 
     try:
@@ -1207,24 +1314,36 @@ async def edit_filter_colour_cmd(client: Client, message: Message):
             " ".join(args[1:-2]).lower().strip(),
         )
     except ValueError:
-        return await message.reply_text("❌ Button number must be an integer.")
+        return await message.reply_text(
+            "❌ <b>Button number must be an integer.</b>",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
     color_map = {"green": 3, "red": 4, "blue": 1}
     if color_str not in color_map:
         return await message.reply_text(
-            "❌ Invalid colour. Choose from: `green`, `red`, `blue`."
+            "❌ <b>Invalid colour.</b> Choose from: <code>green</code>, <code>red</code>, <code>blue</code>.",
+            parse_mode=enums.ParseMode.HTML,
         )
 
     reply_text, btn, alert, fileid = await find_filter(target_chat_id, keyword)
     if not reply_text and (not fileid or fileid == "None"):
-        return await message.reply_text(f"❌ Filter `{keyword}` not found.")
+        return await message.reply_text(
+            f"❌ <b>Filter <code>{html.escape(keyword)}</code> not found.</b>",
+            parse_mode=enums.ParseMode.HTML,
+        )
     if not btn or btn in ["[]", "None", "False", ""]:
-        return await message.reply_text(f"❌ Filter `{keyword}` has no buttons.")
+        return await message.reply_text(
+            f"❌ <b>Filter <code>{html.escape(keyword)}</code> has no buttons.</b>",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
     try:
         button_data = ast.literal_eval(btn)
     except Exception:
-        return await message.reply_text("❌ Corrupted button format.")
+        return await message.reply_text(
+            "❌ <b>Corrupted button format.</b>", parse_mode=enums.ParseMode.HTML
+        )
 
     count, found = 0, False
     for r_idx, row in enumerate(button_data):
@@ -1239,50 +1358,62 @@ async def edit_filter_colour_cmd(client: Client, message: Message):
 
     if not found:
         return await message.reply_text(
-            f"❌ Button {btn_num} not found. Filter has {count} buttons."
+            f"❌ <b>Button {btn_num} not found.</b> Filter has {count} buttons.",
+            parse_mode=enums.ParseMode.HTML,
         )
 
     await safe_save_filter(
         target_chat_id, keyword, reply_text, str(button_data), fileid, alert
     )
     out_msg = await message.reply_text(
-        f"✅ Filter `{keyword}` Button {btn_num} colour changed to {color_str.title()}!"
+        f"✅ <b>Filter <code>{html.escape(keyword)}</code> Button {btn_num} colour changed to {color_str.title()}!</b>",
+        parse_mode=enums.ParseMode.HTML,
     )
     delete_timer = get_auto_delete_timer("AUTO_DELETE_TIME", 1800)
     schedule_auto_delete(client, message.chat.id, False, delete_timer, message, out_msg)
 
 
-@Client.on_message(filters.command(["delfilter", "stop"]), group=-2)
+@Client.on_message(filters.command(["delfilter", "stop"]) & filters.incoming, group=-2)
 async def del_filter_cmd(client: Client, message: Message):
     target_chat_id = await get_target_chat(client, message)
     if not target_chat_id:
         return await message.reply_text(
-            "⚠️ **No active connection!**\nPlease run `/connect <group_id>` first."
+            "⚠️ <b>No active connection!</b>\nPlease run <code>/connect &lt;group_id&gt;</code> first.",
+            parse_mode=enums.ParseMode.HTML,
         )
     if not await verify_admin(client, message, target_chat_id):
         return await message.reply_text(
-            f"❌ You are not authorized for chat: `{target_chat_id}`"
+            f"❌ <b>You are not authorized for chat:</b> <code>{target_chat_id}</code>",
+            parse_mode=enums.ParseMode.HTML,
         )
 
     if len(message.command) < 2:
-        return await message.reply_text("⚙️ **Usage:** `/delfilter <keyword>`")
+        return await message.reply_text(
+            "⚙️ <b>Usage:</b> <code>/delfilter &lt;keyword&gt;</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
     keyword = message.text.split(None, 1)[1].lower().strip()
     await delete_filter(message, keyword, target_chat_id)
-    out_msg = await message.reply_text(f"🗑️ **Filter `{keyword}` deleted.**")
+    out_msg = await message.reply_text(
+        f"🗑️ <b>Filter <code>{html.escape(keyword)}</code> deleted.</b>",
+        parse_mode=enums.ParseMode.HTML,
+    )
     delete_timer = get_auto_delete_timer("AUTO_DELETE_TIME", 1800)
     schedule_auto_delete(client, message.chat.id, False, delete_timer, message, out_msg)
 
 
-@Client.on_message(filters.command(["delall", "deleteall"]), group=-2)
+@Client.on_message(filters.command(["delall", "deleteall"]) & filters.incoming, group=-2)
 async def del_all_filters_cmd(client: Client, message: Message):
     target_chat_id = await get_target_chat(client, message)
     if not target_chat_id:
         return await message.reply_text(
-            "⚠️ **No active connection!**\nPlease run `/connect <group_id>` first."
+            "⚠️ <b>No active connection!</b>\nPlease run <code>/connect &lt;group_id&gt;</code> first.",
+            parse_mode=enums.ParseMode.HTML,
         )
     if not await verify_admin(client, message, target_chat_id):
         return await message.reply_text(
-            f"❌ You are not authorized for chat: `{target_chat_id}`"
+            f"❌ <b>You are not authorized for chat:</b> <code>{target_chat_id}</code>",
+            parse_mode=enums.ParseMode.HTML,
         )
 
     buttons = [
@@ -1296,32 +1427,40 @@ async def del_all_filters_cmd(client: Client, message: Message):
         [create_btn("❌ Cancel", callback_data="delallcancel", style=BTN_PRIMARY)],
     ]
     await message.reply_text(
-        f"⚠️ **Are you sure you want to delete ALL filters in `{target_chat_id}`?**",
+        f"⚠️ <b>Are you sure you want to delete ALL filters in <code>{target_chat_id}</code>?</b>",
         reply_markup=InlineKeyboardMarkup(buttons),
+        parse_mode=enums.ParseMode.HTML,
     )
 
 
-@Client.on_message(filters.command(["listfilters", "filters", "viewfilters"]), group=-2)
+@Client.on_message(
+    filters.command(["listfilters", "filters", "viewfilters"]) & filters.incoming,
+    group=-2,
+)
 async def list_filters_cmd(client: Client, message: Message):
     target_chat_id = await get_target_chat(client, message)
     if not target_chat_id:
         return await message.reply_text(
-            "⚠️ **No active connection!**\nPlease run `/connect <group_id>` first."
+            "⚠️ <b>No active connection!</b>\nPlease run <code>/connect &lt;group_id&gt;</code> first.",
+            parse_mode=enums.ParseMode.HTML,
         )
     if not await verify_admin(client, message, target_chat_id):
         return await message.reply_text(
-            f"❌ You are not authorized for chat: `{target_chat_id}`"
+            f"❌ <b>You are not authorized for chat:</b> <code>{target_chat_id}</code>",
+            parse_mode=enums.ParseMode.HTML,
         )
 
     keywords = await get_filters(target_chat_id)
     if not keywords:
         return await message.reply_text(
-            f"⚠️ **No active filters found in `{target_chat_id}`.**"
+            f"⚠️ <b>No active filters found in <code>{target_chat_id}</code>.</b>",
+            parse_mode=enums.ParseMode.HTML,
         )
 
     out_msg = await message.reply_text(
-        f"📋 **Current Filters ({len(keywords)}):**\n\n"
-        + "\n".join([f"• `{kw}`" for kw in keywords])
+        f"📋 <b>Current Filters ({len(keywords)}):</b>\n\n"
+        + "\n".join([f"• <code>{html.escape(str(kw))}</code>" for kw in keywords]),
+        parse_mode=enums.ParseMode.HTML,
     )
     delete_timer = get_auto_delete_timer("AUTO_DELETE_TIME", 1800)
     schedule_auto_delete(client, message.chat.id, False, delete_timer, message, out_msg)
@@ -1489,7 +1628,6 @@ async def manual_filters(client: Client, message: Message, text=False) -> bool:
             delete_timer = get_auto_delete_timer("AUTO_DELETE_TIME", 1800)
             if sent_msg and delete_timer > 0:
                 is_pm = message.chat.type == enums.ChatType.PRIVATE
-                # Deletes both the user's trigger message and the bot's filter response
                 schedule_auto_delete(
                     client, message.chat.id, is_pm, delete_timer, sent_msg, message
                 )
