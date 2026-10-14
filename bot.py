@@ -5,7 +5,7 @@ import sys
 from typing import AsyncGenerator, Union
 
 # ===================================================================
-# ⚡ 1. CREATE EVENT LOOP FIRST (Prevents RuntimeErrors)
+# ⚡ 1. CREATE EVENT LOOP FIRST (Prevents RuntimeErrors on Python 3.10+)
 # ===================================================================
 try:
     loop = asyncio.get_event_loop()
@@ -32,14 +32,20 @@ from logging.config import fileConfig
 
 from aiohttp import web
 from pyrogram import Client, __version__, enums, filters, idle, types
+from pyrogram.errors import FloodWait
 from pyrogram.raw.all import layer
 from pyrogram.types import Message
 
+import info
 from database.ia_filterdb import Media
-from database.plugin_dbs import plugin_db
 from database.users_chats_db import db as old_db
 from info import API_HASH, API_ID, BOT_TOKEN, LOG_STR, PORT, SESSION
 from utils import temp
+
+try:
+    from database.plugin_dbs import plugin_db
+except ImportError:
+    plugin_db = None
 
 # ============================================================
 # ⚙️ SAFE LOGGING SETUP
@@ -62,16 +68,20 @@ logger = getLogger(__name__)
 # ============================================================
 # 👑 FULL POWER ADMIN CHECKER (GLOBAL + CHAT + ANONYMOUS)
 # ============================================================
-def get_admin_list():
-    import info
-
+def get_admin_list() -> list[int]:
     raw_admins = getattr(info, "ADMINS", [])
     if isinstance(raw_admins, (str, int)):
         raw_admins = str(raw_admins).replace(",", " ").split()
+    elif isinstance(raw_admins, (list, tuple, set)):
+        raw_admins = list(raw_admins)
+    else:
+        raw_admins = []
     return [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
 
 
-async def is_user_admin(client: Client, message: Message):
+async def is_user_admin(client: Client, message: Message) -> bool:
+    if not message:
+        return False
     admin_list = get_admin_list()
 
     # 1. Global Admin Check (Direct User)
@@ -105,6 +115,43 @@ async def is_user_admin(client: Client, message: Message):
     return False
 
 
+async def _restore_persistent_settings():
+    """Restores saved custom captions, timers, and global images into `info` on bot startup."""
+    try:
+        db_client = motor.motor_asyncio.AsyncIOMotorClient(info.DATABASE_URI)
+        bot_db = db_client[info.DATABASE_NAME]
+
+        # 1. Restore custom_captions collection
+        cap_doc = await bot_db["custom_captions"].find_one({"_id": "settings"})
+        if cap_doc:
+            for k, v in cap_doc.items():
+                if k != "_id" and v is not None:
+                    setattr(info, k, v)
+
+        # 2. Restore global_bot_settings collection
+        global_doc = await bot_db["global_bot_settings"].find_one({"_id": "bot_config"})
+        if global_doc:
+            attr_map = {
+                "fsub_img": "FSUB_IMG",
+                "auto_img": "AUTO_IMG",
+                "not_found_img": "NOT_FOUND_IMG",
+                "not_found_text": "NOT_FOUND_MSG",
+            }
+            for gk, attr in attr_map.items():
+                if gk in global_doc and global_doc[gk] is not None:
+                    setattr(info, attr, global_doc[gk])
+
+        # 3. Restore deletion_settings timer
+        del_doc = await bot_db["deletion_settings"].find_one({"_id": "timers"})
+        if del_doc and "FILE_AUTO_DELETE" in del_doc:
+            val = int(del_doc["FILE_AUTO_DELETE"])
+            setattr(info, "FILE_AUTO_DELETE", val)
+            setattr(info, "AUTO_DELETE_TIME", val)
+            setattr(info, "AUTO_DELETE", val > 0)
+    except Exception as e:
+        logger.error(f"Failed to restore persistent settings on boot: {e}")
+
+
 # ============================================================
 # 🤖 BOT CLASS INITIALIZATION
 # ============================================================
@@ -117,7 +164,7 @@ class Bot(Client):
             bot_token=BOT_TOKEN,
             workers=500,
             plugins={"root": "plugins"},
-            sleep_threshold=5,
+            sleep_threshold=10,
             in_memory=True,
         )
 
@@ -128,21 +175,23 @@ class Bot(Client):
         b_chats = []
         try:
 
-            async def fetch_bans():
+            async def fetch_bans_and_settings():
+                await _restore_persistent_settings()
                 async for chat in old_db.grp.find({"chat_status.is_disabled": True}):
                     if chat.get("id"):
-                        b_chats.append(chat["id"])
-                async for user in plugin_db.ban_col.find({}):
-                    if user.get("_id"):
-                        b_users.append(user["_id"])
+                        b_chats.append(int(chat["id"]))
+                if plugin_db is not None and hasattr(plugin_db, "ban_col"):
+                    async for user in plugin_db.ban_col.find({}):
+                        if user.get("_id"):
+                            b_users.append(int(user["_id"]))
                 async for user in old_db.col.find({"ban_status.is_banned": True}):
                     u_id = user.get("id")
-                    if u_id and u_id not in b_users:
-                        b_users.append(u_id)
+                    if u_id and int(u_id) not in b_users:
+                        b_users.append(int(u_id))
 
-            await asyncio.wait_for(fetch_bans(), timeout=15.0)
+            await asyncio.wait_for(fetch_bans_and_settings(), timeout=15.0)
         except Exception as e:
-            logger.error(f"Failed to load bans (Timeout/Error): {e}")
+            logger.error(f"Failed to load startup bans/settings (Timeout/Error): {e}")
 
         temp.BANNED_USERS = b_users
         temp.BANNED_CHATS = b_chats
@@ -164,24 +213,29 @@ class Bot(Client):
         self.username = f"@{me.username}"
 
         logger.info(
-            f"{me.first_name} with Pyrogram v{__version__} (Layer {layer}) started on {me.username}."
+            f"{me.first_name} with Pyrogram v{__version__} (Layer {layer}) started on @{me.username}."
         )
         logger.info(LOG_STR)
 
         if os.path.exists("restart.txt"):
             try:
                 with open("restart.txt", "r") as f:
-                    chat_id_str, msg_id_str = f.read().strip().split("\n")
-                await self.edit_message_text(
-                    chat_id=int(chat_id_str),
-                    message_id=int(msg_id_str),
-                    text="✅ **Bot Restarted Successfully!**",
-                )
-            except Exception:
-                pass
+                    lines = f.read().strip().splitlines()
+                if len(lines) >= 2:
+                    chat_id_str, msg_id_str = lines[0], lines[1]
+                    await self.edit_message_text(
+                        chat_id=int(chat_id_str),
+                        message_id=int(msg_id_str),
+                        text="✅ <b>Bot Restarted Successfully!</b>",
+                        parse_mode=enums.ParseMode.HTML,
+                    )
+            except Exception as e:
+                logger.error(f"Failed to edit restart message: {e}")
             finally:
-                if os.path.exists("restart.txt"):
+                try:
                     os.remove("restart.txt")
+                except Exception:
+                    pass
 
     async def stop(self, *args, **kwargs):
         await super().stop(*args, **kwargs)
@@ -190,18 +244,33 @@ class Bot(Client):
     async def iter_messages(
         self, chat_id: Union[int, str], limit: int, offset: int = 0
     ) -> AsyncGenerator[types.Message, None]:
-        current = offset
-        while True:
-            new_diff = min(200, limit - current)
-            if new_diff <= 0:
+        """
+        Safely iterates through chat messages in batches of up to 200 (Telegram API limit)
+        with automatic FloodWait recovery.
+        """
+        current = max(1, offset)
+        while current <= limit:
+            batch_size = min(200, (limit - current) + 1)
+            if batch_size <= 0:
                 return
-            messages = await self.get_messages(
-                chat_id, list(range(current, current + new_diff + 1))
-            )
+            message_ids = list(range(current, current + batch_size))
+            try:
+                messages = await self.get_messages(chat_id, message_ids)
+            except FloodWait as e:
+                await asyncio.sleep(e.value + 1)
+                continue
+            except Exception as e:
+                logger.error(f"iter_messages error at offset {current}: {e}")
+                current += batch_size
+                continue
+
+            if not isinstance(messages, list):
+                messages = [messages]
+
             for message in messages:
-                if not getattr(message, "empty", False):
+                if message and not getattr(message, "empty", False):
                     yield message
-                current += 1
+            current += batch_size
 
 
 app = Bot()
@@ -224,6 +293,7 @@ async def delete_media_task(message: Message, delay: int):
 
 @app.on_message(
     filters.private
+    & filters.incoming
     & (
         filters.document
         | filters.video
@@ -242,7 +312,11 @@ async def auto_delete_user_media_pm(client: Client, message: Message):
     if await is_user_admin(client, message):
         return
 
-    task = asyncio.create_task(delete_media_task(message, delay=1800))
+    delay = int(getattr(info, "FILE_AUTO_DELETE", 1800))
+    if delay <= 0:
+        return
+
+    task = asyncio.create_task(delete_media_task(message, delay=delay))
     AUTO_DELETE_TASKS.add(task)
     task.add_done_callback(AUTO_DELETE_TASKS.discard)
 
@@ -273,12 +347,8 @@ async def start_services():
 
 def force_shutdown(signum, frame):
     logger.info("🛑 Received shutdown signal. Exiting gracefully...")
-    # Using event loop to stop the app safely before hard exit
-    try:
-        loop.create_task(app.stop())
-    except Exception:
-        pass
-    sys.exit(0)
+    for task in asyncio.all_tasks(loop):
+        task.cancel()
 
 
 if __name__ == "__main__":
@@ -286,5 +356,5 @@ if __name__ == "__main__":
     signal.signal(signal.SIGINT, force_shutdown)
     try:
         loop.run_until_complete(start_services())
-    except (KeyboardInterrupt, SystemExit):
+    except (KeyboardInterrupt, SystemExit, asyncio.CancelledError):
         logger.info("Process interrupted. Shutting down...")
