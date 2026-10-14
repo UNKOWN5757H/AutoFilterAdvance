@@ -84,10 +84,15 @@ async def is_callback_user_admin(client: Client, query: CallbackQuery) -> bool:
         return True
 
     # 2. Group Admin Check (if button was clicked inside a group)
-    if query.message and query.message.chat and query.message.chat.type in [
-        enums.ChatType.GROUP,
-        enums.ChatType.SUPERGROUP,
-    ]:
+    if (
+        query.message
+        and query.message.chat
+        and query.message.chat.type
+        in [
+            enums.ChatType.GROUP,
+            enums.ChatType.SUPERGROUP,
+        ]
+    ):
         try:
             member = await client.get_chat_member(query.message.chat.id, user_id)
             return member.status in [
@@ -214,9 +219,7 @@ async def build_channels_dashboard(client: Client, page: int = 1):
 
     buttons.append(
         [
-            InlineKeyboardButton(
-                "🔄 Refresh", callback_data=f"chan_page:{page}"
-            ),
+            InlineKeyboardButton("🔄 Refresh", callback_data=f"chan_page:{page}"),
             InlineKeyboardButton("🔐 Close", callback_data="chan_close"),
         ]
     )
