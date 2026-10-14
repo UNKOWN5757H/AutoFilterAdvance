@@ -894,9 +894,7 @@ def get_help_section_keyboard(
                     )
                 ],
                 [
-                    create_btn(
-                        "✏️ Set Welcome Text", callback_data="hact#welc_settxt"
-                    ),
+                    create_btn("✏️ Set Welcome Text", callback_data="hact#welc_settxt"),
                     create_btn("🗑️ Reset Welcome", callback_data="hact#welc_del"),
                 ],
             ]
@@ -2805,9 +2803,11 @@ async def cb_handler(client: Client, query: CallbackQuery):
         elif query.data in ["stats", "rfrsh"]:
             await safe_answer(
                 query,
-                "Refreshing Database Stats..."
-                if query.data == "rfrsh"
-                else "Loading Stats...",
+                (
+                    "Refreshing Database Stats..."
+                    if query.data == "rfrsh"
+                    else "Loading Stats..."
+                ),
             )
             status_text = await build_status_text()
             await transition_ui_message(
