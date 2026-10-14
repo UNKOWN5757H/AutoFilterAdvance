@@ -25,10 +25,13 @@ telegraph
 ​--- Search / Typo Tolerance ---
 ​thefuzz
 Levenshtein
+
 ​--- Automation, Cron Jobs & Server Utilities ---
 ​APScheduler
 psutil
 speedtest-cli
 yt-dlp
+
 ​--- Optional Performance Optimizer ---
+
 ​uvloop==0.20.0; platform_system != "Windows"
