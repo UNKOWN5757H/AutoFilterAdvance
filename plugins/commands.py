@@ -123,10 +123,7 @@ def _prepare_compat_kwargs(
         if rep_id:
             if "reply_to_message_id" in supported_params:
                 clean_kw["reply_to_message_id"] = rep_id
-            elif (
-                "reply_parameters" in supported_params
-                and ReplyParameters is not None
-            ):
+            elif "reply_parameters" in supported_params and ReplyParameters is not None:
                 try:
                     clean_kw["reply_parameters"] = ReplyParameters(message_id=rep_id)
                 except Exception:
@@ -856,9 +853,7 @@ async def send_requested_file(
             )
 
             if delete_timer > 0:
-                schedule_pm_auto_delete(
-                    client, user_id, True, delete_timer, msg, k
-                )
+                schedule_pm_auto_delete(client, user_id, True, delete_timer, msg, k)
         except Exception as e:
             logger.error(f"Auto-delete warning failed to send: {e}")
 
