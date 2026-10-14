@@ -6,6 +6,7 @@ import inspect
 import math
 import re
 import time
+import unicodedata
 from logging import ERROR, getLogger
 from typing import Dict, List, Optional, Tuple
 
@@ -73,21 +74,36 @@ EXTRA_BTN_2_URL = getattr(
 # 🌐 LANGUAGES & 🎞️ QUALITIES CONFIGURATION
 # ============================================================
 LANGUAGES_LIST: List[Tuple[str, str]] = [
-    ("Kannada"),
-    ("Tulu"),
-    ("English"),
-    ("Hindi"),
-    ("Tamil"),
-    ("Telugu"),
-    ("Malayalam"),
-    ("Marathi"),
-    ("Gujarati"),
-    ("Bengali"),
-    ("Punjabi"),
-    ("Nepali"),
+    ("Kannada", "kan"),
+    ("Tulu", "tul"),
+    ("English", "eng"),
+    ("Hindi", "hin"),
+    ("Tamil", "tam"),
+    ("Telugu", "tel"),
+    ("Malayalam", "mal"),
+    ("Marathi", "mar"),
+    ("Gujarati", "guj"),
+    ("Bengali", "ben"),
+    ("Punjabi", "pun"),
+    ("Nepali", "nep"),
 ]
 
 LANG_MAP: Dict[str, str] = {code: name for name, code in LANGUAGES_LIST}
+
+LANG_PATTERNS: Dict[str, re.Pattern] = {
+    "kan": re.compile(r"(?i)\b(kannada|kan|sandalwood)\b"),
+    "tul": re.compile(r"(?i)\b(tulu|tul)\b"),
+    "eng": re.compile(r"(?i)\b(english|eng|dual\s*audio|multi\s*audio)\b"),
+    "hin": re.compile(r"(?i)\b(hindi|hin|bollywood|dual\s*audio|multi\s*audio)\b"),
+    "tam": re.compile(r"(?i)\b(tamil|tam|kollywood)\b"),
+    "tel": re.compile(r"(?i)\b(telugu|tel|tollywood)\b"),
+    "mal": re.compile(r"(?i)\b(malayalam|mal|mollywood)\b"),
+    "mar": re.compile(r"(?i)\b(marathi|mar)\b"),
+    "guj": re.compile(r"(?i)\b(gujarati|guj)\b"),
+    "ben": re.compile(r"(?i)\b(bengali|ben|bangla)\b"),
+    "pun": re.compile(r"(?i)\b(punjabi|pun)\b"),
+    "nep": re.compile(r"(?i)\b(nepali|nep)\b"),
+}
 
 QUALITIES_LIST: List[str] = [
     "144p",
@@ -102,9 +118,308 @@ QUALITIES_LIST: List[str] = [
     "4320p",
 ]
 
+QUAL_PATTERNS: Dict[str, re.Pattern] = {
+    "144p": re.compile(r"(?i)\b144p\b"),
+    "240p": re.compile(r"(?i)\b240p\b"),
+    "360p": re.compile(r"(?i)\b360p\b"),
+    "480p": re.compile(r"(?i)\b(480p|dvdrip|sd)\b"),
+    "540p": re.compile(r"(?i)\b540p\b"),
+    "720p": re.compile(r"(?i)\b(720p|hdrip|hd)\b"),
+    "1080p": re.compile(r"(?i)\b(1080p|fhd|full\s*hd)\b"),
+    "1440p": re.compile(r"(?i)\b(1440p|2k|qhd)\b"),
+    "2160p": re.compile(r"(?i)\b(2160p|4k|uhd)\b"),
+    "4320p": re.compile(r"(?i)\b(4320p|8k)\b"),
+}
+
 # ============================================================
-# 🎨 TELEGRAM BUTTON STYLE SUPPORT
+# 🔤 FEATURE 12: INDIAN SCRIPT-TO-ENGLISH TRANSLITERATION ENGINE
+# (Kannada, Hindi/Marathi/Nepali, Telugu, Tamil, Malayalam)
 # ============================================================
+_INDIC_ACRONYM_MAP: Dict[str, str] = {
+    # Kannada acronyms & popular direct movie mappings
+    "ಕೆಜಿಎಫ್": "kgf",
+    "ಕೆ.ಜಿ.ಎಫ್": "kgf",
+    "ಕಾಂತಾರ": "kantara",
+    "ಕಾಟೇರ": "kaatera",
+    "ಯುವ": "yuva",
+    "ಬಘೀರ": "bagheera",
+    "ಮಾರ್ಟಿನ್": "martin",
+    "ಭೈರತಿ ರಣಗಲ್": "bhairathi ranagal",
+    "ಮ್ಯಾಕ್ಸ್": "max",
+    "ಯುಐ": "ui",
+    "ಆರ್ ಆರ್ ಆರ್": "rrr",
+    "ಆರ್.ಆರ್.ಆರ್": "rrr",
+    "ಎನ್ ಟಿ ಆರ್": "ntr",
+    # Hindi / Devanagari acronyms & popular titles
+    "केजीएफ": "kgf",
+    "के.जी.एफ": "kgf",
+    "कांतारा": "kantara",
+    "आरआरआर": "rrr",
+    "पुष्पा": "pushpa",
+    "कल्कि": "kalki",
+    "जवान": "jawan",
+    "पठान": "pathaan",
+    "सालार": "salaar",
+    # Telugu / Tamil / Malayalam popular acronyms
+    "കെജിഎഫ്": "kgf",
+    "கேஜிஎப்": "kgf",
+    "కేజీఎఫ్": "kgf",
+    "కాంతార": "kantara",
+    "காந்தாரா": "kantara",
+    "കാന്താര": "kantara",
+}
+
+_INDIC_OFFSET_VOWELS: Dict[int, str] = {
+    0x05: "a",
+    0x06: "aa",
+    0x07: "i",
+    0x08: "ee",
+    0x09: "u",
+    0x0A: "oo",
+    0x0B: "ru",
+    0x0C: "l",
+    0x0D: "e",
+    0x0E: "e",
+    0x0F: "ee",
+    0x10: "ai",
+    0x11: "o",
+    0x12: "o",
+    0x13: "oo",
+    0x14: "au",
+    0x60: "ru",
+}
+
+_INDIC_OFFSET_MATRAS: Dict[int, str] = {
+    0x3E: "a",
+    0x3F: "i",
+    0x40: "ee",
+    0x41: "u",
+    0x42: "oo",
+    0x43: "ru",
+    0x44: "ru",
+    0x45: "e",
+    0x46: "e",
+    0x47: "e",
+    0x48: "ai",
+    0x49: "o",
+    0x4A: "o",
+    0x4B: "o",
+    0x4C: "au",
+    0x55: "",
+    0x56: "ai",
+    0x57: "au",
+}
+
+_INDIC_OFFSET_CONSONANTS: Dict[int, str] = {
+    0x15: "k",
+    0x16: "kh",
+    0x17: "g",
+    0x18: "gh",
+    0x19: "ng",
+    0x1A: "ch",
+    0x1B: "chh",
+    0x1C: "j",
+    0x1D: "jh",
+    0x1E: "ny",
+    0x1F: "t",
+    0x20: "th",
+    0x21: "d",
+    0x22: "dh",
+    0x23: "n",
+    0x24: "t",
+    0x25: "th",
+    0x26: "d",
+    0x27: "dh",
+    0x28: "n",
+    0x29: "n",
+    0x2A: "p",
+    0x2B: "ph",
+    0x2C: "b",
+    0x2D: "bh",
+    0x2E: "m",
+    0x2F: "y",
+    0x30: "r",
+    0x31: "r",
+    0x32: "l",
+    0x33: "l",
+    0x34: "zh",
+    0x35: "v",
+    0x36: "sh",
+    0x37: "sh",
+    0x38: "s",
+    0x39: "h",
+    0x58: "q",
+    0x59: "kh",
+    0x5A: "gh",
+    0x5B: "z",
+    0x5C: "d",
+    0x5D: "rh",
+    0x5E: "f",
+    0x5F: "y",
+}
+
+_MALAYALAM_CHILLU: Dict[int, str] = {
+    0x7A: "n",
+    0x7B: "n",
+    0x7C: "r",
+    0x7D: "l",
+    0x7E: "l",
+    0x7F: "k",
+}
+
+
+def has_indic_script(text: str) -> bool:
+    """Returns True if text contains any Indian script characters (U+0900 to U+0D7F)."""
+    return any(0x0900 <= ord(ch) <= 0x0D7F for ch in text)
+
+
+def transliterate_indic_to_english(text: str) -> str:
+    """
+    Converts Kannada, Hindi/Marathi/Nepali, Telugu, Tamil, Malayalam, Gujarati,
+    Bengali, and Punjabi script words into clean English phonetic text.
+    """
+    if not text or not has_indic_script(text):
+        return text
+
+    norm_text = unicodedata.normalize("NFC", text.strip())
+    for k, v in _INDIC_ACRONYM_MAP.items():
+        norm_text = norm_text.replace(k, f" {v} ")
+
+    out: List[str] = []
+    n = len(norm_text)
+    i = 0
+
+    while i < n:
+        ch = norm_text[i]
+        cp = ord(ch)
+
+        if 0x0900 <= cp <= 0x0D7F:
+            offset = cp & 0x7F
+
+            # Indic digits (0x66 - 0x6F)
+            if 0x66 <= offset <= 0x6F:
+                out.append(str(offset - 0x66))
+                i += 1
+                continue
+
+            # Malayalam Chillu letters
+            if (cp & 0xFF80) == 0x0D00 and offset in _MALAYALAM_CHILLU:
+                out.append(_MALAYALAM_CHILLU[offset])
+                i += 1
+                continue
+
+            # Anusvara / Chandrabindu (ം / ಂ / ं / ం / ং) -> 'n' or 'm' depending on following consonant
+            if offset in (0x01, 0x02):
+                next_offset = (
+                    (ord(norm_text[i + 1]) & 0x7F)
+                    if (i + 1 < n and 0x0900 <= ord(norm_text[i + 1]) <= 0x0D7F)
+                    else 0
+                )
+                if 0x2A <= next_offset <= 0x2E:  # Labial (p, ph, b, bh, m)
+                    out.append("m")
+                elif next_offset == 0:
+                    out.append("m")
+                else:
+                    out.append("n")
+                i += 1
+                continue
+
+            # Visarga (ಃ / ः)
+            if offset == 0x03:
+                out.append("h")
+                i += 1
+                continue
+
+            # Independent Vowels
+            if offset in _INDIC_OFFSET_VOWELS:
+                out.append(_INDIC_OFFSET_VOWELS[offset])
+                i += 1
+                continue
+
+            # Consonants
+            if offset in _INDIC_OFFSET_CONSONANTS:
+                base_c = _INDIC_OFFSET_CONSONANTS[offset]
+                next_cp = ord(norm_text[i + 1]) if (i + 1) < n else 0
+                next_off = (next_cp & 0x7F) if (0x0900 <= next_cp <= 0x0D7F) else -1
+
+                # Handle Nukta (0x3C)
+                if next_off == 0x3C:
+                    i += 1
+                    next_cp = ord(norm_text[i + 1]) if (i + 1) < n else 0
+                    next_off = (next_cp & 0x7F) if (0x0900 <= next_cp <= 0x0D7F) else -1
+
+                # Virama / Halant (್ / ् / ్ / ் / ്) -> suppresses inherent 'a'
+                if next_off == 0x4D:
+                    out.append(base_c)
+                    i += 2
+                    continue
+
+                # Dependent Vowel Sign (Matra)
+                if next_off in _INDIC_OFFSET_MATRAS:
+                    out.append(base_c + _INDIC_OFFSET_MATRAS[next_off])
+                    i += 2
+                    continue
+
+                # Inherent vowel 'a' (with smart word-end schwa handling for Hindi/Devanagari)
+                is_devanagari = (cp & 0xFF80) == 0x0900
+                is_word_end = (i + 1 == n) or not (0x0900 <= next_cp <= 0x0D7F)
+                if is_devanagari and is_word_end and len(out) > 0:
+                    out.append(base_c)
+                else:
+                    out.append(base_c + "a")
+                i += 1
+                continue
+
+            # Stray Matra if any
+            if offset in _INDIC_OFFSET_MATRAS:
+                out.append(_INDIC_OFFSET_MATRAS[offset])
+                i += 1
+                continue
+
+            i += 1
+        else:
+            out.append(ch)
+            i += 1
+
+    result = "".join(out)
+    result = re.sub(r"\s+", " ", result).strip().lower()
+    return result
+
+
+def generate_phonetic_variants(translit_str: str) -> List[str]:
+    """Generates both standard and simplified vowel/aspirated variants (e.g. kaantaara -> kantara)."""
+    if not translit_str:
+        return []
+    variants = [translit_str]
+    # 1. Collapse double vowels (aa -> a, ee -> i/e, oo -> u)
+    v1 = translit_str.replace("aa", "a").replace("ee", "i").replace("oo", "u")
+    if v1 not in variants:
+        variants.append(v1)
+    # 2. Drop trailing 'a' at the end of words (e.g. vikrama -> vikram, pushpaa -> pushpa)
+    v2_words = [
+        (w[:-1] if len(w) > 4 and w.endswith("a") else w) for w in v1.split()
+    ]
+    v2 = " ".join(v2_words)
+    if v2 and v2 not in variants:
+        variants.append(v2)
+    return variants
+
+
+# ============================================================
+# 🎨 PYROGRAM v2.2.26 COMPATIBILITY & BUTTON STYLING
+# ============================================================
+try:
+    from pyrogram.types import LinkPreviewOptions
+except ImportError:
+    LinkPreviewOptions = None
+
+try:
+    from pyrogram.types import ReplyParameters
+except ImportError:
+    ReplyParameters = None
+
+_SEND_MSG_PARAMS = set(inspect.signature(Client.send_message).parameters.keys())
+
 try:
     from pyrogram.enums import ButtonStyle
 
@@ -147,28 +462,83 @@ def create_btn(text, url=None, callback_data=None, style=None):
 
 
 # ============================================================
-# ⚡ GLOBAL CONFIG & MONGODB SETUP
+# ⚡ GLOBAL CONFIG, FEATURE TOGGLES & MONGODB SETUP
 # ============================================================
 cw_db = None
+pm_feat_db = None
 _BOT_DB = None
 try:
     _DB_CLIENT = AsyncIOMotorClient(info.DATABASE_URI)
     _BOT_DB = _DB_CLIENT[info.DATABASE_NAME]
     cw_db = _BOT_DB["clean_words"]
+    pm_feat_db = _BOT_DB["pm_filter_features"]
 except Exception as e:
-    logger.error(f"Failed to init cw_db: {e}")
+    logger.error(f"Failed to init cw_db / pm_feat_db: {e}")
 
 DEFAULT_CLEAN_WORDS = ["sandalwood", "mkv", "mp4", "avi", "webm", "zip", "rar"]
+_CLEAN_WORDS_CACHE: Tuple[float, list] = (0.0, DEFAULT_CLEAN_WORDS)
+_FEATURE_FLAGS_CACHE: Dict[str, any] = {
+    "ts": 0.0,
+    "autotranslate": True,
+    "multichoice": True,
+}
 
 
-async def get_clean_words():
+async def get_feature_flags(force_refresh: bool = False) -> Tuple[bool, bool]:
+    """Returns (autotranslate_enabled, multichoice_enabled) with 60s in-memory cache."""
+    now = time.time()
+    if not force_refresh and (now - _FEATURE_FLAGS_CACHE["ts"]) < 60:
+        return (
+            bool(_FEATURE_FLAGS_CACHE["autotranslate"]),
+            bool(_FEATURE_FLAGS_CACHE["multichoice"]),
+        )
+    if pm_feat_db is not None:
+        try:
+            doc = await pm_feat_db.find_one({"_id": "config"})
+            if doc:
+                _FEATURE_FLAGS_CACHE["autotranslate"] = bool(
+                    doc.get("autotranslate", True)
+                )
+                _FEATURE_FLAGS_CACHE["multichoice"] = bool(
+                    doc.get("multichoice", True)
+                )
+        except Exception as e:
+            logger.error(f"get_feature_flags error: {e}")
+    _FEATURE_FLAGS_CACHE["ts"] = now
+    return (
+        bool(_FEATURE_FLAGS_CACHE["autotranslate"]),
+        bool(_FEATURE_FLAGS_CACHE["multichoice"]),
+    )
+
+
+async def set_feature_flag(key: str, value: bool):
+    """Saves 'autotranslate' or 'multichoice' state permanently in MongoDB and updates cache."""
+    _FEATURE_FLAGS_CACHE[key] = bool(value)
+    _FEATURE_FLAGS_CACHE["ts"] = time.time()
+    if pm_feat_db is not None:
+        try:
+            await pm_feat_db.update_one(
+                {"_id": "config"}, {"$set": {key: bool(value)}}, upsert=True
+            )
+        except Exception as e:
+            logger.error(f"set_feature_flag error for {key}: {e}")
+
+
+async def get_clean_words() -> list:
+    global _CLEAN_WORDS_CACHE
+    now = time.time()
+    if now - _CLEAN_WORDS_CACHE[0] < 60:
+        return _CLEAN_WORDS_CACHE[1]
     if cw_db is None:
         return DEFAULT_CLEAN_WORDS
     try:
         doc = await cw_db.find_one({"id": "words"})
         if doc is None or doc.get("use_default", True):
-            return DEFAULT_CLEAN_WORDS
-        return doc.get("list", [])
+            words = DEFAULT_CLEAN_WORDS
+        else:
+            words = doc.get("list", [])
+        _CLEAN_WORDS_CACHE = (now, words)
+        return words
     except Exception:
         return DEFAULT_CLEAN_WORDS
 
@@ -261,7 +631,6 @@ async def get_active_connection(user_id: str) -> Optional[int]:
     """Checks all possible connection tables so PM connected commands never fail."""
     uid_str = str(user_id)
 
-    # 1. Check native active_connections collection first
     if _BOT_DB is not None:
         try:
             doc = await _BOT_DB["active_connections"].find_one({"user_id": uid_str})
@@ -270,7 +639,6 @@ async def get_active_connection(user_id: str) -> Optional[int]:
         except Exception:
             pass
 
-    # 2. Check database.connections_mdb.active_connection if available
     try:
         from database.connections_mdb import active_connection
 
@@ -280,7 +648,6 @@ async def get_active_connection(user_id: str) -> Optional[int]:
     except Exception:
         pass
 
-    # 3. Check database.connections_mdb (all_connections + if_active)
     try:
         from database.connections_mdb import all_connections, if_active
 
@@ -293,7 +660,6 @@ async def get_active_connection(user_id: str) -> Optional[int]:
     except Exception:
         pass
 
-    # 4. Check CONNECTION collection directly
     if _BOT_DB is not None:
         try:
             doc = await _BOT_DB["CONNECTION"].find_one({"_id": uid_str})
@@ -364,7 +730,7 @@ async def safe_save_filter(group_id, keyword, reply_text, btn, fileid, alert="[]
 
 
 # ============================================================
-# ⚡ CACHE SYSTEM
+# ⚡ ULTRA-FAST IN-MEMORY CACHE SYSTEM
 # ============================================================
 class TTLCache:
     def __init__(self, maxsize: int = 2000, ttl: int = 1800):
@@ -395,7 +761,9 @@ class TTLCache:
 GLOBAL_SEARCH_CACHE = TTLCache(maxsize=3000, ttl=600)
 BUTTONS_CACHE = TTLCache(maxsize=3000, ttl=1800)
 FILTER_STATE_CACHE = TTLCache(maxsize=3000, ttl=1800)
+SUGGESTIONS_CACHE = TTLCache(maxsize=2000, ttl=1800)
 USER_LAST_REQ = TTLCache(maxsize=5000, ttl=60)
+FUZZY_TITLES_CACHE = TTLCache(maxsize=10, ttl=600)
 
 
 def get_filter_state(key: str) -> dict:
@@ -421,17 +789,20 @@ def build_effective_search_query(base_query: str, state: dict) -> str:
 
 
 # ============================================================
-# 🔮 GOD-TIER "ZERO-CLICK" FUZZY SEARCH ENGINE
+# 🔮 ULTRA-ACCURATE MULTI-STAGE SEARCH & SUGGESTION ENGINE
 # ============================================================
-def sanitize_search_query(text: str) -> str:
+def sanitize_search_query(text: str, allow_translit: bool = True) -> str:
     if not text:
         return ""
+    if allow_translit and has_indic_script(text):
+        text = transliterate_indic_to_english(text)
+
     raw_q = re.sub(r"https?://\S+|t\.me/\S+|@\w+", "", text.strip().lower())
     basic_q = re.sub(r"[^a-zA-Z0-9]", " ", raw_q)
     basic_q = re.sub(r"\s+", " ", basic_q).strip()
 
     q = re.sub(
-        r"(?i)\b(4320p|2160p|1440p|1080p|720p|540p|480p|360p|240p|144p|4k|mkv|mp4|avi|hdrip|web-?dl|webrip|bluray|brrip|dvdrip|x264|x265|hevc|dual audio|hindi|kannada|tulu|telugu|tamil|malayalam|marathi|gujarati|bengali|punjabi|nepali|english|subtitles|subs|episodes|season\s*\d+|s\d+e\d+|complete)\b",
+        r"(?i)\b(4320p|2160p|1440p|1080p|720p|540p|480p|360p|240p|144p|4k|2k|8k|mkv|mp4|avi|hdrip|web-?dl|webrip|bluray|brrip|dvdrip|x264|x265|hevc|dual audio|multi audio|hindi|kannada|tulu|telugu|tamil|malayalam|marathi|gujarati|bengali|punjabi|nepali|english|subtitles|subs|esub|episodes|season\s*\d+|s\d+e\d+|complete)\b",
         "",
         raw_q,
     )
@@ -453,6 +824,21 @@ def sanitize_search_query(text: str) -> str:
     return cleaned if cleaned else basic_q
 
 
+def extract_inline_lang_and_qual(raw_text: str) -> Tuple[Optional[str], Optional[str]]:
+    """Detects if the user typed a language or quality directly in their search query."""
+    detected_lang = None
+    detected_qual = None
+    for code, pattern in LANG_PATTERNS.items():
+        if pattern.search(raw_text):
+            detected_lang = code
+            break
+    for qual, pattern in QUAL_PATTERNS.items():
+        if pattern.search(raw_text):
+            detected_qual = qual
+            break
+    return detected_lang, detected_qual
+
+
 async def safe_search_db(query: str, max_results: int = 10, offset: int = 0):
     try:
         return await get_search_results(
@@ -465,17 +851,285 @@ async def safe_search_db(query: str, max_results: int = 10, offset: int = 0):
         return [], 0, 0
 
 
-async def god_tier_search(query: str) -> Tuple[list, int, int, str, bool]:
-    clean_query = sanitize_search_query(query)
-    if not clean_query:
+def _file_text(file_obj) -> str:
+    fname = (
+        file_obj.get("file_name", "")
+        if isinstance(file_obj, dict)
+        else getattr(file_obj, "file_name", "")
+    )
+    fcap = (
+        file_obj.get("caption", "")
+        if isinstance(file_obj, dict)
+        else getattr(file_obj, "caption", "")
+    )
+    return f"{fname or ''} {fcap or ''}".lower()
+
+
+def _score_file_relevance(file_obj, query_str: str) -> Tuple[int, int]:
+    """Ranks exact title/token matches first, then largest file size."""
+    fname = str(
+        file_obj.get("file_name", "")
+        if isinstance(file_obj, dict)
+        else getattr(file_obj, "file_name", "")
+    ).lower()
+    fsize = int(
+        file_obj.get("file_size", 0)
+        if isinstance(file_obj, dict)
+        else getattr(file_obj, "file_size", 0)
+    )
+    clean_fname = re.sub(r"[^a-zA-Z0-9]", " ", fname)
+    clean_fname = re.sub(r"\s+", " ", clean_fname).strip()
+
+    tokens = [t for t in query_str.lower().split() if t]
+    score = 0
+    if clean_fname.startswith(query_str.lower()):
+        score += 100
+    elif query_str.lower() in clean_fname:
+        score += 60
+    if tokens and all(re.search(rf"\b{re.escape(t)}\b", clean_fname) for t in tokens):
+        score += 40
+    return (score, fsize)
+
+
+async def smart_filtered_search(
+    base_query: str, state: dict, max_results: int = 10, offset: int = 0
+) -> Tuple[list, int, int]:
+    """
+    Fetches filtered results for Language & Quality with deep alias matching
+    (e.g. 'kan' or 'kannada', '2160p' or '4k') so valid files are never missed.
+    """
+    lang_code = state.get("lang")
+    qual_val = state.get("qual")
+
+    if not lang_code and not qual_val:
+        files, next_offset, total = await safe_search_db(
+            base_query, max_results=max_results, offset=offset
+        )
+        files.sort(key=lambda x: _score_file_relevance(x, base_query), reverse=True)
+        return files, next_offset, total
+
+    # 1. Try direct combined query first
+    effective_query = build_effective_search_query(base_query, state)
+    direct_files, next_offset, total = await safe_search_db(
+        effective_query, max_results=max_results, offset=offset
+    )
+    if direct_files:
+        direct_files.sort(
+            key=lambda x: _score_file_relevance(x, base_query), reverse=True
+        )
+        return direct_files, next_offset, total
+
+    # 2. Deep scan fallback on base_query pool (catches short tags like 'Kan', 'Tam', '4K', captions)
+    pool, _, _ = await safe_search_db(base_query, max_results=250, offset=0)
+    if not pool:
+        return [], 0, 0
+
+    lang_regex = LANG_PATTERNS.get(lang_code) if lang_code else None
+    qual_regex = QUAL_PATTERNS.get(qual_val) if qual_val else None
+
+    matched = []
+    for f in pool:
+        combined_txt = _file_text(f)
+        if lang_regex and not lang_regex.search(combined_txt):
+            continue
+        if qual_regex and not qual_regex.search(combined_txt):
+            continue
+        matched.append(f)
+
+    matched.sort(key=lambda x: _score_file_relevance(x, base_query), reverse=True)
+    total_matched = len(matched)
+    sliced = matched[offset : offset + max_results]
+    new_next_offset = (
+        offset + max_results if (offset + max_results) < total_matched else 0
+    )
+    return sliced, new_next_offset, total_matched
+
+
+def _extract_clean_movie_title(raw_filename: str) -> str:
+    """Extracts a concise, clean movie title (with year if present) from a raw DB filename."""
+    if not raw_filename:
+        return ""
+    s = re.sub(r"https?://\S+|t\.me/\S+|@\w+|\[[^\]]*\]|\([^)]*\)", " ", raw_filename)
+    s = re.sub(r"[_.-]", " ", s)
+    # Cut off at common quality/codec/language markers so only the movie title remains
+    s = re.split(
+        r"(?i)\b(4320p|2160p|1440p|1080p|720p|540p|480p|360p|240p|144p|4k|2k|8k|hdrip|web-?dl|webrip|bluray|brrip|dvdrip|camrip|hdts|predvd|x264|x265|hevc|avc|aac|ddp?5|atmos|dual\s*audio|multi\s*audio|kannada|tulu|telugu|tamil|malayalam|hindi|english|marathi|gujarati|bengali|punjabi|nepali|esub|subtitles|mkv|mp4|avi)\b",
+        s,
+    )[0]
+    s = re.sub(r"[^a-zA-Z0-9\s]", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    if len(s) < 2:
+        return sanitize_search_query(raw_filename)
+    words = s.split()
+    return " ".join(words[:5]).lower()
+
+
+async def get_cached_db_titles() -> List[str]:
+    """Returns a cached list of clean unique movie titles from the database."""
+    db_titles = FUZZY_TITLES_CACHE.get("titles")
+    if db_titles is not None:
+        return db_titles
+
+    try:
+        media_col = getattr(_Media, "collection", _Media)
+        sample_docs = (
+            await media_col.find({}, {"file_name": 1})
+            .limit(3500)
+            .to_list(length=3500)
+        )
+        title_set = set()
+        for d in sample_docs:
+            fn = d.get("file_name", "")
+            if not fn:
+                continue
+            clean_t = _extract_clean_movie_title(fn)
+            if clean_t and len(clean_t) >= 2:
+                title_set.add(clean_t)
+            san_t = sanitize_search_query(fn)
+            if san_t and 2 <= len(san_t) <= 35:
+                title_set.add(san_t)
+
+        db_titles = sorted(title_set)
+        FUZZY_TITLES_CACHE.set("titles", db_titles)
+        return db_titles
+    except Exception as e:
+        logger.error(f"get_cached_db_titles error: {e}")
+        return []
+
+
+# ============================================================
+# 💡 FEATURE 10: "DID YOU MEAN?" MULTI-CHOICE SUGGESTIONS FINDER
+# ============================================================
+def _consonant_skeleton(s: str) -> str:
+    """Removes vowels so 'kntra' == 'kantara' and 'kgff' == 'kgf'."""
+    s_clean = re.sub(r"[^a-z0-9]", "", s.lower())
+    s_clean = re.sub(r"(.)\1+", r"\1", s_clean)
+    if len(s_clean) <= 2:
+        return s_clean
+    skel = s_clean[0] + re.sub(r"[aeiou]", "", s_clean[1:])
+    return skel
+
+
+async def get_did_you_mean_suggestions(
+    query: str, max_suggestions: int = 5, allow_translit: bool = True
+) -> List[str]:
+    """
+    Finds the top 3-5 closest movie titles in the database when a user's spelling
+    is far off (e.g., 'Kntra', 'Kgff', or transliterated Indic text).
+    """
+    clean_q = sanitize_search_query(query, allow_translit=allow_translit)
+    if not clean_q:
+        return []
+
+    db_titles = await get_cached_db_titles()
+    if not db_titles:
+        return []
+
+    q_lower = clean_q.lower()
+    q_skel = _consonant_skeleton(q_lower)
+    q_tokens = q_lower.split()
+
+    scored_candidates: List[Tuple[float, str]] = []
+
+    for title in db_titles:
+        t_lower = title.lower().strip()
+        if not t_lower:
+            continue
+
+        # 1. Standard sequence similarity
+        ratio = difflib.SequenceMatcher(None, q_lower, t_lower).ratio()
+
+        # 2. First-word / token similarity
+        t_tokens = t_lower.split()
+        first_word_ratio = (
+            difflib.SequenceMatcher(None, q_tokens[0], t_tokens[0]).ratio()
+            if (q_tokens and t_tokens)
+            else 0.0
+        )
+
+        # 3. Consonant skeleton similarity (catches 'kntra' -> 'kantara', 'kgff' -> 'kgf')
+        t_skel = _consonant_skeleton(
+            t_tokens[0] if len(q_tokens) == 1 and t_tokens else t_lower
+        )
+        skel_ratio = (
+            difflib.SequenceMatcher(None, q_skel, t_skel).ratio()
+            if (q_skel and t_skel)
+            else 0.0
+        )
+
+        # 4. Prefix bonus
+        prefix_bonus = (
+            0.15 if (t_lower.startswith(q_lower[:3]) and len(q_lower) >= 3) else 0.0
+        )
+
+        best_score = (
+            max(ratio, first_word_ratio * 0.95, skel_ratio * 0.92) + prefix_bonus
+        )
+        if best_score >= 0.48:
+            scored_candidates.append((best_score, t_lower))
+
+    scored_candidates.sort(key=lambda x: x[0], reverse=True)
+
+    unique_suggestions: List[str] = []
+    seen_roots = set()
+
+    for _, cand in scored_candidates:
+        if len(unique_suggestions) >= max_suggestions:
+            break
+        root_key = re.sub(r"\b(19\d{2}|20\d{2})\b", "", cand).strip()
+        if not root_key or root_key in seen_roots:
+            continue
+
+        c_files, _, _ = await safe_search_db(cand, max_results=1, offset=0)
+        if not c_files and root_key != cand:
+            c_files, _, _ = await safe_search_db(root_key, max_results=1, offset=0)
+            if c_files:
+                cand = root_key
+
+        if c_files:
+            seen_roots.add(root_key)
+            unique_suggestions.append(cand)
+
+    return unique_suggestions
+
+
+async def god_tier_search(
+    query: str, allow_translit: bool = True
+) -> Tuple[list, int, int, str, bool]:
+    # Check if user typed in Kannada, Hindi, Tamil, Telugu, Malayalam, etc.
+    was_transliterated = bool(allow_translit and has_indic_script(query))
+    translit_variants = (
+        generate_phonetic_variants(transliterate_indic_to_english(query))
+        if was_transliterated
+        else []
+    )
+
+    clean_query = sanitize_search_query(query, allow_translit=allow_translit)
+    if not clean_query and not translit_variants:
         return [], 0, 0, query, False
+
+    # 0. If user typed in Indic script and Auto-Translate is ON, test all phonetic variants first
+    if translit_variants:
+        for variant in translit_variants:
+            v_clean = sanitize_search_query(variant, allow_translit=False)
+            if not v_clean:
+                continue
+            files, offset, total = await safe_search_db(
+                v_clean, max_results=10, offset=0
+            )
+            if files:
+                files.sort(
+                    key=lambda x: _score_file_relevance(x, v_clean), reverse=True
+                )
+                return files, offset, total, v_clean, True
 
     is_short_query = len(clean_query) <= 2
 
     # 1. Primary search with sanitized query
     files, offset, total = await safe_search_db(clean_query, max_results=10, offset=0)
     if files:
-        return files, offset, total, clean_query, False
+        files.sort(key=lambda x: _score_file_relevance(x, clean_query), reverse=True)
+        return files, offset, total, clean_query, was_transliterated
 
     # 2. Fallback to raw alphanumeric query if different from sanitized query
     raw_alnum = re.sub(r"[^a-zA-Z0-9]", " ", query.lower())
@@ -483,40 +1137,45 @@ async def god_tier_search(query: str) -> Tuple[list, int, int, str, bool]:
     if raw_alnum and raw_alnum != clean_query:
         files, offset, total = await safe_search_db(raw_alnum, max_results=10, offset=0)
         if files:
-            return files, offset, total, raw_alnum, False
+            files.sort(key=lambda x: _score_file_relevance(x, raw_alnum), reverse=True)
+            return files, offset, total, raw_alnum, was_transliterated
+
+    # 3. Strip trailing year if user typed a year that isn't in the DB filename
+    no_year_query = re.sub(r"\b(19\d{2}|20\d{2})\b", "", clean_query).strip()
+    no_year_query = re.sub(r"\s+", " ", no_year_query)
+    if no_year_query and no_year_query != clean_query and len(no_year_query) > 2:
+        files, offset, total = await safe_search_db(
+            no_year_query, max_results=10, offset=0
+        )
+        if files:
+            files.sort(
+                key=lambda x: _score_file_relevance(x, no_year_query), reverse=True
+            )
+            return files, offset, total, no_year_query, was_transliterated
 
     if is_short_query:
         return [], 0, 0, query, False
 
-    # 3. Fuzzy search fallback for typos
+    # 4. High-confidence Fuzzy Auto-Correction
     try:
-        media_col = getattr(_Media, "collection", _Media)
-        sample_docs = (
-            await media_col.find({}, {"file_name": 1}).limit(2000).to_list(length=2000)
-        )
-        db_titles = list(
-            set(
-                [
-                    sanitize_search_query(d.get("file_name", ""))
-                    for d in sample_docs
-                    if d.get("file_name")
-                ]
-            )
-        )
-
+        db_titles = await get_cached_db_titles()
         if matches := difflib.get_close_matches(
-            clean_query, db_titles, n=1, cutoff=0.55
+            clean_query, db_titles, n=1, cutoff=0.72
         ):
             corrected_query = matches[0]
             c_files, c_offset, c_total = await safe_search_db(
                 corrected_query, max_results=10, offset=0
             )
             if c_files:
+                c_files.sort(
+                    key=lambda x: _score_file_relevance(x, corrected_query),
+                    reverse=True,
+                )
                 return c_files, c_offset, c_total, corrected_query, True
     except Exception as e:
         logger.error(f"Fuzzy search fallback error: {e}")
 
-    return [], 0, 0, query, False
+    return [], 0, 0, clean_query or query, False
 
 
 # ============================================================
@@ -539,8 +1198,8 @@ async def build_result_buttons(
     active_qual = state.get("qual")
     has_active_filter = bool(active_lang or active_qual)
 
-    lang_btn_text = f"🔊 {active_lang}" if active_lang else "🔊"
-    qual_btn_text = f"🎥 {active_qual}" if active_qual else "🎥"
+    lang_btn_text = f"🔊 {active_lang}" if active_lang else "🔊 Language"
+    qual_btn_text = f"🎥 {active_qual}" if active_qual else "🎥 Quality"
 
     btn = [
         [
@@ -554,12 +1213,12 @@ async def build_result_buttons(
             create_btn(
                 text=lang_btn_text,
                 callback_data=f"flang#{req}#{key}",
-                style=BTN_PRIMARY if active_lang else BTN_PRIMARY,
+                style=BTN_SUCCESS if active_lang else BTN_PRIMARY,
             ),
             create_btn(
                 text=qual_btn_text,
                 callback_data=f"fqual#{req}#{key}",
-                style=BTN_PRIMARY if active_qual else BTN_PRIMARY,
+                style=BTN_SUCCESS if active_qual else BTN_PRIMARY,
             ),
             create_btn(
                 text="🎞",
@@ -581,7 +1240,7 @@ async def build_result_buttons(
                 create_btn(
                     text="⬅️ Back to Normal Results",
                     callback_data=f"freset#{req}#{key}",
-                    style=BTN_PRIMARY,
+                    style=BTN_DANGER,
                 )
             ]
         )
@@ -755,33 +1414,103 @@ def schedule_auto_delete(
     task.add_done_callback(AUTO_DELETE_TASKS.discard)
 
 
-async def _send_not_found(client: Client, msg: Message, img: Optional[str], text: str):
+async def _send_not_found(
+    client: Client,
+    msg: Message,
+    img: Optional[str],
+    text: str,
+    raw_search: str = "",
+    multichoice_on: bool = True,
+    autotranslate_on: bool = True,
+):
     k_msg = None
-    try:
-        final_text, final_markup = parse_text_and_markup(text)
-        final_text = final_text or "<b>🚫 File not found.</b>"
-        if img:
-            try:
-                k_msg = await msg.reply_photo(
-                    photo=img,
-                    caption=final_text,
-                    reply_markup=final_markup,
+    req = msg.from_user.id if msg.from_user else 0
+    key = f"{msg.chat.id}-{msg.id}"
+
+    # Check if Multi-Choice ("Did You Mean?") is enabled and finds suggestions
+    suggestions = (
+        await get_did_you_mean_suggestions(
+            raw_search, max_suggestions=5, allow_translit=autotranslate_on
+        )
+        if (raw_search and multichoice_on)
+        else []
+    )
+
+    if suggestions:
+        SUGGESTIONS_CACHE.set(key, suggestions)
+        mention = msg.from_user.mention if msg.from_user else "User"
+        safe_typed = html.escape(raw_search.strip())
+        dym_text = (
+            f"<b>Hᴇʏ {mention} 👋🏻\n\n"
+            f"🚫 Nᴏ Eхᴀᴄᴛ Mᴀᴛᴄʜ Fᴏʀ : <code>{safe_typed}</code>\n\n"
+            f"💡 Dɪᴅ Yᴏᴜ Mᴇᴀɴ Oɴᴇ Oғ Tʜᴇsᴇ Mᴏᴠɪᴇs? 👇</b>"
+        )
+        dym_btns = []
+        row = []
+        for idx, sug_title in enumerate(suggestions):
+            row.append(
+                create_btn(
+                    text=f"🎬 {sug_title.title()}",
+                    callback_data=f"dym#{req}#{key}#{idx}",
+                    style=BTN_SUCCESS,
+                )
+            )
+            if len(row) == 2:
+                dym_btns.append(row)
+                row = []
+        if row:
+            dym_btns.append(row)
+
+        dym_markup = InlineKeyboardMarkup(dym_btns)
+        try:
+            if img:
+                try:
+                    k_msg = await msg.reply_photo(
+                        photo=img,
+                        caption=dym_text,
+                        reply_markup=dym_markup,
+                        parse_mode=enums.ParseMode.HTML,
+                    )
+                except Exception:
+                    k_msg = await msg.reply_text(
+                        text=dym_text,
+                        reply_markup=dym_markup,
+                        parse_mode=enums.ParseMode.HTML,
+                    )
+            else:
+                k_msg = await msg.reply_text(
+                    text=dym_text,
+                    reply_markup=dym_markup,
                     parse_mode=enums.ParseMode.HTML,
                 )
-            except Exception:
+        except Exception:
+            pass
+    else:
+        try:
+            final_text, final_markup = parse_text_and_markup(text)
+            final_text = final_text or "<b>🚫 File not found.</b>"
+            if img:
+                try:
+                    k_msg = await msg.reply_photo(
+                        photo=img,
+                        caption=final_text,
+                        reply_markup=final_markup,
+                        parse_mode=enums.ParseMode.HTML,
+                    )
+                except Exception:
+                    k_msg = await msg.reply_text(
+                        text=final_text,
+                        reply_markup=final_markup,
+                        parse_mode=enums.ParseMode.HTML,
+                    )
+            else:
                 k_msg = await msg.reply_text(
                     text=final_text,
                     reply_markup=final_markup,
                     parse_mode=enums.ParseMode.HTML,
                 )
-        else:
-            k_msg = await msg.reply_text(
-                text=final_text,
-                reply_markup=final_markup,
-                parse_mode=enums.ParseMode.HTML,
-            )
-    except Exception:
-        pass
+        except Exception:
+            pass
 
     delete_timer = get_auto_delete_timer("AUTO_DELETE_TIME", 1800)
     if delete_timer > 0 and k_msg:
@@ -829,6 +1558,29 @@ async def auto_filter(client: Client, msg: Message):
         ]:
             return
 
+        autotranslate_on, multichoice_on = await get_feature_flags()
+
+        # If user typed in Indic script while Auto-Translate is disabled, skip transliteration
+        if has_indic_script(search) and not autotranslate_on:
+            try:
+                b_set = await get_bot_settings() or {}
+            except Exception:
+                b_set = {}
+            fnf_img = b_set.get("not_found_img", getattr(info, "NOT_FOUND_IMG", None))
+            fnf_txt = b_set.get(
+                "not_found_text",
+                getattr(info, "NOT_FOUND_MSG", "<b>🚫 File not found.</b>"),
+            )
+            return await _send_not_found(
+                client,
+                msg,
+                fnf_img,
+                fnf_txt,
+                raw_search="",
+                multichoice_on=False,
+                autotranslate_on=False,
+            )
+
         try:
             b_set = await get_bot_settings() or {}
         except Exception:
@@ -839,14 +1591,17 @@ async def auto_filter(client: Client, msg: Message):
         except Exception:
             settings = {}
 
-        cache_key = search.lower()
+        # Detect if user explicitly included a language or quality in their search text
+        inline_lang, inline_qual = extract_inline_lang_and_qual(search)
+
+        cache_key = f"{search.lower()}|at:{int(autotranslate_on)}"
         cached_data = GLOBAL_SEARCH_CACHE.get(cache_key)
 
         if cached_data:
             files, offset, total_results, search_query, was_corrected = cached_data
         else:
             files, offset, total_results, search_query, was_corrected = (
-                await god_tier_search(search)
+                await god_tier_search(search, allow_translit=autotranslate_on)
             )
             if files:
                 GLOBAL_SEARCH_CACHE.set(
@@ -860,16 +1615,33 @@ async def auto_filter(client: Client, msg: Message):
                 "not_found_text",
                 getattr(info, "NOT_FOUND_MSG", "<b>🚫 File not found.</b>"),
             )
-            return await _send_not_found(client, msg, fnf_img, fnf_txt)
+            return await _send_not_found(
+                client,
+                msg,
+                fnf_img,
+                fnf_txt,
+                raw_search=search,
+                multichoice_on=multichoice_on,
+                autotranslate_on=autotranslate_on,
+            )
 
-        files.sort(
-            key=lambda x: (
-                x.get("file_size", 0)
-                if isinstance(x, dict)
-                else getattr(x, "file_size", 0)
-            ),
-            reverse=True,
-        )
+        key = f"{msg.chat.id}-{msg.id}"
+        BUTTONS_CACHE.set(key, search_query)
+
+        # If user typed a language or quality in their query (e.g. "Kantara Kannada 1080p"),
+        # pre-filter if matching files exist, while keeping "Back to Normal Results" available!
+        if inline_lang or inline_qual:
+            inline_state = {"lang": inline_lang, "qual": inline_qual}
+            f_files, f_offset, f_total = await smart_filtered_search(
+                search_query, inline_state, max_results=10, offset=0
+            )
+            if f_files:
+                files, offset, total_results = f_files, f_offset, f_total
+                set_filter_state(key, lang=inline_lang, qual=inline_qual)
+            else:
+                set_filter_state(key, lang=None, qual=None)
+        else:
+            set_filter_state(key, lang=None, qual=None)
 
         try:
             total_results = int(total_results)
@@ -886,20 +1658,27 @@ async def auto_filter(client: Client, msg: Message):
 
         safe_orig_title = html.escape(search.title())
         safe_corr_title = html.escape(search_query.title())
+        was_indic = bool(autotranslate_on and has_indic_script(search))
 
-        cap = (
-            f"<b>Hᴇʏ {mention} 👋🏻\n\n"
-            f"🪄 Aᴜᴛᴏ-Cᴏʀʀᴇᴄᴛᴇᴅ : <del>{safe_orig_title}</del> ➔ <code>{safe_corr_title}</code>\n"
-            f"➤ Yᴏᴜʀ Fɪʟᴇꜱ Rᴇᴀᴅʏ Nᴏᴡ 👇</b>"
-            if was_corrected
-            else f"<b>Hᴇʏ {mention} 👋🏻\n\n"
-            f"➤ Tɪᴛʟᴇ : <code>{safe_corr_title}</code>\n"
-            f"➤ Yᴏᴜʀ Fɪʟᴇꜱ Rᴇᴀᴅʏ Nᴏᴡ 👇</b>"
-        )
+        if was_indic:
+            cap = (
+                f"<b>Hᴇʏ {mention} 👋🏻\n\n"
+                f"🔤 Tʀᴀɴsʟɪᴛᴇʀᴀᴛᴇᴅ : <code>{html.escape(search)}</code> ➔ <code>{safe_corr_title}</code>\n"
+                f"➤ Yᴏᴜʀ Fɪʟᴇꜱ Rᴇᴀᴅʏ Nᴏᴡ 👇</b>"
+            )
+        elif was_corrected:
+            cap = (
+                f"<b>Hᴇʏ {mention} 👋🏻\n\n"
+                f"🪄 Aᴜᴛᴏ-Cᴏʀʀᴇᴄᴛᴇᴅ : <del>{safe_orig_title}</del> ➔ <code>{safe_corr_title}</code>\n"
+                f"➤ Yᴏᴜʀ Fɪʟᴇꜱ Rᴇᴀᴅʏ Nᴏᴡ 👇</b>"
+            )
+        else:
+            cap = (
+                f"<b>Hᴇʏ {mention} 👋🏻\n\n"
+                f"➤ Tɪᴛʟᴇ : <code>{safe_corr_title}</code>\n"
+                f"➤ Yᴏᴜʀ Fɪʟᴇꜱ Rᴇᴀᴅʏ Nᴏᴡ 👇</b>"
+            )
 
-        key = f"{msg.chat.id}-{msg.id}"
-        BUTTONS_CACHE.set(key, search_query)
-        set_filter_state(key, lang=None, qual=None)
         req = msg.from_user.id if msg.from_user else 0
 
         btn = await build_result_buttons(
@@ -1004,10 +1783,173 @@ async def give_filter(client: Client, message: Message):
 
 
 # ============================================================
-# 🌐 LANGUAGE & 🎞️ QUALITY FILTER CALLBACK HANDLERS
+# ⚙️ AUTO-TRANSLATE & MULTI-CHOICE ADMIN COMMANDS + CALLBACKS
+# ============================================================
+def _build_feature_toggle_markup(
+    feat_key: str, is_enabled: bool
+) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                create_btn(
+                    text=f"{'✅ ' if is_enabled else ''}Enable",
+                    callback_data=f"pmfeat#{feat_key}#on",
+                    style=BTN_SUCCESS if is_enabled else BTN_PRIMARY,
+                ),
+                create_btn(
+                    text=f"{'🚫 ' if not is_enabled else ''}Disable",
+                    callback_data=f"pmfeat#{feat_key}#off",
+                    style=BTN_DANGER if not is_enabled else BTN_PRIMARY,
+                ),
+            ]
+        ]
+    )
+
+
+@Client.on_message(
+    filters.command(["autotranslate", "enautotranslate", "diautotranslate"])
+    & filters.incoming,
+    group=-2,
+)
+async def autotranslate_cmd_handler(client: Client, message: Message):
+    target_chat_id = await get_target_chat(client, message)
+    if not await verify_admin(client, message, target_chat_id):
+        return await message.reply_text(
+            "❌ <b>Unauthorized:</b> Admin access required.",
+            parse_mode=enums.ParseMode.HTML,
+        )
+
+    cmd = message.command[0].lower()
+    cur_trans, _ = await get_feature_flags(force_refresh=True)
+
+    if cmd == "enautotranslate":
+        new_state = True
+    elif cmd == "diautotranslate":
+        new_state = False
+    else:
+        if len(message.command) > 1:
+            arg = message.command[1].strip().lower()
+            if arg in ["on", "enable", "true", "yes", "1"]:
+                new_state = True
+            elif arg in ["off", "disable", "false", "no", "0"]:
+                new_state = False
+            else:
+                new_state = not cur_trans
+        else:
+            new_state = not cur_trans
+
+    await set_feature_flag("autotranslate", new_state)
+    status_badge = "🟢 ENABLED" if new_state else "🔴 DISABLED"
+    out_msg = await message.reply_text(
+        f"🔤 <b>Auto-Translate (Indic Script ➔ English):</b> <code>{status_badge}</code>\n\n"
+        f"<i>When enabled, movie names typed in Kannada, Hindi, Telugu, Tamil, or Malayalam script are automatically transliterated to English!</i>",
+        reply_markup=_build_feature_toggle_markup("autotranslate", new_state),
+        parse_mode=enums.ParseMode.HTML,
+    )
+    delete_timer = get_auto_delete_timer("AUTO_DELETE_TIME", 1800)
+    schedule_auto_delete(client, message.chat.id, False, delete_timer, message, out_msg)
+
+
+@Client.on_message(
+    filters.command(["multichoice", "enmultichoice", "dimultichoice"])
+    & filters.incoming,
+    group=-2,
+)
+async def multichoice_cmd_handler(client: Client, message: Message):
+    target_chat_id = await get_target_chat(client, message)
+    if not await verify_admin(client, message, target_chat_id):
+        return await message.reply_text(
+            "❌ <b>Unauthorized:</b> Admin access required.",
+            parse_mode=enums.ParseMode.HTML,
+        )
+
+    cmd = message.command[0].lower()
+    _, cur_mc = await get_feature_flags(force_refresh=True)
+
+    if cmd == "enmultichoice":
+        new_state = True
+    elif cmd == "dimultichoice":
+        new_state = False
+    else:
+        if len(message.command) > 1:
+            arg = message.command[1].strip().lower()
+            if arg in ["on", "enable", "true", "yes", "1"]:
+                new_state = True
+            elif arg in ["off", "disable", "false", "no", "0"]:
+                new_state = False
+            else:
+                new_state = not cur_mc
+        else:
+            new_state = not cur_mc
+
+    await set_feature_flag("multichoice", new_state)
+    status_badge = "🟢 ENABLED" if new_state else "🔴 DISABLED"
+    out_msg = await message.reply_text(
+        f"💡 <b>Multi-Choice ('Did You Mean?' Suggestions):</b> <code>{status_badge}</code>\n\n"
+        f"<i>When enabled, misspelled movie queries display up to 5 clickable movie title suggestions instead of File Not Found!</i>",
+        reply_markup=_build_feature_toggle_markup("multichoice", new_state),
+        parse_mode=enums.ParseMode.HTML,
+    )
+    delete_timer = get_auto_delete_timer("AUTO_DELETE_TIME", 1800)
+    schedule_auto_delete(client, message.chat.id, False, delete_timer, message, out_msg)
+
+
+@Client.on_callback_query(filters.regex(r"^pmfeat#"), group=-2)
+async def pm_feature_toggle_callback(bot: Client, query: CallbackQuery):
+    uid = query.from_user.id if query.from_user else 0
+    if not await is_global_admin(uid):
+        if query.message and query.message.chat.type in [
+            enums.ChatType.GROUP,
+            enums.ChatType.SUPERGROUP,
+        ]:
+            try:
+                member = await bot.get_chat_member(query.message.chat.id, uid)
+                if member.status not in [
+                    enums.ChatMemberStatus.ADMINISTRATOR,
+                    enums.ChatMemberStatus.OWNER,
+                ]:
+                    return await query.answer("❌ Admin only!", show_alert=True)
+            except Exception:
+                return await query.answer("❌ Admin only!", show_alert=True)
+        else:
+            return await query.answer("❌ Admin only!", show_alert=True)
+
+    try:
+        _, feat_key, state_str = query.data.split("#", 2)
+    except ValueError:
+        return await query.answer("Invalid data!", show_alert=True)
+
+    new_state = state_str == "on"
+    await set_feature_flag(feat_key, new_state)
+    status_badge = "🟢 ENABLED" if new_state else "🔴 DISABLED"
+
+    if feat_key == "autotranslate":
+        text = (
+            f"🔤 <b>Auto-Translate (Indic Script ➔ English):</b> <code>{status_badge}</code>\n\n"
+            f"<i>When enabled, movie names typed in Kannada, Hindi, Telugu, Tamil, or Malayalam script are automatically transliterated to English!</i>"
+        )
+    else:
+        text = (
+            f"💡 <b>Multi-Choice ('Did You Mean?' Suggestions):</b> <code>{status_badge}</code>\n\n"
+            f"<i>When enabled, misspelled movie queries display up to 5 clickable movie title suggestions instead of File Not Found!</i>"
+        )
+
+    try:
+        await query.message.edit_text(
+            text=text,
+            reply_markup=_build_feature_toggle_markup(feat_key, new_state),
+            parse_mode=enums.ParseMode.HTML,
+        )
+    except (MessageNotModified, MessageIdInvalid):
+        pass
+    await query.answer(f"Updated: {status_badge}")
+
+
+# ============================================================
+# 🌐 LANGUAGE, 🎞️ QUALITY & 💡 "DID YOU MEAN?" CALLBACK HANDLERS
 # ============================================================
 @Client.on_callback_query(
-    filters.regex(r"^(flang#|fqual#|setlang#|setqual#|fback#|freset#)"),
+    filters.regex(r"^(flang#|fqual#|setlang#|setqual#|fback#|freset#|dym#)"),
     group=-2,
 )
 async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
@@ -1028,6 +1970,80 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
             show_alert=True,
         )
 
+    # 💡 FEATURE 10 CALLBACK: User clicked a "Did You Mean?" movie suggestion button
+    if action == "dym":
+        try:
+            sug_idx = int(parts[3])
+        except (IndexError, ValueError):
+            return await query.answer("Invalid selection!", show_alert=True)
+
+        suggestions = SUGGESTIONS_CACHE.get(key)
+        if not suggestions or sug_idx >= len(suggestions):
+            return await query.answer(
+                "⌛ This suggestion expired. Please type the movie name again!",
+                show_alert=True,
+            )
+
+        chosen_title = suggestions[sug_idx]
+        files, n_offset, total = await safe_search_db(
+            chosen_title, max_results=10, offset=0
+        )
+        if not files:
+            return await query.answer(
+                "❌ No files found for that suggestion!", show_alert=True
+            )
+
+        files.sort(
+            key=lambda x: _score_file_relevance(x, chosen_title), reverse=True
+        )
+        BUTTONS_CACHE.set(key, chosen_title)
+        set_filter_state(key, lang=None, qual=None)
+
+        settings = await get_settings(query.message.chat.id) or {}
+        if not getattr(temp, "U_NAME", None):
+            me = await bot.get_me()
+            temp.U_NAME = me.username
+            temp.B_NAME = me.first_name
+            temp.ME = me.id
+        bot_username = temp.U_NAME or "bot"
+
+        btn = await build_result_buttons(
+            files=files,
+            offset=n_offset,
+            total_results=total,
+            req=req,
+            key=key,
+            settings=settings,
+            bot_username=bot_username,
+            current_offset=0,
+        )
+
+        mention = query.from_user.mention if query.from_user else "User"
+        safe_corr_title = html.escape(chosen_title.title())
+        new_cap = (
+            f"<b>Hᴇʏ {mention} 👋🏻\n\n"
+            f"➤ Tɪᴛʟᴇ : <code>{safe_corr_title}</code>\n"
+            f"➤ Yᴏᴜʀ Fɪʟᴇꜱ Rᴇᴀᴅʏ Nᴏᴡ 👇</b>"
+        )
+
+        try:
+            if query.message.photo or query.message.video or query.message.document:
+                await query.message.edit_caption(
+                    caption=new_cap,
+                    reply_markup=InlineKeyboardMarkup(btn),
+                    parse_mode=enums.ParseMode.HTML,
+                )
+            else:
+                await query.message.edit_text(
+                    text=new_cap,
+                    reply_markup=InlineKeyboardMarkup(btn),
+                    parse_mode=enums.ParseMode.HTML,
+                )
+        except (MessageNotModified, MessageIdInvalid, ButtonUrlInvalid):
+            pass
+
+        return await query.answer(f"🎬 Loaded: {chosen_title.title()}")
+
     base_search = BUTTONS_CACHE.get(key)
     if not base_search:
         return await query.answer(
@@ -1037,7 +2053,7 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
 
     state = get_filter_state(key)
 
-    # 1. Open Language Selection Menu
+    # 1. Open Language Selection Menu (2 Buttons Per Row)
     if action == "flang":
         cur_lang = state.get("lang")
         btn_rows = []
@@ -1052,7 +2068,7 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
                     style=style,
                 )
             )
-            if len(row) == 3:
+            if len(row) == 2:
                 btn_rows.append(row)
                 row = []
         if row:
@@ -1063,7 +2079,7 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
                 create_btn(
                     text="⬅️ Back",
                     callback_data=f"freset#{req}#{key}",
-                    style=BTN_PRIMARY,
+                    style=BTN_DANGER,
                 )
             ]
         )
@@ -1076,7 +2092,7 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
             pass
         return await query.answer("🔊 Select your preferred language:")
 
-    # 2. Open Quality Selection Menu
+    # 2. Open Quality Selection Menu (2 Buttons Per Row)
     if action == "fqual":
         cur_qual = state.get("qual")
         btn_rows = []
@@ -1091,7 +2107,7 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
                     style=style,
                 )
             )
-            if len(row) == 3:
+            if len(row) == 2:
                 btn_rows.append(row)
                 row = []
         if row:
@@ -1102,7 +2118,7 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
                 create_btn(
                     text="⬅️ Back",
                     callback_data=f"freset#{req}#{key}",
-                    style=BTN_PRIMARY,
+                    style=BTN_DANGER,
                 )
             ]
         )
@@ -1130,10 +2146,8 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
         new_qual = None if chosen == "all" or chosen == new_qual else chosen
 
     candidate_state = {"lang": new_lang, "qual": new_qual}
-    effective_query = build_effective_search_query(base_search, candidate_state)
-
-    files, n_offset, total = await safe_search_db(
-        effective_query, max_results=10, offset=0
+    files, n_offset, total = await smart_filtered_search(
+        base_search, candidate_state, max_results=10, offset=0
     )
 
     if not files:
@@ -1149,13 +2163,6 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
 
     # Save valid state
     set_filter_state(key, lang=new_lang, qual=new_qual)
-
-    files.sort(
-        key=lambda x: (
-            x.get("file_size", 0) if isinstance(x, dict) else getattr(x, "file_size", 0)
-        ),
-        reverse=True,
-    )
 
     settings = await get_settings(query.message.chat.id) or {}
     if not getattr(temp, "U_NAME", None):
@@ -1268,20 +2275,12 @@ async def pagination_handler(bot: Client, query: CallbackQuery):
         )
 
     state = get_filter_state(key)
-    effective_search = build_effective_search_query(base_search, state)
-
-    files, n_offset, total = await safe_search_db(
-        effective_search, max_results=10, offset=offset
+    files, n_offset, total = await smart_filtered_search(
+        base_search, state, max_results=10, offset=offset
     )
     if not files:
         return await query.answer("No more files found.", show_alert=True)
 
-    files.sort(
-        key=lambda x: (
-            x.get("file_size", 0) if isinstance(x, dict) else getattr(x, "file_size", 0)
-        ),
-        reverse=True,
-    )
     settings = await get_settings(query.message.chat.id) or {}
     if not getattr(temp, "U_NAME", None):
         me = await bot.get_me()
@@ -1849,24 +2848,28 @@ async def send_filter_media(
 async def safe_send_text_filter(
     client: Client, chat_id: int, text: str, reply_markup, reply_id: int
 ):
+    kw = {
+        "chat_id": chat_id,
+        "text": text,
+        "reply_markup": reply_markup,
+        "parse_mode": enums.ParseMode.HTML,
+    }
+    if "disable_web_page_preview" in _SEND_MSG_PARAMS:
+        kw["disable_web_page_preview"] = True
+    elif "link_preview_options" in _SEND_MSG_PARAMS and LinkPreviewOptions is not None:
+        kw["link_preview_options"] = LinkPreviewOptions(is_disabled=True)
+
     try:
-        return await client.send_message(
-            chat_id,
-            text,
-            disable_web_page_preview=True,
-            reply_markup=reply_markup,
-            reply_to_message_id=reply_id,
-            parse_mode=enums.ParseMode.HTML,
-        )
+        if "reply_to_message_id" in _SEND_MSG_PARAMS:
+            return await client.send_message(**kw, reply_to_message_id=reply_id)
+        elif "reply_parameters" in _SEND_MSG_PARAMS and ReplyParameters is not None:
+            return await client.send_message(
+                **kw, reply_parameters=ReplyParameters(message_id=reply_id)
+            )
+        return await client.send_message(**kw)
     except Exception:
         try:
-            return await client.send_message(
-                chat_id,
-                text,
-                disable_web_page_preview=True,
-                reply_markup=reply_markup,
-                parse_mode=enums.ParseMode.HTML,
-            )
+            return await client.send_message(**kw)
         except Exception as e:
             logger.error(f"Text filter failed: {e}")
             return None
