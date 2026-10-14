@@ -72,9 +72,7 @@ async def _fallback_pm_search(client: Client, message: Message, query: str):
                 ]
             )
 
-    btn_rows.append(
-        [InlineKeyboardButton("🔐 Close", callback_data="close_data")]
-    )
+    btn_rows.append([InlineKeyboardButton("🔐 Close", callback_data="close_data")])
 
     await message.reply_text(
         f"🔍 <b>Search Results for:</b> <code>{query}</code>\n"
@@ -88,7 +86,9 @@ async def _fallback_pm_search(client: Client, message: Message, query: str):
 # ============================================================
 # 🚨 CLEAN DEEP-LINK SEARCH INTERCEPTOR
 # ============================================================
-@Client.on_message(filters.command("start") & filters.private & filters.incoming, group=-99)
+@Client.on_message(
+    filters.command("start") & filters.private & filters.incoming, group=-99
+)
 async def intercept_direct_search(client: Client, message: Message):
     if len(message.command) < 2 or not message.command[1].startswith("search_"):
         return
