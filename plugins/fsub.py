@@ -1,13 +1,15 @@
 import asyncio
+import inspect
 import time
 from logging import ERROR, getLogger
-from typing import Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from motor.motor_asyncio import AsyncIOMotorClient
 from pyrogram import Client, enums, filters
 from pyrogram.errors import (
     ChatAdminRequired,
     FloodWait,
+    MessageIdInvalid,
     MessageNotModified,
     PeerIdInvalid,
     QueryIdInvalid,
@@ -24,47 +26,185 @@ from pyrogram.types import (
 
 import info
 from database.ia_filterdb import get_file_details
-from database.join_reqs import join_reqs as _join_reqs_db
-from database.plugin_dbs import plugin_db as _plugin_db
-from plugins.custom_settings import get_bot_settings
 from utils import get_size, parse_text_and_markup
 
 logger = getLogger(__name__)
 logger.setLevel(ERROR)
 
+# Safe optional imports
+try:
+    from database.join_reqs import join_reqs as _join_reqs_db
+except Exception:
+    _join_reqs_db = None
+
+try:
+    from database.plugin_dbs import plugin_db as _plugin_db
+except Exception:
+    _plugin_db = None
+
+try:
+    from plugins.custom_settings import get_bot_settings
+except Exception:
+
+    async def get_bot_settings():
+        return {}
+
+
+# ============================================================
+# 🛡️ PYROGRAM v2.2.26 (LAYER 230) COMPATIBILITY ENGINE
+# ============================================================
+try:
+    from pyrogram.types import LinkPreviewOptions
+except ImportError:
+    LinkPreviewOptions = None
+
+try:
+    from pyrogram.types import ReplyParameters
+except ImportError:
+    ReplyParameters = None
+
+_SEND_MSG_PARAMS = set(inspect.signature(Client.send_message).parameters.keys())
+_REPLY_PARAMS = set(inspect.signature(Message.reply_text).parameters.keys())
+_EDIT_PARAMS = set(inspect.signature(Message.edit_text).parameters.keys())
+
+
+def _prepare_compat_kwargs(
+    kwargs: dict, supported_params: set, disable_preview: Optional[bool] = None
+) -> dict:
+    clean_kw = dict(kwargs)
+    explicit_disable = clean_kw.pop("disable_web_page_preview", disable_preview)
+
+    if explicit_disable is not None:
+        if "disable_web_page_preview" in supported_params:
+            clean_kw["disable_web_page_preview"] = bool(explicit_disable)
+        elif (
+            "link_preview_options" in supported_params
+            and LinkPreviewOptions is not None
+        ):
+            try:
+                clean_kw["link_preview_options"] = LinkPreviewOptions(
+                    is_disabled=bool(explicit_disable)
+                )
+            except Exception:
+                pass
+
+    if "reply_to_message_id" in clean_kw:
+        rep_id = clean_kw.pop("reply_to_message_id")
+        if rep_id:
+            if "reply_to_message_id" in supported_params:
+                clean_kw["reply_to_message_id"] = rep_id
+            elif (
+                "reply_parameters" in supported_params
+                and ReplyParameters is not None
+            ):
+                try:
+                    clean_kw["reply_parameters"] = ReplyParameters(message_id=rep_id)
+                except Exception:
+                    pass
+
+    return clean_kw
+
+
+async def safe_reply_text(
+    message: Message, text: str, disable_web_page_preview: bool = True, **kwargs
+):
+    compat_kw = _prepare_compat_kwargs(
+        kwargs, _REPLY_PARAMS, disable_preview=disable_web_page_preview
+    )
+    try:
+        return await message.reply_text(text, **compat_kw)
+    except TypeError:
+        compat_kw.pop("disable_web_page_preview", None)
+        compat_kw.pop("link_preview_options", None)
+        compat_kw.pop("reply_parameters", None)
+        compat_kw.pop("reply_to_message_id", None)
+        return await message.reply_text(text, **compat_kw)
+
+
+async def safe_edit_text(
+    message: Message, text: str, disable_web_page_preview: bool = True, **kwargs
+):
+    compat_kw = _prepare_compat_kwargs(
+        kwargs, _EDIT_PARAMS, disable_preview=disable_web_page_preview
+    )
+    try:
+        return await message.edit_text(text, **compat_kw)
+    except TypeError:
+        compat_kw.pop("disable_web_page_preview", None)
+        compat_kw.pop("link_preview_options", None)
+        return await message.edit_text(text, **compat_kw)
+
+
+async def safe_send_message(
+    client: Client,
+    chat_id: int,
+    text: str,
+    disable_web_page_preview: Optional[bool] = True,
+    **kwargs,
+):
+    compat_kw = _prepare_compat_kwargs(
+        kwargs, _SEND_MSG_PARAMS, disable_preview=disable_web_page_preview
+    )
+    try:
+        return await client.send_message(chat_id=chat_id, text=text, **compat_kw)
+    except TypeError:
+        compat_kw.pop("disable_web_page_preview", None)
+        compat_kw.pop("link_preview_options", None)
+        compat_kw.pop("reply_parameters", None)
+        compat_kw.pop("reply_to_message_id", None)
+        return await client.send_message(chat_id=chat_id, text=text, **compat_kw)
+
+
+# ============================================================
+# 🎨 SAFE TELEGRAM BUTTON STYLE DETECTION
+# ============================================================
+BTN_PRIMARY = None
+BTN_SECONDARY = None
+BTN_SUCCESS = None
+BTN_DANGER = None
+_SUPPORTS_BTN_STYLE = False
+
 try:
     from pyrogram.enums import ButtonStyle
 
-    BTN_PRIMARY = getattr(ButtonStyle, "PRIMARY", 1)
-    BTN_SECONDARY = getattr(ButtonStyle, "SECONDARY", 2)
-    BTN_SUCCESS = getattr(ButtonStyle, "SUCCESS", 3)
-    BTN_DANGER = getattr(ButtonStyle, "DANGER", 4)
-except ImportError:
-    BTN_PRIMARY, BTN_SECONDARY, BTN_SUCCESS, BTN_DANGER = 1, 2, 3, 4
+    if "style" in inspect.signature(InlineKeyboardButton.__init__).parameters:
+        BTN_PRIMARY = getattr(ButtonStyle, "PRIMARY", None)
+        BTN_SECONDARY = getattr(ButtonStyle, "SECONDARY", None)
+        BTN_SUCCESS = getattr(ButtonStyle, "SUCCESS", None)
+        BTN_DANGER = getattr(ButtonStyle, "DANGER", None)
+        _SUPPORTS_BTN_STYLE = True
+except (ImportError, ValueError, TypeError):
+    BTN_PRIMARY = BTN_SECONDARY = BTN_SUCCESS = BTN_DANGER = None
+    _SUPPORTS_BTN_STYLE = False
 
 
 def create_btn(text, url=None, callback_data=None, style=None):
     kwargs = {"text": str(text)}
     if url:
-        kwargs["url"] = str(url)
+        kwargs["url"] = str(url).strip()
     elif callback_data:
-        kwargs["callback_data"] = str(callback_data)
-    if style is not None:
+        kwargs["callback_data"] = str(callback_data)[:64]
+    if _SUPPORTS_BTN_STYLE and style is not None:
         kwargs["style"] = style
     try:
         return InlineKeyboardButton(**kwargs)
-    except TypeError:
+    except Exception:
         kwargs.pop("style", None)
         return InlineKeyboardButton(**kwargs)
 
 
 # ============================================================
-# ⚙️ MONGODB PERMANENT FSUB & JOIN REQUEST ENGINE
+# ⚙️ MONGODB PERMANENT FSUB & FAST IN-MEMORY CACHE ENGINE
 # ============================================================
 _fsub_db = None
 _active_db = None
 _fsub_reqs_db = None
 _BOT_DB = None
+
+# Ultra-fast in-memory cache so ForceSub checks don't wait on DB round-trips
+_FSUB_CONFIG_CACHE: Optional[dict] = None
+_FSUB_CACHE_TS: float = 0.0
+_INVITE_LINK_CACHE: Dict[str, str] = {}
 
 try:
     _DB_CLIENT = AsyncIOMotorClient(info.DATABASE_URI)
@@ -76,7 +216,16 @@ except Exception as e:
     logger.error(f"Failed to init FSub DB: {e}")
 
 
-async def get_fsub_config() -> dict:
+async def get_fsub_config(force_refresh: bool = False) -> dict:
+    global _FSUB_CONFIG_CACHE, _FSUB_CACHE_TS
+    now = time.time()
+    if (
+        not force_refresh
+        and _FSUB_CONFIG_CACHE is not None
+        and (now - _FSUB_CACHE_TS) < 60
+    ):
+        return _FSUB_CONFIG_CACHE
+
     default_cfg = {
         "is_enabled": True,
         "max_count": 0,
@@ -90,24 +239,45 @@ async def get_fsub_config() -> dict:
                 for k, v in default_cfg.items():
                     if k not in doc:
                         doc[k] = v
+                _FSUB_CONFIG_CACHE = doc
+                _FSUB_CACHE_TS = now
                 return doc
         except Exception as e:
             logger.error(f"get_fsub_config error: {e}")
+
+    _FSUB_CONFIG_CACHE = default_cfg
+    _FSUB_CACHE_TS = now
     return default_cfg
 
 
-async def update_fsub_config(key: str, value):
+async def update_fsub_config(key: str, value: Any):
+    global _FSUB_CONFIG_CACHE, _FSUB_CACHE_TS
     if _fsub_db is not None:
         await _fsub_db.update_one(
             {"_id": "config"}, {"$set": {key: value}}, upsert=True
         )
+    if _FSUB_CONFIG_CACHE is not None:
+        _FSUB_CONFIG_CACHE[key] = value
+        _FSUB_CACHE_TS = time.time()
 
 
 async def update_fsub_channels(channels_dict: dict):
+    global _FSUB_CONFIG_CACHE, _FSUB_CACHE_TS
     if _fsub_db is not None:
         await _fsub_db.update_one(
             {"_id": "config"}, {"$set": {"channels": channels_dict}}, upsert=True
         )
+    if _FSUB_CONFIG_CACHE is not None:
+        _FSUB_CONFIG_CACHE["channels"] = channels_dict
+        _FSUB_CACHE_TS = time.time()
+
+
+async def safe_add_fsub_user(user_id: int):
+    if _plugin_db is not None and hasattr(_plugin_db, "add_fsub_user"):
+        try:
+            await _plugin_db.add_fsub_user(user_id)
+        except Exception:
+            pass
 
 
 async def record_join_request(
@@ -208,14 +378,20 @@ async def clear_all_join_requests() -> int:
 # ============================================================
 # 👑 SMART AUTHORIZATION & CONNECTION ENGINE
 # ============================================================
-def get_admin_list():
+def get_admin_list() -> List[int]:
     raw_admins = getattr(info, "ADMINS", [])
     if isinstance(raw_admins, (str, int)):
         raw_admins = str(raw_admins).replace(",", " ").split()
+    elif isinstance(raw_admins, (list, tuple, set)):
+        raw_admins = list(raw_admins)
+    else:
+        raw_admins = []
     return [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
 
 
 async def is_global_admin(user_id: int) -> bool:
+    if not user_id:
+        return False
     return int(user_id) in get_admin_list()
 
 
@@ -378,7 +554,7 @@ async def native_listen(
 
 
 # ============================================================
-# 🔗 INVITE LINK & USER CHECKING
+# 🔗 INVITE LINK & FAST PARALLEL USER CHECKING
 # ============================================================
 async def get_invite_link(bot: Client, chat_id_str: str, config: dict) -> str:
     channels = config.get("channels", {})
@@ -387,6 +563,8 @@ async def get_invite_link(bot: Client, chat_id_str: str, config: dict) -> str:
         return channel_data["target"]
     if channel_data.get("link"):
         return channel_data["link"]
+    if chat_id_str in _INVITE_LINK_CACHE:
+        return _INVITE_LINK_CACHE[chat_id_str]
 
     try:
         chat_id_int = int(str(chat_id_str).strip())
@@ -403,6 +581,7 @@ async def get_invite_link(bot: Client, chat_id_str: str, config: dict) -> str:
             )
 
         if inv_link:
+            _INVITE_LINK_CACHE[chat_id_str] = inv_link
             if chat_id_str not in channels:
                 channels[chat_id_str] = {
                     "title": chat.title or str(chat_id_int),
@@ -446,6 +625,65 @@ async def check_user_in_channel(
     return False
 
 
+async def _get_missing_channel_buttons(
+    bot: Client, user_id: int, config: dict
+) -> List[List[InlineKeyboardButton]]:
+    """Checks all eligible FSub channels concurrently for maximum speed."""
+    channels_dict = config.get("channels", {})
+    if not channels_dict:
+        return []
+
+    rotation_enabled = config.get("rotation_enabled", False)
+    max_count = int(config.get("max_count", 0) or 0)
+
+    if rotation_enabled:
+        eligible_channels = list(channels_dict.keys())
+        if eligible_channels:
+            shift = int(time.time() / 3600) % len(eligible_channels)
+            eligible_channels = eligible_channels[shift:] + eligible_channels[:shift]
+    else:
+        eligible_channels = [
+            k
+            for k, v in channels_dict.items()
+            if v.get("status", "active") == "active"
+        ]
+
+    if not eligible_channels:
+        return []
+
+    # Run membership checks in parallel so multiple FSub channels resolve in 1 round-trip
+    async def _check_single(cid_str: str):
+        ch_data = channels_dict.get(cid_str, {})
+        is_req = ch_data.get("type") == "req"
+        joined = await check_user_in_channel(bot, int(cid_str), user_id, is_req)
+        return cid_str, is_req, joined
+
+    results = await asyncio.gather(
+        *[_check_single(cid) for cid in eligible_channels], return_exceptions=True
+    )
+
+    not_joined_buttons = []
+    channels_to_force = 0
+
+    for res in results:
+        if isinstance(res, Exception):
+            continue
+        cid_str, is_req, joined = res
+        if joined:
+            continue
+        if max_count > 0 and channels_to_force >= max_count:
+            break
+        link = await get_invite_link(bot, cid_str, config)
+        if link:
+            btn_text = "⚓ Request to Join" if is_req else "📢 Join Channel"
+            not_joined_buttons.append(
+                [create_btn(btn_text, url=link, style=BTN_PRIMARY)]
+            )
+            channels_to_force += 1
+
+    return not_joined_buttons
+
+
 # ============================================================
 # 🛑 MAIN FORCESUB INTERCEPTOR
 # ============================================================
@@ -459,46 +697,16 @@ async def ForceSub(
         return True
 
     config = await get_fsub_config()
-    if not config.get("is_enabled", True):
+    if not config.get("is_enabled", True) or not config.get("channels"):
         return True
-
-    channels_dict = config.get("channels", {})
-    if not channels_dict:
-        return True
-
-    rotation_enabled = config.get("rotation_enabled", False)
-    max_count = int(config.get("max_count", 0) or 0)
-
-    if rotation_enabled:
-        eligible_channels = list(channels_dict.keys())
-        if eligible_channels:
-            shift = int(time.time() / 3600) % len(eligible_channels)
-            eligible_channels = eligible_channels[shift:] + eligible_channels[:shift]
-    else:
-        eligible_channels = [
-            k for k, v in channels_dict.items() if v.get("status", "active") == "active"
-        ]
-
-    not_joined_buttons = []
-    channels_to_force = 0
 
     try:
-        for chat_id_str in eligible_channels:
-            if max_count > 0 and channels_to_force >= max_count:
-                break
-            data = channels_dict.get(chat_id_str, {})
-            is_req = data.get("type") == "req"
-
-            if not await check_user_in_channel(bot, int(chat_id_str), user.id, is_req):
-                if link := await get_invite_link(bot, chat_id_str, config):
-                    btn_text = "⚓ Request to Join" if is_req else "📢 Join Channel"
-                    not_joined_buttons.append(
-                        [create_btn(btn_text, url=link, style=BTN_PRIMARY)]
-                    )
-                    channels_to_force += 1
+        not_joined_buttons = await _get_missing_channel_buttons(
+            bot, user.id, config
+        )
 
         if not not_joined_buttons:
-            await _plugin_db.add_fsub_user(user.id)
+            await safe_add_fsub_user(user.id)
             return True
 
         safe_mode = mode or "checksub"
@@ -517,29 +725,28 @@ async def ForceSub(
         fsub_caption = "<b>⚠️ Please join the channels below to get your file!</b>"
 
         try:
-            if custom_fsub_img:
-                await message.reply_photo(
-                    photo=custom_fsub_img,
-                    caption=fsub_caption,
-                    reply_markup=InlineKeyboardMarkup(not_joined_buttons),
-                    parse_mode=enums.ParseMode.HTML,
-                )
-            else:
-                await message.reply_text(
-                    fsub_caption,
-                    reply_markup=InlineKeyboardMarkup(not_joined_buttons),
-                    disable_web_page_preview=True,
-                    parse_mode=enums.ParseMode.HTML,
-                )
-        except (UserIsBlocked, PeerIdInvalid):
-            return False
-        except Exception:
-            await message.reply_text(
+            if custom_fsub_img and str(custom_fsub_img).lower() != "none":
+                try:
+                    await message.reply_photo(
+                        photo=custom_fsub_img,
+                        caption=fsub_caption,
+                        reply_markup=InlineKeyboardMarkup(not_joined_buttons),
+                        parse_mode=enums.ParseMode.HTML,
+                    )
+                    return False
+                except Exception:
+                    pass
+            await safe_reply_text(
+                message,
                 fsub_caption,
                 reply_markup=InlineKeyboardMarkup(not_joined_buttons),
                 disable_web_page_preview=True,
                 parse_mode=enums.ParseMode.HTML,
             )
+        except (UserIsBlocked, PeerIdInvalid):
+            return False
+        except Exception as e:
+            logger.error(f"ForceSub reply error: {e}")
         return False
     except Exception as e:
         logger.error(f"ForceSub error: {e}")
@@ -549,9 +756,19 @@ async def ForceSub(
 async def _deliver_verified_file(
     bot: Client, user_id: int, chat_id: int, file_id: str, mode: str = "checksub"
 ):
-    """Fetches full file details and sends the file with proper caption and auto-delete."""
+    """Fetches full file details (or batch/genlink payloads) and sends with auto-delete."""
     if not file_id or file_id == "0":
         return
+
+    # 1. Check if this is a BATCH-, DSTORE-, or genlink payload
+    if file_id.startswith(("BATCH-", "DSTORE-")):
+        try:
+            from plugins.genlink import deliver_genlink_payload
+
+            if await deliver_genlink_payload(bot, user_id, chat_id, file_id):
+                return
+        except Exception as e:
+            logger.error(f"Genlink FSub delivery error: {e}")
 
     protect = mode in ["filep", "checksubp"]
     files_ = await get_file_details(file_id)
@@ -615,6 +832,18 @@ async def _deliver_verified_file(
             ),
         )
     else:
+        # Check if stored in genlink_files DB
+        try:
+            from plugins.genlink import deliver_genlink_payload
+
+            prefix = "filep" if protect else "file"
+            if await deliver_genlink_payload(
+                bot, user_id, chat_id, f"{prefix}_{file_id}"
+            ):
+                return
+        except Exception:
+            pass
+
         db_file_id = file_id
         final_caption = "<b>🎉 Thank you for joining! Here is your file:</b>"
         final_keyboard = InlineKeyboardMarkup(
@@ -663,7 +892,8 @@ async def _deliver_verified_file(
                 parse_mode=enums.ParseMode.HTML,
             )
         except Exception:
-            await bot.send_message(
+            await safe_send_message(
+                bot,
                 chat_id=user_id,
                 text="✅ <b>Verification complete!</b>\n\n⚠️ <i>Please click the file link again to receive your movie.</i>",
                 parse_mode=enums.ParseMode.HTML,
@@ -687,7 +917,8 @@ async def _deliver_verified_file(
                     f"✅ Please forward this file to your saved messages and start downloading from there.\n\n"
                     f"Tᴇᴀᴍ: @KR_Picture</b>"
                 )
-                warn_msg = await bot.send_message(
+                warn_msg = await safe_send_message(
+                    bot,
                     chat_id=user_id,
                     text=warn_text,
                     reply_to_message_id=sent_msg.id,
@@ -716,41 +947,13 @@ async def refresh_fsub_callback(bot: Client, query: CallbackQuery):
 
     config = await get_fsub_config()
     channels_dict = config.get("channels", {})
-    rotation_enabled = config.get("rotation_enabled", False)
-    max_count = int(config.get("max_count", 0) or 0)
 
     if not await is_global_admin(user_id) and channels_dict:
-        if rotation_enabled:
-            eligible_channels = list(channels_dict.keys())
-            if eligible_channels:
-                shift = int(time.time() / 3600) % len(eligible_channels)
-                eligible_channels = (
-                    eligible_channels[shift:] + eligible_channels[:shift]
-                )
-        else:
-            eligible_channels = [
-                k
-                for k, v in channels_dict.items()
-                if v.get("status", "active") == "active"
-            ]
+        not_joined_buttons = await _get_missing_channel_buttons(
+            bot, user_id, config
+        )
 
-        not_joined_buttons = []
-        channels_to_force = 0
-
-        for chat_id_str in eligible_channels:
-            if max_count > 0 and channels_to_force >= max_count:
-                break
-            ch_data = channels_dict.get(chat_id_str, {})
-            is_req = ch_data.get("type") == "req"
-            if not await check_user_in_channel(bot, int(chat_id_str), user_id, is_req):
-                if link := await get_invite_link(bot, chat_id_str, config):
-                    btn_text = "⚓ Request to Join" if is_req else "📢 Join Channel"
-                    not_joined_buttons.append(
-                        [create_btn(btn_text, url=link, style=BTN_PRIMARY)]
-                    )
-                    channels_to_force += 1
-
-        if channels_to_force > 0:
+        if not_joined_buttons:
             await query.answer(
                 "❌ You haven't joined all required channels yet!", show_alert=True
             )
@@ -768,11 +971,11 @@ async def refresh_fsub_callback(bot: Client, query: CallbackQuery):
                 await query.message.edit_reply_markup(
                     InlineKeyboardMarkup(not_joined_buttons)
                 )
-            except MessageNotModified:
+            except (MessageNotModified, MessageIdInvalid):
                 pass
             return
 
-    await _plugin_db.add_fsub_user(user_id)
+    await safe_add_fsub_user(user_id)
     try:
         await query.answer("✅ Subscriptions verified!", show_alert=False)
     except QueryIdInvalid:
@@ -789,13 +992,17 @@ async def refresh_fsub_callback(bot: Client, query: CallbackQuery):
 # ============================================================
 # ⚙️ CONFIGURATION COMMANDS & INTERACTIVE BUTTONS
 # ============================================================
-@Client.on_message(filters.command("rotatefsub"), group=-3)
+@Client.on_message(filters.command("rotatefsub") & filters.incoming, group=-3)
 async def toggle_rotate(bot: Client, message: Message):
     target_chat_id = await get_target_chat(bot, message)
     if not await verify_admin(bot, message, target_chat_id):
-        return await message.reply_text("❌ **Unauthorized:** Admin only.")
+        return await safe_reply_text(
+            message,
+            "❌ <b>Unauthorized:</b> Admin only.",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
-    config = await get_fsub_config()
+    config = await get_fsub_config(force_refresh=True)
     current = config.get("rotation_enabled", False)
     await update_fsub_config("rotation_enabled", not current)
     status = (
@@ -803,30 +1010,48 @@ async def toggle_rotate(bot: Client, message: Message):
         if not current
         else "🔴 DISABLED (Static Priority)"
     )
-    await message.reply_text(
-        f"🔄 **Auto-Rotation Engine:** {status}\n\n"
-        f"*When enabled, the bot automatically cycles through all channels and forces users into the ones they haven't joined yet!*"
+    await safe_reply_text(
+        message,
+        f"🔄 <b>Auto-Rotation Engine:</b> {status}\n\n"
+        f"<i>When enabled, the bot automatically cycles through all channels and forces users into the ones they haven't joined yet!</i>",
+        parse_mode=enums.ParseMode.HTML,
     )
 
 
-@Client.on_message(filters.command("enablefsub"), group=-3)
+@Client.on_message(filters.command("enablefsub") & filters.incoming, group=-3)
 async def enable_fsub(bot: Client, message: Message):
     target_chat_id = await get_target_chat(bot, message)
     if not await verify_admin(bot, message, target_chat_id):
-        return await message.reply_text("❌ **Unauthorized:** Admin only.")
+        return await safe_reply_text(
+            message,
+            "❌ <b>Unauthorized:</b> Admin only.",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
     await update_fsub_config("is_enabled", True)
-    await message.reply_text("✅ **Force Subscribe has been ENABLED.**")
+    await safe_reply_text(
+        message,
+        "✅ <b>Force Subscribe has been ENABLED.</b>",
+        parse_mode=enums.ParseMode.HTML,
+    )
 
 
-@Client.on_message(filters.command("disablefsub"), group=-3)
+@Client.on_message(filters.command("disablefsub") & filters.incoming, group=-3)
 async def disable_fsub(bot: Client, message: Message):
     target_chat_id = await get_target_chat(bot, message)
     if not await verify_admin(bot, message, target_chat_id):
-        return await message.reply_text("❌ **Unauthorized:** Admin only.")
+        return await safe_reply_text(
+            message,
+            "❌ <b>Unauthorized:</b> Admin only.",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
     await update_fsub_config("is_enabled", False)
-    await message.reply_text("❌ **Force Subscribe has been DISABLED.**")
+    await safe_reply_text(
+        message,
+        "❌ <b>Force Subscribe has been DISABLED.</b>",
+        parse_mode=enums.ParseMode.HTML,
+    )
 
 
 async def _finalize_setfsub(
@@ -836,7 +1061,7 @@ async def _finalize_setfsub(
         chat = await bot.get_chat(int(channel_id))
         fsub_type = "req" if is_req else "regular"
 
-        config = await get_fsub_config()
+        config = await get_fsub_config(force_refresh=True)
         channels = config.get("channels", {})
         max_count = int(config.get("max_count", 0) or 0)
         active_count = len(
@@ -845,6 +1070,7 @@ async def _finalize_setfsub(
         status = "pending" if max_count > 0 and active_count >= max_count else "active"
 
         invite = await bot.create_chat_invite_link(chat.id, creates_join_request=is_req)
+        _INVITE_LINK_CACHE[str(chat.id)] = invite.invite_link
 
         channels[str(chat.id)] = {
             "title": chat.title or str(chat.id),
@@ -856,32 +1082,38 @@ async def _finalize_setfsub(
         await update_fsub_channels(channels)
 
         msg = (
-            f"✅ **Successfully Configured FSub!**\n\n"
-            f"📢 **Channel:** `{chat.title}`\n"
-            f"🆔 **ID:** `{chat.id}`\n"
-            f"🔗 **Link:** {invite.invite_link}\n"
-            f"⚙️ **Type:** `{'Join Request' if is_req else 'Normal'}`\n"
-            f"🟢 **Status:** `{status.upper()}`"
+            f"✅ <b>Successfully Configured FSub!</b>\n\n"
+            f"📢 <b>Channel:</b> <code>{chat.title}</code>\n"
+            f"🆔 <b>ID:</b> <code>{chat.id}</code>\n"
+            f"🔗 <b>Link:</b> {invite.invite_link}\n"
+            f"⚙️ <b>Type:</b> <code>{'Join Request' if is_req else 'Normal'}</code>\n"
+            f"🟢 <b>Status:</b> <code>{status.upper()}</code>"
         )
         return True, msg
     except ChatAdminRequired:
         return (
             False,
-            "❌ **The bot is not an admin in that channel or lacks 'Invite Users' rights.**",
+            "❌ <b>The bot is not an admin in that channel or lacks 'Invite Users' rights.</b>",
         )
     except Exception as e:
-        return False, f"❌ **Error:** `{e}`"
+        return False, f"❌ <b>Error:</b> <code>{e}</code>"
 
 
-@Client.on_message(filters.command("setfsub"), group=-3)
+@Client.on_message(filters.command("setfsub") & filters.incoming, group=-3)
 async def add_dynamic_fsub(bot: Client, message: Message):
     target_chat_id = await get_target_chat(bot, message)
     if not await verify_admin(bot, message, target_chat_id):
-        return await message.reply_text("❌ **Unauthorized:** Admin only.")
+        return await safe_reply_text(
+            message,
+            "❌ <b>Unauthorized:</b> Admin only.",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
     if len(message.command) < 2:
-        return await message.reply_text(
-            "⚙️ **Usage:** `/setfsub <channel_id>`\nExample: `/setfsub -1001234567890`"
+        return await safe_reply_text(
+            message,
+            "⚙️ <b>Usage:</b> <code>/setfsub &lt;channel_id&gt;</code>\nExample: <code>/setfsub -1001234567890</code>",
+            parse_mode=enums.ParseMode.HTML,
         )
 
     channel_id = message.command[1].strip()
@@ -891,8 +1123,10 @@ async def add_dynamic_fsub(bot: Client, message: Message):
         )
         channel_id = str(chat.id)
     except Exception as e:
-        return await message.reply_text(
-            f"❌ **Failed to fetch channel.** Make sure the bot is an admin in `{channel_id}`.\n`Error: {e}`"
+        return await safe_reply_text(
+            message,
+            f"❌ <b>Failed to fetch channel.</b> Make sure the bot is an admin in <code>{channel_id}</code>.\n<code>Error: {e}</code>",
+            parse_mode=enums.ParseMode.HTML,
         )
 
     # If user passed y/n or req/normal directly: /setfsub -10012345 y
@@ -902,7 +1136,12 @@ async def add_dynamic_fsub(bot: Client, message: Message):
         _, result_text = await _finalize_setfsub(
             bot, message.chat.id, channel_id, is_req
         )
-        return await message.reply_text(result_text, disable_web_page_preview=True)
+        return await safe_reply_text(
+            message,
+            result_text,
+            disable_web_page_preview=True,
+            parse_mode=enums.ParseMode.HTML,
+        )
 
     buttons = [
         [
@@ -926,11 +1165,13 @@ async def add_dynamic_fsub(bot: Client, message: Message):
         ],
     ]
 
-    ask_msg = await message.reply_text(
-        f"🎯 **Target:** `{chat.title}` (`{channel_id}`)\n\n"
-        f"Do you want this to be a **Join Request** channel?\n\n"
-        f"👉 **Click a button below** *(or reply with `y` for Yes / `n` for No)*:",
+    ask_msg = await safe_reply_text(
+        message,
+        f"🎯 <b>Target:</b> <code>{chat.title}</code> (<code>{channel_id}</code>)\n\n"
+        f"Do you want this to be a <b>Join Request</b> channel?\n\n"
+        f"👉 <b>Click a button below</b> <i>(or reply with <code>y</code> for Yes / <code>n</code> for No)</i>:",
         reply_markup=InlineKeyboardMarkup(buttons),
+        parse_mode=enums.ParseMode.HTML,
     )
 
     try:
@@ -945,7 +1186,11 @@ async def add_dynamic_fsub(bot: Client, message: Message):
         txt = resp.text.strip().lower()
         if txt == "/cancel":
             try:
-                await ask_msg.edit_text("❌ **FSub setup cancelled.**")
+                await safe_edit_text(
+                    ask_msg,
+                    "❌ <b>FSub setup cancelled.</b>",
+                    parse_mode=enums.ParseMode.HTML,
+                )
             except Exception:
                 pass
             return
@@ -959,12 +1204,20 @@ async def add_dynamic_fsub(bot: Client, message: Message):
                 bot, message.chat.id, channel_id, is_req
             )
             try:
-                await ask_msg.edit_text(result_text, disable_web_page_preview=True)
+                await safe_edit_text(
+                    ask_msg,
+                    result_text,
+                    disable_web_page_preview=True,
+                    parse_mode=enums.ParseMode.HTML,
+                )
             except Exception:
-                await message.reply_text(result_text, disable_web_page_preview=True)
-    except asyncio.TimeoutError:
-        pass
-    except asyncio.CancelledError:
+                await safe_reply_text(
+                    message,
+                    result_text,
+                    disable_web_page_preview=True,
+                    parse_mode=enums.ParseMode.HTML,
+                )
+    except (asyncio.TimeoutError, asyncio.CancelledError):
         pass
 
 
@@ -987,26 +1240,40 @@ async def fsub_admin_callbacks(bot: Client, query: CallbackQuery):
         _, mode, channel_id = data.split("#", 2)
         if mode == "cancel":
             await query.answer("Cancelled.")
-            return await query.message.edit_text("❌ **FSub setup cancelled.**")
+            return await safe_edit_text(
+                query.message,
+                "❌ <b>FSub setup cancelled.</b>",
+                parse_mode=enums.ParseMode.HTML,
+            )
 
         await query.answer("⏳ Configuring FSub channel...")
         is_req = mode == "req"
         _, result_text = await _finalize_setfsub(
             bot, query.message.chat.id, channel_id, is_req
         )
-        return await query.message.edit_text(result_text, disable_web_page_preview=True)
+        return await safe_edit_text(
+            query.message,
+            result_text,
+            disable_web_page_preview=True,
+            parse_mode=enums.ParseMode.HTML,
+        )
 
     if data.startswith("fsub_del#"):
         _, channel_id = data.split("#", 1)
-        config = await get_fsub_config()
+        config = await get_fsub_config(force_refresh=True)
         channels = config.get("channels", {})
         if channel_id in channels:
             del channels[channel_id]
+            _INVITE_LINK_CACHE.pop(channel_id, None)
             await update_fsub_channels(channels)
             await query.answer("🗑️ Channel removed!", show_alert=True)
             text, markup = await build_fsub_list_ui("All")
-            return await query.message.edit_text(
-                text, reply_markup=markup, disable_web_page_preview=True
+            return await safe_edit_text(
+                query.message,
+                text,
+                reply_markup=markup,
+                disable_web_page_preview=True,
+                parse_mode=enums.ParseMode.HTML,
             )
         return await query.answer("Channel already removed.", show_alert=True)
 
@@ -1014,54 +1281,82 @@ async def fsub_admin_callbacks(bot: Client, query: CallbackQuery):
         _, action = data.split("#", 1)
         if action == "cancel":
             await query.answer("Cancelled.")
-            return await query.message.edit_text("❌ **Operation cancelled.**")
+            return await safe_edit_text(
+                query.message,
+                "❌ <b>Operation cancelled.</b>",
+                parse_mode=enums.ParseMode.HTML,
+            )
         if action == "confirm":
             count = await clear_all_join_requests()
             await query.answer("✅ Join requests purged!", show_alert=True)
-            return await query.message.edit_text(
-                f"✅ **All join requests purged successfully!** (`{count}` deleted)"
+            return await safe_edit_text(
+                query.message,
+                f"✅ <b>All join requests purged successfully!</b> (<code>{count}</code> deleted)",
+                parse_mode=enums.ParseMode.HTML,
             )
 
 
-@Client.on_message(filters.command("rmfsub"), group=-3)
+@Client.on_message(filters.command("rmfsub") & filters.incoming, group=-3)
 async def rem_fsub(bot: Client, message: Message):
     target_chat_id = await get_target_chat(bot, message)
     if not await verify_admin(bot, message, target_chat_id):
-        return await message.reply_text("❌ **Unauthorized:** Admin only.")
+        return await safe_reply_text(
+            message,
+            "❌ <b>Unauthorized:</b> Admin only.",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
     if len(message.command) < 2:
-        return await message.reply_text("⚙️ **Usage:** `/rmfsub <channel_id>`")
+        return await safe_reply_text(
+            message,
+            "⚙️ <b>Usage:</b> <code>/rmfsub &lt;channel_id&gt;</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
     channel_id = message.command[1].strip()
 
-    config = await get_fsub_config()
+    config = await get_fsub_config(force_refresh=True)
     channels = config.get("channels", {})
 
     if channel_id in channels:
         del channels[channel_id]
+        _INVITE_LINK_CACHE.pop(channel_id, None)
         await update_fsub_channels(channels)
-        await message.reply_text(
-            f"🗑️ **ForceSub channel `{channel_id}` removed permanently.**"
+        await safe_reply_text(
+            message,
+            f"🗑️ <b>ForceSub channel <code>{channel_id}</code> removed permanently.</b>",
+            parse_mode=enums.ParseMode.HTML,
         )
     else:
-        await message.reply_text("❌ Channel not found in FSub database.")
+        await safe_reply_text(
+            message,
+            "❌ <b>Channel not found in FSub database.</b>",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
 
-@Client.on_message(filters.command("rmallfsub"), group=-3)
+@Client.on_message(filters.command("rmallfsub") & filters.incoming, group=-3)
 async def rem_all_fsub(bot: Client, message: Message):
     target_chat_id = await get_target_chat(bot, message)
     if not await verify_admin(bot, message, target_chat_id):
-        return await message.reply_text("❌ **Unauthorized:** Admin only.")
+        return await safe_reply_text(
+            message,
+            "❌ <b>Unauthorized:</b> Admin only.",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
+    _INVITE_LINK_CACHE.clear()
     await update_fsub_channels({})
-    await message.reply_text(
-        "🗑️ **ALL ForceSub channels have been removed and database is empty.**"
+    await safe_reply_text(
+        message,
+        "🗑️ <b>ALL ForceSub channels have been removed and database is empty.</b>",
+        parse_mode=enums.ParseMode.HTML,
     )
 
 
 async def build_fsub_list_ui(
     title_prefix: str = "All", filter_status: str = None
 ) -> Tuple[str, Optional[InlineKeyboardMarkup]]:
-    config = await get_fsub_config()
+    config = await get_fsub_config(force_refresh=True)
     channels_dict = config.get("channels", {})
     max_count = config.get("max_count", 0)
     rot_status = "ON" if config.get("rotation_enabled", False) else "OFF"
@@ -1072,18 +1367,18 @@ async def build_fsub_list_ui(
         channels = [(k, v) for k, v in channels if v.get("status") == filter_status]
 
     header = (
-        f"📡 **Force Subscribe Status:** {fsub_enabled}\n"
-        f"⚙️ **Queue Limit:** `{max_count if max_count > 0 else 'Unlimited'}`\n"
-        f"🔄 **Auto-Rotation:** `{rot_status}`\n\n"
+        f"📡 <b>Force Subscribe Status:</b> {fsub_enabled}\n"
+        f"⚙️ <b>Queue Limit:</b> <code>{max_count if max_count > 0 else 'Unlimited'}</code>\n"
+        f"🔄 <b>Auto-Rotation:</b> <code>{rot_status}</code>\n\n"
     )
 
     if not channels:
         return (
-            header + f"❌ No {title_prefix.lower()} ForceSub channels configured.",
+            header + f"❌ <i>No {title_prefix.lower()} ForceSub channels configured.</i>",
             None,
         )
 
-    text = header + f"📋 **{title_prefix} ForceSub Channels ({len(channels)}):**\n\n"
+    text = header + f"📋 <b>{title_prefix} ForceSub Channels ({len(channels)}):</b>\n\n"
     buttons = []
     for idx, (cid, data) in enumerate(channels, 1):
         status_emoji = "🟢" if data.get("status", "active") == "active" else "🟡"
@@ -1091,9 +1386,9 @@ async def build_fsub_list_ui(
         title_str = data.get("title", "Unknown")
         active_link = data.get("target") or data.get("link") or "No Link Generated"
         text += (
-            f"{idx}. {status_emoji} **{title_str}**\n"
-            f"├ ID: `{cid}`\n"
-            f"├ Type: `{req_type}`\n"
+            f"{idx}. {status_emoji} <b>{title_str}</b>\n"
+            f"├ ID: <code>{cid}</code>\n"
+            f"├ Type: <code>{req_type}</code>\n"
             f"└ Link: {active_link}\n\n"
         )
         buttons.append(
@@ -1109,14 +1404,24 @@ async def build_fsub_list_ui(
     return text, (InlineKeyboardMarkup(buttons) if buttons else None)
 
 
-@Client.on_message(filters.command(["getallfsub", "fsub"]), group=-3)
+@Client.on_message(filters.command(["getallfsub", "fsub"]) & filters.incoming, group=-3)
 async def get_all_fsub(bot: Client, message: Message):
     target_chat_id = await get_target_chat(bot, message)
     if not await verify_admin(bot, message, target_chat_id):
-        return await message.reply_text("❌ **Unauthorized:** Admin only.")
+        return await safe_reply_text(
+            message,
+            "❌ <b>Unauthorized:</b> Admin only.",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
     text, markup = await build_fsub_list_ui("All")
-    await message.reply_text(text, reply_markup=markup, disable_web_page_preview=True)
+    await safe_reply_text(
+        message,
+        text,
+        reply_markup=markup,
+        disable_web_page_preview=True,
+        parse_mode=enums.ParseMode.HTML,
+    )
 
 
 # ============================================================
@@ -1142,29 +1447,40 @@ async def join_reqs_handler(bot: Client, join_req: ChatJoinRequest):
 # ============================================================
 # 📊 JOIN REQUEST COMMANDS
 # ============================================================
-@Client.on_message(filters.command("totalrequests"), group=-3)
+@Client.on_message(filters.command("totalrequests") & filters.incoming, group=-3)
 async def total_requests(bot: Client, message: Message):
     target_chat_id = await get_target_chat(bot, message)
     if not await verify_admin(bot, message, target_chat_id):
-        return await message.reply_text("❌ **Unauthorized:** Admin only.")
+        return await safe_reply_text(
+            message,
+            "❌ <b>Unauthorized:</b> Admin only.",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
     try:
         total = await get_total_join_requests()
-        await message.reply_text(
-            f"📨 **Total Join Requests:** <code>{total}</code>",
+        await safe_reply_text(
+            message,
+            f"📨 <b>Total Join Requests:</b> <code>{total}</code>",
             parse_mode=enums.ParseMode.HTML,
         )
     except Exception as e:
-        await message.reply_text(
-            f"⚠️ Error: <code>{e}</code>", parse_mode=enums.ParseMode.HTML
+        await safe_reply_text(
+            message,
+            f"⚠️ Error: <code>{e}</code>",
+            parse_mode=enums.ParseMode.HTML,
         )
 
 
-@Client.on_message(filters.command("purgerequests"), group=-3)
+@Client.on_message(filters.command("purgerequests") & filters.incoming, group=-3)
 async def purge_requests(bot: Client, message: Message):
     target_chat_id = await get_target_chat(bot, message)
     if not await verify_admin(bot, message, target_chat_id):
-        return await message.reply_text("❌ **Unauthorized:** Admin only.")
+        return await safe_reply_text(
+            message,
+            "❌ <b>Unauthorized:</b> Admin only.",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
     buttons = [
         [
@@ -1183,10 +1499,12 @@ async def purge_requests(bot: Client, message: Message):
         ],
     ]
 
-    ask_msg = await message.reply_text(
-        "⚠️ **Are you sure you want to delete all join requests?**\n\n"
-        "👉 *Click a button below or reply with `y` / `n`:*",
+    ask_msg = await safe_reply_text(
+        message,
+        "⚠️ <b>Are you sure you want to delete all join requests?</b>\n\n"
+        "👉 <i>Click a button below or reply with <code>y</code> / <code>n</code>:</i>",
         reply_markup=InlineKeyboardMarkup(buttons),
+        parse_mode=enums.ParseMode.HTML,
     )
 
     try:
@@ -1205,12 +1523,22 @@ async def purge_requests(bot: Client, message: Message):
 
         if resp.text.strip().lower() in ["y", "yes"]:
             count = await clear_all_join_requests()
-            await ask_msg.edit_text(
-                f"✅ **All join requests purged successfully!** (`{count}` deleted)"
+            await safe_edit_text(
+                ask_msg,
+                f"✅ <b>All join requests purged successfully!</b> (<code>{count}</code> deleted)",
+                parse_mode=enums.ParseMode.HTML,
             )
         else:
-            await ask_msg.edit_text("❌ **Operation cancelled.**")
+            await safe_edit_text(
+                ask_msg,
+                "❌ <b>Operation cancelled.</b>",
+                parse_mode=enums.ParseMode.HTML,
+            )
     except (asyncio.TimeoutError, asyncio.CancelledError):
         pass
     except Exception as e:
-        await message.reply_text(f"⚠️ Error clearing requests: `{e}`")
+        await safe_reply_text(
+            message,
+            f"⚠️ Error clearing requests: <code>{e}</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
