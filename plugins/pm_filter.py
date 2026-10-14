@@ -7,7 +7,7 @@ import math
 import re
 import time
 from logging import ERROR, getLogger
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from motor.motor_asyncio import AsyncIOMotorClient
 from pyrogram import Client, enums, filters
@@ -58,6 +58,38 @@ logger.setLevel(ERROR)
 
 # Strong reference set so Python's garbage collector never cancels sleeping auto-delete tasks
 AUTO_DELETE_TASKS = set()
+
+# ============================================================
+# 🔗 CUSTOM EXTRA BUTTON LINKS (EDIT YOUR LINKS HERE)
+# ============================================================
+EXTRA_BTN_1_URL = getattr(
+    info, "EXTRA_BTN_1_URL", "https://t.me/+lcTawsnhdi0zYWE1"
+)  # Link for [🎞] button
+EXTRA_BTN_2_URL = getattr(
+    info, "EXTRA_BTN_2_URL", "https://t.me/linkz_ki_duniyaa"
+)  # Link for [🔞] button
+
+# ============================================================
+# 🌐 LANGUAGES & 🎞️ QUALITIES CONFIGURATION
+# ============================================================
+LANGUAGES_LIST: List[Tuple[str, str]] = [
+    ("Kannada"), ("Tulu"),
+    ("English"), ("Hindi"),
+    ("Tamil"), ("Telugu"),
+    ("Malayalam"), ("Marathi"),
+    ("Gujarati"), ("Bengali"),
+    ("Punjabi"), ("Nepali"),
+]
+
+LANG_MAP: Dict[str, str] = {code: name for name, code in LANGUAGES_LIST}
+
+QUALITIES_LIST: List[str] = [
+    "144p", "240p",
+    "360p", "480p",
+    "540p", "720p",
+    "1080p", "1440p",
+    "2160p", "4320p",
+]
 
 # ============================================================
 # 🎨 TELEGRAM BUTTON STYLE SUPPORT
@@ -351,7 +383,30 @@ class TTLCache:
 
 GLOBAL_SEARCH_CACHE = TTLCache(maxsize=3000, ttl=600)
 BUTTONS_CACHE = TTLCache(maxsize=3000, ttl=1800)
+FILTER_STATE_CACHE = TTLCache(maxsize=3000, ttl=1800)
 USER_LAST_REQ = TTLCache(maxsize=5000, ttl=60)
+
+
+def get_filter_state(key: str) -> dict:
+    state = FILTER_STATE_CACHE.get(key)
+    if not state or not isinstance(state, dict):
+        return {"lang": None, "qual": None}
+    return state
+
+
+def set_filter_state(key: str, lang: Optional[str] = None, qual: Optional[str] = None):
+    FILTER_STATE_CACHE.set(key, {"lang": lang, "qual": qual})
+
+
+def build_effective_search_query(base_query: str, state: dict) -> str:
+    parts = [base_query]
+    lang_code = state.get("lang")
+    qual_val = state.get("qual")
+    if lang_code and lang_code in LANG_MAP:
+        parts.append(LANG_MAP[lang_code].lower())
+    if qual_val:
+        parts.append(qual_val.lower())
+    return " ".join(p for p in parts if p).strip()
 
 
 # ============================================================
@@ -365,7 +420,7 @@ def sanitize_search_query(text: str) -> str:
     basic_q = re.sub(r"\s+", " ", basic_q).strip()
 
     q = re.sub(
-        r"(?i)\b(1080p|720p|480p|2160p|4k|mkv|mp4|avi|hdrip|web-?dl|webrip|bluray|brrip|dvdrip|x264|x265|hevc|dual audio|hindi|kannada|telugu|tamil|malayalam|english|subtitles|subs|episodes|season\s*\d+|s\d+e\d+|complete)\b",
+        r"(?i)\b(4320p|2160p|1440p|1080p|720p|540p|480p|360p|240p|144p|4k|mkv|mp4|avi|hdrip|web-?dl|webrip|bluray|brrip|dvdrip|x264|x265|hevc|dual audio|hindi|kannada|tulu|telugu|tamil|malayalam|marathi|gujarati|bengali|punjabi|nepali|english|subtitles|subs|episodes|season\s*\d+|s\d+e\d+|complete)\b",
         "",
         raw_q,
     )
@@ -451,6 +506,184 @@ async def god_tier_search(query: str) -> Tuple[list, int, int, str, bool]:
         logger.error(f"Fuzzy search fallback error: {e}")
 
     return [], 0, 0, query, False
+
+
+# ============================================================
+# 🧩 KEYBOARD BUILDER FOR AUTO-FILTER RESULTS
+# ============================================================
+async def build_result_buttons(
+    files: list,
+    offset: int,
+    total_results: int,
+    req: int,
+    key: str,
+    settings: dict,
+    bot_username: str,
+    current_offset: int = 0,
+) -> List[List[InlineKeyboardButton]]:
+    pre = "filep" if settings.get("file_secure", False) else "file"
+    clean_words = await get_clean_words()
+    state = get_filter_state(key)
+    active_lang = LANG_MAP.get(state.get("lang") or "")
+    active_qual = state.get("qual")
+    has_active_filter = bool(active_lang or active_qual)
+
+    lang_btn_text = f"🔊 {active_lang}" if active_lang else "🔊"
+    qual_btn_text = f"🎥 {active_qual}" if active_qual else "🎥"
+
+    btn = [
+        [
+            create_btn(
+                text="🎖️Lᴀᴛᴇsᴛ Mᴏᴠɪᴇ Uᴘᴅᴀᴛᴇs🎖️",
+                url="https://t.me/+8Mw-Y-fYN6hiZWZl",
+                style=BTN_PRIMARY,
+            )
+        ],
+        [
+            create_btn(
+                text=lang_btn_text,
+                callback_data=f"flang#{req}#{key}",
+                style=BTN_PRIMARY if active_lang else BTN_PRIMARY,
+            ),
+            create_btn(
+                text=qual_btn_text,
+                callback_data=f"fqual#{req}#{key}",
+                style=BTN_PRIMARY if active_qual else BTN_PRIMARY,
+            ),
+            create_btn(
+                text="🎞",
+                url=EXTRA_BTN_1_URL,
+                style=BTN_PRIMARY,
+            ),
+            create_btn(
+                text="🔞",
+                url=EXTRA_BTN_2_URL,
+                style=BTN_PRIMARY,
+            ),
+        ],
+    ]
+
+    # When a language or quality filter is applied, show a Back button to restore original normal results
+    if has_active_filter:
+        btn.append(
+            [
+                create_btn(
+                    text="⬅️ Back to Normal Results",
+                    callback_data=f"freset#{req}#{key}",
+                    style=BTN_PRIMARY,
+                )
+            ]
+        )
+
+    for file in files:
+        file_id = str(
+            file.get("file_id", "")
+            if isinstance(file, dict)
+            else getattr(file, "file_id", "")
+        )
+        raw_name = str(
+            file.get("file_name", "Unknown")
+            if isinstance(file, dict)
+            else getattr(file, "file_name", "Unknown")
+        )
+        file_size = int(
+            file.get("file_size", 0)
+            if isinstance(file, dict)
+            else getattr(file, "file_size", 0)
+        )
+
+        display_name = clean_filename(raw_name, clean_words)
+        size_str = get_size(file_size)
+        url_payload = f"https://t.me/{bot_username}?start={pre}_{file_id}"
+
+        if settings.get("button", False):
+            btn.append(
+                [create_btn(text=f"{size_str} | {display_name}", url=url_payload)]
+            )
+        else:
+            btn.append(
+                [
+                    create_btn(text=f"{display_name}", url=url_payload),
+                    create_btn(text=f"{size_str}", url=url_payload),
+                ]
+            )
+
+    try:
+        total_results = int(total_results)
+    except Exception:
+        total_results = len(files)
+
+    total_pages = math.ceil(total_results / 10) if total_results > 0 else 1
+    current_page = math.ceil(current_offset / 10) + 1 if current_offset > 0 else 1
+    off_set = (
+        0
+        if 0 < current_offset <= 10
+        else None if current_offset == 0 else current_offset - 10
+    )
+    page_cb = f"pages#{current_page}#{total_pages}#{total_results}"
+
+    if not offset and off_set is None:
+        btn.append(
+            [
+                create_btn(
+                    text=f"📄 {current_page}/{total_pages}",
+                    callback_data=page_cb,
+                    style=BTN_SUCCESS,
+                )
+            ]
+        )
+    elif not offset:
+        btn.append(
+            [
+                create_btn(
+                    "⬅️ BACK",
+                    callback_data=f"next_{req}_{key}_{off_set}",
+                    style=BTN_PRIMARY,
+                ),
+                create_btn(
+                    f"📄 {current_page}/{total_pages}",
+                    callback_data=page_cb,
+                    style=BTN_SUCCESS,
+                ),
+            ]
+        )
+    elif off_set is None:
+        btn.append(
+            [
+                create_btn(
+                    f"📄 {current_page}/{total_pages}",
+                    callback_data=page_cb,
+                    style=BTN_SUCCESS,
+                ),
+                create_btn(
+                    "NEXT ➡️",
+                    callback_data=f"next_{req}_{key}_{offset}",
+                    style=BTN_PRIMARY,
+                ),
+            ]
+        )
+    else:
+        btn.append(
+            [
+                create_btn(
+                    "⬅️ BACK",
+                    callback_data=f"next_{req}_{key}_{off_set}",
+                    style=BTN_PRIMARY,
+                ),
+                create_btn(
+                    f"📄 {current_page}/{total_pages}",
+                    callback_data=page_cb,
+                    style=BTN_SUCCESS,
+                ),
+                create_btn(
+                    "NEXT ➡️",
+                    callback_data=f"next_{req}_{key}_{offset}",
+                    style=BTN_PRIMARY,
+                ),
+            ]
+        )
+
+    return btn
 
 
 # ============================================================
@@ -632,10 +865,6 @@ async def auto_filter(client: Client, msg: Message):
         except Exception:
             total_results = len(files)
 
-        total_pages = math.ceil(total_results / 10) if total_results > 0 else 1
-        pre = "filep" if settings.get("file_secure", False) else "file"
-        btn = []
-
         if not getattr(temp, "U_NAME", None):
             me = await client.get_me()
             temp.U_NAME = me.username
@@ -659,77 +888,19 @@ async def auto_filter(client: Client, msg: Message):
 
         key = f"{msg.chat.id}-{msg.id}"
         BUTTONS_CACHE.set(key, search_query)
+        set_filter_state(key, lang=None, qual=None)
         req = msg.from_user.id if msg.from_user else 0
-        clean_words = await get_clean_words()
 
-        btn.append(
-            [
-                create_btn(
-                    text="🎖️Lᴀᴛᴇsᴛ Mᴏᴠɪᴇ Uᴘᴅᴀᴛᴇs🎖️",
-                    url="https://t.me/+8Mw-Y-fYN6hiZWZl",
-                    style=BTN_SUCCESS,
-                )
-            ]
+        btn = await build_result_buttons(
+            files=files,
+            offset=offset,
+            total_results=total_results,
+            req=req,
+            key=key,
+            settings=settings,
+            bot_username=bot_username,
+            current_offset=0,
         )
-
-        for file in files:
-            file_id = str(
-                file.get("file_id", "")
-                if isinstance(file, dict)
-                else getattr(file, "file_id", "")
-            )
-            raw_name = str(
-                file.get("file_name", "Unknown")
-                if isinstance(file, dict)
-                else getattr(file, "file_name", "Unknown")
-            )
-            file_size = int(
-                file.get("file_size", 0)
-                if isinstance(file, dict)
-                else getattr(file, "file_size", 0)
-            )
-
-            display_name = clean_filename(raw_name, clean_words)
-            size_str = get_size(file_size)
-            url_payload = f"https://t.me/{bot_username}?start={pre}_{file_id}"
-
-            if settings.get("button", False):
-                btn.append(
-                    [create_btn(text=f"{size_str} | {display_name}", url=url_payload)]
-                )
-            else:
-                btn.append(
-                    [
-                        create_btn(text=f"{display_name}", url=url_payload),
-                        create_btn(text=f"{size_str}", url=url_payload),
-                    ]
-                )
-
-        if offset:
-            btn.append(
-                [
-                    create_btn(
-                        text=f"📄 1/{total_pages}",
-                        callback_data=f"pages#1#{total_pages}#{total_results}",
-                        style=BTN_SUCCESS,
-                    ),
-                    create_btn(
-                        text="NEXT ➡️",
-                        callback_data=f"next_{req}_{key}_{offset}",
-                        style=BTN_PRIMARY,
-                    ),
-                ]
-            )
-        else:
-            btn.append(
-                [
-                    create_btn(
-                        text="📄 1/1",
-                        callback_data=f"pages#1#1#{total_results}",
-                        style=BTN_SUCCESS,
-                    )
-                ]
-            )
 
         default_markup = InlineKeyboardMarkup(btn)
         try:
@@ -822,6 +993,201 @@ async def give_filter(client: Client, message: Message):
 
 
 # ============================================================
+# 🌐 LANGUAGE & 🎞️ QUALITY FILTER CALLBACK HANDLERS
+# ============================================================
+@Client.on_callback_query(
+    filters.regex(r"^(flang#|fqual#|setlang#|setqual#|fback#|freset#)"),
+    group=-2,
+)
+async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
+    data = query.data
+    parts = data.split("#")
+    action = parts[0]
+
+    try:
+        req = int(parts[1])
+        key = parts[2]
+    except (IndexError, ValueError):
+        return await query.answer("Invalid button data!", show_alert=True)
+
+    uid = query.from_user.id if query.from_user else 0
+    if req not in [uid, 0] and not await is_global_admin(uid):
+        return await query.answer(
+            "⚠️ That's not for you! Request your own movie in the group.",
+            show_alert=True,
+        )
+
+    base_search = BUTTONS_CACHE.get(key)
+    if not base_search:
+        return await query.answer(
+            "⌛ This search expired. Please type the movie name again!",
+            show_alert=True,
+        )
+
+    state = get_filter_state(key)
+
+    # 1. Open Language Selection Menu
+    if action == "flang":
+        cur_lang = state.get("lang")
+        btn_rows = []
+        row = []
+        for lang_name, lang_code in LANGUAGES_LIST:
+            label = f"✅ {lang_name}" if cur_lang == lang_code else lang_name
+            style = BTN_SUCCESS if cur_lang == lang_code else BTN_PRIMARY
+            row.append(
+                create_btn(
+                    text=label,
+                    callback_data=f"setlang#{req}#{key}#{lang_code}",
+                    style=style,
+                )
+            )
+            if len(row) == 3:
+                btn_rows.append(row)
+                row = []
+        if row:
+            btn_rows.append(row)
+
+        btn_rows.append(
+            [
+                create_btn(
+                    text="⬅️ Back",
+                    callback_data=f"freset#{req}#{key}",
+                    style=BTN_PRIMARY,
+                )
+            ]
+        )
+
+        try:
+            await query.edit_message_reply_markup(
+                reply_markup=InlineKeyboardMarkup(btn_rows)
+            )
+        except (MessageNotModified, MessageIdInvalid):
+            pass
+        return await query.answer("🔊 Select your preferred language:")
+
+    # 2. Open Quality Selection Menu
+    if action == "fqual":
+        cur_qual = state.get("qual")
+        btn_rows = []
+        row = []
+        for qual_val in QUALITIES_LIST:
+            label = f"✅ {qual_val}" if cur_qual == qual_val else qual_val
+            style = BTN_SUCCESS if cur_qual == qual_val else BTN_PRIMARY
+            row.append(
+                create_btn(
+                    text=label,
+                    callback_data=f"setqual#{req}#{key}#{qual_val}",
+                    style=style,
+                )
+            )
+            if len(row) == 3:
+                btn_rows.append(row)
+                row = []
+        if row:
+            btn_rows.append(row)
+
+        btn_rows.append(
+            [
+                create_btn(
+                    text="⬅️ Back",
+                    callback_data=f"freset#{req}#{key}",
+                    style=BTN_PRIMARY,
+                )
+            ]
+        )
+
+        try:
+            await query.edit_message_reply_markup(
+                reply_markup=InlineKeyboardMarkup(btn_rows)
+            )
+        except (MessageNotModified, MessageIdInvalid):
+            pass
+        return await query.answer("🎥 Select your preferred quality:")
+
+    # 3. Apply Selected Language / Quality, Reset to Normal Filter, or Return to Results
+    new_lang = state.get("lang")
+    new_qual = state.get("qual")
+
+    if action in ["freset", "fback"]:
+        new_lang = None
+        new_qual = None
+    elif action == "setlang":
+        chosen = parts[3] if len(parts) > 3 else "all"
+        new_lang = None if chosen == "all" or chosen == new_lang else chosen
+    elif action == "setqual":
+        chosen = parts[3] if len(parts) > 3 else "all"
+        new_qual = None if chosen == "all" or chosen == new_qual else chosen
+
+    candidate_state = {"lang": new_lang, "qual": new_qual}
+    effective_query = build_effective_search_query(base_search, candidate_state)
+
+    files, n_offset, total = await safe_search_db(
+        effective_query, max_results=10, offset=0
+    )
+
+    if not files:
+        missing_label = ""
+        if action == "setlang" and new_lang:
+            missing_label = LANG_MAP.get(new_lang, new_lang)
+        elif action == "setqual" and new_qual:
+            missing_label = new_qual
+        return await query.answer(
+            f"❌ No {missing_label} files found for this movie!".strip(),
+            show_alert=True,
+        )
+
+    # Save valid state
+    set_filter_state(key, lang=new_lang, qual=new_qual)
+
+    files.sort(
+        key=lambda x: (
+            x.get("file_size", 0)
+            if isinstance(x, dict)
+            else getattr(x, "file_size", 0)
+        ),
+        reverse=True,
+    )
+
+    settings = await get_settings(query.message.chat.id) or {}
+    if not getattr(temp, "U_NAME", None):
+        me = await bot.get_me()
+        temp.U_NAME = me.username
+        temp.B_NAME = me.first_name
+        temp.ME = me.id
+    bot_username = temp.U_NAME or "bot"
+
+    btn = await build_result_buttons(
+        files=files,
+        offset=n_offset,
+        total_results=total,
+        req=req,
+        key=key,
+        settings=settings,
+        bot_username=bot_username,
+        current_offset=0,
+    )
+
+    try:
+        await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(btn))
+    except (MessageNotModified, MessageIdInvalid, ButtonUrlInvalid):
+        pass
+
+    if action in ["freset", "fback"]:
+        return await query.answer("⬅️ Restored normal filter results!")
+
+    active_filters = []
+    if new_lang and new_lang in LANG_MAP:
+        active_filters.append(LANG_MAP[new_lang])
+    if new_qual:
+        active_filters.append(new_qual)
+
+    if active_filters:
+        await query.answer(f"✅ Filtered by: {' + '.join(active_filters)}")
+    else:
+        await query.answer("⬅️ Restored normal filter results!")
+
+
+# ============================================================
 # 🎛️ INLINE CALLBACK HANDLERS (PAGINATION & PAGES)
 # ============================================================
 @Client.on_callback_query(
@@ -886,13 +1252,18 @@ async def pagination_handler(bot: Client, query: CallbackQuery):
         )
 
     offset = int(offset_str) if offset_str.isdigit() else 0
-    if not (search := BUTTONS_CACHE.get(key)):
+    if not (base_search := BUTTONS_CACHE.get(key)):
         return await query.answer(
             "⌛ This search expired. Please type the movie name again!",
             show_alert=True,
         )
 
-    files, n_offset, total = await safe_search_db(search, max_results=10, offset=offset)
+    state = get_filter_state(key)
+    effective_search = build_effective_search_query(base_search, state)
+
+    files, n_offset, total = await safe_search_db(
+        effective_search, max_results=10, offset=offset
+    )
     if not files:
         return await query.answer("No more files found.", show_alert=True)
 
@@ -908,108 +1279,18 @@ async def pagination_handler(bot: Client, query: CallbackQuery):
         temp.U_NAME = me.username
         temp.B_NAME = me.first_name
         temp.ME = me.id
-    btn, bot_username = [], temp.U_NAME or "bot"
-    pre = "filep" if settings.get("file_secure", False) else "file"
-    clean_words = await get_clean_words()
+    bot_username = temp.U_NAME or "bot"
 
-    btn.append(
-        [
-            create_btn(
-                text="🎖️Lᴀᴛᴇsᴛ Mᴏᴠɪᴇ Uᴘᴅᴀᴛᴇs🎖️",
-                url="https://t.me/KR_Picture",
-                style=BTN_SUCCESS,
-            )
-        ]
+    btn = await build_result_buttons(
+        files=files,
+        offset=n_offset,
+        total_results=total,
+        req=int(req),
+        key=key,
+        settings=settings,
+        bot_username=bot_username,
+        current_offset=offset,
     )
-
-    for file in files:
-        file_id = str(
-            file.get("file_id", "")
-            if isinstance(file, dict)
-            else getattr(file, "file_id", "")
-        )
-        raw_name = str(
-            file.get("file_name", "Unknown")
-            if isinstance(file, dict)
-            else getattr(file, "file_name", "Unknown")
-        )
-        file_size = int(
-            file.get("file_size", 0)
-            if isinstance(file, dict)
-            else getattr(file, "file_size", 0)
-        )
-
-        display_name = clean_filename(raw_name, clean_words)
-        size_str = get_size(file_size)
-        url_payload = f"https://t.me/{bot_username}?start={pre}_{file_id}"
-
-        if settings.get("button", False):
-            btn.append(
-                [create_btn(text=f"{size_str} | {display_name}", url=url_payload)]
-            )
-        else:
-            btn.append(
-                [
-                    create_btn(text=f"{display_name}", url=url_payload),
-                    create_btn(text=f"{size_str}", url=url_payload),
-                ]
-            )
-
-    off_set = 0 if 0 < offset <= 10 else None if offset == 0 else offset - 10
-    try:
-        total = int(total)
-    except Exception:
-        total = 0
-    total_pages = math.ceil(total / 10) if total > 0 else 1
-    current_page = math.ceil(offset / 10) + 1 if offset > 0 else 1
-    page_cb = f"pages#{current_page}#{total_pages}#{total}"
-
-    if not n_offset:
-        nav_row = [
-            create_btn(
-                "⬅️ BACK",
-                callback_data=f"next_{req}_{key}_{off_set}",
-                style=BTN_PRIMARY,
-            ),
-            create_btn(
-                f"📄 {current_page}/{total_pages}",
-                callback_data=page_cb,
-                style=BTN_SUCCESS,
-            ),
-        ]
-    elif off_set is None:
-        nav_row = [
-            create_btn(
-                f"📄 {current_page}/{total_pages}",
-                callback_data=page_cb,
-                style=BTN_SUCCESS,
-            ),
-            create_btn(
-                "NEXT ➡️",
-                callback_data=f"next_{req}_{key}_{n_offset}",
-                style=BTN_PRIMARY,
-            ),
-        ]
-    else:
-        nav_row = [
-            create_btn(
-                "⬅️ BACK",
-                callback_data=f"next_{req}_{key}_{off_set}",
-                style=BTN_PRIMARY,
-            ),
-            create_btn(
-                f"📄 {current_page}/{total_pages}",
-                callback_data=page_cb,
-                style=BTN_SUCCESS,
-            ),
-            create_btn(
-                "NEXT ➡️",
-                callback_data=f"next_{req}_{key}_{n_offset}",
-                style=BTN_PRIMARY,
-            ),
-        ]
-
-    btn.append(nav_row)
 
     try:
         await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(btn))
