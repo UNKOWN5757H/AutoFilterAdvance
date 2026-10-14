@@ -481,9 +481,13 @@ async def get_about_keyboard():
     )
 
 
-async def transition_ui_message(client: Client, msg_obj: Message, text: str, keyboard, img=None):
+async def transition_ui_message(
+    client: Client, msg_obj: Message, text: str, keyboard, img=None
+):
     """Smoothly transitions between photo and text messages while handling caption length limits."""
-    has_media = bool(msg_obj.photo or msg_obj.video or msg_obj.document or msg_obj.animation)
+    has_media = bool(
+        msg_obj.photo or msg_obj.video or msg_obj.document or msg_obj.animation
+    )
     can_use_caption = len(text or "") <= 1024
 
     try:
@@ -762,7 +766,9 @@ async def start(client: Client, message: Message):
 
     if is_help_command:
         raw_help = getattr(script, "HELP_TXT", "<b>Help Menu</b>")
-        text = format_script_text(raw_help, mention=user_mention, uname=bot_uname, bname=b_name)
+        text = format_script_text(
+            raw_help, mention=user_mention, uname=bot_uname, bname=b_name
+        )
         final_text, final_keyboard = safe_parse_text_and_markup(
             text, await get_help_keyboard()
         )
@@ -916,7 +922,10 @@ async def set_clean_words(client: Client, message: Message):
         else getattr(message.sender_chat, "id", 0)
     )
     if not await is_global_admin(uid):
-        return await message.reply_text("❌ <b>Unauthorized:</b> Global Bot Admin only.", parse_mode=enums.ParseMode.HTML)
+        return await message.reply_text(
+            "❌ <b>Unauthorized:</b> Global Bot Admin only.",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
     if len(message.command) < 2:
         return await message.reply_text(
@@ -946,7 +955,10 @@ async def default_clean_words(client: Client, message: Message):
         else getattr(message.sender_chat, "id", 0)
     )
     if not await is_global_admin(uid):
-        return await message.reply_text("❌ <b>Unauthorized:</b> Global Bot Admin only.", parse_mode=enums.ParseMode.HTML)
+        return await message.reply_text(
+            "❌ <b>Unauthorized:</b> Global Bot Admin only.",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
     if cw_db is not None:
         await cw_db.update_one(
@@ -966,7 +978,10 @@ async def rem_clean_words(client: Client, message: Message):
         else getattr(message.sender_chat, "id", 0)
     )
     if not await is_global_admin(uid):
-        return await message.reply_text("❌ <b>Unauthorized:</b> Global Bot Admin only.", parse_mode=enums.ParseMode.HTML)
+        return await message.reply_text(
+            "❌ <b>Unauthorized:</b> Global Bot Admin only.",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
     if cw_db is not None:
         await cw_db.update_one(
@@ -989,7 +1004,10 @@ async def set_pm_text(client: Client, message: Message):
         else getattr(message.sender_chat, "id", 0)
     )
     if not await is_global_admin(uid):
-        return await message.reply_text("❌ <b>Unauthorized:</b> Global Bot Admin only.", parse_mode=enums.ParseMode.HTML)
+        return await message.reply_text(
+            "❌ <b>Unauthorized:</b> Global Bot Admin only.",
+            parse_mode=enums.ParseMode.HTML,
+        )
     try:
         text = get_html_text(message)
         if not text:
@@ -1014,12 +1032,17 @@ async def rem_pm_text(client: Client, message: Message):
         else getattr(message.sender_chat, "id", 0)
     )
     if not await is_global_admin(uid):
-        return await message.reply_text("❌ <b>Unauthorized:</b> Global Bot Admin only.", parse_mode=enums.ParseMode.HTML)
+        return await message.reply_text(
+            "❌ <b>Unauthorized:</b> Global Bot Admin only.",
+            parse_mode=enums.ParseMode.HTML,
+        )
     await save_pm_settings(
         "text",
         "<b>🚫 Don't Message Here, Message Here Only!</b>\n\nI do not respond to direct messages in PM. Please join our official group to request and download movies.",
     )
-    await message.reply_text("✅ <b>PM Text reset to default.</b>", parse_mode=enums.ParseMode.HTML)
+    await message.reply_text(
+        "✅ <b>PM Text reset to default.</b>", parse_mode=enums.ParseMode.HTML
+    )
 
 
 @Client.on_message(filters.command("setpmimage") & filters.incoming)
@@ -1030,18 +1053,25 @@ async def set_pm_image(client: Client, message: Message):
         else getattr(message.sender_chat, "id", 0)
     )
     if not await is_global_admin(uid):
-        return await message.reply_text("❌ <b>Unauthorized:</b> Global Bot Admin only.", parse_mode=enums.ParseMode.HTML)
+        return await message.reply_text(
+            "❌ <b>Unauthorized:</b> Global Bot Admin only.",
+            parse_mode=enums.ParseMode.HTML,
+        )
     if not message.reply_to_message or not message.reply_to_message.photo:
         return await message.reply_text(
             "⚙️ <b>Usage:</b> Reply to a photo with <code>/setpmimage</code>",
             parse_mode=enums.ParseMode.HTML,
         )
 
-    status = await message.reply_text("⏳ <b>Uploading to Cloud...</b>", parse_mode=enums.ParseMode.HTML)
+    status = await message.reply_text(
+        "⏳ <b>Uploading to Cloud...</b>", parse_mode=enums.ParseMode.HTML
+    )
     url = await upload_image_safely(client, message.reply_to_message)
     if url:
         await save_pm_settings("image", url)
-        await status.edit_text("✅ <b>PM Image updated successfully!</b>", parse_mode=enums.ParseMode.HTML)
+        await status.edit_text(
+            "✅ <b>PM Image updated successfully!</b>", parse_mode=enums.ParseMode.HTML
+        )
     else:
         file_id = message.reply_to_message.photo.file_id
         await save_pm_settings("image", file_id)
@@ -1059,9 +1089,14 @@ async def rem_pm_image(client: Client, message: Message):
         else getattr(message.sender_chat, "id", 0)
     )
     if not await is_global_admin(uid):
-        return await message.reply_text("❌ <b>Unauthorized:</b> Global Bot Admin only.", parse_mode=enums.ParseMode.HTML)
+        return await message.reply_text(
+            "❌ <b>Unauthorized:</b> Global Bot Admin only.",
+            parse_mode=enums.ParseMode.HTML,
+        )
     await save_pm_settings("image", None)
-    await message.reply_text("✅ <b>PM Image removed.</b>", parse_mode=enums.ParseMode.HTML)
+    await message.reply_text(
+        "✅ <b>PM Image removed.</b>", parse_mode=enums.ParseMode.HTML
+    )
 
 
 @Client.on_message(filters.command("setpmbutton") & filters.incoming)
@@ -1072,7 +1107,10 @@ async def set_pm_button(client: Client, message: Message):
         else getattr(message.sender_chat, "id", 0)
     )
     if not await is_global_admin(uid):
-        return await message.reply_text("❌ <b>Unauthorized:</b> Global Bot Admin only.", parse_mode=enums.ParseMode.HTML)
+        return await message.reply_text(
+            "❌ <b>Unauthorized:</b> Global Bot Admin only.",
+            parse_mode=enums.ParseMode.HTML,
+        )
     try:
         if len(message.command) < 2:
             return await message.reply_text(
@@ -1110,10 +1148,15 @@ async def rem_pm_button(client: Client, message: Message):
         else getattr(message.sender_chat, "id", 0)
     )
     if not await is_global_admin(uid):
-        return await message.reply_text("❌ <b>Unauthorized:</b> Global Bot Admin only.", parse_mode=enums.ParseMode.HTML)
+        return await message.reply_text(
+            "❌ <b>Unauthorized:</b> Global Bot Admin only.",
+            parse_mode=enums.ParseMode.HTML,
+        )
     await save_pm_settings("button_text", None)
     await save_pm_settings("button_url", None)
-    await message.reply_text("✅ <b>PM Button removed completely.</b>", parse_mode=enums.ParseMode.HTML)
+    await message.reply_text(
+        "✅ <b>PM Button removed completely.</b>", parse_mode=enums.ParseMode.HTML
+    )
 
 
 # ============================================================
@@ -1197,7 +1240,10 @@ async def list_all_channels_cmd(client: Client, message: Message):
         else getattr(message.sender_chat, "id", 0)
     )
     if not await is_global_admin(uid):
-        return await message.reply_text("❌ <b>Unauthorized:</b> Global Bot Admin only.", parse_mode=enums.ParseMode.HTML)
+        return await message.reply_text(
+            "❌ <b>Unauthorized:</b> Global Bot Admin only.",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
     status_msg = await message.reply_text("⏳ Generating link database...")
     text, reply_markup = await get_channels_page(client, page=1)
@@ -1217,7 +1263,10 @@ async def leave_channel_cmd(client: Client, message: Message):
         else getattr(message.sender_chat, "id", 0)
     )
     if not await is_global_admin(uid):
-        return await message.reply_text("❌ <b>Unauthorized:</b> Global Bot Admin only.", parse_mode=enums.ParseMode.HTML)
+        return await message.reply_text(
+            "❌ <b>Unauthorized:</b> Global Bot Admin only.",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
     if len(message.command) < 2:
         return await message.reply_text(
@@ -1346,7 +1395,11 @@ async def cb_handler(client: Client, query: CallbackQuery):
             await query.answer("📄 Page Indicator")
 
         elif query.data.startswith("alertmessage"):
-            parts = query.data.split(":", 1) if ":" in query.data else query.data.split("#", 1)
+            parts = (
+                query.data.split(":", 1)
+                if ":" in query.data
+                else query.data.split("#", 1)
+            )
             alert_txt = parts[1] if len(parts) > 1 else "Alert!"
             await query.answer(alert_txt[:200], show_alert=True)
 
@@ -1414,13 +1467,19 @@ async def cb_handler(client: Client, query: CallbackQuery):
             )
 
         elif query.data in ["stats", "rfrsh"]:
-            await query.answer("Refreshing Database Stats..." if query.data == "rfrsh" else "Loading Stats...")
+            await query.answer(
+                "Refreshing Database Stats..."
+                if query.data == "rfrsh"
+                else "Loading Stats..."
+            )
             status_text = await build_status_text()
             buttons = InlineKeyboardMarkup(
                 [
                     [
                         create_btn("🔙 Back", callback_data="about", style=BTN_PRIMARY),
-                        create_btn("🔄 Refresh", callback_data="rfrsh", style=BTN_SUCCESS),
+                        create_btn(
+                            "🔄 Refresh", callback_data="rfrsh", style=BTN_SUCCESS
+                        ),
                     ]
                 ]
             )
@@ -1432,7 +1491,9 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 [
                     [
                         create_btn("🔙 Back", callback_data="help", style=BTN_PRIMARY),
-                        create_btn("🔐 Close", callback_data="close_data", style=BTN_DANGER),
+                        create_btn(
+                            "🔐 Close", callback_data="close_data", style=BTN_DANGER
+                        ),
                     ]
                 ]
             )
@@ -1453,12 +1514,21 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 "helps_settings": ("SETTINGS_TXT", "⚙️ <b>Settings Help</b>"),
                 "helps_connections": ("CONNECTIONS_TXT", "🌐 <b>Connections Help</b>"),
                 "helps_utilities": ("UTILITIES_TXT", "📊 <b>Utilities Help</b>"),
-                "helps_custommessages": ("CUSTOMMESSAGES_TXT", "💬 <b>Custom Messages</b>"),
+                "helps_custommessages": (
+                    "CUSTOMMESSAGES_TXT",
+                    "💬 <b>Custom Messages</b>",
+                ),
                 "helps_posthand": ("POSTHAND_TXT", "📝 <b>Post Handle Help</b>"),
-                "helps_customcaption": ("CUSTOMCAPTION_TXT", "📝 <b>Custom Captions Help</b>"),
+                "helps_customcaption": (
+                    "CUSTOMCAPTION_TXT",
+                    "📝 <b>Custom Captions Help</b>",
+                ),
                 "helps_backup": ("BACKUP_TXT", "💾 <b>Backup Help</b>"),
                 "helps_autopost": ("AUTOPOST_TXT", "🧬 <b>Auto Post Help</b>"),
-                "helps_pmautoreply": ("PMAUTOREPLY_TXT", "💬 <b>PM Auto Reply Help</b>"),
+                "helps_pmautoreply": (
+                    "PMAUTOREPLY_TXT",
+                    "💬 <b>PM Auto Reply Help</b>",
+                ),
             }
             target_var, default_text = help_dict.get(
                 query.data, ("HELP_TXT", "Help unavailable.")
