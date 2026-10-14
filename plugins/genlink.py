@@ -136,9 +136,7 @@ async def is_user_admin(client: Client, message: Message) -> bool:
     ):
         if _active_db is not None:
             try:
-                doc = await _active_db.find_one(
-                    {"user_id": str(message.from_user.id)}
-                )
+                doc = await _active_db.find_one({"user_id": str(message.from_user.id)})
                 if doc and doc.get("group_id"):
                     member = await client.get_chat_member(
                         int(doc["group_id"]), message.from_user.id
@@ -163,9 +161,7 @@ async def is_cb_admin(client: Client, query: CallbackQuery) -> bool:
             enums.ChatType.SUPERGROUP,
         ]:
             try:
-                member = await client.get_chat_member(
-                    query.message.chat.id, uid
-                )
+                member = await client.get_chat_member(query.message.chat.id, uid)
                 return member.status in [
                     enums.ChatMemberStatus.ADMINISTRATOR,
                     enums.ChatMemberStatus.OWNER,
@@ -279,9 +275,7 @@ async def _auto_delete_worker(
     client: Client, chat_id: int, is_pm: bool, delay: int, *messages
 ):
     await asyncio.sleep(delay)
-    msg_ids = [
-        m.id for m in messages if m is not None and hasattr(m, "id") and m.id
-    ]
+    msg_ids = [m.id for m in messages if m is not None and hasattr(m, "id") and m.id]
     if msg_ids:
         try:
             await client.delete_messages(chat_id, msg_ids)
@@ -294,7 +288,9 @@ async def _auto_delete_worker(
                         pass
 
     if is_pm:
-        notify_text = "<b>Successfully deleted your file, if you want request again in group.</b>"
+        notify_text = (
+            "<b>Successfully deleted your file, if you want request again in group.</b>"
+        )
         markup = InlineKeyboardMarkup(
             [
                 [
@@ -442,7 +438,10 @@ async def _create_single_link_from_msg(
     except Exception:
         unpacked_id = raw_file_id
 
-    file_name = getattr(media_obj, "file_name", None) or f"{file_type.value.title()}_{target_msg.id}"
+    file_name = (
+        getattr(media_obj, "file_name", None)
+        or f"{file_type.value.title()}_{target_msg.id}"
+    )
     file_size = getattr(media_obj, "file_size", 0) or 0
     caption_html = (
         target_msg.caption.html
@@ -753,7 +752,8 @@ async def gen_link_batch(bot: Client, message: Message):
                     {
                         "file_id": media_obj.file_id,
                         "caption": caption,
-                        "title": getattr(media_obj, "file_name", "") or f"File_{msg.id}",
+                        "title": getattr(media_obj, "file_name", "")
+                        or f"File_{msg.id}",
                         "size": getattr(media_obj, "file_size", 0) or 0,
                         "protect": is_protect,
                     }
@@ -881,9 +881,7 @@ async def gen_link_batch(bot: Client, message: Message):
 # ============================================================
 # 🎛️ CANCEL & ABORT CALLBACKS
 # ============================================================
-@Client.on_callback_query(
-    filters.regex(r"^(genlink_cancel#|genlink_abort#)"), group=-3
-)
+@Client.on_callback_query(filters.regex(r"^(genlink_cancel#|genlink_abort#)"), group=-3)
 async def genlink_callbacks(bot: Client, query: CallbackQuery):
     if not await is_cb_admin(bot, query):
         return await query.answer("❌ Unauthorized: Admin only.", show_alert=True)
@@ -987,9 +985,7 @@ async def deliver_genlink_payload(
             protect = bool(item.get("protect", False))
 
             final_cap, final_kb = format_media_caption(title, size, raw_cap)
-            sent = await send_any_media(
-                bot, user_id, fid, final_cap, final_kb, protect
-            )
+            sent = await send_any_media(bot, user_id, fid, final_cap, final_kb, protect)
             if sent:
                 sent_messages.append(sent)
             await asyncio.sleep(0.8)
@@ -1186,7 +1182,9 @@ async def deliver_genlink_payload(
     return False
 
 
-@Client.on_message(filters.command("start") & filters.private & filters.incoming, group=-3)
+@Client.on_message(
+    filters.command("start") & filters.private & filters.incoming, group=-3
+)
 async def genlink_start_interceptor(bot: Client, message: Message):
     if len(message.command) < 2:
         return
