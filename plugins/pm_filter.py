@@ -396,9 +396,7 @@ def generate_phonetic_variants(translit_str: str) -> List[str]:
     if v1 not in variants:
         variants.append(v1)
     # 2. Drop trailing 'a' at the end of words (e.g. vikrama -> vikram, pushpaa -> pushpa)
-    v2_words = [
-        (w[:-1] if len(w) > 4 and w.endswith("a") else w) for w in v1.split()
-    ]
+    v2_words = [(w[:-1] if len(w) > 4 and w.endswith("a") else w) for w in v1.split()]
     v2 = " ".join(v2_words)
     if v2 and v2 not in variants:
         variants.append(v2)
@@ -499,9 +497,7 @@ async def get_feature_flags(force_refresh: bool = False) -> Tuple[bool, bool]:
                 _FEATURE_FLAGS_CACHE["autotranslate"] = bool(
                     doc.get("autotranslate", True)
                 )
-                _FEATURE_FLAGS_CACHE["multichoice"] = bool(
-                    doc.get("multichoice", True)
-                )
+                _FEATURE_FLAGS_CACHE["multichoice"] = bool(doc.get("multichoice", True))
         except Exception as e:
             logger.error(f"get_feature_flags error: {e}")
     _FEATURE_FLAGS_CACHE["ts"] = now
@@ -973,9 +969,7 @@ async def get_cached_db_titles() -> List[str]:
     try:
         media_col = getattr(_Media, "collection", _Media)
         sample_docs = (
-            await media_col.find({}, {"file_name": 1})
-            .limit(3500)
-            .to_list(length=3500)
+            await media_col.find({}, {"file_name": 1}).limit(3500).to_list(length=3500)
         )
         title_set = set()
         for d in sample_docs:
@@ -1993,9 +1987,7 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
                 "❌ No files found for that suggestion!", show_alert=True
             )
 
-        files.sort(
-            key=lambda x: _score_file_relevance(x, chosen_title), reverse=True
-        )
+        files.sort(key=lambda x: _score_file_relevance(x, chosen_title), reverse=True)
         BUTTONS_CACHE.set(key, chosen_title)
         set_filter_state(key, lang=None, qual=None)
 
