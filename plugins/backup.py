@@ -546,4 +546,66 @@ async def backup_panel_callbacks(bot: Client, query: CallbackQuery):
                 label = "Settings & Users" if exclude_media else "Full Database"
                 caption = (
                     f"✅ <b>{label} Backup Complete!</b>\n\n"
-                    f"📅 <b>Date:</b> <c
+                    f"📅 <b>Date:</b> <code>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</code>\n"
+                    f"📁 <b>Collections:</b> <code>{colls_cnt}</code>\n"
+                    f"📄 <b>Documents:</b> <code>{docs_cnt}</code>\n"
+                    f"👤 <b>Requested By:</b> {query.from_user.mention}"
+                )
+                await query.message.reply_document(
+                    document=file_path,
+                    caption=caption,
+                    parse_mode=enums.ParseMode.HTML,
+                )
+            except Exception as e:
+                await query.message.reply_text(
+                    f"⚠️ <b>Backup Failed:</b> <code>{html.escape(str(e))}</code>",
+                    parse_mode=enums.ParseMode.HTML,
+                )
+            finally:
+                if file_path and os.path.exists(file_path):
+                    try:
+                        os.remove(file_path)
+                    except Exception:
+                        pass
+            return
+
+        if action == "stats":
+            await query.answer("Loading collection breakdown...")
+            stats_text = await _build_detailed_dbstats_text()
+            buttons = InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "🔙 Back to Backup Panel", callback_data="db_bk:refresh"
+                        ),
+                        InlineKeyboardButton("🔐 Close", callback_data="db_bk:close"),
+                    ]
+                ]
+            )
+            return await query.message.edit_text(
+                stats_text, reply_markup=buttons, parse_mode=enums.ParseMode.HTML
+            )
+
+        if action == "sched":
+            if scheduler_running:
+                scheduler_running = False
+                if _scheduler_task and not _scheduler_task.done():
+                    _scheduler_task.cancel()
+                await query.answer("🛑 24h Auto-Backup Disabled!", show_alert=True)
+            else:
+                _scheduler_task = asyncio.create_task(auto_backup_task(bot))
+                await query.answer("✅ 24h Auto-Backup Enabled!", show_alert=True)
+
+        else:
+            await query.answer("Refreshed!")
+
+        text, markup = await _build_backup_dashboard()
+        await query.message.edit_text(
+            text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
+        )
+    except MessageNotModified:
+        pass
+    except QueryIdInvalid:
+        pass
+    except Exception as e:
+        logger.error(f"Backup callback error: {e}")
