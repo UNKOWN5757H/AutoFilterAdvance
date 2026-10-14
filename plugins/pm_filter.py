@@ -562,7 +562,6 @@ async def auto_filter(client: Client, msg: Message):
 
         # Ignore common conversational greetings in groups
         if search.lower() in [
-            "hi",
             "hello",
             "hey",
             "hlo",
@@ -583,7 +582,6 @@ async def auto_filter(client: Client, msg: Message):
             "gm",
             "gn",
             "good morning",
-            "good night",
         ]:
             return
 
@@ -652,12 +650,10 @@ async def auto_filter(client: Client, msg: Message):
         cap = (
             f"<b>Hᴇʏ {mention} 👋🏻\n\n"
             f"🪄 Aᴜᴛᴏ-Cᴏʀʀᴇᴄᴛᴇᴅ : <del>{safe_orig_title}</del> ➔ <code>{safe_corr_title}</code>\n"
-            f"📂 Tᴏᴛᴀʟ Fɪʟᴇꜱ : <code>{total_results}</code>\n"
             f"➤ Yᴏᴜʀ Fɪʟᴇꜱ Rᴇᴀᴅʏ Nᴏᴡ 👇</b>"
             if was_corrected
             else f"<b>Hᴇʏ {mention} 👋🏻\n\n"
             f"➤ Tɪᴛʟᴇ : <code>{safe_corr_title}</code>\n"
-            f"📂 Tᴏᴛᴀʟ Fɪʟᴇꜱ : <code>{total_results}</code>\n"
             f"➤ Yᴏᴜʀ Fɪʟᴇꜱ Rᴇᴀᴅʏ Nᴏᴡ 👇</b>"
         )
 
