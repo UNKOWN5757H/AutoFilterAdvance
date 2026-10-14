@@ -227,7 +227,9 @@ async def start_about_interceptor(bot: Client, message: Message):
                 [
                     create_btn("🏘 Hᴏᴍᴇ", callback_data="start", style=BTN_SUCCESS),
                     create_btn("ℹ️ Hᴇʟᴘ", callback_data="help", style=BTN_PRIMARY),
-                    create_btn("🔐 Cʟᴏsᴇ", callback_data="close_data", style=BTN_DANGER),
+                    create_btn(
+                        "🔐 Cʟᴏsᴇ", callback_data="close_data", style=BTN_DANGER
+                    ),
                 ]
             ]
         )
@@ -537,9 +539,11 @@ async def list_disabled_chats(bot: Client, message: Message):
     all_chats = (
         await raw_chats.to_list(length=None)
         if hasattr(raw_chats, "to_list")
-        else [c async for c in raw_chats]
-        if hasattr(raw_chats, "__aiter__")
-        else list(raw_chats)
+        else (
+            [c async for c in raw_chats]
+            if hasattr(raw_chats, "__aiter__")
+            else list(raw_chats)
+        )
     )
 
     disabled_list = [c for c in all_chats if c.get("is_disabled")]
@@ -563,7 +567,9 @@ async def list_disabled_chats(bot: Client, message: Message):
             ]
         )
 
-    buttons.append([create_btn("🔐 Close", callback_data="ptti#close", style=BTN_DANGER)])
+    buttons.append(
+        [create_btn("🔐 Close", callback_data="ptti#close", style=BTN_DANGER)]
+    )
     await message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
 
 
