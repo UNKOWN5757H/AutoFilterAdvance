@@ -336,7 +336,6 @@ Configure what the bot says when someone messages it directly in PM.
 • <code>/setpmbutton [Text | URL | Color]</code> - Set colored PM button (green, red, blue).
 • <code>/rempmbutton</code> - Remove PM button."""
 
-
     POSTHAND_TXT = """<b>📝 POST HANDLER GUIDE
 
 ​‣ <code>/post</code> - Start manual post session with interactive search
