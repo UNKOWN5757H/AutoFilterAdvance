@@ -1,8 +1,24 @@
 import asyncio
+import builtins
 import os
 import signal
 import sys
-from typing import AsyncGenerator, Union
+from typing import Any, AsyncGenerator, Dict, List, Optional, Set, Tuple, Union
+
+# ===================================================================
+# 🛡️ 0. INJECT TYPING ALIASES INTO BUILTINS (Fixes NameError: Tuple in fsub.py)
+# ===================================================================
+for _type_name, _type_obj in (
+    ("Tuple", Tuple),
+    ("List", List),
+    ("Dict", Dict),
+    ("Optional", Optional),
+    ("Union", Union),
+    ("Set", Set),
+    ("Any", Any),
+):
+    if not hasattr(builtins, _type_name):
+        setattr(builtins, _type_name, _type_obj)
 
 # ===================================================================
 # ⚡ 1. CREATE EVENT LOOP FIRST (Prevents RuntimeErrors on Python 3.10+)
