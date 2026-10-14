@@ -414,7 +414,10 @@ async def build_channels_dashboard(
     current_slice = valid_chats[start_idx : start_idx + page_size]
 
     metas = await asyncio.gather(
-        *[_fetch_single_channel_meta(client, cid, title) for cid, title in current_slice]
+        *[
+            _fetch_single_channel_meta(client, cid, title)
+            for cid, title in current_slice
+        ]
     )
 
     text = (
@@ -589,9 +592,7 @@ async def channels_info_cb(client: Client, query: CallbackQuery):
             show_alert=True,
         )
     except Exception as e:
-        await safe_answer(
-            query, f"⚠️ Could not fetch live info:\n{e}", show_alert=True
-        )
+        await safe_answer(query, f"⚠️ Could not fetch live info:\n{e}", show_alert=True)
 
 
 @Client.on_callback_query(filters.regex(r"^chan_close$"), group=-2)
