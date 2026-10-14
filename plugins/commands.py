@@ -4,12 +4,8 @@ import html
 import inspect
 import logging
 import math
-import os
 import random
 import re
-import string
-import sys
-import time
 from logging import ERROR, getLogger
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
@@ -88,6 +84,50 @@ MESSAGE_EMOJI_PLANE = '<tg-emoji emoji-id="5875465628285931233">✈️</tg-emoji
 MESSAGE_EMOJI_LINK = '<tg-emoji emoji-id="5877465816030515018">🔗</tg-emoji> Link'
 
 DEFAULT_CLEAN_WORDS = ["sandalwood", "mkv", "mp4", "avi", "webm", "zip", "rar"]
+
+# ============================================================
+# 🎨 SAFE TELEGRAM BUTTON STYLE DETECTION
+# ============================================================
+BTN_PRIMARY = None
+BTN_SUCCESS = None
+BTN_DANGER = None
+_SUPPORTS_BTN_STYLE = False
+
+try:
+    from pyrogram.enums import ButtonStyle
+
+    if "style" in inspect.signature(InlineKeyboardButton.__init__).parameters:
+        BTN_PRIMARY = getattr(ButtonStyle, "PRIMARY", None)
+        BTN_SUCCESS = getattr(ButtonStyle, "SUCCESS", None)
+        BTN_DANGER = getattr(ButtonStyle, "DANGER", None)
+        _SUPPORTS_BTN_STYLE = True
+except (ImportError, ValueError, TypeError):
+    BTN_PRIMARY = BTN_SUCCESS = BTN_DANGER = None
+    _SUPPORTS_BTN_STYLE = False
+
+
+def create_btn(
+    text: str,
+    url: Optional[str] = None,
+    callback_data: Optional[str] = None,
+    style: Any = None,
+) -> InlineKeyboardButton:
+    """Creates an InlineKeyboardButton safely. Pass style=None for no colour."""
+    kwargs: Dict[str, Any] = {"text": str(text)}
+    if url:
+        kwargs["url"] = str(url).strip()
+    elif callback_data:
+        kwargs["callback_data"] = str(callback_data)[:64]
+
+    if _SUPPORTS_BTN_STYLE and style is not None:
+        kwargs["style"] = style
+
+    try:
+        return InlineKeyboardButton(**kwargs)
+    except Exception:
+        kwargs.pop("style", None)
+        return InlineKeyboardButton(**kwargs)
+
 
 # ============================================================
 # 🛡️ PYROGRAM v2.2.26 (LAYER 230) COMPATIBILITY ENGINE
@@ -191,25 +231,25 @@ async def safe_send_message(
         return await client.send_message(chat_id=chat_id, text=text, **compat_kw)
 
 
-# ============================================================
-# 🎨 SAFE TELEGRAM BUTTON STYLE DETECTION
-# ============================================================
-BTN_PRIMARY = None
-BTN_SUCCESS = None
-BTN_DANGER = None
-_SUPPORTS_BTN_STYLE = False
+async def safe_answer(
+    query: CallbackQuery,
+    text: Optional[str] = None,
+    show_alert: bool = False,
+    url: Optional[str] = None,
+):
+    """Safely answers a CallbackQuery without ever raising QueryIdInvalid or blocking UI updates."""
+    if not query:
+        return
+    try:
+        kwargs: Dict[str, Any] = {"show_alert": show_alert}
+        if text is not None:
+            kwargs["text"] = str(text)[:200]
+        if url is not None:
+            kwargs["url"] = url
+        await query.answer(**kwargs)
+    except (QueryIdInvalid, Exception):
+        pass
 
-try:
-    from pyrogram.enums import ButtonStyle
-
-    if "style" in inspect.signature(InlineKeyboardButton.__init__).parameters:
-        BTN_PRIMARY = getattr(ButtonStyle, "PRIMARY", None)
-        BTN_SUCCESS = getattr(ButtonStyle, "SUCCESS", None)
-        BTN_DANGER = getattr(ButtonStyle, "DANGER", None)
-        _SUPPORTS_BTN_STYLE = True
-except (ImportError, ValueError, TypeError):
-    BTN_PRIMARY = BTN_SUCCESS = BTN_DANGER = None
-    _SUPPORTS_BTN_STYLE = False
 
 # ============================================================
 # ⚙️ MONGODB INITIALIZATION & INTERACTIVE STATE HELPERS
@@ -224,7 +264,7 @@ except Exception as e:
     logger.error(f"Failed to init databases: {e}")
 
 
-async def get_pm_settings():
+async def get_pm_settings() -> Dict[str, Any]:
     default_settings = {
         "enabled": True,
         "reply_admins": True,
@@ -249,7 +289,7 @@ async def get_pm_settings():
         return default_settings
 
 
-async def save_pm_settings(key, value):
+async def save_pm_settings(key: str, value: Any):
     if pm_db is not None:
         await pm_db.update_one({"id": "pm_config"}, {"$set": {key: value}}, upsert=True)
 
@@ -277,9 +317,24 @@ def _invalidate_pm_filter_clean_cache():
 
 
 # ============================================================
-# 🔄 INTERACTIVE INPUT LISTENER FOR HELP BUTTONS
+# 🔄 INTERACTIVE INPUT LISTENER FOR HELP BUTTONS (NON-STUCK)
 # ============================================================
 _CMD_WAITING_INPUT: Dict[int, Dict[str, Any]] = {}
+
+
+def cancel_cmd_user_input(chat_id: int):
+    """Cancels any pending interactive input session in a chat so buttons never get stuck."""
+    session = _CMD_WAITING_INPUT.pop(chat_id, None)
+    if session:
+        fut = session.get("future")
+        if fut and not fut.done():
+            fut.cancel()
+        prompt_msg = session.get("prompt_msg")
+        if prompt_msg:
+            try:
+                asyncio.create_task(prompt_msg.delete())
+            except Exception:
+                pass
 
 
 @Client.on_message(filters.private | filters.group, group=-15)
@@ -292,6 +347,7 @@ async def _cmd_interactive_listener(client: Client, message: Message):
         and message.text.startswith("/")
         and message.text.strip().lower() not in ["/cancel"]
     ):
+        cancel_cmd_user_input(chat_id)
         return
 
     uid = (
@@ -299,8 +355,8 @@ async def _cmd_interactive_listener(client: Client, message: Message):
         if message.from_user
         else getattr(message.sender_chat, "id", 0)
     )
-    session = _CMD_WAITING_INPUT[chat_id]
-    if uid == session["user_id"] or uid == chat_id:
+    session = _CMD_WAITING_INPUT.get(chat_id)
+    if session and (uid == session["user_id"] or uid == chat_id):
         fut = session["future"]
         if not fut.done():
             fut.set_result(message)
@@ -308,16 +364,19 @@ async def _cmd_interactive_listener(client: Client, message: Message):
 
 
 async def wait_cmd_user_input(
-    chat_id: int, user_id: int, timeout: int = 90
+    chat_id: int,
+    user_id: int,
+    prompt_msg: Optional[Message] = None,
+    timeout: int = 90,
 ) -> Optional[Message]:
-    if chat_id in _CMD_WAITING_INPUT:
-        old_fut = _CMD_WAITING_INPUT[chat_id].get("future")
-        if old_fut and not old_fut.done():
-            old_fut.cancel()
-
+    cancel_cmd_user_input(chat_id)
     loop = asyncio.get_running_loop()
     future = loop.create_future()
-    _CMD_WAITING_INPUT[chat_id] = {"future": future, "user_id": user_id}
+    _CMD_WAITING_INPUT[chat_id] = {
+        "future": future,
+        "user_id": user_id,
+        "prompt_msg": prompt_msg,
+    }
     try:
         return await asyncio.wait_for(future, timeout=timeout)
     except (asyncio.TimeoutError, asyncio.CancelledError):
@@ -325,12 +384,17 @@ async def wait_cmd_user_input(
     finally:
         if _CMD_WAITING_INPUT.get(chat_id, {}).get("future") is future:
             _CMD_WAITING_INPUT.pop(chat_id, None)
+        if prompt_msg:
+            try:
+                await prompt_msg.delete()
+            except Exception:
+                pass
 
 
 # ============================================================
 # 👑 SMART AUTHORIZATION & ACTIVE GROUP HELPER
 # ============================================================
-def get_admin_list():
+def get_admin_list() -> List[int]:
     raw_admins = getattr(info, "ADMINS", [])
     if isinstance(raw_admins, (str, int)):
         raw_admins = str(raw_admins).replace(",", " ").split()
@@ -360,11 +424,26 @@ async def is_user_banned(user_id: int) -> bool:
         return False
 
 
-async def get_active_connected_group(user_id: int) -> Optional[int]:
+async def get_active_connected_group(
+    user_id: int, fallback_chat: Optional[Message] = None
+) -> Optional[int]:
+    if fallback_chat and fallback_chat.chat.type in [
+        enums.ChatType.GROUP,
+        enums.ChatType.SUPERGROUP,
+    ]:
+        return int(fallback_chat.chat.id)
     try:
         from plugins.pm_filter import get_active_connection
 
         conn = await get_active_connection(str(user_id))
+        if conn:
+            return int(conn)
+    except Exception:
+        pass
+    try:
+        from database.connections_mdb import active_connection
+
+        conn = await active_connection(str(user_id))
         if conn:
             return int(conn)
     except Exception:
@@ -430,23 +509,6 @@ async def upload_image_safely(client: Client, message: Message):
 # ============================================================
 # 🛠️ HELPER FUNCTIONS
 # ============================================================
-def create_btn(text, url=None, callback_data=None, style=None):
-    kwargs = {"text": str(text)}
-    if url:
-        kwargs["url"] = str(url).strip()
-    elif callback_data:
-        kwargs["callback_data"] = str(callback_data)[:64]
-
-    if _SUPPORTS_BTN_STYLE and style is not None:
-        kwargs["style"] = style
-
-    try:
-        return InlineKeyboardButton(**kwargs)
-    except Exception:
-        kwargs.pop("style", None)
-        return InlineKeyboardButton(**kwargs)
-
-
 def safe_parse_text_and_markup(text: str, default_markup=None):
     if not text:
         return "", default_markup
@@ -549,6 +611,343 @@ async def run_force_sub(client: Client, message: Message, file_id=False, mode=Fa
 
 
 # ============================================================
+# 🔘 KEYBOARD & BUTTON BUILDERS (CLEAN, NO HELP COLORS, NO MIXING)
+# ============================================================
+def get_close_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([[create_btn("🔐 Close", callback_data="close_data")]])
+
+
+def get_cancel_input_keyboard(back_cb: str = "help") -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [[create_btn("❌ Cancel", callback_data=f"hact#cancel_input#{back_cb}")]]
+    )
+
+
+async def get_start_keyboard(client: Client, user_id: int) -> InlineKeyboardMarkup:
+    buttons = [
+        [
+            create_btn(
+                "✈️ Gʀᴏᴜᴘ 1",
+                url="https://t.me/Sandalwood_Kannada_Group",
+                style=BTN_PRIMARY,
+            ),
+            create_btn(
+                "✈️ Gʀᴏᴜᴘ 2",
+                url="https://t.me/Kannada_Filmy_Group",
+                style=BTN_PRIMARY,
+            ),
+            create_btn(
+                "✈️ Gʀᴏᴜᴘ 3",
+                url="https://t.me/+GLsPkRgLGGszMzY1",
+                style=BTN_PRIMARY,
+            ),
+        ]
+    ]
+    if await is_global_admin(user_id):
+        # Help & About buttons have NO color
+        buttons.append(
+            [
+                create_btn("ℹ️ 𝙷𝚎𝚕𝚙", callback_data="help"),
+                create_btn("😊 𝙰𝚋𝚘𝚞𝚝", callback_data="about"),
+            ]
+        )
+    buttons.append(
+        [
+            create_btn(
+                "🔗 Nᴇᴡ Rᴇʟᴇᴀꜱᴇꜱ & Oᴛᴛ Uᴘᴅᴀᴛᴇꜱ",
+                url="https://t.me/sandalwood_kannada_moviesz",
+                style=BTN_SUCCESS,
+            )
+        ]
+    )
+    return InlineKeyboardMarkup(buttons)
+
+
+async def get_help_keyboard() -> InlineKeyboardMarkup:
+    """
+    Main Help Menu Keyboard:
+    - Strictly NO colours on any buttons.
+    - Auto Post button removed.
+    - Clean, organized layout with zero duplicate buttons.
+    """
+    return InlineKeyboardMarkup(
+        [
+            [
+                create_btn("🖥️ UI Start", callback_data="helps_uistart"),
+                create_btn("🖥️ UI Help", callback_data="helps_uihelp"),
+                create_btn("🖥️ UI About", callback_data="helps_uiabout"),
+            ],
+            [
+                create_btn("👋 Welcome", callback_data="helps_welcome"),
+                create_btn("🖼️ Images", callback_data="helps_images"),
+            ],
+            [
+                create_btn("🔍 Spell Check", callback_data="helps_spell"),
+                create_btn("📝 Filters", callback_data="helps_filters"),
+            ],
+            [
+                create_btn("📱 Force Sub", callback_data="helps_forcesub"),
+                create_btn("👥 Force Add", callback_data="helps_forceadd"),
+            ],
+            [
+                create_btn("🚫 Bans", callback_data="helps_bans"),
+                create_btn("🗑️ Delete", callback_data="helps_delete"),
+            ],
+            [
+                create_btn("📢 Promotions", callback_data="helps_promotions"),
+                create_btn("📚 Index", callback_data="helps_index"),
+            ],
+            [
+                create_btn("⚙️ Settings", callback_data="helps_settings"),
+                create_btn("🌐 Connections", callback_data="helps_connections"),
+            ],
+            [
+                create_btn("📊 Utilities", callback_data="helps_utilities"),
+                create_btn("💬 Custom Messages", callback_data="helps_custommessages"),
+            ],
+            [
+                create_btn("📝 Post Handle", callback_data="helps_posthand"),
+                create_btn("📝 Custom Captions", callback_data="helps_customcaption"),
+            ],
+            [
+                create_btn("💬 PM Auto Reply", callback_data="helps_pmautoreply"),
+                create_btn("🧹 Clean Filename", callback_data="helps_cleanfile"),
+            ],
+            [
+                create_btn("💾 Backup", callback_data="helps_backup"),
+            ],
+            [
+                create_btn("🔙 Back", callback_data="start"),
+                create_btn("🔐 Close", callback_data="close_data"),
+            ],
+        ]
+    )
+
+
+async def get_about_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [create_btn("📊 Sᴛᴀᴛᴜs", callback_data="stats")],
+            [
+                create_btn("🏘 Hᴏᴍᴇ", callback_data="start"),
+                create_btn("🔐 Cʟᴏsᴇ", callback_data="close_data"),
+            ],
+        ]
+    )
+
+
+def get_stats_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                create_btn("🔙 Back", callback_data="about"),
+                create_btn("🔄 Refresh", callback_data="rfrsh"),
+            ]
+        ]
+    )
+
+
+def get_cleanwords_keyboard(use_default: bool = True) -> InlineKeyboardMarkup:
+    """Clean Filename interactive control buttons (no colours, no duplicate buttons)."""
+    mode_label = "🔄 Mode: Default ✅" if use_default else "🔄 Restore Default Words"
+    return InlineKeyboardMarkup(
+        [
+            [
+                create_btn("➕ Add Words", callback_data="hact#cw_add"),
+                create_btn("✏️ Replace All", callback_data="hact#cw_set"),
+            ],
+            [
+                create_btn(mode_label, callback_data="hact#cw_default"),
+                create_btn("🗑️ Clear All Words", callback_data="hact#cw_clear"),
+            ],
+            [
+                create_btn("🔙 Back", callback_data="help"),
+                create_btn("🔐 Close", callback_data="close_data"),
+            ],
+        ]
+    )
+
+
+def get_help_section_keyboard(
+    section_key: str, state: Optional[Dict[str, Any]] = None
+) -> InlineKeyboardMarkup:
+    """
+    Builds interactive 1-click toggle & management buttons for Help sub-menus.
+    - Strictly NO colours on any Help buttons.
+    - Single 1-click toggle button per setting (no duplicate ON/OFF buttons).
+    - Zero mixing of unrelated buttons across categories.
+    """
+    st = state or {}
+    rows: List[List[InlineKeyboardButton]] = []
+
+    if section_key == "helps_spell":
+        at_on = bool(st.get("at_on", True))
+        mc_on = bool(st.get("mc_on", True))
+        spell_on = bool(st.get("spell_on", True))
+        stops_count = int(st.get("stops_count", 0))
+
+        rows.extend(
+            [
+                [
+                    create_btn(
+                        f"🔤 Auto-Translate: {'ON ✅' if at_on else 'OFF ❌'}",
+                        callback_data="hact#at_toggle",
+                    ),
+                    create_btn(
+                        f"💡 Multi-Choice: {'ON ✅' if mc_on else 'OFF ❌'}",
+                        callback_data="hact#mc_toggle",
+                    ),
+                ],
+                [
+                    create_btn(
+                        f"🔍 Group Spell Check: {'ON ✅' if spell_on else 'OFF ❌'}",
+                        callback_data="hact#spell_toggle",
+                    )
+                ],
+                [
+                    create_btn(
+                        f"📋 View Stopwords ({stops_count})",
+                        callback_data="hact#sw_list",
+                    ),
+                    create_btn(
+                        "➕ Add Stopwords",
+                        callback_data="hact#sw_add",
+                    ),
+                ],
+                [
+                    create_btn(
+                        "🔄 Default Stopwords",
+                        callback_data="hact#sw_def",
+                    ),
+                    create_btn(
+                        "🗑️ Clear Stopwords",
+                        callback_data="hact#sw_clear",
+                    ),
+                ],
+            ]
+        )
+
+    elif section_key == "helps_pmautoreply":
+        pm_enabled = bool(st.get("pm_enabled", True))
+        reply_admins = bool(st.get("reply_admins", True))
+
+        rows.extend(
+            [
+                [
+                    create_btn(
+                        f"💬 PM Reply: {'ON ✅' if pm_enabled else 'OFF ❌'}",
+                        callback_data="hact#pm_toggle",
+                    ),
+                    create_btn(
+                        f"👑 Reply Admins: {'ON ✅' if reply_admins else 'OFF ❌'}",
+                        callback_data="hact#pm_adm_toggle",
+                    ),
+                ],
+                [
+                    create_btn("✏️ Set PM Text", callback_data="hact#pm_settext"),
+                    create_btn("🔗 Set PM Button", callback_data="hact#pm_setbtn"),
+                ],
+                [
+                    create_btn("🔄 Default PM Text", callback_data="hact#pm_deftext"),
+                    create_btn("🗑️ Remove PM Button", callback_data="hact#pm_rembtn"),
+                ],
+                [
+                    create_btn("🖼️ Remove PM Image", callback_data="hact#pm_remimg"),
+                ],
+            ]
+        )
+
+    elif section_key == "helps_forcesub":
+        f_on = bool(st.get("f_on", True))
+        rot_on = bool(st.get("rot_on", False))
+        ch_count = int(st.get("ch_count", 0))
+
+        rows.extend(
+            [
+                [
+                    create_btn(
+                        f"📱 ForceSub: {'ON ✅' if f_on else 'OFF ❌'}",
+                        callback_data="hact#fsub_toggle",
+                    ),
+                    create_btn(
+                        f"🔄 Auto-Rotate: {'ON ✅' if rot_on else 'OFF ❌'}",
+                        callback_data="hact#fsub_rot",
+                    ),
+                ],
+                [
+                    create_btn(
+                        f"📋 View Channels ({ch_count})",
+                        callback_data="hact#fsub_list",
+                    )
+                ],
+            ]
+        )
+
+    elif section_key == "helps_welcome":
+        welc_on = bool(st.get("welc_on", True))
+        rows.extend(
+            [
+                [
+                    create_btn(
+                        f"👋 Welcome Message: {'ON ✅' if welc_on else 'OFF ❌'}",
+                        callback_data="hact#welc_toggle",
+                    )
+                ],
+                [
+                    create_btn(
+                        "✏️ Set Welcome Text", callback_data="hact#welc_settxt"
+                    ),
+                    create_btn("🗑️ Reset Welcome", callback_data="hact#welc_del"),
+                ],
+            ]
+        )
+
+    elif section_key == "helps_filters":
+        rows.append(
+            [
+                create_btn(
+                    "📋 View Group Filters",
+                    callback_data="hact#flt_list",
+                )
+            ]
+        )
+
+    elif section_key == "helps_settings":
+        rep_on = bool(st.get("rep_on", False))
+        rows.append(
+            [
+                create_btn(
+                    f"🛠️ Repair Mode: {'ON ✅' if rep_on else 'OFF ❌'}",
+                    callback_data="hact#repair_toggle",
+                )
+            ]
+        )
+
+    rows.append(
+        [
+            create_btn("🔙 Back", callback_data="help"),
+            create_btn("🔐 Close", callback_data="close_data"),
+        ]
+    )
+    return InlineKeyboardMarkup(rows)
+
+
+def get_channels_page_keyboard(page: int, total_pages: int) -> InlineKeyboardMarkup:
+    buttons: List[List[InlineKeyboardButton]] = []
+    nav_row: List[InlineKeyboardButton] = []
+    if page > 1:
+        nav_row.append(
+            create_btn("⬅️ Previous", callback_data=f"channels_page#{page - 1}")
+        )
+    if page < total_pages:
+        nav_row.append(create_btn("Next ➡️", callback_data=f"channels_page#{page + 1}"))
+    if nav_row:
+        buttons.append(nav_row)
+    buttons.append([create_btn("🔐 Close", callback_data="close_data")])
+    return InlineKeyboardMarkup(buttons)
+
+
+# ============================================================
 # ⏳ SILENT AUTO-DELETE ENGINE
 # ============================================================
 AUTO_DELETE_TASKS = set()
@@ -557,7 +956,6 @@ AUTO_DELETE_TASKS = set()
 async def auto_delete_all_messages(
     client: Client, chat_id: int, is_pm: bool, delay: int, *messages
 ):
-    """Deletes messages silently and notifies the user in PM after deletion."""
     await asyncio.sleep(delay)
 
     msg_ids = [m.id for m in messages if m is not None and hasattr(m, "id") and m.id]
@@ -612,118 +1010,10 @@ def schedule_pm_auto_delete(
 
 
 # ============================================================
-# ⌨️ KEYBOARDS & INTERACTIVE HELP CONTROL PANELS
+# 🎛️ HELP UI SECTION BUILDERS
 # ============================================================
-async def get_start_keyboard(client: Client, user_id: int):
-    static_buttons = [
-        [
-            create_btn(
-                "✈️ Gʀᴏᴜᴘ 1",
-                url="https://t.me/Sandalwood_Kannada_Group",
-                style=BTN_PRIMARY,
-            ),
-            create_btn(
-                "✈️ Gʀᴏᴜᴘ 2",
-                url="https://t.me/Kannada_Filmy_Group",
-                style=BTN_PRIMARY,
-            ),
-            create_btn(
-                "✈️ Gʀᴏᴜᴘ 3",
-                url="https://t.me/+GLsPkRgLGGszMzY1",
-                style=BTN_PRIMARY,
-            ),
-        ]
-    ]
-    if await is_global_admin(user_id):
-        static_buttons.append(
-            [
-                create_btn("ℹ️ 𝙷𝚎𝚕𝚙", callback_data="help"),
-                create_btn("😊 𝙰𝚋𝚘𝚞𝚝", callback_data="about"),
-            ]
-        )
-    static_buttons.append(
-        [
-            create_btn(
-                "🔗 Nᴇᴡ Rᴇʟᴇᴀꜱᴇꜱ & Oᴛᴛ Uᴘᴅᴀᴛᴇꜱ",
-                url="https://t.me/sandalwood_kannada_moviesz",
-                style=BTN_SUCCESS,
-            )
-        ]
-    )
-    return InlineKeyboardMarkup(static_buttons)
-
-
-async def get_help_keyboard():
-    static_buttons = [
-        [
-            create_btn("🖥️ UI Start", callback_data="helps_uistart"),
-            create_btn("🖥️ UI Help", callback_data="helps_uihelp"),
-            create_btn("🖥️ UI About", callback_data="helps_uiabout"),
-        ],
-        [
-            create_btn("👋 Welcome", callback_data="helps_welcome"),
-            create_btn("🖼️ Images", callback_data="helps_images"),
-        ],
-        [
-            create_btn("🔍 Spell Check", callback_data="helps_spell"),
-            create_btn("📝 Filters", callback_data="helps_filters"),
-        ],
-        [
-            create_btn("📱 Force Sub", callback_data="helps_forcesub"),
-            create_btn("👥 Force Add", callback_data="helps_forceadd"),
-        ],
-        [
-            create_btn("🚫 Bans", callback_data="helps_bans"),
-            create_btn("🗑️ Delete", callback_data="helps_delete"),
-        ],
-        [
-            create_btn("📢 Promotions", callback_data="helps_promotions"),
-            create_btn("📚 Index", callback_data="helps_index"),
-        ],
-        [
-            create_btn("⚙ Settings", callback_data="helps_settings"),
-            create_btn("🌐 Connections", callback_data="helps_connections"),
-        ],
-        [
-            create_btn("📊 Utilities", callback_data="helps_utilities"),
-            create_btn("💬 Custom Messages", callback_data="helps_custommessages"),
-        ],
-        [
-            create_btn("📝 Post Handle", callback_data="helps_posthand"),
-            create_btn("📝 Custom Captions", callback_data="helps_customcaption"),
-        ],
-        [
-            create_btn("🧬 Auto post", callback_data="helps_autopost"),
-            create_btn("💬 Pm Auto Reply", callback_data="helps_pmautoreply"),
-        ],
-        [
-            create_btn(
-                "🧹 Clean Filename", callback_data="helps_cleanfile", style=BTN_PRIMARY
-            ),
-            create_btn("💾 Backup", callback_data="helps_backup", style=BTN_SUCCESS),
-        ],
-        [
-            create_btn("🔙 Back", callback_data="start", style=BTN_PRIMARY),
-            create_btn("🔐 Cʟᴏsᴇ", callback_data="close_data", style=BTN_DANGER),
-        ],
-    ]
-    return InlineKeyboardMarkup(static_buttons)
-
-
-async def get_about_keyboard():
-    return InlineKeyboardMarkup(
-        [
-            [create_btn("📊 Sᴛᴀᴛᴜs", callback_data="stats")],
-            [
-                create_btn("🏘 Hᴏᴍᴇ", callback_data="start", style=BTN_SUCCESS),
-                create_btn("🔐 Cʟᴏsᴇ", callback_data="close_data", style=BTN_DANGER),
-            ],
-        ]
-    )
-
-
 async def build_cleanwords_panel_ui() -> Tuple[str, InlineKeyboardMarkup]:
-    """Builds the interactive Clean Filename Words panel for both /listcleanfilename and Help Menu."""
+    """Builds the Clean Filename Words panel using Script.py text and clean buttons."""
     use_default, words = await get_clean_words_state()
     mode_str = "🟢 Default Clean Words" if use_default else "🔵 Custom Clean Words"
     words_display = (
@@ -731,61 +1021,25 @@ async def build_cleanwords_panel_ui() -> Tuple[str, InlineKeyboardMarkup]:
         if words
         else "<i>None (Filenames shown uncut)</i>"
     )
-
-    text = (
-        f"🧹 <b>Clean Filename Words Manager</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"⚙️ <b>Current Mode:</b> {mode_str}\n"
-        f"🔢 <b>Total Active Words:</b> <code>{len(words)}</code>\n\n"
-        f"📋 <b>Active Words Removed From Buttons:</b>\n{words_display}\n"
-        f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"<b>Commands & Interactive Controls:</b>\n"
-        f"• <code>/listcleanfilename</code> — View & manage active clean words.\n"
-        f"• <code>/setcleanfilename w1, w2</code> — Set custom words to strip from file buttons.\n"
-        f"• <code>/defaultcleanfilename</code> — Restore default extensions & tags.\n"
-        f"• <code>/remcleanfilename</code> — Remove all clean words."
+    text = script.CLEANFILE_TXT.format(
+        mode_str=mode_str,
+        count=len(words),
+        words_display=words_display,
     )
-
-    buttons = [
-        [
-            create_btn(
-                "➕ Add Words",
-                callback_data="hact#cw_add",
-                style=BTN_SUCCESS,
-            ),
-            create_btn(
-                "✏️ Set / Replace All",
-                callback_data="hact#cw_set",
-                style=BTN_PRIMARY,
-            ),
-        ],
-        [
-            create_btn(
-                f"{'✅ ' if use_default else ''}🔄 Default Words",
-                callback_data="hact#cw_default",
-                style=BTN_SUCCESS if use_default else BTN_PRIMARY,
-            ),
-            create_btn(
-                "🗑️ Remove All Words",
-                callback_data="hact#cw_clear",
-                style=BTN_DANGER,
-            ),
-        ],
-        [
-            create_btn("🔙 Back to Help", callback_data="help", style=BTN_PRIMARY),
-            create_btn("🔐 Close", callback_data="close_data", style=BTN_DANGER),
-        ],
-    ]
-    return text, InlineKeyboardMarkup(buttons)
+    return text, get_cleanwords_keyboard(use_default=use_default)
 
 
 async def build_interactive_help_section(
-    client: Client, section_key: str, user_id: int, user_mention: str
+    client: Client,
+    section_key: str,
+    user_id: int,
+    user_mention: str,
+    msg_context: Optional[Message] = None,
 ) -> Tuple[str, InlineKeyboardMarkup]:
-    """
-    Builds rich help explanations AND interactive ON/OFF & Set-Words buttons
-    for every help category!
-    """
+    """Builds Help section text from Script.py and attaches clean interactive buttons."""
+    if section_key == "helps_cleanfile":
+        return await build_cleanwords_panel_ui()
+
     bot_uname = getattr(temp, "U_NAME", None) or "my_bot"
     b_name = getattr(temp, "B_NAME", None) or "MovieBot"
 
@@ -810,12 +1064,8 @@ async def build_interactive_help_section(
         "helps_posthand": ("POSTHAND_TXT", "📝 <b>Post Handle Help</b>"),
         "helps_customcaption": ("CUSTOMCAPTION_TXT", "📝 <b>Custom Captions Help</b>"),
         "helps_backup": ("BACKUP_TXT", "💾 <b>Backup Help</b>"),
-        "helps_autopost": ("AUTOPOST_TXT", "🧬 <b>Auto Post Help</b>"),
         "helps_pmautoreply": ("PMAUTOREPLY_TXT", "💬 <b>PM Auto Reply Help</b>"),
     }
-
-    if section_key == "helps_cleanfile":
-        return await build_cleanwords_panel_ui()
 
     target_var, default_text = help_dict.get(
         section_key, ("HELP_TXT", "Help unavailable.")
@@ -825,9 +1075,8 @@ async def build_interactive_help_section(
         raw_section, mention=user_mention, uname=bot_uname, bname=b_name
     )
 
-    interactive_rows: List[List[InlineKeyboardButton]] = []
+    state: Dict[str, Any] = {}
 
-    # 1. SPELL CHECK, AUTO-TRANSLATE, MULTI-CHOICE & STOPWORDS PANEL
     if section_key == "helps_spell":
         try:
             from plugins.pm_filter import get_feature_flags
@@ -843,7 +1092,7 @@ async def build_interactive_help_section(
         except Exception:
             stops = []
 
-        conn_gid = await get_active_connected_group(user_id)
+        conn_gid = await get_active_connected_group(user_id, msg_context)
         spell_on = True
         if conn_gid and callable(get_settings):
             try:
@@ -852,147 +1101,41 @@ async def build_interactive_help_section(
             except Exception:
                 pass
 
-        extra_info = (
+        state = {
+            "at_on": at_on,
+            "mc_on": mc_on,
+            "spell_on": spell_on,
+            "stops_count": len(stops),
+        }
+        base_text += (
             f"\n\n━━━━━━━━━━━━━━━━━━━━━\n"
-            f"🎛️ <b>Live Smart Search Controls:</b>\n"
-            f"• <code>/autotranslate</code> — Toggles Indic Script ➔ English Auto-Translate (Currently: <b>{'🟢 ON' if at_on else '🔴 OFF'}</b>).\n"
-            f"• <code>/multichoice</code> — Toggles 'Did You Mean?' Multi-Choice buttons (Currently: <b>{'🟢 ON' if mc_on else '🔴 OFF'}</b>).\n"
-            f"• <code>/enablespellcheck</code> / <code>/disablespellcheck</code> — Toggles Group Spell Check (Currently: <b>{'🟢 ON' if spell_on else '🔴 OFF'}</b>).\n"
-            f"• <code>/stopwords</code> — View & edit ignored stopwords (Active: <code>{len(stops)}</code> words)."
-        )
-        base_text += extra_info
-
-        interactive_rows.extend(
-            [
-                [
-                    create_btn(
-                        f"{'✅' if at_on else '⚪'} Auto-Translate: ON",
-                        callback_data="hact#at_on",
-                        style=BTN_SUCCESS if at_on else BTN_PRIMARY,
-                    ),
-                    create_btn(
-                        f"{'🚫' if not at_on else '⚪'} Auto-Translate: OFF",
-                        callback_data="hact#at_off",
-                        style=BTN_DANGER if not at_on else BTN_PRIMARY,
-                    ),
-                ],
-                [
-                    create_btn(
-                        f"{'✅' if mc_on else '⚪'} Multi-Choice: ON",
-                        callback_data="hact#mc_on",
-                        style=BTN_SUCCESS if mc_on else BTN_PRIMARY,
-                    ),
-                    create_btn(
-                        f"{'🚫' if not mc_on else '⚪'} Multi-Choice: OFF",
-                        callback_data="hact#mc_off",
-                        style=BTN_DANGER if not mc_on else BTN_PRIMARY,
-                    ),
-                ],
-                [
-                    create_btn(
-                        f"{'✅' if spell_on else '⚪'} Spell Check: ON",
-                        callback_data="hact#spell_on",
-                        style=BTN_SUCCESS if spell_on else BTN_PRIMARY,
-                    ),
-                    create_btn(
-                        f"{'🚫' if not spell_on else '⚪'} Spell Check: OFF",
-                        callback_data="hact#spell_off",
-                        style=BTN_DANGER if not spell_on else BTN_PRIMARY,
-                    ),
-                ],
-                [
-                    create_btn(
-                        f"🛑 View Stopwords ({len(stops)})",
-                        callback_data="hact#sw_list",
-                        style=BTN_PRIMARY,
-                    ),
-                    create_btn(
-                        "➕ Add Stopwords",
-                        callback_data="hact#sw_add",
-                        style=BTN_SUCCESS,
-                    ),
-                ],
-                [
-                    create_btn(
-                        "🔄 Default Stopwords",
-                        callback_data="hact#sw_def",
-                        style=BTN_PRIMARY,
-                    ),
-                    create_btn(
-                        "🗑️ Clear Stopwords",
-                        callback_data="hact#sw_clear",
-                        style=BTN_DANGER,
-                    ),
-                ],
-            ]
+            f"🎛️ <b>Live Smart Search Status:</b>\n"
+            f"• <b>Auto-Translate:</b> <code>{'ON ✅' if at_on else 'OFF ❌'}</code>\n"
+            f"• <b>Multi-Choice:</b> <code>{'ON ✅' if mc_on else 'OFF ❌'}</code>\n"
+            f"• <b>Group Spell Check:</b> <code>{'ON ✅' if spell_on else 'OFF ❌'}</code> "
+            f"(Group: <code>{conn_gid or 'Not Connected'}</code>)\n"
+            f"• <b>Active Stopwords:</b> <code>{len(stops)}</code>"
         )
 
-    # 2. PM AUTO-REPLY INTERACTIVE PANEL
     elif section_key == "helps_pmautoreply":
         pm_cfg = await get_pm_settings()
         pm_enabled = bool(pm_cfg.get("enabled", True))
         reply_admins = bool(pm_cfg.get("reply_admins", True))
         btn_txt = pm_cfg.get("button_text") or "None"
-        btn_color = pm_cfg.get("button_color", "red").upper()
+        btn_color = str(pm_cfg.get("button_color", "red")).upper()
 
+        state = {
+            "pm_enabled": pm_enabled,
+            "reply_admins": reply_admins,
+        }
         base_text += (
             f"\n\n━━━━━━━━━━━━━━━━━━━━━\n"
             f"🎛️ <b>Live PM Auto-Reply Status:</b>\n"
-            f"• <b>PM Auto-Reply:</b> <code>{'🟢 ENABLED' if pm_enabled else '🔴 DISABLED'}</code>\n"
-            f"• <b>Reply to Admins in PM:</b> <code>{'🟢 ON (Test Mode)' if reply_admins else '🔴 OFF (Users Only)'}</code>\n"
-            f"• <b>Button:</b> <code>{html.escape(str(btn_txt))}</code> (<code>{btn_color}</code>)\n"
-            f"• <code>/setpmtext</code> | <code>/setpmbutton</code> | <code>/setpmimage</code>"
+            f"• <b>PM Auto-Reply:</b> <code>{'ON ✅' if pm_enabled else 'OFF ❌'}</code>\n"
+            f"• <b>Reply to Admins:</b> <code>{'ON ✅' if reply_admins else 'OFF ❌'}</code>\n"
+            f"• <b>Active Button:</b> <code>{html.escape(str(btn_txt))}</code> (<code>{btn_color}</code>)"
         )
 
-        interactive_rows.extend(
-            [
-                [
-                    create_btn(
-                        f"{'✅' if pm_enabled else '⚪'} PM Reply: ON",
-                        callback_data="hact#pm_on",
-                        style=BTN_SUCCESS if pm_enabled else BTN_PRIMARY,
-                    ),
-                    create_btn(
-                        f"{'🚫' if not pm_enabled else '⚪'} PM Reply: OFF",
-                        callback_data="hact#pm_off",
-                        style=BTN_DANGER if not pm_enabled else BTN_PRIMARY,
-                    ),
-                ],
-                [
-                    create_btn(
-                        f"👑 Reply to Admins: {'ON ✅' if reply_admins else 'OFF 🚫'}",
-                        callback_data="hact#pm_adm_toggle",
-                        style=BTN_SUCCESS if reply_admins else BTN_PRIMARY,
-                    )
-                ],
-                [
-                    create_btn(
-                        "✏️ Set PM Text",
-                        callback_data="hact#pm_settext",
-                        style=BTN_PRIMARY,
-                    ),
-                    create_btn(
-                        "🔗 Set PM Button",
-                        callback_data="hact#pm_setbtn",
-                        style=BTN_PRIMARY,
-                    ),
-                ],
-                [
-                    create_btn(
-                        "🔄 Reset Default Text",
-                        callback_data="hact#pm_deftext",
-                        style=BTN_SUCCESS,
-                    ),
-                    create_btn(
-                        "🗑️ Remove PM Image",
-                        callback_data="hact#pm_remimg",
-                        style=BTN_DANGER,
-                    ),
-                ],
-            ]
-        )
-
-    # 3. FORCE SUBSCRIBE INTERACTIVE PANEL
     elif section_key == "helps_forcesub":
         try:
             from plugins.fsub import get_fsub_config, get_total_join_requests
@@ -1005,46 +1148,21 @@ async def build_interactive_help_section(
         except Exception:
             f_on, rot_on, ch_count, req_count = True, False, 0, 0
 
+        state = {
+            "f_on": f_on,
+            "rot_on": rot_on,
+            "ch_count": ch_count,
+        }
         base_text += (
             f"\n\n━━━━━━━━━━━━━━━━━━━━━\n"
-            f"🎛️ <b>Live ForceSub Dashboard:</b>\n"
-            f"• <b>ForceSub Status:</b> <code>{'🟢 ENABLED' if f_on else '🔴 DISABLED'}</code>\n"
-            f"• <b>1-Hour Auto-Rotation:</b> <code>{'🟢 ON' if rot_on else '🔴 OFF'}</code>\n"
-            f"• <b>Configured Channels:</b> <code>{ch_count}</code> | <b>Join Requests:</b> <code>{req_count}</code>"
+            f"🎛️ <b>Live ForceSub Status:</b>\n"
+            f"• <b>ForceSub:</b> <code>{'ON ✅' if f_on else 'OFF ❌'}</code>\n"
+            f"• <b>Auto-Rotation:</b> <code>{'ON ✅' if rot_on else 'OFF ❌'}</code>\n"
+            f"• <b>Channels:</b> <code>{ch_count}</code> | <b>Join Requests:</b> <code>{req_count}</code>"
         )
 
-        interactive_rows.extend(
-            [
-                [
-                    create_btn(
-                        f"{'✅' if f_on else '⚪'} ForceSub: ON",
-                        callback_data="hact#fsub_on",
-                        style=BTN_SUCCESS if f_on else BTN_PRIMARY,
-                    ),
-                    create_btn(
-                        f"{'🚫' if not f_on else '⚪'} ForceSub: OFF",
-                        callback_data="hact#fsub_off",
-                        style=BTN_DANGER if not f_on else BTN_PRIMARY,
-                    ),
-                ],
-                [
-                    create_btn(
-                        f"🔄 Auto-Rotate: {'ON ✅' if rot_on else 'OFF 🚫'}",
-                        callback_data="hact#fsub_rot",
-                        style=BTN_SUCCESS if rot_on else BTN_PRIMARY,
-                    ),
-                    create_btn(
-                        f"📋 Channels ({ch_count})",
-                        callback_data="hact#fsub_list",
-                        style=BTN_PRIMARY,
-                    ),
-                ],
-            ]
-        )
-
-    # 4. WELCOME MESSAGE INTERACTIVE PANEL
     elif section_key == "helps_welcome":
-        conn_gid = await get_active_connected_group(user_id)
+        conn_gid = await get_active_connected_group(user_id, msg_context)
         welc_on = True
         if conn_gid:
             try:
@@ -1055,107 +1173,37 @@ async def build_interactive_help_section(
             except Exception:
                 pass
 
+        state = {"welc_on": welc_on}
         base_text += (
             f"\n\n━━━━━━━━━━━━━━━━━━━━━\n"
-            f"🎛️ <b>Live Group Welcome Status:</b>\n"
+            f"🎛️ <b>Live Welcome Status:</b>\n"
             f"• <b>Connected Group:</b> <code>{conn_gid or 'None (/connect first)'}</code>\n"
-            f"• <b>Welcome Status:</b> <code>{'🟢 ENABLED' if welc_on else '🔴 DISABLED'}</code>"
+            f"• <b>Welcome Message:</b> <code>{'ON ✅' if welc_on else 'OFF ❌'}</code>"
         )
 
-        interactive_rows.extend(
-            [
-                [
-                    create_btn(
-                        f"{'✅' if welc_on else '⚪'} Welcome: ON",
-                        callback_data="hact#welc_on",
-                        style=BTN_SUCCESS if welc_on else BTN_PRIMARY,
-                    ),
-                    create_btn(
-                        f"{'🚫' if not welc_on else '⚪'} Welcome: OFF",
-                        callback_data="hact#welc_off",
-                        style=BTN_DANGER if not welc_on else BTN_PRIMARY,
-                    ),
-                ],
-                [
-                    create_btn(
-                        "✏️ Set Welcome Text",
-                        callback_data="hact#welc_settxt",
-                        style=BTN_PRIMARY,
-                    ),
-                    create_btn(
-                        "🗑️ Reset Welcome",
-                        callback_data="hact#welc_del",
-                        style=BTN_DANGER,
-                    ),
-                ],
-            ]
-        )
-
-    # 5. FILTERS & CLEAN FILENAME QUICK PANEL
     elif section_key == "helps_filters":
-        _, c_words = await get_clean_words_state()
-        conn_gid = await get_active_connected_group(user_id)
-        interactive_rows.extend(
-            [
-                [
-                    create_btn(
-                        f"🧹 Clean Filename Words ({len(c_words)})",
-                        callback_data="helps_cleanfile",
-                        style=BTN_SUCCESS,
-                    )
-                ],
-                [
-                    create_btn(
-                        f"📋 View Group Filters ({conn_gid or 'No Conn'})",
-                        callback_data="hact#flt_list",
-                        style=BTN_PRIMARY,
-                    )
-                ],
-            ]
-        )
-
-    # 6. SETTINGS & REPAIR MODE PANEL
-    elif section_key in ["helps_settings", "helps_utilities"]:
-        rep_on = bool(getattr(info, "REPAIR_MODE", False))
-        _, c_words = await get_clean_words_state()
+        conn_gid = await get_active_connected_group(user_id, msg_context)
         base_text += (
             f"\n\n━━━━━━━━━━━━━━━━━━━━━\n"
-            f"🎛️ <b>Live System Toggles:</b>\n"
-            f"• <b>Maintenance / Repair Mode:</b> <code>{'🟢 ON' if rep_on else '🔴 OFF'}</code>\n"
-            f"• <b>Active Clean Filename Words:</b> <code>{len(c_words)}</code>"
-        )
-        interactive_rows.extend(
-            [
-                [
-                    create_btn(
-                        f"🛠️ Repair Mode: {'ON 🟢' if rep_on else 'OFF 🔴'}",
-                        callback_data="hact#repair_toggle",
-                        style=BTN_DANGER if rep_on else BTN_SUCCESS,
-                    )
-                ],
-                [
-                    create_btn(
-                        f"🧹 Clean Filename Words ({len(c_words)})",
-                        callback_data="helps_cleanfile",
-                        style=BTN_PRIMARY,
-                    )
-                ],
-            ]
+            f"🔗 <b>Connected Group:</b> <code>{conn_gid or 'None (Use /connect <group_id>)'}</code>"
         )
 
-    interactive_rows.append(
-        [
-            create_btn("🔙 Back", callback_data="help", style=BTN_PRIMARY),
-            create_btn("🔐 Close", callback_data="close_data", style=BTN_DANGER),
-        ]
-    )
-    return base_text, InlineKeyboardMarkup(interactive_rows)
+    elif section_key == "helps_settings":
+        rep_on = bool(getattr(info, "REPAIR_MODE", False))
+        state = {"rep_on": rep_on}
+        base_text += (
+            f"\n\n━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🎛️ <b>Live System Status:</b>\n"
+            f"• <b>Repair / Maintenance Mode:</b> <code>{'ON ✅' if rep_on else 'OFF ❌'}</code>"
+        )
+
+    return base_text, get_help_section_keyboard(section_key, state)
 
 
 async def transition_ui_message(
     client: Client, msg_obj: Message, text: str, keyboard, img=None
 ):
-    """Smoothly transitions between photo and text messages on Pyrogram v2.2.26+."""
+    """Smoothly transitions between photo and text messages without getting stuck."""
     has_media = bool(
         msg_obj.photo or msg_obj.video or msg_obj.document or msg_obj.animation
     )
@@ -1248,7 +1296,7 @@ async def send_requested_file(
     files_ = await get_file_details(file_id)
     if not files_:
         if query:
-            await query.answer("⚠️ No such file exists.", show_alert=True)
+            await safe_answer(query, "⚠️ No such file exists.", show_alert=True)
         elif reply_target:
             await safe_reply_text(
                 reply_target,
@@ -1335,8 +1383,8 @@ async def send_requested_file(
         )
     except (UserIsBlocked, PeerIdInvalid):
         if query and getattr(temp, "U_NAME", None):
-            return await query.answer(
-                url=f"https://t.me/{temp.U_NAME}?start={ident}_{file_id}"
+            return await safe_answer(
+                query, url=f"https://t.me/{temp.U_NAME}?start={ident}_{file_id}"
             )
         return
     except Exception:
@@ -1351,13 +1399,13 @@ async def send_requested_file(
             )
         except (UserIsBlocked, PeerIdInvalid):
             if query and getattr(temp, "U_NAME", None):
-                return await query.answer(
-                    url=f"https://t.me/{temp.U_NAME}?start={ident}_{file_id}"
+                return await safe_answer(
+                    query, url=f"https://t.me/{temp.U_NAME}?start={ident}_{file_id}"
                 )
             return
         except Exception as err:
             if query:
-                return await query.answer(f"⚠️ Error: {err}", show_alert=True)
+                return await safe_answer(query, f"⚠️ Error: {err}", show_alert=True)
             if reply_target:
                 return await safe_reply_text(
                     reply_target,
@@ -1367,10 +1415,7 @@ async def send_requested_file(
             return
 
     if query:
-        try:
-            await query.answer("📥 File sent to your PM!")
-        except Exception:
-            pass
+        await safe_answer(query, "📥 File sent to your PM!")
 
     if msg:
         try:
@@ -1408,8 +1453,11 @@ async def start(client: Client, message: Message):
         if message.from_user
         else getattr(message.sender_chat, "id", 0)
     )
+    cancel_cmd_user_input(message.chat.id)
 
-    if getattr(info, "REPAIR_MODE", False) and not await is_global_admin(uid):
+    is_admin = await is_global_admin(uid)
+
+    if getattr(info, "REPAIR_MODE", False) and not is_admin:
         return await safe_reply_text(
             message,
             "🛠️ <b>Bot is currently under maintenance!</b>",
@@ -1441,6 +1489,13 @@ async def start(client: Client, message: Message):
     )
 
     if is_help_command:
+        if not is_admin:
+            return await safe_reply_text(
+                message,
+                "❌ <b>Unauthorized:</b> Help menu and controls are restricted to Bot Admins only.",
+                parse_mode=enums.ParseMode.HTML,
+            )
+
         raw_help = getattr(script, "HELP_TXT", "<b>Help Menu</b>")
         text = format_script_text(
             raw_help, mention=user_mention, uname=bot_uname, bname=b_name
@@ -1595,7 +1650,7 @@ async def start(client: Client, message: Message):
 
 
 # ============================================================
-# ⚙️ CLEAN FILENAME COMMANDS (+ /listcleanfilename)
+# ⚙️ CLEAN FILENAME COMMANDS (ADMIN ONLY)
 # ============================================================
 @Client.on_message(
     filters.command(["listcleanfilename", "cleanfilenames", "cleanwords"])
@@ -1723,7 +1778,7 @@ async def rem_clean_words(client: Client, message: Message):
 
 
 # ============================================================
-# ⚙️ PM REPLY SETTINGS SETUP COMMANDS
+# ⚙️ PM REPLY SETTINGS SETUP COMMANDS (ADMIN ONLY)
 # ============================================================
 @Client.on_message(filters.command("setpmtext") & filters.incoming, group=-2)
 async def set_pm_text(client: Client, message: Message):
@@ -1941,6 +1996,7 @@ async def toggle_pm_autoreply_cmd(client: Client, message: Message):
         "helps_pmautoreply",
         uid,
         message.from_user.mention if message.from_user else "Admin",
+        message,
     )
     await safe_reply_text(
         message,
@@ -1951,7 +2007,7 @@ async def toggle_pm_autoreply_cmd(client: Client, message: Message):
 
 
 # ============================================================
-# ⚙️ CHANNELS & SETTINGS
+# ⚙️ CHANNELS & SETTINGS (ADMIN ONLY)
 # ============================================================
 async def get_channels_page(client: Client, page: int = 1):
     raw_chats = await _db.get_all_chats()
@@ -1998,29 +2054,7 @@ async def get_channels_page(client: Client, page: int = 1):
             f"<b>{i}. {title}</b>\n🔗 Link: {link}\n🆔 ID: <code>{chat_id}</code>\n\n"
         )
 
-    buttons, nav_row = [], []
-    if page > 1:
-        nav_row.append(
-            create_btn(
-                "⬅️ Previous",
-                callback_data=f"channels_page#{page - 1}",
-                style=BTN_PRIMARY,
-            )
-        )
-    if page < total_pages:
-        nav_row.append(
-            create_btn(
-                "Next ➡️",
-                callback_data=f"channels_page#{page + 1}",
-                style=BTN_PRIMARY,
-            )
-        )
-    if nav_row:
-        buttons.append(nav_row)
-    buttons.append(
-        [create_btn("🔐 Close", callback_data="close_data", style=BTN_DANGER)]
-    )
-    return text, InlineKeyboardMarkup(buttons)
+    return text, get_channels_page_keyboard(page, total_pages)
 
 
 @Client.on_message(filters.command(["channels", "channel"]) & filters.incoming)
@@ -2150,18 +2184,33 @@ async def build_status_text() -> str:
 
 
 # ============================================================
-# 🎛️ INTERACTIVE HELP ACTION CALLBACKS (hact#...)
+# 🎛️ INTERACTIVE HELP ACTION CALLBACKS (hact#...) - ADMIN ONLY
 # ============================================================
 @Client.on_callback_query(filters.regex(r"^hact#"), group=-2)
 async def interactive_help_actions_cb(client: Client, query: CallbackQuery):
     uid = query.from_user.id if query.from_user else 0
     user_mention = query.from_user.mention if query.from_user else "Admin"
     if not await is_global_admin(uid):
-        return await query.answer(
-            "❌ Unauthorized: Global Admin only!", show_alert=True
+        return await safe_answer(
+            query, "❌ Unauthorized: Bot Admin only!", show_alert=True
         )
 
-    action = query.data.split("#", 1)[1]
+    chat_id = query.message.chat.id
+    action_raw = query.data.split("#", 1)[1]
+
+    # Handle inline cancel button on interactive prompts
+    if action_raw.startswith("cancel_input"):
+        cancel_cmd_user_input(chat_id)
+        await safe_answer(query, "❌ Cancelled.")
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+        return
+
+    # Always cancel any stale waiting prompt when clicking another button
+    cancel_cmd_user_input(chat_id)
+    action = action_raw
 
     # --- CLEAN FILENAME WORDS ACTIONS ---
     if action in ["cw_default", "cw_clear"]:
@@ -2170,20 +2219,20 @@ async def interactive_help_actions_cb(client: Client, query: CallbackQuery):
                 await cw_db.update_one(
                     {"id": "words"}, {"$set": {"use_default": True}}, upsert=True
                 )
-                await query.answer("✅ Reverted to Default Clean Words!")
+                await safe_answer(query, "✅ Reverted to Default Clean Words!")
             else:
                 await cw_db.update_one(
                     {"id": "words"},
                     {"$set": {"list": [], "use_default": False}},
                     upsert=True,
                 )
-                await query.answer("🗑️ Removed all Clean Words!")
+                await safe_answer(query, "🗑️ Cleared all Clean Words!")
             _invalidate_pm_filter_clean_cache()
         text, markup = await build_cleanwords_panel_ui()
         return await transition_ui_message(client, query.message, text, markup)
 
     if action in ["cw_add", "cw_set"]:
-        await query.answer()
+        await safe_answer(query)
         mode_label = (
             "ADD to existing clean words"
             if action == "cw_add"
@@ -2192,15 +2241,11 @@ async def interactive_help_actions_cb(client: Client, query: CallbackQuery):
         prompt = await safe_reply_text(
             query.message,
             f"🧹 <b>Send the words separated by commas to {mode_label}:</b>\n\n"
-            f"Example: <code>sandalwood, mkv, @MyChannel, www.site.com</code>\n"
-            f"<i>(Send <code>/cancel</code> to abort)</i>",
+            f"Example: <code>sandalwood, mkv, @MyChannel, www.site.com</code>",
+            reply_markup=get_cancel_input_keyboard("helps_cleanfile"),
             parse_mode=enums.ParseMode.HTML,
         )
-        resp = await wait_cmd_user_input(query.message.chat.id, uid, timeout=90)
-        try:
-            await prompt.delete()
-        except Exception:
-            pass
+        resp = await wait_cmd_user_input(chat_id, uid, prompt_msg=prompt, timeout=90)
         if not resp or not resp.text or resp.text.strip().lower() == "/cancel":
             return
         try:
@@ -2224,144 +2269,186 @@ async def interactive_help_actions_cb(client: Client, query: CallbackQuery):
         text, markup = await build_cleanwords_panel_ui()
         return await transition_ui_message(client, query.message, text, markup)
 
-    # --- AUTO-TRANSLATE, MULTI-CHOICE, SPELL CHECK & STOPWORDS ---
-    if action in ["at_on", "at_off", "mc_on", "mc_off"]:
+    # --- AUTO-TRANSLATE & MULTI-CHOICE 1-CLICK TOGGLES ---
+    if action in ["at_toggle", "at_on", "at_off", "mc_toggle", "mc_on", "mc_off"]:
         try:
-            from plugins.pm_filter import set_feature_flag
+            from plugins.pm_filter import get_feature_flags, set_feature_flag
 
+            at_cur, mc_cur = await get_feature_flags()
             if action.startswith("at_"):
-                state = action == "at_on"
-                await set_feature_flag("autotranslate", state)
-                await query.answer(
-                    f"🔤 Auto-Translate: {'ENABLED 🟢' if state else 'DISABLED 🔴'}"
+                new_state = (
+                    (not at_cur) if action == "at_toggle" else (action == "at_on")
+                )
+                await set_feature_flag("autotranslate", new_state)
+                await safe_answer(
+                    query,
+                    f"🔤 Auto-Translate: {'ON ✅' if new_state else 'OFF ❌'}",
                 )
             else:
-                state = action == "mc_on"
-                await set_feature_flag("multichoice", state)
-                await query.answer(
-                    f"💡 Multi-Choice: {'ENABLED 🟢' if state else 'DISABLED 🔴'}"
+                new_state = (
+                    (not mc_cur) if action == "mc_toggle" else (action == "mc_on")
+                )
+                await set_feature_flag("multichoice", new_state)
+                await safe_answer(
+                    query,
+                    f"💡 Multi-Choice: {'ON ✅' if new_state else 'OFF ❌'}",
                 )
         except Exception as e:
-            return await query.answer(f"Error: {e}", show_alert=True)
+            return await safe_answer(query, f"Error: {e}", show_alert=True)
 
         text, markup = await build_interactive_help_section(
-            client, "helps_spell", uid, user_mention
+            client, "helps_spell", uid, user_mention, query.message
         )
         return await transition_ui_message(client, query.message, text, markup)
 
-    if action in ["spell_on", "spell_off"]:
-        conn_gid = await get_active_connected_group(uid)
+    # --- GROUP SPELL CHECK 1-CLICK TOGGLE ---
+    if action in ["spell_toggle", "spell_on", "spell_off"]:
+        conn_gid = await get_active_connected_group(uid, query.message)
         if not conn_gid:
-            return await query.answer(
-                "⚠️ Connect a group first using /connect <group_id>!", show_alert=True
+            return await safe_answer(
+                query,
+                "⚠️ Connect a group first using /connect <group_id>!",
+                show_alert=True,
             )
-        state = action == "spell_on"
+        cur_spell = True
+        if callable(get_settings):
+            try:
+                g_set = await get_settings(conn_gid)
+                cur_spell = bool(g_set.get("spell_check", True))
+            except Exception:
+                pass
+        new_state = (
+            (not cur_spell) if action == "spell_toggle" else (action == "spell_on")
+        )
         if callable(save_group_settings):
-            await save_group_settings(conn_gid, "spell_check", state)
-        await query.answer(
-            f"🔍 Spell Check {'ENABLED 🟢' if state else 'DISABLED 🔴'} for {conn_gid}!"
+            await save_group_settings(conn_gid, "spell_check", new_state)
+        await safe_answer(
+            query,
+            f"🔍 Spell Check {'ON ✅' if new_state else 'OFF ❌'} for {conn_gid}!",
         )
         text, markup = await build_interactive_help_section(
-            client, "helps_spell", uid, user_mention
+            client, "helps_spell", uid, user_mention, query.message
         )
         return await transition_ui_message(client, query.message, text, markup)
 
+    # --- STOPWORDS ACTIONS ---
     if action in ["sw_list", "sw_def", "sw_clear", "sw_add"]:
         try:
             import plugins.custom_settings as _cs
         except Exception:
-            return await query.answer(
-                "custom_settings plugin unavailable!", show_alert=True
+            return await safe_answer(
+                query, "custom_settings plugin unavailable!", show_alert=True
             )
 
         if action == "sw_list":
             stops = _cs.get_stopwords()
-            preview = ", ".join(stops[:40]) + ("..." if len(stops) > 40 else "")
-            return await query.answer(
-                f"🛑 Active Stopwords ({len(stops)}):\n{preview}"[:200],
-                show_alert=True,
+            if not stops:
+                return await safe_answer(
+                    query, "🛑 No active stopwords configured.", show_alert=True
+                )
+            await safe_answer(query, "📋 Sending stopwords list...")
+            formatted = ", ".join(f"<code>{html.escape(str(w))}</code>" for w in stops)
+            msg_txt = (
+                f"🛑 <b>Active Stopwords ({len(stops)})</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━\n"
+                f"{formatted}\n"
+                f"━━━━━━━━━━━━━━━━━━━━━\n"
+                f"💡 <i>Tap any word above to copy it, or use <code>/remstopwords word</code></i>"
+            )
+            return await safe_send_message(
+                client,
+                chat_id=chat_id,
+                text=msg_txt[:4090],
+                reply_markup=get_close_keyboard(),
+                parse_mode=enums.ParseMode.HTML,
             )
         elif action == "sw_def":
             _cs.ACTIVE_STOPWORDS = _cs.DEFAULT_STOPWORDS.copy()
             await _cs.update_bot_settings("custom_stopwords", _cs.ACTIVE_STOPWORDS)
-            await query.answer("✅ Stopwords reset to default!")
+            await safe_answer(query, "✅ Stopwords reset to default!")
         elif action == "sw_clear":
             _cs.ACTIVE_STOPWORDS = []
             await _cs.update_bot_settings("custom_stopwords", [])
-            await query.answer("🗑️ All stopwords cleared!")
+            await safe_answer(query, "🗑️ All stopwords cleared!")
         elif action == "sw_add":
-            await query.answer()
+            await safe_answer(query)
             prompt = await safe_reply_text(
                 query.message,
                 "🛑 <b>Send the stopwords separated by commas to add:</b>\n\n"
-                "Example: <code>dubbed, kannada, fullmovie, link</code>\n"
-                "<i>(Send <code>/cancel</code> to abort)</i>",
+                "Example: <code>dubbed, kannada, fullmovie, link</code>",
+                reply_markup=get_cancel_input_keyboard("helps_spell"),
                 parse_mode=enums.ParseMode.HTML,
             )
-            resp = await wait_cmd_user_input(query.message.chat.id, uid, timeout=90)
-            try:
-                await prompt.delete()
-            except Exception:
-                pass
+            resp = await wait_cmd_user_input(
+                chat_id, uid, prompt_msg=prompt, timeout=90
+            )
             if resp and resp.text and resp.text.strip().lower() != "/cancel":
                 try:
                     await resp.delete()
                 except Exception:
                     pass
                 new_w = [w.strip().lower() for w in resp.text.split(",") if w.strip()]
-                _cs.ACTIVE_STOPWORDS = list(set(_cs.ACTIVE_STOPWORDS + new_w))
+                _cs.ACTIVE_STOPWORDS = list(dict.fromkeys(_cs.ACTIVE_STOPWORDS + new_w))
                 await _cs.update_bot_settings("custom_stopwords", _cs.ACTIVE_STOPWORDS)
 
         text, markup = await build_interactive_help_section(
-            client, "helps_spell", uid, user_mention
+            client, "helps_spell", uid, user_mention, query.message
         )
         return await transition_ui_message(client, query.message, text, markup)
 
     # --- PM AUTO-REPLY ACTIONS ---
     if action in [
+        "pm_toggle",
         "pm_on",
         "pm_off",
         "pm_adm_toggle",
         "pm_deftext",
         "pm_remimg",
+        "pm_rembtn",
         "pm_settext",
         "pm_setbtn",
     ]:
-        if action in ["pm_on", "pm_off"]:
-            state = action == "pm_on"
-            await save_pm_settings("enabled", state)
-            await query.answer(
-                f"💬 PM Auto-Reply: {'ENABLED 🟢' if state else 'DISABLED 🔴'}"
+        if action in ["pm_toggle", "pm_on", "pm_off"]:
+            cfg = await get_pm_settings()
+            cur = bool(cfg.get("enabled", True))
+            new_state = (not cur) if action == "pm_toggle" else (action == "pm_on")
+            await save_pm_settings("enabled", new_state)
+            await safe_answer(
+                query,
+                f"💬 PM Auto-Reply: {'ON ✅' if new_state else 'OFF ❌'}",
             )
         elif action == "pm_adm_toggle":
             cfg = await get_pm_settings()
             new_adm = not bool(cfg.get("reply_admins", True))
             await save_pm_settings("reply_admins", new_adm)
-            await query.answer(
-                f"👑 Reply to Admins: {'ON ✅' if new_adm else 'OFF 🚫'}"
+            await safe_answer(
+                query,
+                f"👑 Reply to Admins: {'ON ✅' if new_adm else 'OFF ❌'}",
             )
         elif action == "pm_deftext":
             await save_pm_settings(
                 "text",
                 "<b>🚫 Don't Message Here, Message Here Only!</b>\n\nI do not respond to direct messages in PM. Please join our official group to request and download movies.",
             )
-            await query.answer("✅ PM Text reset to default!")
+            await safe_answer(query, "✅ PM Text reset to default!")
         elif action == "pm_remimg":
             await save_pm_settings("image", None)
-            await query.answer("🗑️ PM Image removed!")
+            await safe_answer(query, "🗑️ PM Image removed!")
+        elif action == "pm_rembtn":
+            await save_pm_settings("button_text", None)
+            await save_pm_settings("button_url", None)
+            await safe_answer(query, "🗑️ PM Button removed!")
         elif action == "pm_settext":
-            await query.answer()
+            await safe_answer(query)
             prompt = await safe_reply_text(
                 query.message,
-                "✏️ <b>Send the new PM Auto-Reply Text (HTML supported):</b>\n\n"
-                "<i>(Send <code>/cancel</code> to abort)</i>",
+                "✏️ <b>Send the new PM Auto-Reply Text (HTML supported):</b>",
+                reply_markup=get_cancel_input_keyboard("helps_pmautoreply"),
                 parse_mode=enums.ParseMode.HTML,
             )
-            resp = await wait_cmd_user_input(query.message.chat.id, uid, timeout=90)
-            try:
-                await prompt.delete()
-            except Exception:
-                pass
+            resp = await wait_cmd_user_input(
+                chat_id, uid, prompt_msg=prompt, timeout=90
+            )
             if resp and (resp.text or resp.caption):
                 raw_txt = resp.text or resp.caption
                 if str(raw_txt).strip().lower() != "/cancel":
@@ -2373,19 +2460,18 @@ async def interactive_help_actions_cb(client: Client, query: CallbackQuery):
                 except Exception:
                     pass
         elif action == "pm_setbtn":
-            await query.answer()
+            await safe_answer(query)
             prompt = await safe_reply_text(
                 query.message,
                 "🔗 <b>Send the new PM Button in this format:</b>\n"
                 "<code>Button Text | https://t.me/your_group | green</code>\n\n"
-                "<i>Colors: green, red, blue (Send <code>/cancel</code> to abort)</i>",
+                "<i>Colors: green, red, blue, normal</i>",
+                reply_markup=get_cancel_input_keyboard("helps_pmautoreply"),
                 parse_mode=enums.ParseMode.HTML,
             )
-            resp = await wait_cmd_user_input(query.message.chat.id, uid, timeout=90)
-            try:
-                await prompt.delete()
-            except Exception:
-                pass
+            resp = await wait_cmd_user_input(
+                chat_id, uid, prompt_msg=prompt, timeout=90
+            )
             if resp and resp.text and "|" in resp.text:
                 parts = [p.strip() for p in resp.text.split("|")]
                 if len(parts) >= 2:
@@ -2402,12 +2488,12 @@ async def interactive_help_actions_cb(client: Client, query: CallbackQuery):
                     pass
 
         text, markup = await build_interactive_help_section(
-            client, "helps_pmautoreply", uid, user_mention
+            client, "helps_pmautoreply", uid, user_mention, query.message
         )
         return await transition_ui_message(client, query.message, text, markup)
 
     # --- FORCE SUBSCRIBE ACTIONS ---
-    if action in ["fsub_on", "fsub_off", "fsub_rot", "fsub_list"]:
+    if action in ["fsub_toggle", "fsub_on", "fsub_off", "fsub_rot", "fsub_list"]:
         try:
             from plugins.fsub import (
                 build_fsub_list_ui,
@@ -2415,81 +2501,82 @@ async def interactive_help_actions_cb(client: Client, query: CallbackQuery):
                 update_fsub_config,
             )
 
-            if action in ["fsub_on", "fsub_off"]:
-                state = action == "fsub_on"
-                await update_fsub_config("is_enabled", state)
-                await query.answer(
-                    f"📡 ForceSub: {'ENABLED 🟢' if state else 'DISABLED 🔴'}"
+            if action in ["fsub_toggle", "fsub_on", "fsub_off"]:
+                cfg = await get_fsub_config(force_refresh=True)
+                cur = bool(cfg.get("is_enabled", True))
+                new_state = (
+                    (not cur) if action == "fsub_toggle" else (action == "fsub_on")
+                )
+                await update_fsub_config("is_enabled", new_state)
+                await safe_answer(
+                    query,
+                    f"📱 ForceSub: {'ON ✅' if new_state else 'OFF ❌'}",
                 )
             elif action == "fsub_rot":
                 cfg = await get_fsub_config(force_refresh=True)
                 new_rot = not bool(cfg.get("rotation_enabled", False))
                 await update_fsub_config("rotation_enabled", new_rot)
-                await query.answer(
-                    f"🔄 Auto-Rotation: {'ENABLED 🟢' if new_rot else 'DISABLED 🔴'}"
+                await safe_answer(
+                    query,
+                    f"🔄 Auto-Rotation: {'ON ✅' if new_rot else 'OFF ❌'}",
                 )
             elif action == "fsub_list":
-                await query.answer()
+                await safe_answer(query)
                 f_text, f_markup = await build_fsub_list_ui("All")
                 rows = (
                     list(f_markup.inline_keyboard)
                     if f_markup and f_markup.inline_keyboard
                     else []
                 )
-                rows.append(
-                    [
-                        create_btn(
-                            "🔙 Back",
-                            callback_data="helps_forcesub",
-                            style=BTN_PRIMARY,
-                        )
-                    ]
-                )
+                rows.append([create_btn("🔙 Back", callback_data="helps_forcesub")])
                 return await transition_ui_message(
                     client, query.message, f_text, InlineKeyboardMarkup(rows)
                 )
         except Exception as e:
-            return await query.answer(f"FSub error: {e}", show_alert=True)
+            return await safe_answer(query, f"FSub error: {e}", show_alert=True)
 
         text, markup = await build_interactive_help_section(
-            client, "helps_forcesub", uid, user_mention
+            client, "helps_forcesub", uid, user_mention, query.message
         )
         return await transition_ui_message(client, query.message, text, markup)
 
     # --- WELCOME ACTIONS ---
-    if action in ["welc_on", "welc_off", "welc_settxt", "welc_del"]:
-        conn_gid = await get_active_connected_group(uid)
+    if action in ["welc_toggle", "welc_on", "welc_off", "welc_settxt", "welc_del"]:
+        conn_gid = await get_active_connected_group(uid, query.message)
         if not conn_gid:
-            return await query.answer(
-                "⚠️ Connect a group first using /connect <group_id>!", show_alert=True
+            return await safe_answer(
+                query,
+                "⚠️ Connect a group first using /connect <group_id>!",
+                show_alert=True,
             )
-        from plugins.custom_settings import update_group_welcome
+        from plugins.custom_settings import get_group_welcome, update_group_welcome
 
-        if action in ["welc_on", "welc_off"]:
-            state = action == "welc_on"
-            await update_group_welcome(conn_gid, "welcome", state)
-            await query.answer(
-                f"👋 Welcome {'ENABLED 🟢' if state else 'DISABLED 🔴'} for {conn_gid}!"
+        if action in ["welc_toggle", "welc_on", "welc_off"]:
+            w_doc = await get_group_welcome(conn_gid)
+            cur = bool(w_doc.get("welcome", True))
+            new_state = (not cur) if action == "welc_toggle" else (action == "welc_on")
+            await update_group_welcome(conn_gid, "welcome", new_state)
+            await safe_answer(
+                query,
+                f"👋 Welcome {'ON ✅' if new_state else 'OFF ❌'} for {conn_gid}!",
             )
         elif action == "welc_del":
             await update_group_welcome(conn_gid, "img", None)
             await update_group_welcome(conn_gid, "text", None)
             await update_group_welcome(conn_gid, "welcome", False)
-            await query.answer("🗑️ Welcome settings reset & disabled!")
+            await safe_answer(query, "🗑️ Welcome settings reset & disabled!")
         elif action == "welc_settxt":
-            await query.answer()
+            await safe_answer(query)
             prompt = await safe_reply_text(
                 query.message,
                 "👋 <b>Send the new Welcome Message text:</b>\n"
-                "Variables: <code>{mention}</code>, <code>{title}</code>, <code>{count}</code>\n\n"
-                "<i>(Send <code>/cancel</code> to abort)</i>",
+                "Variables: <code>{mention}</code>, <code>{title}</code>, <code>{count}</code>",
+                reply_markup=get_cancel_input_keyboard("helps_welcome"),
                 parse_mode=enums.ParseMode.HTML,
             )
-            resp = await wait_cmd_user_input(query.message.chat.id, uid, timeout=90)
-            try:
-                await prompt.delete()
-            except Exception:
-                pass
+            resp = await wait_cmd_user_input(
+                chat_id, uid, prompt_msg=prompt, timeout=90
+            )
             if resp and resp.text and resp.text.strip().lower() != "/cancel":
                 await update_group_welcome(conn_gid, "text", resp.text)
                 await update_group_welcome(conn_gid, "welcome", True)
@@ -2499,40 +2586,89 @@ async def interactive_help_actions_cb(client: Client, query: CallbackQuery):
                     pass
 
         text, markup = await build_interactive_help_section(
-            client, "helps_welcome", uid, user_mention
+            client, "helps_welcome", uid, user_mention, query.message
         )
         return await transition_ui_message(client, query.message, text, markup)
 
-    # --- FILTERS LIST ACTION ---
+    # --- 📋 VIEW GROUP FILTERS (SENT AS EASY-TO-COPY TEXT MESSAGE) ---
     if action == "flt_list":
-        conn_gid = await get_active_connected_group(uid)
+        conn_gid = await get_active_connected_group(uid, query.message)
         if not conn_gid:
-            return await query.answer(
-                "⚠️ Connect a group first using /connect <group_id>!", show_alert=True
+            return await safe_answer(
+                query,
+                "⚠️ Connect a group first using /connect <group_id>!",
+                show_alert=True,
             )
         try:
             from database.filters_mdb import get_filters
 
             kws = await get_filters(conn_gid)
             if not kws:
-                return await query.answer(
-                    f"No filters found in {conn_gid}.", show_alert=True
+                return await safe_answer(
+                    query, f"ℹ️ No filters found in group {conn_gid}.", show_alert=True
                 )
-            preview = ", ".join(str(k) for k in kws[:30])
-            return await query.answer(
-                f"📋 Filters ({len(kws)}):\n{preview}"[:200], show_alert=True
-            )
-        except Exception as e:
-            return await query.answer(f"Error: {e}", show_alert=True)
 
-    # --- REPAIR MODE TOGGLE ---
+            await safe_answer(query, f"📋 Sending {len(kws)} filters as text...")
+
+            chat_title = str(conn_gid)
+            try:
+                c_obj = await client.get_chat(conn_gid)
+                if c_obj and c_obj.title:
+                    chat_title = html.escape(c_obj.title)
+            except Exception:
+                pass
+
+            header = (
+                f"📋 <b>Group Filters — {chat_title}</b>\n"
+                f"🆔 <b>Group ID:</b> <code>{conn_gid}</code>\n"
+                f"🔢 <b>Total Filters:</b> <code>{len(kws)}</code>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━\n"
+            )
+            footer = (
+                f"\n━━━━━━━━━━━━━━━━━━━━━\n"
+                f"💡 <i>Tap any filter above to copy it!</i>\n"
+                f"🗑️ <i>To delete:</i> <code>/delfilter filter_name</code>"
+            )
+
+            lines = [
+                f"{idx}. <code>{html.escape(str(kw))}</code>"
+                for idx, kw in enumerate(kws, start=1)
+            ]
+
+            chunks: List[str] = []
+            current_chunk = header
+            for line in lines:
+                if len(current_chunk) + len(line) + len(footer) + 2 > 4000:
+                    chunks.append(current_chunk + footer)
+                    current_chunk = (
+                        f"📋 <b>Group Filters (Cont.) — {chat_title}</b>\n"
+                        f"━━━━━━━━━━━━━━━━━━━━━\n{line}\n"
+                    )
+                else:
+                    current_chunk += line + "\n"
+            chunks.append(current_chunk + footer)
+
+            for chunk_text in chunks:
+                await safe_send_message(
+                    client,
+                    chat_id=chat_id,
+                    text=chunk_text,
+                    reply_markup=get_close_keyboard(),
+                    parse_mode=enums.ParseMode.HTML,
+                )
+            return
+        except Exception as e:
+            return await safe_answer(query, f"Error: {e}", show_alert=True)
+
+    # --- REPAIR MODE 1-CLICK TOGGLE ---
     if action == "repair_toggle":
         info.REPAIR_MODE = not bool(getattr(info, "REPAIR_MODE", False))
-        await query.answer(
-            f"🛠️ Repair Mode is now {'ENABLED 🟢' if info.REPAIR_MODE else 'DISABLED 🔴'}!"
+        await safe_answer(
+            query,
+            f"🛠️ Repair Mode: {'ON ✅' if info.REPAIR_MODE else 'OFF ❌'}",
         )
         text, markup = await build_interactive_help_section(
-            client, "helps_settings", uid, user_mention
+            client, "helps_settings", uid, user_mention, query.message
         )
         return await transition_ui_message(client, query.message, text, markup)
 
@@ -2555,16 +2691,32 @@ async def cb_handler(client: Client, query: CallbackQuery):
     bot_uname = getattr(temp, "U_NAME", None) or "my_bot"
     b_name = getattr(temp, "B_NAME", None) or "MovieBot"
 
+    cancel_cmd_user_input(query.message.chat.id)
+    is_admin = await is_global_admin(uid)
+
     if (
         getattr(info, "REPAIR_MODE", False)
-        and not await is_global_admin(uid)
+        and not is_admin
         and query.data != "close_data"
     ):
-        return await query.answer("🛠️ Bot is under maintenance!", show_alert=True)
+        return await safe_answer(query, "🛠️ Bot is under maintenance!", show_alert=True)
+
+    # Restrict Help, About, Stats, and Channels callbacks strictly to Bot Admins
+    if (
+        query.data in ["help", "about", "stats", "rfrsh"]
+        or query.data.startswith("helps_")
+        or query.data.startswith("channels_page#")
+    ):
+        if not is_admin:
+            return await safe_answer(
+                query,
+                "❌ Unauthorized: This menu is restricted to Bot Admins only!",
+                show_alert=True,
+            )
 
     try:
         if query.data == "close_data":
-            await query.answer("Closed!")
+            await safe_answer(query, "Closed!")
             try:
                 await query.message.delete()
             except Exception:
@@ -2576,7 +2728,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     pass
 
         elif query.data == "pages":
-            await query.answer("📄 Page Indicator")
+            await safe_answer(query, "📄 Page Indicator")
 
         elif query.data.startswith("alertmessage"):
             parts = (
@@ -2585,16 +2737,16 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 else query.data.split("#", 1)
             )
             alert_txt = parts[1] if len(parts) > 1 else "Alert!"
-            await query.answer(alert_txt[:200], show_alert=True)
+            await safe_answer(query, alert_txt[:200], show_alert=True)
 
         elif query.data.startswith("channels_page#"):
             page_num = int(query.data.split("#")[1])
-            await query.answer()
+            await safe_answer(query)
             text, reply_markup = await get_channels_page(client, page=page_num)
             await transition_ui_message(client, query.message, text, reply_markup)
 
         elif query.data == "start":
-            await query.answer()
+            await safe_answer(query)
             raw_text = format_script_text(
                 getattr(script, "START_TXT", "Hello {mention}!"),
                 mention=user_mention,
@@ -2613,7 +2765,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
             )
 
         elif query.data == "help":
-            await query.answer()
+            await safe_answer(query)
             raw_text = format_script_text(
                 getattr(script, "HELP_TXT", "<b>Help Menu</b>"),
                 mention=user_mention,
@@ -2632,7 +2784,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
             )
 
         elif query.data == "about":
-            await query.answer()
+            await safe_answer(query)
             raw_text = format_script_text(
                 getattr(script, "ABOUT_TXT", "<b>About {bname}</b>"),
                 mention=user_mention,
@@ -2651,28 +2803,21 @@ async def cb_handler(client: Client, query: CallbackQuery):
             )
 
         elif query.data in ["stats", "rfrsh"]:
-            await query.answer(
+            await safe_answer(
+                query,
                 "Refreshing Database Stats..."
                 if query.data == "rfrsh"
-                else "Loading Stats..."
+                else "Loading Stats...",
             )
             status_text = await build_status_text()
-            buttons = InlineKeyboardMarkup(
-                [
-                    [
-                        create_btn("🔙 Back", callback_data="about", style=BTN_PRIMARY),
-                        create_btn(
-                            "🔄 Refresh", callback_data="rfrsh", style=BTN_SUCCESS
-                        ),
-                    ]
-                ]
+            await transition_ui_message(
+                client, query.message, status_text, get_stats_keyboard()
             )
-            await transition_ui_message(client, query.message, status_text, buttons)
 
         elif query.data.startswith("helps_"):
-            await query.answer()
+            await safe_answer(query)
             text, buttons = await build_interactive_help_section(
-                client, query.data, uid, user_mention
+                client, query.data, uid, user_mention, query.message
             )
             await transition_ui_message(client, query.message, text, buttons)
 
@@ -2682,7 +2827,8 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 and (AUTH_CHANNEL or REQ_CHANNEL)
                 and not await is_subscribed(client, query)
             ):
-                return await query.answer(
+                return await safe_answer(
+                    query,
                     "⚠️ Please join our channel first, then click Try Again! Team: @KR_PICTURE",
                     show_alert=True,
                 )
@@ -2690,7 +2836,9 @@ async def cb_handler(client: Client, query: CallbackQuery):
             try:
                 ident, file_id = query.data.split("#", 1)
             except ValueError:
-                return await query.answer("⚠️ Invalid button data!", show_alert=True)
+                return await safe_answer(
+                    query, "⚠️ Invalid button data!", show_alert=True
+                )
 
             await send_requested_file(
                 client=client,
@@ -2700,26 +2848,22 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 query=query,
             )
 
-    except QueryIdInvalid:
-        pass
     except Exception as e:
         logger.error(f"Callback Handler Error: {e}")
 
 
 # ============================================================
-# 📩 PM AUTO-REPLY ENGINE (SUPPORTS TEXT, STICKERS, PHOTOS & ADMINS)
+# 📩 PM AUTO-REPLY ENGINE
 # ============================================================
 @Client.on_message(
     filters.private & filters.incoming & ~filters.bot & ~filters.service,
     group=1,
 )
 async def pm_auto_reply(client: Client, message: Message):
-    # 1. Never auto-reply to slash commands
     raw_txt = (message.text or message.caption or "").strip()
     if raw_txt.startswith("/"):
         return
 
-    # 2. If another interactive prompt is waiting for input in this chat, do not interrupt
     if message.chat.id in _CMD_WAITING_INPUT:
         return
 
@@ -2738,9 +2882,7 @@ async def pm_auto_reply(client: Client, message: Message):
     if not settings.get("enabled", True):
         return
 
-    # 3. Allow Admins to see/test the PM Auto-Reply unless they turn off "Reply to Admins" in the Help Menu!
     if await is_global_admin(uid):
-        # Do not trigger if admin is forwarding/uploading media for indexing
         if message.forward_from_chat or getattr(message, "forward_origin", None):
             return
         if message.document or message.video or message.audio:
@@ -2752,7 +2894,7 @@ async def pm_auto_reply(client: Client, message: Message):
     pm_img = settings.get("image", getattr(info, "NOT_FOUND_IMG", None))
     btn_text = settings.get("button_text", "💬 Message Here Only")
     btn_url = settings.get("button_url", "https://t.me/Sandalwood_Kannada_Group")
-    btn_color_str = settings.get("button_color", "red")
+    btn_color_str = str(settings.get("button_color", "red")).lower()
 
     color_map = {
         "green": BTN_SUCCESS,
