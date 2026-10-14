@@ -200,7 +200,9 @@ async def process_text_setting(message: Message, var_name: str, setting_name: st
             raw_text = getattr(content, "html", str(content))
     elif message.text and len(message.command) > 1:
         html_text = getattr(message.text, "html", str(message.text))
-        raw_text = re.sub(r"^/\w+(?:@[a-zA-Z0-9_]+)?\s+", "", html_text, count=1).strip()
+        raw_text = re.sub(
+            r"^/\w+(?:@[a-zA-Z0-9_]+)?\s+", "", html_text, count=1
+        ).strip()
 
     if not raw_text:
         return await message.reply_text(
