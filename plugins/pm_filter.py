@@ -404,9 +404,7 @@ async def god_tier_search(query: str) -> Tuple[list, int, int, str, bool]:
     try:
         media_col = getattr(_Media, "collection", _Media)
         sample_docs = (
-            await media_col.find({}, {"file_name": 1})
-            .limit(2000)
-            .to_list(length=2000)
+            await media_col.find({}, {"file_name": 1}).limit(2000).to_list(length=2000)
         )
         db_titles = list(
             set(
@@ -1402,7 +1400,9 @@ async def del_filter_cmd(client: Client, message: Message):
     schedule_auto_delete(client, message.chat.id, False, delete_timer, message, out_msg)
 
 
-@Client.on_message(filters.command(["delall", "deleteall"]) & filters.incoming, group=-2)
+@Client.on_message(
+    filters.command(["delall", "deleteall"]) & filters.incoming, group=-2
+)
 async def del_all_filters_cmd(client: Client, message: Message):
     target_chat_id = await get_target_chat(client, message)
     if not target_chat_id:
