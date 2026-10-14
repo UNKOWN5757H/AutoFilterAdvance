@@ -1,5 +1,6 @@
 import asyncio
 import builtins
+import html
 import inspect
 import logging
 import math
@@ -76,9 +77,17 @@ try:
 except Exception:
     _parse_text_and_markup = None
 
+try:
+    from utils import get_settings, save_group_settings
+except Exception:
+    get_settings = None
+    save_group_settings = None
+
 LOG_FILE = "TelegramBot.log"
 MESSAGE_EMOJI_PLANE = '<tg-emoji emoji-id="5875465628285931233">✈️</tg-emoji> Telegram'
 MESSAGE_EMOJI_LINK = '<tg-emoji emoji-id="5877465816030515018">🔗</tg-emoji> Link'
+
+DEFAULT_CLEAN_WORDS = ["sandalwood", "mkv", "mp4", "avi", "webm", "zip", "rar"]
 
 # ============================================================
 # 🛡️ PYROGRAM v2.2.26 (LAYER 230) COMPATIBILITY ENGINE
@@ -203,9 +212,9 @@ except (ImportError, ValueError, TypeError):
     _SUPPORTS_BTN_STYLE = False
 
 # ============================================================
-# ⚙️ MONGODB INITIALIZATION
+# ⚙️ MONGODB INITIALIZATION & INTERACTIVE STATE HELPERS
 # ============================================================
-pm_db = cw_db = None
+pm_db = cw_db = _BOT_DB = None
 try:
     _DB_CLIENT = AsyncIOMotorClient(info.DATABASE_URI)
     _BOT_DB = _DB_CLIENT[info.DATABASE_NAME]
@@ -217,6 +226,8 @@ except Exception as e:
 
 async def get_pm_settings():
     default_settings = {
+        "enabled": True,
+        "reply_admins": True,
         "text": (
             "<b>🚫 Don't Message Here, Message Here Only!</b>\n\n"
             "I do not respond to direct messages in PM. Please join our official group to request and download movies."
@@ -243,8 +254,81 @@ async def save_pm_settings(key, value):
         await pm_db.update_one({"id": "pm_config"}, {"$set": {key: value}}, upsert=True)
 
 
+async def get_clean_words_state() -> Tuple[bool, List[str]]:
+    """Returns (use_default, active_words_list)."""
+    if cw_db is None:
+        return True, list(DEFAULT_CLEAN_WORDS)
+    try:
+        doc = await cw_db.find_one({"id": "words"})
+        if not doc or doc.get("use_default", True):
+            return True, list(DEFAULT_CLEAN_WORDS)
+        return False, list(doc.get("list", []))
+    except Exception:
+        return True, list(DEFAULT_CLEAN_WORDS)
+
+
+def _invalidate_pm_filter_clean_cache():
+    try:
+        import plugins.pm_filter as _pmf
+
+        _pmf._CLEAN_WORDS_CACHE = (0.0, DEFAULT_CLEAN_WORDS)
+    except Exception:
+        pass
+
+
 # ============================================================
-# 👑 SMART AUTHORIZATION
+# 🔄 INTERACTIVE INPUT LISTENER FOR HELP BUTTONS
+# ============================================================
+_CMD_WAITING_INPUT: Dict[int, Dict[str, Any]] = {}
+
+
+@Client.on_message(filters.private | filters.group, group=-15)
+async def _cmd_interactive_listener(client: Client, message: Message):
+    chat_id = message.chat.id
+    if chat_id not in _CMD_WAITING_INPUT:
+        return
+    if (
+        message.text
+        and message.text.startswith("/")
+        and message.text.strip().lower() not in ["/cancel"]
+    ):
+        return
+
+    uid = (
+        message.from_user.id
+        if message.from_user
+        else getattr(message.sender_chat, "id", 0)
+    )
+    session = _CMD_WAITING_INPUT[chat_id]
+    if uid == session["user_id"] or uid == chat_id:
+        fut = session["future"]
+        if not fut.done():
+            fut.set_result(message)
+        message.stop_propagation()
+
+
+async def wait_cmd_user_input(
+    chat_id: int, user_id: int, timeout: int = 90
+) -> Optional[Message]:
+    if chat_id in _CMD_WAITING_INPUT:
+        old_fut = _CMD_WAITING_INPUT[chat_id].get("future")
+        if old_fut and not old_fut.done():
+            old_fut.cancel()
+
+    loop = asyncio.get_running_loop()
+    future = loop.create_future()
+    _CMD_WAITING_INPUT[chat_id] = {"future": future, "user_id": user_id}
+    try:
+        return await asyncio.wait_for(future, timeout=timeout)
+    except (asyncio.TimeoutError, asyncio.CancelledError):
+        return None
+    finally:
+        if _CMD_WAITING_INPUT.get(chat_id, {}).get("future") is future:
+            _CMD_WAITING_INPUT.pop(chat_id, None)
+
+
+# ============================================================
+# 👑 SMART AUTHORIZATION & ACTIVE GROUP HELPER
 # ============================================================
 def get_admin_list():
     raw_admins = getattr(info, "ADMINS", [])
@@ -274,6 +358,27 @@ async def is_user_banned(user_id: int) -> bool:
         return bool(await _plugin_db.is_banned(user_id))
     except Exception:
         return False
+
+
+async def get_active_connected_group(user_id: int) -> Optional[int]:
+    try:
+        from plugins.pm_filter import get_active_connection
+
+        conn = await get_active_connection(str(user_id))
+        if conn:
+            return int(conn)
+    except Exception:
+        pass
+    if _BOT_DB is not None:
+        try:
+            doc = await _BOT_DB["active_connections"].find_one(
+                {"user_id": str(user_id)}
+            )
+            if doc and doc.get("group_id"):
+                return int(doc["group_id"])
+        except Exception:
+            pass
+    return None
 
 
 # ============================================================
@@ -507,7 +612,7 @@ def schedule_pm_auto_delete(
 
 
 # ============================================================
-# ⌨️ KEYBOARDS & UI TRANSITIONS
+# ⌨️ KEYBOARDS & INTERACTIVE HELP CONTROL PANELS
 # ============================================================
 async def get_start_keyboard(client: Client, user_id: int):
     static_buttons = [
@@ -591,7 +696,12 @@ async def get_help_keyboard():
             create_btn("🧬 Auto post", callback_data="helps_autopost"),
             create_btn("💬 Pm Auto Reply", callback_data="helps_pmautoreply"),
         ],
-        [create_btn("💾 Backup", callback_data="helps_backup", style=BTN_SUCCESS)],
+        [
+            create_btn(
+                "🧹 Clean Filename", callback_data="helps_cleanfile", style=BTN_PRIMARY
+            ),
+            create_btn("💾 Backup", callback_data="helps_backup", style=BTN_SUCCESS),
+        ],
         [
             create_btn("🔙 Back", callback_data="start", style=BTN_PRIMARY),
             create_btn("🔐 Cʟᴏsᴇ", callback_data="close_data", style=BTN_DANGER),
@@ -610,6 +720,436 @@ async def get_about_keyboard():
             ],
         ]
     )
+
+
+async def build_cleanwords_panel_ui() -> Tuple[str, InlineKeyboardMarkup]:
+    """Builds the interactive Clean Filename Words panel for both /listcleanfilename and Help Menu."""
+    use_default, words = await get_clean_words_state()
+    mode_str = "🟢 Default Clean Words" if use_default else "🔵 Custom Clean Words"
+    words_display = (
+        ", ".join(f"<code>{html.escape(str(w))}</code>" for w in words)
+        if words
+        else "<i>None (Filenames shown uncut)</i>"
+    )
+
+    text = (
+        f"🧹 <b>Clean Filename Words Manager</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"⚙️ <b>Current Mode:</b> {mode_str}\n"
+        f"🔢 <b>Total Active Words:</b> <code>{len(words)}</code>\n\n"
+        f"📋 <b>Active Words Removed From Buttons:</b>\n{words_display}\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"<b>Commands & Interactive Controls:</b>\n"
+        f"• <code>/listcleanfilename</code> — View & manage active clean words.\n"
+        f"• <code>/setcleanfilename w1, w2</code> — Set custom words to strip from file buttons.\n"
+        f"• <code>/defaultcleanfilename</code> — Restore default extensions & tags.\n"
+        f"• <code>/remcleanfilename</code> — Remove all clean words."
+    )
+
+    buttons = [
+        [
+            create_btn(
+                "➕ Add Words",
+                callback_data="hact#cw_add",
+                style=BTN_SUCCESS,
+            ),
+            create_btn(
+                "✏️ Set / Replace All",
+                callback_data="hact#cw_set",
+                style=BTN_PRIMARY,
+            ),
+        ],
+        [
+            create_btn(
+                f"{'✅ ' if use_default else ''}🔄 Default Words",
+                callback_data="hact#cw_default",
+                style=BTN_SUCCESS if use_default else BTN_PRIMARY,
+            ),
+            create_btn(
+                "🗑️ Remove All Words",
+                callback_data="hact#cw_clear",
+                style=BTN_DANGER,
+            ),
+        ],
+        [
+            create_btn("🔙 Back to Help", callback_data="help", style=BTN_PRIMARY),
+            create_btn("🔐 Close", callback_data="close_data", style=BTN_DANGER),
+        ],
+    ]
+    return text, InlineKeyboardMarkup(buttons)
+
+
+async def build_interactive_help_section(
+    client: Client, section_key: str, user_id: int, user_mention: str
+) -> Tuple[str, InlineKeyboardMarkup]:
+    """
+    Builds rich help explanations AND interactive ON/OFF & Set-Words buttons
+    for every help category!
+    """
+    bot_uname = getattr(temp, "U_NAME", None) or "my_bot"
+    b_name = getattr(temp, "B_NAME", None) or "MovieBot"
+
+    help_dict = {
+        "helps_uistart": ("UISTART_TXT", "🎨 <b>UI Start Menu</b>"),
+        "helps_uihelp": ("UIHELP_TXT", "🎨 <b>UI Help Menu</b>"),
+        "helps_uiabout": ("UIABOUT_TXT", "🎨 <b>UI About Menu</b>"),
+        "helps_welcome": ("WELCOME_TXT", "👋 <b>Welcome Help</b>"),
+        "helps_images": ("IMAGES_TXT", "🖼️ <b>Images Help</b>"),
+        "helps_spell": ("SPELLCHECK_TXT", "🔍 <b>Spell Check & Smart Search Help</b>"),
+        "helps_filters": ("FILTERS_TXT", "📝 <b>Filters Help</b>"),
+        "helps_forcesub": ("FORCESUB_TXT", "📱 <b>Force Sub Help</b>"),
+        "helps_forceadd": ("FORCEADD_TXT", "👥 <b>Force Add Help</b>"),
+        "helps_bans": ("BANS_TXT", "🚫 <b>Bans Help</b>"),
+        "helps_delete": ("DELETE_TXT", "🗑️ <b>Delete Help</b>"),
+        "helps_promotions": ("PROMOTIONS_TXT", "📢 <b>Promotions Help</b>"),
+        "helps_index": ("INDEX_TXT", "📚 <b>Index Help</b>"),
+        "helps_settings": ("SETTINGS_TXT", "⚙️ <b>Settings Help</b>"),
+        "helps_connections": ("CONNECTIONS_TXT", "🌐 <b>Connections Help</b>"),
+        "helps_utilities": ("UTILITIES_TXT", "📊 <b>Utilities Help</b>"),
+        "helps_custommessages": ("CUSTOMMESSAGES_TXT", "💬 <b>Custom Messages</b>"),
+        "helps_posthand": ("POSTHAND_TXT", "📝 <b>Post Handle Help</b>"),
+        "helps_customcaption": ("CUSTOMCAPTION_TXT", "📝 <b>Custom Captions Help</b>"),
+        "helps_backup": ("BACKUP_TXT", "💾 <b>Backup Help</b>"),
+        "helps_autopost": ("AUTOPOST_TXT", "🧬 <b>Auto Post Help</b>"),
+        "helps_pmautoreply": ("PMAUTOREPLY_TXT", "💬 <b>PM Auto Reply Help</b>"),
+    }
+
+    if section_key == "helps_cleanfile":
+        return await build_cleanwords_panel_ui()
+
+    target_var, default_text = help_dict.get(
+        section_key, ("HELP_TXT", "Help unavailable.")
+    )
+    raw_section = getattr(script, target_var, default_text)
+    base_text = format_script_text(
+        raw_section, mention=user_mention, uname=bot_uname, bname=b_name
+    )
+
+    interactive_rows: List[List[InlineKeyboardButton]] = []
+
+    # 1. SPELL CHECK, AUTO-TRANSLATE, MULTI-CHOICE & STOPWORDS PANEL
+    if section_key == "helps_spell":
+        try:
+            from plugins.pm_filter import get_feature_flags
+
+            at_on, mc_on = await get_feature_flags()
+        except Exception:
+            at_on, mc_on = True, True
+
+        try:
+            from plugins.custom_settings import get_stopwords
+
+            stops = get_stopwords()
+        except Exception:
+            stops = []
+
+        conn_gid = await get_active_connected_group(user_id)
+        spell_on = True
+        if conn_gid and callable(get_settings):
+            try:
+                g_set = await get_settings(conn_gid)
+                spell_on = bool(g_set.get("spell_check", True))
+            except Exception:
+                pass
+
+        extra_info = (
+            f"\n\n━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🎛️ <b>Live Smart Search Controls:</b>\n"
+            f"• <code>/autotranslate</code> — Toggles Indic Script ➔ English Auto-Translate (Currently: <b>{'🟢 ON' if at_on else '🔴 OFF'}</b>).\n"
+            f"• <code>/multichoice</code> — Toggles 'Did You Mean?' Multi-Choice buttons (Currently: <b>{'🟢 ON' if mc_on else '🔴 OFF'}</b>).\n"
+            f"• <code>/enablespellcheck</code> / <code>/disablespellcheck</code> — Toggles Group Spell Check (Currently: <b>{'🟢 ON' if spell_on else '🔴 OFF'}</b>).\n"
+            f"• <code>/stopwords</code> — View & edit ignored stopwords (Active: <code>{len(stops)}</code> words)."
+        )
+        base_text += extra_info
+
+        interactive_rows.extend(
+            [
+                [
+                    create_btn(
+                        f"{'✅' if at_on else '⚪'} Auto-Translate: ON",
+                        callback_data="hact#at_on",
+                        style=BTN_SUCCESS if at_on else BTN_PRIMARY,
+                    ),
+                    create_btn(
+                        f"{'🚫' if not at_on else '⚪'} Auto-Translate: OFF",
+                        callback_data="hact#at_off",
+                        style=BTN_DANGER if not at_on else BTN_PRIMARY,
+                    ),
+                ],
+                [
+                    create_btn(
+                        f"{'✅' if mc_on else '⚪'} Multi-Choice: ON",
+                        callback_data="hact#mc_on",
+                        style=BTN_SUCCESS if mc_on else BTN_PRIMARY,
+                    ),
+                    create_btn(
+                        f"{'🚫' if not mc_on else '⚪'} Multi-Choice: OFF",
+                        callback_data="hact#mc_off",
+                        style=BTN_DANGER if not mc_on else BTN_PRIMARY,
+                    ),
+                ],
+                [
+                    create_btn(
+                        f"{'✅' if spell_on else '⚪'} Spell Check: ON",
+                        callback_data="hact#spell_on",
+                        style=BTN_SUCCESS if spell_on else BTN_PRIMARY,
+                    ),
+                    create_btn(
+                        f"{'🚫' if not spell_on else '⚪'} Spell Check: OFF",
+                        callback_data="hact#spell_off",
+                        style=BTN_DANGER if not spell_on else BTN_PRIMARY,
+                    ),
+                ],
+                [
+                    create_btn(
+                        f"🛑 View Stopwords ({len(stops)})",
+                        callback_data="hact#sw_list",
+                        style=BTN_PRIMARY,
+                    ),
+                    create_btn(
+                        "➕ Add Stopwords",
+                        callback_data="hact#sw_add",
+                        style=BTN_SUCCESS,
+                    ),
+                ],
+                [
+                    create_btn(
+                        "🔄 Default Stopwords",
+                        callback_data="hact#sw_def",
+                        style=BTN_PRIMARY,
+                    ),
+                    create_btn(
+                        "🗑️ Clear Stopwords",
+                        callback_data="hact#sw_clear",
+                        style=BTN_DANGER,
+                    ),
+                ],
+            ]
+        )
+
+    # 2. PM AUTO-REPLY INTERACTIVE PANEL
+    elif section_key == "helps_pmautoreply":
+        pm_cfg = await get_pm_settings()
+        pm_enabled = bool(pm_cfg.get("enabled", True))
+        reply_admins = bool(pm_cfg.get("reply_admins", True))
+        btn_txt = pm_cfg.get("button_text") or "None"
+        btn_color = pm_cfg.get("button_color", "red").upper()
+
+        base_text += (
+            f"\n\n━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🎛️ <b>Live PM Auto-Reply Status:</b>\n"
+            f"• <b>PM Auto-Reply:</b> <code>{'🟢 ENABLED' if pm_enabled else '🔴 DISABLED'}</code>\n"
+            f"• <b>Reply to Admins in PM:</b> <code>{'🟢 ON (Test Mode)' if reply_admins else '🔴 OFF (Users Only)'}</code>\n"
+            f"• <b>Button:</b> <code>{html.escape(str(btn_txt))}</code> (<code>{btn_color}</code>)\n"
+            f"• <code>/setpmtext</code> | <code>/setpmbutton</code> | <code>/setpmimage</code>"
+        )
+
+        interactive_rows.extend(
+            [
+                [
+                    create_btn(
+                        f"{'✅' if pm_enabled else '⚪'} PM Reply: ON",
+                        callback_data="hact#pm_on",
+                        style=BTN_SUCCESS if pm_enabled else BTN_PRIMARY,
+                    ),
+                    create_btn(
+                        f"{'🚫' if not pm_enabled else '⚪'} PM Reply: OFF",
+                        callback_data="hact#pm_off",
+                        style=BTN_DANGER if not pm_enabled else BTN_PRIMARY,
+                    ),
+                ],
+                [
+                    create_btn(
+                        f"👑 Reply to Admins: {'ON ✅' if reply_admins else 'OFF 🚫'}",
+                        callback_data="hact#pm_adm_toggle",
+                        style=BTN_SUCCESS if reply_admins else BTN_PRIMARY,
+                    )
+                ],
+                [
+                    create_btn(
+                        "✏️ Set PM Text",
+                        callback_data="hact#pm_settext",
+                        style=BTN_PRIMARY,
+                    ),
+                    create_btn(
+                        "🔗 Set PM Button",
+                        callback_data="hact#pm_setbtn",
+                        style=BTN_PRIMARY,
+                    ),
+                ],
+                [
+                    create_btn(
+                        "🔄 Reset Default Text",
+                        callback_data="hact#pm_deftext",
+                        style=BTN_SUCCESS,
+                    ),
+                    create_btn(
+                        "🗑️ Remove PM Image",
+                        callback_data="hact#pm_remimg",
+                        style=BTN_DANGER,
+                    ),
+                ],
+            ]
+        )
+
+    # 3. FORCE SUBSCRIBE INTERACTIVE PANEL
+    elif section_key == "helps_forcesub":
+        try:
+            from plugins.fsub import get_fsub_config, get_total_join_requests
+
+            f_cfg = await get_fsub_config()
+            f_on = bool(f_cfg.get("is_enabled", True))
+            rot_on = bool(f_cfg.get("rotation_enabled", False))
+            ch_count = len(f_cfg.get("channels", {}))
+            req_count = await get_total_join_requests()
+        except Exception:
+            f_on, rot_on, ch_count, req_count = True, False, 0, 0
+
+        base_text += (
+            f"\n\n━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🎛️ <b>Live ForceSub Dashboard:</b>\n"
+            f"• <b>ForceSub Status:</b> <code>{'🟢 ENABLED' if f_on else '🔴 DISABLED'}</code>\n"
+            f"• <b>1-Hour Auto-Rotation:</b> <code>{'🟢 ON' if rot_on else '🔴 OFF'}</code>\n"
+            f"• <b>Configured Channels:</b> <code>{ch_count}</code> | <b>Join Requests:</b> <code>{req_count}</code>"
+        )
+
+        interactive_rows.extend(
+            [
+                [
+                    create_btn(
+                        f"{'✅' if f_on else '⚪'} ForceSub: ON",
+                        callback_data="hact#fsub_on",
+                        style=BTN_SUCCESS if f_on else BTN_PRIMARY,
+                    ),
+                    create_btn(
+                        f"{'🚫' if not f_on else '⚪'} ForceSub: OFF",
+                        callback_data="hact#fsub_off",
+                        style=BTN_DANGER if not f_on else BTN_PRIMARY,
+                    ),
+                ],
+                [
+                    create_btn(
+                        f"🔄 Auto-Rotate: {'ON ✅' if rot_on else 'OFF 🚫'}",
+                        callback_data="hact#fsub_rot",
+                        style=BTN_SUCCESS if rot_on else BTN_PRIMARY,
+                    ),
+                    create_btn(
+                        f"📋 Channels ({ch_count})",
+                        callback_data="hact#fsub_list",
+                        style=BTN_PRIMARY,
+                    ),
+                ],
+            ]
+        )
+
+    # 4. WELCOME MESSAGE INTERACTIVE PANEL
+    elif section_key == "helps_welcome":
+        conn_gid = await get_active_connected_group(user_id)
+        welc_on = True
+        if conn_gid:
+            try:
+                from plugins.custom_settings import get_group_welcome
+
+                w_doc = await get_group_welcome(conn_gid)
+                welc_on = bool(w_doc.get("welcome", True))
+            except Exception:
+                pass
+
+        base_text += (
+            f"\n\n━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🎛️ <b>Live Group Welcome Status:</b>\n"
+            f"• <b>Connected Group:</b> <code>{conn_gid or 'None (/connect first)'}</code>\n"
+            f"• <b>Welcome Status:</b> <code>{'🟢 ENABLED' if welc_on else '🔴 DISABLED'}</code>"
+        )
+
+        interactive_rows.extend(
+            [
+                [
+                    create_btn(
+                        f"{'✅' if welc_on else '⚪'} Welcome: ON",
+                        callback_data="hact#welc_on",
+                        style=BTN_SUCCESS if welc_on else BTN_PRIMARY,
+                    ),
+                    create_btn(
+                        f"{'🚫' if not welc_on else '⚪'} Welcome: OFF",
+                        callback_data="hact#welc_off",
+                        style=BTN_DANGER if not welc_on else BTN_PRIMARY,
+                    ),
+                ],
+                [
+                    create_btn(
+                        "✏️ Set Welcome Text",
+                        callback_data="hact#welc_settxt",
+                        style=BTN_PRIMARY,
+                    ),
+                    create_btn(
+                        "🗑️ Reset Welcome",
+                        callback_data="hact#welc_del",
+                        style=BTN_DANGER,
+                    ),
+                ],
+            ]
+        )
+
+    # 5. FILTERS & CLEAN FILENAME QUICK PANEL
+    elif section_key == "helps_filters":
+        _, c_words = await get_clean_words_state()
+        conn_gid = await get_active_connected_group(user_id)
+        interactive_rows.extend(
+            [
+                [
+                    create_btn(
+                        f"🧹 Clean Filename Words ({len(c_words)})",
+                        callback_data="helps_cleanfile",
+                        style=BTN_SUCCESS,
+                    )
+                ],
+                [
+                    create_btn(
+                        f"📋 View Group Filters ({conn_gid or 'No Conn'})",
+                        callback_data="hact#flt_list",
+                        style=BTN_PRIMARY,
+                    )
+                ],
+            ]
+        )
+
+    # 6. SETTINGS & REPAIR MODE PANEL
+    elif section_key in ["helps_settings", "helps_utilities"]:
+        rep_on = bool(getattr(info, "REPAIR_MODE", False))
+        _, c_words = await get_clean_words_state()
+        base_text += (
+            f"\n\n━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🎛️ <b>Live System Toggles:</b>\n"
+            f"• <b>Maintenance / Repair Mode:</b> <code>{'🟢 ON' if rep_on else '🔴 OFF'}</code>\n"
+            f"• <b>Active Clean Filename Words:</b> <code>{len(c_words)}</code>"
+        )
+        interactive_rows.extend(
+            [
+                [
+                    create_btn(
+                        f"🛠️ Repair Mode: {'ON 🟢' if rep_on else 'OFF 🔴'}",
+                        callback_data="hact#repair_toggle",
+                        style=BTN_DANGER if rep_on else BTN_SUCCESS,
+                    )
+                ],
+                [
+                    create_btn(
+                        f"🧹 Clean Filename Words ({len(c_words)})",
+                        callback_data="helps_cleanfile",
+                        style=BTN_PRIMARY,
+                    )
+                ],
+            ]
+        )
+
+    interactive_rows.append(
+        [
+            create_btn("🔙 Back", callback_data="help", style=BTN_PRIMARY),
+            create_btn("🔐 Close", callback_data="close_data", style=BTN_DANGER),
+        ]
+    )
+    return base_text, InlineKeyboardMarkup(interactive_rows)
 
 
 async def transition_ui_message(
@@ -1055,9 +1595,36 @@ async def start(client: Client, message: Message):
 
 
 # ============================================================
-# ⚙️ CLEAN FILENAME COMMANDS
+# ⚙️ CLEAN FILENAME COMMANDS (+ /listcleanfilename)
 # ============================================================
-@Client.on_message(filters.command("setcleanfilename") & filters.incoming)
+@Client.on_message(
+    filters.command(["listcleanfilename", "cleanfilenames", "cleanwords"])
+    & filters.incoming,
+    group=-2,
+)
+async def list_clean_words_cmd(client: Client, message: Message):
+    uid = (
+        message.from_user.id
+        if message.from_user
+        else getattr(message.sender_chat, "id", 0)
+    )
+    if not await is_global_admin(uid):
+        return await safe_reply_text(
+            message,
+            "❌ <b>Unauthorized:</b> Global Bot Admin only.",
+            parse_mode=enums.ParseMode.HTML,
+        )
+
+    text, markup = await build_cleanwords_panel_ui()
+    await safe_reply_text(
+        message,
+        text,
+        reply_markup=markup,
+        parse_mode=enums.ParseMode.HTML,
+    )
+
+
+@Client.on_message(filters.command("setcleanfilename") & filters.incoming, group=-2)
 async def set_clean_words(client: Client, message: Message):
     uid = (
         message.from_user.id
@@ -1072,9 +1639,12 @@ async def set_clean_words(client: Client, message: Message):
         )
 
     if len(message.command) < 2:
+        text, markup = await build_cleanwords_panel_ui()
         return await safe_reply_text(
             message,
-            "⚠️ <b>Usage:</b> <code>/setcleanfilename word1, word2, @ChannelName</code>",
+            "⚠️ <b>Usage:</b> <code>/setcleanfilename word1, word2, @ChannelName</code>\n\n"
+            + text,
+            reply_markup=markup,
             parse_mode=enums.ParseMode.HTML,
         )
     words_list = [
@@ -1086,14 +1656,17 @@ async def set_clean_words(client: Client, message: Message):
             {"$set": {"list": words_list, "use_default": False}},
             upsert=True,
         )
+        _invalidate_pm_filter_clean_cache()
+        text, markup = await build_cleanwords_panel_ui()
         await safe_reply_text(
             message,
-            f"✅ <b>Clean Words Set Successfully!</b>\n\nThe following words will be removed from buttons:\n<code>{', '.join(words_list)}</code>",
+            f"✅ <b>Clean Words Updated Successfully!</b>\n\n{text}",
+            reply_markup=markup,
             parse_mode=enums.ParseMode.HTML,
         )
 
 
-@Client.on_message(filters.command("defaultcleanfilename") & filters.incoming)
+@Client.on_message(filters.command("defaultcleanfilename") & filters.incoming, group=-2)
 async def default_clean_words(client: Client, message: Message):
     uid = (
         message.from_user.id
@@ -1111,14 +1684,17 @@ async def default_clean_words(client: Client, message: Message):
         await cw_db.update_one(
             {"id": "words"}, {"$set": {"use_default": True}}, upsert=True
         )
+        _invalidate_pm_filter_clean_cache()
+        text, markup = await build_cleanwords_panel_ui()
         await safe_reply_text(
             message,
-            "✅ <b>Reverted to Default Clean Words!</b>\n(Standard extensions and default tags will be removed).",
+            f"✅ <b>Reverted to Default Clean Words!</b>\n\n{text}",
+            reply_markup=markup,
             parse_mode=enums.ParseMode.HTML,
         )
 
 
-@Client.on_message(filters.command("remcleanfilename") & filters.incoming)
+@Client.on_message(filters.command("remcleanfilename") & filters.incoming, group=-2)
 async def rem_clean_words(client: Client, message: Message):
     uid = (
         message.from_user.id
@@ -1136,9 +1712,12 @@ async def rem_clean_words(client: Client, message: Message):
         await cw_db.update_one(
             {"id": "words"}, {"$set": {"list": [], "use_default": False}}, upsert=True
         )
+        _invalidate_pm_filter_clean_cache()
+        text, markup = await build_cleanwords_panel_ui()
         await safe_reply_text(
             message,
-            "🗑️ <b>All Clean Words Removed.</b>\nFilenames will now display exactly as they are uploaded.",
+            f"🗑️ <b>All Clean Words Removed!</b>\n\n{text}",
+            reply_markup=markup,
             parse_mode=enums.ParseMode.HTML,
         )
 
@@ -1146,7 +1725,7 @@ async def rem_clean_words(client: Client, message: Message):
 # ============================================================
 # ⚙️ PM REPLY SETTINGS SETUP COMMANDS
 # ============================================================
-@Client.on_message(filters.command("setpmtext") & filters.incoming)
+@Client.on_message(filters.command("setpmtext") & filters.incoming, group=-2)
 async def set_pm_text(client: Client, message: Message):
     uid = (
         message.from_user.id
@@ -1177,7 +1756,7 @@ async def set_pm_text(client: Client, message: Message):
         await safe_reply_text(message, f"⚠️ Error: {e}")
 
 
-@Client.on_message(filters.command("rempmtext") & filters.incoming)
+@Client.on_message(filters.command("rempmtext") & filters.incoming, group=-2)
 async def rem_pm_text(client: Client, message: Message):
     uid = (
         message.from_user.id
@@ -1201,7 +1780,7 @@ async def rem_pm_text(client: Client, message: Message):
     )
 
 
-@Client.on_message(filters.command("setpmimage") & filters.incoming)
+@Client.on_message(filters.command("setpmimage") & filters.incoming, group=-2)
 async def set_pm_image(client: Client, message: Message):
     uid = (
         message.from_user.id
@@ -1242,7 +1821,7 @@ async def set_pm_image(client: Client, message: Message):
         )
 
 
-@Client.on_message(filters.command("rempmimage") & filters.incoming)
+@Client.on_message(filters.command("rempmimage") & filters.incoming, group=-2)
 async def rem_pm_image(client: Client, message: Message):
     uid = (
         message.from_user.id
@@ -1261,7 +1840,7 @@ async def rem_pm_image(client: Client, message: Message):
     )
 
 
-@Client.on_message(filters.command("setpmbutton") & filters.incoming)
+@Client.on_message(filters.command("setpmbutton") & filters.incoming, group=-2)
 async def set_pm_button(client: Client, message: Message):
     uid = (
         message.from_user.id
@@ -1306,7 +1885,7 @@ async def set_pm_button(client: Client, message: Message):
         await safe_reply_text(message, f"⚠️ Error: {e}")
 
 
-@Client.on_message(filters.command("rempmbutton") & filters.incoming)
+@Client.on_message(filters.command("rempmbutton") & filters.incoming, group=-2)
 async def rem_pm_button(client: Client, message: Message):
     uid = (
         message.from_user.id
@@ -1324,6 +1903,49 @@ async def rem_pm_button(client: Client, message: Message):
     await safe_reply_text(
         message,
         "✅ <b>PM Button removed completely.</b>",
+        parse_mode=enums.ParseMode.HTML,
+    )
+
+
+@Client.on_message(
+    filters.command(["pmautoreply", "pmreply"]) & filters.incoming, group=-2
+)
+async def toggle_pm_autoreply_cmd(client: Client, message: Message):
+    uid = (
+        message.from_user.id
+        if message.from_user
+        else getattr(message.sender_chat, "id", 0)
+    )
+    if not await is_global_admin(uid):
+        return await safe_reply_text(
+            message,
+            "❌ <b>Unauthorized:</b> Global Bot Admin only.",
+            parse_mode=enums.ParseMode.HTML,
+        )
+
+    settings = await get_pm_settings()
+    cur = bool(settings.get("enabled", True))
+    if len(message.command) > 1:
+        arg = message.command[1].strip().lower()
+        new_val = (
+            True
+            if arg in ["on", "enable", "true", "1", "yes"]
+            else False if arg in ["off", "disable", "false", "0", "no"] else (not cur)
+        )
+    else:
+        new_val = not cur
+
+    await save_pm_settings("enabled", new_val)
+    text, markup = await build_interactive_help_section(
+        client,
+        "helps_pmautoreply",
+        uid,
+        message.from_user.mention if message.from_user else "Admin",
+    )
+    await safe_reply_text(
+        message,
+        text,
+        reply_markup=markup,
         parse_mode=enums.ParseMode.HTML,
     )
 
@@ -1528,6 +2150,406 @@ async def build_status_text() -> str:
 
 
 # ============================================================
+# 🎛️ INTERACTIVE HELP ACTION CALLBACKS (hact#...)
+# ============================================================
+@Client.on_callback_query(filters.regex(r"^hact#"), group=-2)
+async def interactive_help_actions_cb(client: Client, query: CallbackQuery):
+    uid = query.from_user.id if query.from_user else 0
+    user_mention = query.from_user.mention if query.from_user else "Admin"
+    if not await is_global_admin(uid):
+        return await query.answer(
+            "❌ Unauthorized: Global Admin only!", show_alert=True
+        )
+
+    action = query.data.split("#", 1)[1]
+
+    # --- CLEAN FILENAME WORDS ACTIONS ---
+    if action in ["cw_default", "cw_clear"]:
+        if cw_db is not None:
+            if action == "cw_default":
+                await cw_db.update_one(
+                    {"id": "words"}, {"$set": {"use_default": True}}, upsert=True
+                )
+                await query.answer("✅ Reverted to Default Clean Words!")
+            else:
+                await cw_db.update_one(
+                    {"id": "words"},
+                    {"$set": {"list": [], "use_default": False}},
+                    upsert=True,
+                )
+                await query.answer("🗑️ Removed all Clean Words!")
+            _invalidate_pm_filter_clean_cache()
+        text, markup = await build_cleanwords_panel_ui()
+        return await transition_ui_message(client, query.message, text, markup)
+
+    if action in ["cw_add", "cw_set"]:
+        await query.answer()
+        mode_label = (
+            "ADD to existing clean words"
+            if action == "cw_add"
+            else "REPLACE all clean words"
+        )
+        prompt = await safe_reply_text(
+            query.message,
+            f"🧹 <b>Send the words separated by commas to {mode_label}:</b>\n\n"
+            f"Example: <code>sandalwood, mkv, @MyChannel, www.site.com</code>\n"
+            f"<i>(Send <code>/cancel</code> to abort)</i>",
+            parse_mode=enums.ParseMode.HTML,
+        )
+        resp = await wait_cmd_user_input(query.message.chat.id, uid, timeout=90)
+        try:
+            await prompt.delete()
+        except Exception:
+            pass
+        if (
+            not resp
+            or not resp.text
+            or resp.text.strip().lower() == "/cancel"
+        ):
+            return
+        try:
+            await resp.delete()
+        except Exception:
+            pass
+
+        new_words = [
+            w.strip() for w in resp.text.split(",") if w.strip()
+        ]
+        if cw_db is not None and new_words:
+            if action == "cw_add":
+                _, cur_words = await get_clean_words_state()
+                merged = list(dict.fromkeys(cur_words + new_words))
+            else:
+                merged = new_words
+            await cw_db.update_one(
+                {"id": "words"},
+                {"$set": {"list": merged, "use_default": False}},
+                upsert=True,
+            )
+            _invalidate_pm_filter_clean_cache()
+        text, markup = await build_cleanwords_panel_ui()
+        return await transition_ui_message(client, query.message, text, markup)
+
+    # --- AUTO-TRANSLATE, MULTI-CHOICE, SPELL CHECK & STOPWORDS ---
+    if action in ["at_on", "at_off", "mc_on", "mc_off"]:
+        try:
+            from plugins.pm_filter import set_feature_flag
+
+            if action.startswith("at_"):
+                state = action == "at_on"
+                await set_feature_flag("autotranslate", state)
+                await query.answer(
+                    f"🔤 Auto-Translate: {'ENABLED 🟢' if state else 'DISABLED 🔴'}"
+                )
+            else:
+                state = action == "mc_on"
+                await set_feature_flag("multichoice", state)
+                await query.answer(
+                    f"💡 Multi-Choice: {'ENABLED 🟢' if state else 'DISABLED 🔴'}"
+                )
+        except Exception as e:
+            return await query.answer(f"Error: {e}", show_alert=True)
+
+        text, markup = await build_interactive_help_section(
+            client, "helps_spell", uid, user_mention
+        )
+        return await transition_ui_message(client, query.message, text, markup)
+
+    if action in ["spell_on", "spell_off"]:
+        conn_gid = await get_active_connected_group(uid)
+        if not conn_gid:
+            return await query.answer(
+                "⚠️ Connect a group first using /connect <group_id>!", show_alert=True
+            )
+        state = action == "spell_on"
+        if callable(save_group_settings):
+            await save_group_settings(conn_gid, "spell_check", state)
+        await query.answer(
+            f"🔍 Spell Check {'ENABLED 🟢' if state else 'DISABLED 🔴'} for {conn_gid}!"
+        )
+        text, markup = await build_interactive_help_section(
+            client, "helps_spell", uid, user_mention
+        )
+        return await transition_ui_message(client, query.message, text, markup)
+
+    if action in ["sw_list", "sw_def", "sw_clear", "sw_add"]:
+        try:
+            import plugins.custom_settings as _cs
+        except Exception:
+            return await query.answer(
+                "custom_settings plugin unavailable!", show_alert=True
+            )
+
+        if action == "sw_list":
+            stops = _cs.get_stopwords()
+            preview = ", ".join(stops[:40]) + ("..." if len(stops) > 40 else "")
+            return await query.answer(
+                f"🛑 Active Stopwords ({len(stops)}):\n{preview}"[:200],
+                show_alert=True,
+            )
+        elif action == "sw_def":
+            _cs.ACTIVE_STOPWORDS = _cs.DEFAULT_STOPWORDS.copy()
+            await _cs.update_bot_settings("custom_stopwords", _cs.ACTIVE_STOPWORDS)
+            await query.answer("✅ Stopwords reset to default!")
+        elif action == "sw_clear":
+            _cs.ACTIVE_STOPWORDS = []
+            await _cs.update_bot_settings("custom_stopwords", [])
+            await query.answer("🗑️ All stopwords cleared!")
+        elif action == "sw_add":
+            await query.answer()
+            prompt = await safe_reply_text(
+                query.message,
+                "🛑 <b>Send the stopwords separated by commas to add:</b>\n\n"
+                "Example: <code>dubbed, kannada, fullmovie, link</code>\n"
+                "<i>(Send <code>/cancel</code> to abort)</i>",
+                parse_mode=enums.ParseMode.HTML,
+            )
+            resp = await wait_cmd_user_input(query.message.chat.id, uid, timeout=90)
+            try:
+                await prompt.delete()
+            except Exception:
+                pass
+            if resp and resp.text and resp.text.strip().lower() != "/cancel":
+                try:
+                    await resp.delete()
+                except Exception:
+                    pass
+                new_w = [
+                    w.strip().lower()
+                    for w in resp.text.split(",")
+                    if w.strip()
+                ]
+                _cs.ACTIVE_STOPWORDS = list(set(_cs.ACTIVE_STOPWORDS + new_w))
+                await _cs.update_bot_settings(
+                    "custom_stopwords", _cs.ACTIVE_STOPWORDS
+                )
+
+        text, markup = await build_interactive_help_section(
+            client, "helps_spell", uid, user_mention
+        )
+        return await transition_ui_message(client, query.message, text, markup)
+
+    # --- PM AUTO-REPLY ACTIONS ---
+    if action in [
+        "pm_on",
+        "pm_off",
+        "pm_adm_toggle",
+        "pm_deftext",
+        "pm_remimg",
+        "pm_settext",
+        "pm_setbtn",
+    ]:
+        if action in ["pm_on", "pm_off"]:
+            state = action == "pm_on"
+            await save_pm_settings("enabled", state)
+            await query.answer(
+                f"💬 PM Auto-Reply: {'ENABLED 🟢' if state else 'DISABLED 🔴'}"
+            )
+        elif action == "pm_adm_toggle":
+            cfg = await get_pm_settings()
+            new_adm = not bool(cfg.get("reply_admins", True))
+            await save_pm_settings("reply_admins", new_adm)
+            await query.answer(
+                f"👑 Reply to Admins: {'ON ✅' if new_adm else 'OFF 🚫'}"
+            )
+        elif action == "pm_deftext":
+            await save_pm_settings(
+                "text",
+                "<b>🚫 Don't Message Here, Message Here Only!</b>\n\nI do not respond to direct messages in PM. Please join our official group to request and download movies.",
+            )
+            await query.answer("✅ PM Text reset to default!")
+        elif action == "pm_remimg":
+            await save_pm_settings("image", None)
+            await query.answer("🗑️ PM Image removed!")
+        elif action == "pm_settext":
+            await query.answer()
+            prompt = await safe_reply_text(
+                query.message,
+                "✏️ <b>Send the new PM Auto-Reply Text (HTML supported):</b>\n\n"
+                "<i>(Send <code>/cancel</code> to abort)</i>",
+                parse_mode=enums.ParseMode.HTML,
+            )
+            resp = await wait_cmd_user_input(query.message.chat.id, uid, timeout=90)
+            try:
+                await prompt.delete()
+            except Exception:
+                pass
+            if resp and (resp.text or resp.caption):
+                raw_txt = resp.text or resp.caption
+                if str(raw_txt).strip().lower() != "/cancel":
+                    await save_pm_settings(
+                        "text", getattr(raw_txt, "html", str(raw_txt))
+                    )
+                try:
+                    await resp.delete()
+                except Exception:
+                    pass
+        elif action == "pm_setbtn":
+            await query.answer()
+            prompt = await safe_reply_text(
+                query.message,
+                "🔗 <b>Send the new PM Button in this format:</b>\n"
+                "<code>Button Text | https://t.me/your_group | green</code>\n\n"
+                "<i>Colors: green, red, blue (Send <code>/cancel</code> to abort)</i>",
+                parse_mode=enums.ParseMode.HTML,
+            )
+            resp = await wait_cmd_user_input(query.message.chat.id, uid, timeout=90)
+            try:
+                await prompt.delete()
+            except Exception:
+                pass
+            if resp and resp.text and "|" in resp.text:
+                parts = [p.strip() for p in resp.text.split("|")]
+                if len(parts) >= 2:
+                    b_txt, b_url = parts[0], parts[1]
+                    b_col = parts[2].lower() if len(parts) > 2 else "green"
+                    if b_col not in ["green", "red", "blue", "normal"]:
+                        b_col = "green"
+                    await save_pm_settings("button_text", b_txt)
+                    await save_pm_settings("button_url", b_url)
+                    await save_pm_settings("button_color", b_col)
+                try:
+                    await resp.delete()
+                except Exception:
+                    pass
+
+        text, markup = await build_interactive_help_section(
+            client, "helps_pmautoreply", uid, user_mention
+        )
+        return await transition_ui_message(client, query.message, text, markup)
+
+    # --- FORCE SUBSCRIBE ACTIONS ---
+    if action in ["fsub_on", "fsub_off", "fsub_rot", "fsub_list"]:
+        try:
+            from plugins.fsub import (
+                build_fsub_list_ui,
+                get_fsub_config,
+                update_fsub_config,
+            )
+
+            if action in ["fsub_on", "fsub_off"]:
+                state = action == "fsub_on"
+                await update_fsub_config("is_enabled", state)
+                await query.answer(
+                    f"📡 ForceSub: {'ENABLED 🟢' if state else 'DISABLED 🔴'}"
+                )
+            elif action == "fsub_rot":
+                cfg = await get_fsub_config(force_refresh=True)
+                new_rot = not bool(cfg.get("rotation_enabled", False))
+                await update_fsub_config("rotation_enabled", new_rot)
+                await query.answer(
+                    f"🔄 Auto-Rotation: {'ENABLED 🟢' if new_rot else 'DISABLED 🔴'}"
+                )
+            elif action == "fsub_list":
+                await query.answer()
+                f_text, f_markup = await build_fsub_list_ui("All")
+                rows = (
+                    list(f_markup.inline_keyboard)
+                    if f_markup and f_markup.inline_keyboard
+                    else []
+                )
+                rows.append(
+                    [
+                        create_btn(
+                            "🔙 Back",
+                            callback_data="helps_forcesub",
+                            style=BTN_PRIMARY,
+                        )
+                    ]
+                )
+                return await transition_ui_message(
+                    client, query.message, f_text, InlineKeyboardMarkup(rows)
+                )
+        except Exception as e:
+            return await query.answer(f"FSub error: {e}", show_alert=True)
+
+        text, markup = await build_interactive_help_section(
+            client, "helps_forcesub", uid, user_mention
+        )
+        return await transition_ui_message(client, query.message, text, markup)
+
+    # --- WELCOME ACTIONS ---
+    if action in ["welc_on", "welc_off", "welc_settxt", "welc_del"]:
+        conn_gid = await get_active_connected_group(uid)
+        if not conn_gid:
+            return await query.answer(
+                "⚠️ Connect a group first using /connect <group_id>!", show_alert=True
+            )
+        from plugins.custom_settings import update_group_welcome
+
+        if action in ["welc_on", "welc_off"]:
+            state = action == "welc_on"
+            await update_group_welcome(conn_gid, "welcome", state)
+            await query.answer(
+                f"👋 Welcome {'ENABLED 🟢' if state else 'DISABLED 🔴'} for {conn_gid}!"
+            )
+        elif action == "welc_del":
+            await update_group_welcome(conn_gid, "img", None)
+            await update_group_welcome(conn_gid, "text", None)
+            await update_group_welcome(conn_gid, "welcome", False)
+            await query.answer("🗑️ Welcome settings reset & disabled!")
+        elif action == "welc_settxt":
+            await query.answer()
+            prompt = await safe_reply_text(
+                query.message,
+                "👋 <b>Send the new Welcome Message text:</b>\n"
+                "Variables: <code>{mention}</code>, <code>{title}</code>, <code>{count}</code>\n\n"
+                "<i>(Send <code>/cancel</code> to abort)</i>",
+                parse_mode=enums.ParseMode.HTML,
+            )
+            resp = await wait_cmd_user_input(query.message.chat.id, uid, timeout=90)
+            try:
+                await prompt.delete()
+            except Exception:
+                pass
+            if resp and resp.text and resp.text.strip().lower() != "/cancel":
+                await update_group_welcome(conn_gid, "text", resp.text)
+                await update_group_welcome(conn_gid, "welcome", True)
+                try:
+                    await resp.delete()
+                except Exception:
+                    pass
+
+        text, markup = await build_interactive_help_section(
+            client, "helps_welcome", uid, user_mention
+        )
+        return await transition_ui_message(client, query.message, text, markup)
+
+    # --- FILTERS LIST ACTION ---
+    if action == "flt_list":
+        conn_gid = await get_active_connected_group(uid)
+        if not conn_gid:
+            return await query.answer(
+                "⚠️ Connect a group first using /connect <group_id>!", show_alert=True
+            )
+        try:
+            from database.filters_mdb import get_filters
+
+            kws = await get_filters(conn_gid)
+            if not kws:
+                return await query.answer(
+                    f"No filters found in {conn_gid}.", show_alert=True
+                )
+            preview = ", ".join(str(k) for k in kws[:30])
+            return await query.answer(
+                f"📋 Filters ({len(kws)}):\n{preview}"[:200], show_alert=True
+            )
+        except Exception as e:
+            return await query.answer(f"Error: {e}", show_alert=True)
+
+    # --- REPAIR MODE TOGGLE ---
+    if action == "repair_toggle":
+        info.REPAIR_MODE = not bool(getattr(info, "REPAIR_MODE", False))
+        await query.answer(
+            f"🛠️ Repair Mode is now {'ENABLED 🟢' if info.REPAIR_MODE else 'DISABLED 🔴'}!"
+        )
+        text, markup = await build_interactive_help_section(
+            client, "helps_settings", uid, user_mention
+        )
+        return await transition_ui_message(client, query.message, text, markup)
+
+
+# ============================================================
 # 🎛️ INLINE CALLBACK HANDLER
 # ============================================================
 @Client.on_callback_query(
@@ -1661,55 +2683,8 @@ async def cb_handler(client: Client, query: CallbackQuery):
 
         elif query.data.startswith("helps_"):
             await query.answer()
-            buttons = InlineKeyboardMarkup(
-                [
-                    [
-                        create_btn("🔙 Back", callback_data="help", style=BTN_PRIMARY),
-                        create_btn(
-                            "🔐 Close", callback_data="close_data", style=BTN_DANGER
-                        ),
-                    ]
-                ]
-            )
-            help_dict = {
-                "helps_uistart": ("UISTART_TXT", "🎨 <b>UI Start Menu</b>"),
-                "helps_uihelp": ("UIHELP_TXT", "🎨 <b>UI Help Menu</b>"),
-                "helps_uiabout": ("UIABOUT_TXT", "🎨 <b>UI About Menu</b>"),
-                "helps_welcome": ("WELCOME_TXT", "👋 <b>Welcome Help</b>"),
-                "helps_images": ("IMAGES_TXT", "🖼️ <b>Images Help</b>"),
-                "helps_spell": ("SPELLCHECK_TXT", "🔍 <b>Spell Check Help</b>"),
-                "helps_filters": ("FILTERS_TXT", "📝 <b>Filters Help</b>"),
-                "helps_forcesub": ("FORCESUB_TXT", "📱 <b>Force Sub Help</b>"),
-                "helps_forceadd": ("FORCEADD_TXT", "👥 <b>Force Add Help</b>"),
-                "helps_bans": ("BANS_TXT", "🚫 <b>Bans Help</b>"),
-                "helps_delete": ("DELETE_TXT", "🗑️ <b>Delete Help</b>"),
-                "helps_promotions": ("PROMOTIONS_TXT", "📢 <b>Promotions Help</b>"),
-                "helps_index": ("INDEX_TXT", "📚 <b>Index Help</b>"),
-                "helps_settings": ("SETTINGS_TXT", "⚙️ <b>Settings Help</b>"),
-                "helps_connections": ("CONNECTIONS_TXT", "🌐 <b>Connections Help</b>"),
-                "helps_utilities": ("UTILITIES_TXT", "📊 <b>Utilities Help</b>"),
-                "helps_custommessages": (
-                    "CUSTOMMESSAGES_TXT",
-                    "💬 <b>Custom Messages</b>",
-                ),
-                "helps_posthand": ("POSTHAND_TXT", "📝 <b>Post Handle Help</b>"),
-                "helps_customcaption": (
-                    "CUSTOMCAPTION_TXT",
-                    "📝 <b>Custom Captions Help</b>",
-                ),
-                "helps_backup": ("BACKUP_TXT", "💾 <b>Backup Help</b>"),
-                "helps_autopost": ("AUTOPOST_TXT", "🧬 <b>Auto Post Help</b>"),
-                "helps_pmautoreply": (
-                    "PMAUTOREPLY_TXT",
-                    "💬 <b>PM Auto Reply Help</b>",
-                ),
-            }
-            target_var, default_text = help_dict.get(
-                query.data, ("HELP_TXT", "Help unavailable.")
-            )
-            raw_section = getattr(script, target_var, default_text)
-            text = format_script_text(
-                raw_section, mention=user_mention, uname=bot_uname, bname=b_name
+            text, buttons = await build_interactive_help_section(
+                client, query.data, uid, user_mention
             )
             await transition_ui_message(client, query.message, text, buttons)
 
@@ -1744,14 +2719,20 @@ async def cb_handler(client: Client, query: CallbackQuery):
 
 
 # ============================================================
-# 📩 PM AUTO-REPLY ENGINE (GROUP 1 SO COMMANDS ARE NEVER BLOCKED)
+# 📩 PM AUTO-REPLY ENGINE (SUPPORTS TEXT, STICKERS, PHOTOS & ADMINS)
 # ============================================================
 @Client.on_message(
-    filters.private & filters.text & filters.incoming,
+    filters.private & filters.incoming & ~filters.bot & ~filters.service,
     group=1,
 )
 async def pm_auto_reply(client: Client, message: Message):
-    if not message.text or message.text.startswith("/"):
+    # 1. Never auto-reply to slash commands
+    raw_txt = (message.text or message.caption or "").strip()
+    if raw_txt.startswith("/"):
+        return
+
+    # 2. If another interactive prompt is waiting for input in this chat, do not interrupt
+    if message.chat.id in _CMD_WAITING_INPUT:
         return
 
     uid = (
@@ -1762,17 +2743,28 @@ async def pm_auto_reply(client: Client, message: Message):
 
     if getattr(info, "REPAIR_MODE", False) and not await is_global_admin(uid):
         return
-    if await is_global_admin(uid):
-        return
     if message.from_user and await is_user_banned(uid):
         return
 
     settings = await get_pm_settings()
+    if not settings.get("enabled", True):
+        return
+
+    # 3. Allow Admins to see/test the PM Auto-Reply unless they turn off "Reply to Admins" in the Help Menu!
+    if await is_global_admin(uid):
+        # Do not trigger if admin is forwarding/uploading media for indexing
+        if message.forward_from_chat or getattr(message, "forward_origin", None):
+            return
+        if message.document or message.video or message.audio:
+            return
+        if not settings.get("reply_admins", True):
+            return
+
     text = settings.get("text", "<b>🚫 Don't Message Here, Message Here Only!</b>")
     pm_img = settings.get("image", getattr(info, "NOT_FOUND_IMG", None))
     btn_text = settings.get("button_text", "💬 Message Here Only")
     btn_url = settings.get("button_url", "https://t.me/Sandalwood_Kannada_Group")
-    btn_color_str = settings.get("button_color", "green")
+    btn_color_str = settings.get("button_color", "red")
 
     color_map = {
         "green": BTN_SUCCESS,
@@ -1780,7 +2772,7 @@ async def pm_auto_reply(client: Client, message: Message):
         "blue": BTN_PRIMARY,
         "normal": None,
     }
-    reply_markup = (
+    default_markup = (
         InlineKeyboardMarkup(
             [
                 [
@@ -1796,13 +2788,16 @@ async def pm_auto_reply(client: Client, message: Message):
         else None
     )
 
+    final_text, final_markup = safe_parse_text_and_markup(text, default_markup)
+    final_text = final_text or text
+
     try:
-        if pm_img and str(pm_img).lower() != "none" and len(text) <= 1024:
+        if pm_img and str(pm_img).lower() != "none" and len(final_text) <= 1024:
             try:
                 await message.reply_photo(
                     photo=pm_img,
-                    caption=text,
-                    reply_markup=reply_markup,
+                    caption=final_text,
+                    reply_markup=final_markup,
                     parse_mode=enums.ParseMode.HTML,
                 )
                 return
@@ -1810,8 +2805,8 @@ async def pm_auto_reply(client: Client, message: Message):
                 pass
         await safe_reply_text(
             message,
-            text=text,
-            reply_markup=reply_markup,
+            text=final_text,
+            reply_markup=final_markup,
             parse_mode=enums.ParseMode.HTML,
             disable_web_page_preview=True,
         )
