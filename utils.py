@@ -101,9 +101,7 @@ _http_session: aiohttp.ClientSession | None = None
 async def _get_http_session() -> aiohttp.ClientSession:
     global _http_session
     if _http_session is None or _http_session.closed:
-        _http_session = aiohttp.ClientSession(
-            timeout=aiohttp.ClientTimeout(total=12)
-        )
+        _http_session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=12))
     return _http_session
 
 
@@ -373,9 +371,7 @@ async def get_poster(query, bulk=False, id=False, file=None):
                 return None
 
             title = movie.get("title") or movie.get("name") or "Unknown"
-            year = (
-                movie.get("release_date") or movie.get("first_air_date") or ""
-            )[:4]
+            year = (movie.get("release_date") or movie.get("first_air_date") or "")[:4]
             poster_path = movie.get("poster_path")
             crew = movie.get("credits", {}).get("crew", [])
             cast_data = movie.get("credits", {}).get("cast", [])
@@ -389,9 +385,7 @@ async def get_poster(query, bulk=False, id=False, file=None):
                 or query_str
             )
             poster_full = (
-                f"https://image.tmdb.org/t/p/w500{poster_path}"
-                if poster_path
-                else None
+                f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else None
             )
 
             return {
@@ -399,13 +393,10 @@ async def get_poster(query, bulk=False, id=False, file=None):
                 "movieID": f"{media_type}:{query_str}",
                 "title": title,
                 "votes": movie.get("vote_count", 0),
-                "aka": movie.get("original_title")
-                or movie.get("original_name", "N/A"),
+                "aka": movie.get("original_title") or movie.get("original_name", "N/A"),
                 "seasons": movie.get("number_of_seasons", "N/A"),
                 "box_office": (
-                    f"${movie.get('revenue', 0):,}"
-                    if movie.get("revenue")
-                    else "N/A"
+                    f"${movie.get('revenue', 0):,}" if movie.get("revenue") else "N/A"
                 ),
                 "localized_title": title,
                 "kind": media_type,
@@ -413,9 +404,7 @@ async def get_poster(query, bulk=False, id=False, file=None):
                 "cast": ", ".join([c["name"] for c in cast_data[:10] if c.get("name")])
                 or "N/A",
                 "runtime": (
-                    f"{movie.get('runtime')} min"
-                    if movie.get("runtime")
-                    else "N/A"
+                    f"{movie.get('runtime')} min" if movie.get("runtime") else "N/A"
                 ),
                 "countries": ", ".join(
                     [
@@ -513,9 +502,7 @@ async def get_poster(query, bulk=False, id=False, file=None):
                         "movieID": f"{item.get('media_type')}:{item.get('id')}",
                         "title": item.get("title") or item.get("name"),
                         "year": (
-                            item.get("release_date")
-                            or item.get("first_air_date")
-                            or ""
+                            item.get("release_date") or item.get("first_air_date") or ""
                         )[:4],
                         "kind": item.get("media_type"),
                         "media_type": item.get("media_type"),
@@ -526,9 +513,7 @@ async def get_poster(query, bulk=False, id=False, file=None):
             ]
             if bulk:
                 return movies[: int(MAX_LIST_ELM)] if MAX_LIST_ELM else movies
-            return (
-                await get_poster(movies[0]["movieID"], id=True) if movies else None
-            )
+            return await get_poster(movies[0]["movieID"], id=True) if movies else None
     except Exception as e:
         logger.error(f"TMDB Fetch Error: {e}")
         return None
@@ -773,7 +758,9 @@ def parse_text_and_markup(raw_text: str, static_keyboard: InlineKeyboardMarkup =
 
                 kwargs = {"text": btn_text}
                 if btn_target.startswith("callback:"):
-                    kwargs["callback_data"] = btn_target.split("callback:", 1)[1].strip()[:64]
+                    kwargs["callback_data"] = btn_target.split("callback:", 1)[
+                        1
+                    ].strip()[:64]
                 else:
                     kwargs["url"] = btn_target
 
