@@ -4,7 +4,7 @@ class script(object):
     # ==========================================
     START_TXT = """<b>Hᴇʏ {mention} 👋🏻\n\nI ᴀᴍ {bname} 🤖\n\nA ᴘᴏᴡᴇʀꜰᴜʟ ᴀᴜᴛᴏ-ꜰɪʟᴛᴇʀ ʙᴏᴛ ᴛᴏ ꜱᴇᴀʀᴄʜ ᴍᴏᴠɪᴇꜱ ᴀɴᴅ ꜱᴇʀɪᴇꜱ ɪɴꜱᴛᴀɴᴛʟʏ!\n\nSᴇɴᴅ ᴍᴇ ᴀɴʏ ᴍᴏᴠɪᴇ ɴᴀᴍᴇ, ᴀɴᴅ I ᴡɪʟʟ ᴘʀᴏᴠɪᴅᴇ ᴛʜᴇ ꜰɪʟᴇꜱ.</b>"""
 
-    HELP_TXT = """<b>Hᴇʏ {mention} 👋🏻\n\nCʜᴏᴏꜱᴇ ᴛʜᴇ ᴄᴀᴛᴇɢᴏʀʏ ʙᴇʟᴏᴡ ᴛᴏ ꜱᴇᴇ ᴀʟʟ ᴀᴠᴀɪʟᴀʙʟᴇ ᴄᴏᴍᴍᴀɴᴅꜱ ᴀɴᴅ ꜰᴇᴀᴛᴜʀᴇꜱ!</b>"""
+    HELP_TXT = """<b>Hᴇʏ {mention} 👋🏻\n\nCʜᴏᴏꜱᴇ ᴀ ᴄᴀᴛᴇɢᴏʀʏ ʙᴇʟᴏᴡ ᴛᴏ ᴍᴀɴᴀɢᴇ ʙᴏᴛ ᴄᴏᴍᴍᴀɴᴅꜱ ᴀɴᴅ ɪɴᴛᴇʀᴀᴄᴛɪᴠᴇ ᴄᴏɴᴛʀᴏʟꜱ!</b>"""
 
     ABOUT_TXT = """<b>🤖 Nᴀᴍᴇ:</b> {bname}\n<b>👨‍💻 Dᴇᴠᴇʟᴏᴘᴇʀ:</b> <a href='https://t.me/KR_Picture'>KR Pɪᴄᴛᴜʀᴇ</a>\n<b>📺 Cʜᴀɴɴᴇʟ:</b> <a href='https://t.me/sandalwood_kannada_moviesz'>Sᴀɴᴅᴀʟᴡᴏᴏᴅ</a>\n<b>💬 Sᴜᴘᴘᴏʀᴛ:</b> <a href='https://t.me/Kannada_Filmy_Group'>Kᴀɴɴᴀᴅᴀ Fɪʟᴍʏ Gʀᴏᴜᴘ</a>"""
 
@@ -24,8 +24,8 @@ class script(object):
 <b>‣ /defaultstarttext</b> - Revert to default text
 <b>‣ /setstartimage</b> - Set image (reply to photo)
 <b>‣ /remstartimage</b> - Remove custom image
-<b>‣ /addstartbutton</b> - Add a button (e.g. `/addstartbutton "Text" https://link.com`)
-<b>‣ /editstartbuttons</b> - Edit layout & color (e.g. `/editstartbuttons 1 sidebyside green`)
+<b>‣ /addstartbutton</b> - Add a button (e.g. <code>/addstartbutton "Text" https://link.com</code>)
+<b>‣ /editstartbuttons</b> - Edit layout & color (e.g. <code>/editstartbuttons 1 sidebyside green</code>)
 <b>‣ /remstartbutton</b> - Clear all custom buttons"""
 
     UIHELP_TXT = """<blockquote><b>🎨 Hᴇʟᴘ Mᴇɴᴜ Cᴜsᴛᴏᴍɪᴢᴀᴛɪᴏɴ</b></blockquote>\n
@@ -33,8 +33,8 @@ class script(object):
 <b>‣ /defaulthelptext</b> - Revert to default text
 <b>‣ /sethelpimage</b> - Set image (reply to photo)
 <b>‣ /remhelpimage</b> - Remove custom image
-<b>‣ /addhelpbutton</b> - Add a button (e.g. `/addhelpbutton "Text" https://link.com`)
-<b>‣ /edithelpbuttons</b> - Edit layout & color (e.g. `/edithelpbuttons 1 belowside red`)
+<b>‣ /addhelpbutton</b> - Add a button (e.g. <code>/addhelpbutton "Text" https://link.com</code>)
+<b>‣ /edithelpbuttons</b> - Edit layout & color (e.g. <code>/edithelpbuttons 1 belowside red</code>)
 <b>‣ /remhelpbutton</b> - Clear all custom buttons"""
 
     UIABOUT_TXT = """<blockquote><b>🎨 Aʙᴏᴜᴛ Mᴇɴᴜ Cᴜsᴛᴏᴍɪᴢᴀᴛɪᴏɴ</b></blockquote>\n
@@ -42,24 +42,24 @@ class script(object):
 <b>‣ /defaultabouttext</b> - Revert to default text
 <b>‣ /setaboutimage</b> - Set image (reply to photo)
 <b>‣ /remaboutimage</b> - Remove custom image
-<b>‣ /addaboutbutton</b> - Add a button (e.g. `/addaboutbutton "Text" https://link.com`)
+<b>‣ /addaboutbutton</b> - Add a button (e.g. <code>/addaboutbutton "Text" https://link.com</code>)
 <b>‣ /editaboutbuttons</b> - Edit layout & color
 <b>‣ /remaboutbutton</b> - Clear all custom buttons"""
 
     # ==========================================
-    # 📝 FORMATTING GUIDE (Used in Help)
+    # 📝 FORMATTING GUIDE
     # ==========================================
     FORMAT_GUIDE = """
 <b>💡 Tᴇxᴛ Fᴏʀᴍᴀᴛᴛɪɴɢ Gᴜɪᴅᴇ:</b>
 <i>Supports Markdown and HTML!</i>
-• <code>**Bold**</code> ➔ **Bold**
-• <code>__Italic__</code> ➔ __Italic__
-• <code>~~Strike~~</code> ➔ ~~Strike~~
-• <code>--Underline--</code> ➔ --Underline--
-• <code>||Spoiler||</code> ➔ ||Spoiler||
-• <code>`Mono`</code> ➔ `Mono`
-• <code>&gt; Quote</code> ➔ &gt; Quote
-• <code>[Link Text](http://url.com)</code> ➔ [Link Text](http://url.com)
+• <code>**Bold**</code> ➔ <b>Bold</b>
+• <code>__Italic__</code> ➔ <i>Italic</i>
+• <code>~~Strike~~</code> ➔ <s>Strike</s>
+• <code>--Underline--</code> ➔ <u>Underline</u>
+• <code>||Spoiler||</code> ➔ <tg-spoiler>Spoiler</tg-spoiler>
+• <code>`Mono`</code> ➔ <code>Mono</code>
+• <code>&gt; Quote</code> ➔ Quote
+• <code>[Link Text](http://url.com)</code> ➔ Link
 """
 
     # ==========================================
@@ -94,71 +94,75 @@ class script(object):
 • <code>/setfsubimg</code> - Reply to an image to set it as the Force Subscribe alert photo!"""
 
     # ==========================================
-    # 🔍 SPELL CHECK & NOT FOUND
+    # 🔍 SPELL CHECK, SMART SEARCH & NOT FOUND
     # ==========================================
-    SPELLCHECK_TXT = """<b>🔍 Sᴘᴇʟʟ Cʜᴇᴄᴋ & Nᴏᴛ Fᴏᴜɴᴅ</b>
+    SPELLCHECK_TXT = """<b>🔍 Sᴘᴇʟʟ Cʜᴇᴄᴋ & Sᴍᴀʀᴛ Sᴇᴀʀᴄʜ</b>
 
-<b>Sᴘᴇʟʟ Cʜᴇᴄᴋ & Sᴇᴀʀᴄʜ (Gʀᴏᴜᴘ Aᴅᴍɪɴs)</b>
+<b>Sᴘᴇʟʟ Cʜᴇᴄᴋ & Sᴍᴀʀᴛ Tᴏɢɢʟᴇs</b>
 ‣ <code>/enablespellcheck</code> - Turn ON spelling suggestions.
 ‣ <code>/disablespellcheck</code> - Turn OFF spelling suggestions.
+‣ <code>/autotranslate</code> - Toggle Indic Script ➔ English translation.
+‣ <code>/enautotranslate</code> / <code>/diautotranslate</code> - Enable or disable Auto-Translate.
+‣ <code>/multichoice</code> - Toggle 'Did You Mean?' multi-choice buttons.
+‣ <code>/enmultichoice</code> / <code>/dimultichoice</code> - Enable or disable Multi-Choice.
 
-<b>Sᴛᴏᴘᴡᴏʀᴅs & Nᴏᴛ Fᴏᴜɴᴅ Tᴇxᴛ (Bᴏᴛ Aᴅᴍɪɴ)</b>
-‣ <code>/addstopwords &lt;words&gt;</code> - Add words the bot should ignore (comma separated).
-‣ <code>/stopwords</code> - Show Stop Words 
-‣ <code>/remstopwords</code> - Remove Stop Word
-‣ <code>/remallstopwords</code> - Remove All Stop Words
-‣ <code>/defaultstopwords</code> - Make Default Words into available in repo
-‣ <code>/setnotfoundtext &lt;text&gt;</code> - Set FNF text.
-‣ <code>/remnotfoundtext</code> - Remove FNF text.
-‣ <code>/defaultnotfoundtext</code> - Reset to repo default text."""
+<b>Sᴛᴏᴘᴡᴏʀᴅs & Nᴏᴛ Fᴏᴜɴᴅ Tᴇxᴛ</b>
+‣ <code>/addstopwords &lt;words&gt;</code> - Add ignored words (comma separated).
+‣ <code>/stopwords</code> - View active stopwords.
+‣ <code>/remstopwords &lt;word&gt;</code> - Remove a stopword.
+‣ <code>/remallstopwords</code> - Clear all stopwords.
+‣ <code>/defaultstopwords</code> - Restore default stopwords.
+‣ <code>/setnotfoundtext &lt;text&gt;</code> - Set custom File Not Found text.
+‣ <code>/remnotfoundtext</code> / <code>/defaultnotfoundtext</code> - Reset FNF text."""
 
     # ==========================================
-    # 📝 FILTERS (Auto & Manual)
+    # 📝 FILTERS (Manual & Auto-Filter)
     # ==========================================
-    FILTERS_TXT = """<blockquote><b>Filter Management\nAdd, delete, or view filters to customize responses based on keywords.</b></blockquote>\n
-<b>‣ /filter - Add a text filter (Reply `/filter keyword` to a message)
-‣ /addfilter - Add a text filter from pre-made buttons
-‣ /filterimage - Update only image for a filter (Reply to image with `/filterimage keyword`)
-‣ /editfiltercolur - Change button colour - `/editfiltercolur keyword 1 green`
-‣ /delfilter - Delete a text filter - `/delfilter filter`
-‣ /listfilters - List all filters currently added in the bot\n\nSupports text/photo/video/animation/sticker</b>
+    FILTERS_TXT = """<blockquote><b>📝 Filter Management\nAdd, delete, or view filters to customize responses based on keywords.</b></blockquote>\n
+<b>‣ <code>/filter</code> - Add a text filter (Reply <code>/filter keyword</code> to a message)
+‣ <code>/addfilter</code> - Add a text filter from pre-made buttons
+‣ <code>/filterimage</code> - Update only image for a filter (Reply to image with <code>/filterimage keyword</code>)
+‣ <code>/editfiltercolur</code> - Change button colour (<code>/editfiltercolur keyword 1 green</code>)
+‣ <code>/delfilter</code> - Delete a text filter (<code>/delfilter keyword</code>)
+‣ <code>/listfilters</code> - List all filters currently added in the group
 
-<blockquote><b>📝 Auto-Filter & Clean Filename</b></blockquote>
-<b>Auto Filter:</b>
-Files in connected channels are searched automatically based on user text.
-<b>📺 Series Aggregator:</b>
-Seasons and Episodes are automatically collapsed into clean "Season X" folders.
-<b>🧼 Clean Filename Settings:</b>
-Control what words are removed from inline button filenames.
-• <code>/setcleanfilename [word1, word2, @channel]</code> - Set words to remove.
-• <code>/defaultcleanfilename</code> - list clean file words.
-• <code>/listcleanfilename</code> - Revert to standard repo default (removes mkv, mp4, sandalwood).
-• <code>/remcleanfilename</code> - Disable clean filename completely.
-• <code>/autotranslate</code> - enable or disable.
-• <code>/enautotranslate</code> - enable auto translate. 
-• <code>/diautotranslate</code> - disable auto translate.
-• <code>/multichoice</code> - enable or disable.
-• <code>/enmultichoice</code> - enable multi choice.
-• <code>/dimultichoice</code> - disable multi choice."""
+Supports text, photo, video, animation, and sticker filters.</b>"""
+
+    # ==========================================
+    # 🧹 CLEAN FILENAME
+    # ==========================================
+    CLEANFILE_TXT = """<b>🧹 Clean Filename Words Manager</b>
+━━━━━━━━━━━━━━━━━━━━━
+⚙️ <b>Current Mode:</b> {mode_str}
+🔢 <b>Total Active Words:</b> <code>{count}</code>
+
+📋 <b>Active Words Removed From Buttons:</b>
+{words_display}
+━━━━━━━━━━━━━━━━━━━━━
+<b>Commands:</b>
+• <code>/listcleanfilename</code> — View & manage active clean words.
+• <code>/setcleanfilename w1, w2</code> — Set custom words to strip from file buttons.
+• <code>/defaultcleanfilename</code> — Restore default extensions & tags.
+• <code>/remcleanfilename</code> — Remove all clean words."""
 
     # ==========================================
     # 📱 FORCE SUBSCRIBE
     # ==========================================
     FORCESUB_TXT = """<blockquote><b>Force Subscription Management\nSet, manage, or clear force subscribe channels.</b></blockquote>\n
-<b>‣ /enablefsub - enable force subscribe 
-‣ /disablefsub - disable force subscribe 
+<b>‣ /enablefsub - Enable force subscribe
+‣ /disablefsub - Disable force subscribe
 ‣ /setfsubcount - Set maximum Fsub chat count for queue
-‣ /setfsub - Set force subscribe channel - `/setfsub channel_id`
-‣ /rmfsub - Remove force subscribe channel - `/rmfsub channel_id`
+‣ /setfsub - Set force subscribe channel (<code>/setfsub channel_id</code>)
+‣ /rmfsub - Remove force subscribe channel (<code>/rmfsub channel_id</code>)
 ‣ /rmallfsub - Remove all force subscribe channels
 ‣ /getallfsub - Get all force subscribe channel details
 ‣ /getactivefsub - Get active force subscribe channels
-‣ /getpendingfsub - Get pending force subscribe channels which is in queue
+‣ /getpendingfsub - Get pending force subscribe channels in queue
 ‣ /activatefsub - Activate pending force subscribe channel
 ‣ /deactivatefsub - Deactivate force subscribe channel
 ‣ /updatefsubtarget - Update force subscribe channel target
 ‣ /checkfsubusers - Check force subscribe users count
-‣ /clearfsubusers - Clear all force subscribe users from db\n
+‣ /clearfsubusers - Clear all force subscribe users from DB\n
 🚪 JOIN REQUESTS:
 ‣ /totalrequests - Get total pending join requests
 ‣ /purgerequests - Purge all join requests from database</b>"""
@@ -182,7 +186,7 @@ Control what words are removed from inline button filenames.
     # ==========================================
     DELETE_TXT = """<blockquote><b>File/Auto Deletion Management\nDelete files from the database or configure auto-delete settings for files and button messages in groups.</b></blockquote>\n
 <b>‣ /delete - Reply to a file to delete it from database
-‣ /delmulti - Delete multiple files from database with name - `/delmulti name`
+‣ /delmulti - Delete multiple files from database with name (<code>/delmulti name</code>)
 ‣ /autodelete - Set file auto delete time in seconds
 ‣ /buttondel - Set button message in groups auto delete time in seconds
 ‣ /purgeduplicates - Scan DB, keep highest resolution, and delete redundant clones</b>"""
@@ -191,21 +195,19 @@ Control what words are removed from inline button filenames.
     # 🚫 BANS & RESTRICTIONS
     # ==========================================
     BANS_TXT = """<blockquote><b>User Management\nBan or unban users to control access to the bot.</b></blockquote>\n
-<b>‣ /ban - Ban a user from bot - `/ban user_id`
-‣ /unban - Unban a user from bot - `/unban user_id`
+<b>‣ /ban - Ban a user from bot (<code>/ban user_id</code>)
+‣ /unban - Unban a user from bot (<code>/unban user_id</code>)
 ‣ /bannedusers - Check Banned Users List
-‣ /leave - Force bot to leave a chat 
-‣ /enable - whitelist a group 
-‣ /disable - blacklist a group</b>"""
+‣ /leave - Force bot to leave a chat
+‣ /enable - Whitelist a group
+‣ /disable - Blacklist a group</b>"""
 
     # ==========================================
-    # 📝 CUSTOM CAPTION
+    # 📝 CUSTOM CAPTION & MESSAGES
     # ==========================================
     CUSTOMCAPTION_TXT = """<blockquote><b>File Caption Management\nManage or customize captions for files, including additional captions, to enhance file presentation.</b></blockquote>\n
-<b>‣ /customcaption - Set custom caption for files (Reply to message to set, or `/customcaption off` to disable)
-‣ /captionplus - Set additional caption for files along with main caption (Reply to message to set, or `/captionplus off` to disable)</b>
-
-You can customize file captions by editing your Environment Variables.
+<b>‣ /customcaption - Set custom caption for files (Reply to message to set, or <code>/customcaption off</code> to disable)
+‣ /captionplus - Set additional caption for files along with main caption (Reply to message to set, or <code>/captionplus off</code> to disable)</b>
 
 <b>Vᴀʀɪᴀʙʟᴇs:</b>
 • <code>{file_name}</code> - Name of the file
@@ -215,13 +217,13 @@ You can customize file captions by editing your Environment Variables.
     CUSTOMMESSAGES_TXT = """<blockquote><b>Custom Messages & Images\nConfigure custom messages and images for various actions.</b></blockquote>\n
 <b>‣ /infomsg - Set info message before sending file
 ‣ /infoimg - Set info image before sending file
-‣ /delmsg - Set delete message after sending file (File auto delete needs to be enabled)
+‣ /delmsg - Set delete message after sending file
 ‣ /delimg - Set delete image after sending file
 ‣ /notfoundmsg - Set message to send when file not found
 ‣ /notfoundimg - Set image to send when file not found
 ‣ /fsubmsg - Set force subscribe message
 ‣ /fsubimg - Set force subscribe image\n
-*(Reply to a message/image with the command to set it, or use `off` to remove)*</b>"""
+<i>(Reply to a message/image with the command to set it, or use <code>off</code> to remove)</i></b>"""
 
     # ==========================================
     # 📚 INDEXING (File Save)
@@ -266,26 +268,26 @@ You can customize file captions by editing your Environment Variables.
     # 📢 PROMOTIONS & BROADCAST
     # ==========================================
     PROMOTIONS_TXT = """<blockquote><b>Manage Promotional Links\nEasily add, delete, or view promotional links displayed between search results.</b></blockquote>\n
-<b>‣ /addpromo - Set promotional links between results - `/addpromo "Button Text" URL`
-‣ /delpromo - Delete promotional links between results - `/delpromo URL`
+<b>‣ /addpromo - Set promotional links between results (<code>/addpromo "Button Text" URL</code>)
+‣ /delpromo - Delete promotional links between results (<code>/delpromo URL</code>)
 ‣ /listpromos - List all promotional links currently added in the DB
 
 💬 Bʀᴏᴀᴅᴄᴀsᴛɪɴɢ (Aᴜᴛᴏ-ᴅᴇʟᴇᴛᴇs ɪɴ 24ʜ)
-‣ /broadcast - send to all users 
-‣ /group_broadcast - send to all groups</b>"""
+‣ /broadcast - Send to all users
+‣ /group_broadcast - Send to all groups</b>"""
 
     # ==========================================
     # ⚙️ SETTINGS & CONNECTIONS
     # ==========================================
     SETTINGS_TXT = """<blockquote><b>Bot Settings Management</b></blockquote>\n
-<b>‣ /repairmode - Enable or disable repair mode - If on, bot will not send any files
+<b>‣ /repairmode - Enable or disable repair mode (If on, bot will not send any files)
 ‣ /adminsettings - Get current admin settings
 ‣ /enablereaction - Enable Auto-Heart reactions globally
 ‣ /disablereaction - Disable Auto-Heart reactions globally</b>"""
 
     CONNECTIONS_TXT = """<blockquote><b>𝗖𝗼𝗺𝗺𝗮𝗻𝗱𝘀 𝗮𝗻𝗱 𝗨𝘀𝗮𝗴𝗲\nUsed to connect bot to PM for managing filters, avoiding spamming in groups.</b></blockquote>\n
-<b>‣ /connect  - Connect a particular chat to your PM
-‣ /disconnect  - Disconnect from a chat
+<b>‣ /connect - Connect a particular chat to your PM
+‣ /disconnect - Disconnect from a chat
 ‣ /connections - List all your connections
 
 • <code>/channels</code> - Interactive menu of all connected channels/groups.
@@ -313,7 +315,7 @@ You can customize file captions by editing your Environment Variables.
 ‣ /users_list - Get list of users in DB
 ‣ /clearusers - Clear all users from DB
 ‣ /cleanusers - Ping all users to purge deleted accounts
-‣ /clearfsubusers - Clear all force subscribe users from db</b>"""
+‣ /clearfsubusers - Clear all force subscribe users from DB</b>"""
 
     BACKUP_TXT = """<blockquote><b>Database Backup Management\nManage database backups, including scheduled backups and manual backups.</b></blockquote>\n
 <b>These commands are only available for the ADMINS of the bot.</b>\n
@@ -322,14 +324,15 @@ You can customize file captions by editing your Environment Variables.
 ‣ /dbstats - Detailed MongoDB specs.
 ‣ /dbschedule - Start 24h automated backup cron job.</b>"""
 
-    # ============================================================
-    # NEW FEATURE TEXTS (AUTO-POST, PM REPLY, CLEAN FILENAME)
-    # ============================================================
+    # ==========================================
+    # 💬 PM AUTO-REPLY & POST HANDLER
+    # ==========================================
     PMAUTOREPLY_TXT = """<b>💬 PM Auto-Reply Engine</b>
 
 Configure what the bot says when someone messages it directly in PM.
 
 <b>Commands:</b>
+• <code>/pmautoreply</code> - Toggle PM Auto-Reply ON or OFF.
 • <code>/setpmtext [text]</code> - Set PM reply text (HTML bold, italics, links supported).
 • <code>/rempmtext</code> - Reset text to default.
 • <code>/setpmimage [URL/Reply]</code> - Set PM image.
@@ -339,31 +342,19 @@ Configure what the bot says when someone messages it directly in PM.
 
     POSTHAND_TXT = """<b>📝 POST HANDLER GUIDE
 
-​‣ <code>/post</code> - Start manual post session with interactive search
+‣ <code>/post</code> - Start manual post session with interactive search
 ‣ <code>/editpost</code> - Import and edit an existing channel post via link
 ‣ <code>/resumepost</code> - Restore lost/interrupted draft from MongoDB
 ‣ <code>/hydra</code> - Toggle Hydra Anti-Ban engine (on/off)
 ‣ <code>/updatealllinks</code> - Mass update old inline URLs across channel posts
-‣ <code>/editposttitle</code> - Edit movie title in active draft
-‣ <code>/edittitle</code> - Edit movie title (alias)
-‣ <code>/edittittle</code> - Edit movie title (alias)
-‣ <code>/editpostyear</code> - Edit release year in active draft
-‣ <code>/edityear</code> - Edit release year (alias)
+‣ <code>/editposttitle</code> / <code>/edittitle</code> - Edit movie title in active draft
+‣ <code>/editpostyear</code> / <code>/edityear</code> - Edit release year in active draft
 ‣ <code>/editpostbutton</code> - Edit custom inline button (Number Text | URL)
-‣ <code>/editpostbuttoncolour</code> - Change button colour (green/red/blue)
-‣ <code>/editbuttoncolour</code> - Change button colour (alias)
-‣ <code>/editpostdirect</code> - Change Direct Search button URL
-‣ <code>/editdirect</code> - Change Direct Search button URL (alias)
-‣ <code>/editpostlangs</code> - Edit languages list in active draft
-‣ <code>/editlangs</code> - Edit languages list (alias)
-‣ <code>/editpostresolutions</code> - Edit resolutions list in active draft
-‣ <code>/editresolutions</code> - Edit resolutions list (alias)
-‣ <code>/editpostgenres</code> - Edit genres list in active draft
-‣ <code>/editgenres</code> - Edit genres list (alias)
-‣ <code>/editpostotts</code> - Edit OTT platforms list in active draft
-‣ <code>/editotts</code> - Edit OTT platforms list (alias)
-‣ <code>/editpostimage</code> - Set preview URL/poster for draft
-‣ <code>/editimage</code> - Set preview URL/poster (alias)
-‣ <code>/editipostmage</code> - Set preview URL/poster (alias)
-‣ <code>/editpostnormalimage</code> - Set normal photo file_id for draft
-‣ <code>/editnormalimage</code> - Set normal photo file_id (alias)  </b>"""
+‣ <code>/editpostbuttoncolour</code> / <code>/editbuttoncolour</code> - Change button colour (green/red/blue)
+‣ <code>/editpostdirect</code> / <code>/editdirect</code> - Change Direct Search button URL
+‣ <code>/editpostlangs</code> / <code>/editlangs</code> - Edit languages list in active draft
+‣ <code>/editpostresolutions</code> / <code>/editresolutions</code> - Edit resolutions list in active draft
+‣ <code>/editpostgenres</code> / <code>/editgenres</code> - Edit genres list in active draft
+‣ <code>/editpostotts</code> / <code>/editotts</code> - Edit OTT platforms list in active draft
+‣ <code>/editpostimage</code> / <code>/editimage</code> - Set preview URL/poster for draft
+‣ <code>/editpostnormalimage</code> / <code>/editnormalimage</code> - Set normal photo file_id for draft</b>"""
