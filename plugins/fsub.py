@@ -111,7 +111,11 @@ async def update_fsub_channels(channels_dict: dict):
 
 
 async def record_join_request(
-    user_id: int, chat_id: int, first_name: str = "User", username: str = "None", date=None
+    user_id: int,
+    chat_id: int,
+    first_name: str = "User",
+    username: str = "None",
+    date=None,
 ):
     """Saves join requests in both native MongoDB and legacy join_reqs DB."""
     if _fsub_reqs_db is not None:
@@ -227,6 +231,7 @@ async def get_active_connection(user_id: str) -> Optional[int]:
 
     try:
         from database.connections_mdb import active_connection
+
         conn = await active_connection(uid_str)
         if conn:
             return int(conn)
@@ -235,6 +240,7 @@ async def get_active_connection(user_id: str) -> Optional[int]:
 
     try:
         from database.connections_mdb import all_connections, if_active
+
         groupids = await all_connections(uid_str)
         if groupids:
             for gid in groupids:
@@ -499,7 +505,11 @@ async def ForceSub(
         safe_fid = file_id or "0"
         cb_data = f"refresh_fsub#{safe_mode}#{safe_fid}"
         not_joined_buttons.append(
-            [create_btn(text="✅ I've Joined", callback_data=cb_data, style=BTN_SUCCESS)]
+            [
+                create_btn(
+                    text="✅ I've Joined", callback_data=cb_data, style=BTN_SUCCESS
+                )
+            ]
         )
 
         b_settings = await get_bot_settings()
@@ -662,7 +672,11 @@ async def _deliver_verified_file(
 
     if sent_msg:
         try:
-            from plugins.pm_filter import format_duration, get_auto_delete_timer, schedule_auto_delete
+            from plugins.pm_filter import (
+                format_duration,
+                get_auto_delete_timer,
+                schedule_auto_delete,
+            )
 
             delete_timer = get_auto_delete_timer("FILE_AUTO_DELETE", 1800)
             if delete_timer > 0:
@@ -710,7 +724,9 @@ async def refresh_fsub_callback(bot: Client, query: CallbackQuery):
             eligible_channels = list(channels_dict.keys())
             if eligible_channels:
                 shift = int(time.time() / 3600) % len(eligible_channels)
-                eligible_channels = eligible_channels[shift:] + eligible_channels[:shift]
+                eligible_channels = (
+                    eligible_channels[shift:] + eligible_channels[:shift]
+                )
         else:
             eligible_channels = [
                 k
@@ -726,9 +742,7 @@ async def refresh_fsub_callback(bot: Client, query: CallbackQuery):
                 break
             ch_data = channels_dict.get(chat_id_str, {})
             is_req = ch_data.get("type") == "req"
-            if not await check_user_in_channel(
-                bot, int(chat_id_str), user_id, is_req
-            ):
+            if not await check_user_in_channel(bot, int(chat_id_str), user_id, is_req):
                 if link := await get_invite_link(bot, chat_id_str, config):
                     btn_text = "⚓ Request to Join" if is_req else "📢 Join Channel"
                     not_joined_buttons.append(
@@ -769,9 +783,7 @@ async def refresh_fsub_callback(bot: Client, query: CallbackQuery):
     except Exception:
         pass
 
-    await _deliver_verified_file(
-        bot, user_id, query.message.chat.id, file_id, mode
-    )
+    await _deliver_verified_file(bot, user_id, query.message.chat.id, file_id, mode)
 
 
 # ============================================================
@@ -832,9 +844,7 @@ async def _finalize_setfsub(
         )
         status = "pending" if max_count > 0 and active_count >= max_count else "active"
 
-        invite = await bot.create_chat_invite_link(
-            chat.id, creates_join_request=is_req
-        )
+        invite = await bot.create_chat_invite_link(chat.id, creates_join_request=is_req)
 
         channels[str(chat.id)] = {
             "title": chat.title or str(chat.id),
@@ -984,9 +994,7 @@ async def fsub_admin_callbacks(bot: Client, query: CallbackQuery):
         _, result_text = await _finalize_setfsub(
             bot, query.message.chat.id, channel_id, is_req
         )
-        return await query.message.edit_text(
-            result_text, disable_web_page_preview=True
-        )
+        return await query.message.edit_text(result_text, disable_web_page_preview=True)
 
     if data.startswith("fsub_del#"):
         _, channel_id = data.split("#", 1)
@@ -1061,9 +1069,7 @@ async def build_fsub_list_ui(
 
     channels = list(channels_dict.items())
     if filter_status:
-        channels = [
-            (k, v) for k, v in channels if v.get("status") == filter_status
-        ]
+        channels = [(k, v) for k, v in channels if v.get("status") == filter_status]
 
     header = (
         f"📡 **Force Subscribe Status:** {fsub_enabled}\n"
@@ -1110,9 +1116,7 @@ async def get_all_fsub(bot: Client, message: Message):
         return await message.reply_text("❌ **Unauthorized:** Admin only.")
 
     text, markup = await build_fsub_list_ui("All")
-    await message.reply_text(
-        text, reply_markup=markup, disable_web_page_preview=True
-    )
+    await message.reply_text(text, reply_markup=markup, disable_web_page_preview=True)
 
 
 # ============================================================
