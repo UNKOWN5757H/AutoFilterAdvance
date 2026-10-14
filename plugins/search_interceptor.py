@@ -1,3 +1,4 @@
+import html
 import re
 from logging import ERROR, getLogger
 
@@ -8,13 +9,18 @@ import info
 from database.ia_filterdb import get_search_results
 from database.users_chats_db import db as _db
 from Script import script
-from utils import get_size, temp
+from utils import get_size, is_subscribed, temp
 
-# Optional ban database check
+# Optional ban database & ForceSub check
 try:
     from database.plugin_dbs import plugin_db as _plugin_db
 except ImportError:
     _plugin_db = None
+
+try:
+    from plugins.fsub import ForceSub
+except ImportError:
+    ForceSub = None
 
 logger = getLogger(__name__)
 logger.setLevel(ERROR)
@@ -36,9 +42,10 @@ async def _fallback_pm_search(client: Client, message: Message, query: str):
     files, _, total_results = await get_search_results(
         query.lower(), offset=0, filter=True
     )
+    safe_query = html.escape(query)
     if not files:
         return await message.reply_text(
-            f"❌ <b>No files found for:</b> <code>{query}</code>\n\n"
+            f"❌ <b>No files found for:</b> <code>{safe_query}</code>\n\n"
             f"Please check the spelling or request it in our group!",
             parse_mode=enums.ParseMode.HTML,
         )
@@ -75,7 +82,7 @@ async def _fallback_pm_search(client: Client, message: Message, query: str):
     btn_rows.append([InlineKeyboardButton("🔐 Close", callback_data="close_data")])
 
     await message.reply_text(
-        f"🔍 <b>Search Results for:</b> <code>{query}</code>\n"
+        f"🔍 <b>Search Results for:</b> <code>{safe_query}</code>\n"
         f"📁 <b>Total Found:</b> <code>{total_results}</code>\n\n"
         f"👇 <i>Click on a file button below to download:</i>",
         reply_markup=InlineKeyboardMarkup(btn_rows),
@@ -104,15 +111,18 @@ async def intercept_direct_search(client: Client, message: Message):
         )
         raise StopPropagation
 
-    # 2. Ban Check
-    if uid and _plugin_db is not None and hasattr(_plugin_db, "is_banned"):
-        try:
-            if await _plugin_db.is_banned(uid):
-                raise StopPropagation
-        except StopPropagation:
-            raise
-        except Exception:
-            pass
+    # 2. Ban Check (RAM + DB)
+    if uid:
+        if hasattr(temp, "BANNED_USERS") and uid in temp.BANNED_USERS:
+            raise StopPropagation
+        if _plugin_db is not None and hasattr(_plugin_db, "is_banned"):
+            try:
+                if await _plugin_db.is_banned(uid):
+                    raise StopPropagation
+            except StopPropagation:
+                raise
+            except Exception:
+                pass
 
     # 3. Ensure New Users Clicking Channel Search Buttons Are Registered in DB
     if user:
@@ -157,7 +167,7 @@ async def intercept_direct_search(client: Client, message: Message):
         except Exception as fallback_err:
             logger.error(f"Fallback search also failed: {fallback_err}")
             await message.reply_text(
-                f"🔍 <b>Search Query:</b> <code>{query}</code>\n\n"
+                f"🔍 <b>Search Query:</b> <code>{html.escape(query)}</code>\n\n"
                 f"Tap the text above to copy it, then send it to me to search!",
                 parse_mode=enums.ParseMode.HTML,
             )
