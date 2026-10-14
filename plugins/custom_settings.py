@@ -144,10 +144,19 @@ async def get_active_group(user_id: int):
     try:
         if _active_db is not None:
             doc = await _active_db.find_one(
-                {"$or": [{"user_id": str(user_id)}, {"user_id": int(user_id)}, {"_id": str(user_id)}, {"_id": int(user_id)}]}
+                {
+                    "$or": [
+                        {"user_id": str(user_id)},
+                        {"user_id": int(user_id)},
+                        {"_id": str(user_id)},
+                        {"_id": int(user_id)},
+                    ]
+                }
             )
             if doc:
-                gid = doc.get("group_id") or doc.get("active_group") or doc.get("chat_id")
+                gid = (
+                    doc.get("group_id") or doc.get("active_group") or doc.get("chat_id")
+                )
                 if gid:
                     return int(gid)
     except Exception as e:
@@ -319,11 +328,7 @@ async def add_stopwords(client: Client, message: Message):
         )
 
     raw_input = message.text.split(None, 1)[1]
-    new_words = [
-        w.strip().lower()
-        for w in re.split(r"[,\n]+", raw_input)
-        if w.strip()
-    ]
+    new_words = [w.strip().lower() for w in re.split(r"[,\n]+", raw_input) if w.strip()]
     ACTIVE_STOPWORDS = sorted(list(set(ACTIVE_STOPWORDS + new_words)))
     await update_bot_settings("custom_stopwords", ACTIVE_STOPWORDS)
     await message.reply_text(
@@ -382,9 +387,7 @@ async def rem_stopwords(client: Client, message: Message):
 
     raw_input = message.text.split(None, 1)[1]
     words_to_remove = {
-        w.strip().lower()
-        for w in re.split(r"[,\n]+", raw_input)
-        if w.strip()
+        w.strip().lower() for w in re.split(r"[,\n]+", raw_input) if w.strip()
     }
     if not ACTIVE_STOPWORDS:
         return await message.reply_text(
