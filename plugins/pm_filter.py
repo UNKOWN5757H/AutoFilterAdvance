@@ -83,7 +83,9 @@ def clean_filename(name: str, clean_words: list) -> str:
     return (name[:42] + "..") if len(name) > 45 else (name or "File")
 
 
-def get_auto_delete_timer(var_name: str = "AUTO_DELETE_TIME", default_time: int = 1800) -> int:
+def get_auto_delete_timer(
+    var_name: str = "AUTO_DELETE_TIME", default_time: int = 1800
+) -> int:
     """Safely parses the auto-delete timer from info.py without throwing TypeErrors."""
     try:
         global_switch = getattr(info, "AUTO_DELETE", True)
@@ -92,7 +94,11 @@ def get_auto_delete_timer(var_name: str = "AUTO_DELETE_TIME", default_time: int 
         raw_val = getattr(
             info,
             var_name,
-            getattr(info, "AUTO_DELETE_TIME", getattr(info, "FILE_AUTO_DELETE", default_time)),
+            getattr(
+                info,
+                "AUTO_DELETE_TIME",
+                getattr(info, "FILE_AUTO_DELETE", default_time),
+            ),
         )
         if isinstance(raw_val, bool):
             return default_time if raw_val else 0
@@ -144,6 +150,7 @@ async def get_active_connection(user_id: str) -> Optional[int]:
     # 2. Check database.connections_mdb.active_connection if available
     try:
         from database.connections_mdb import active_connection
+
         conn = await active_connection(uid_str)
         if conn:
             return int(conn)
@@ -153,6 +160,7 @@ async def get_active_connection(user_id: str) -> Optional[int]:
     # 3. Check database.connections_mdb (all_connections + if_active)
     try:
         from database.connections_mdb import all_connections, if_active
+
         groupids = await all_connections(uid_str)
         if groupids:
             for gid in groupids:
@@ -182,7 +190,9 @@ async def get_target_chat(client: Client, message: Message) -> Optional[int]:
     return message.chat.id
 
 
-async def verify_admin(client: Client, message: Message, target_chat_id: Optional[int] = None) -> bool:
+async def verify_admin(
+    client: Client, message: Message, target_chat_id: Optional[int] = None
+) -> bool:
     uid = (
         message.from_user.id
         if message.from_user
@@ -341,7 +351,9 @@ async def god_tier_search(query: str) -> Tuple[list, int, int, str, bool]:
             )
         )
 
-        if matches := difflib.get_close_matches(clean_query, db_titles, n=1, cutoff=0.55):
+        if matches := difflib.get_close_matches(
+            clean_query, db_titles, n=1, cutoff=0.55
+        ):
             corrected_query = matches[0]
             c_files, c_offset, c_total = await get_search_results(
                 corrected_query, max_results=10, offset=0, filter=True
@@ -363,9 +375,7 @@ async def _auto_delete_worker(
     """Sleeps for `delay` seconds, then deletes both user and bot messages."""
     await asyncio.sleep(delay)
 
-    msg_ids = [
-        m.id for m in messages if m is not None and hasattr(m, "id") and m.id
-    ]
+    msg_ids = [m.id for m in messages if m is not None and hasattr(m, "id") and m.id]
     if msg_ids:
         try:
             await client.delete_messages(chat_id, msg_ids)
@@ -798,9 +808,7 @@ async def pagination_handler(bot: Client, query: CallbackQuery):
 
     files.sort(
         key=lambda x: (
-            x.get("file_size", 0)
-            if isinstance(x, dict)
-            else getattr(x, "file_size", 0)
+            x.get("file_size", 0) if isinstance(x, dict) else getattr(x, "file_size", 0)
         ),
         reverse=True,
     )
@@ -976,9 +984,7 @@ def parse_markdown_buttons(text: str):
             url_val = match.group(2).strip()
             if not url_val.startswith(("http://", "https://", "tg://")):
                 url_val = "https://" + url_val
-            row_btns.append(
-                {"text": match.group(1).strip(), "url": url_val}
-            )
+            row_btns.append({"text": match.group(1).strip(), "url": url_val})
         if row_btns:
             buttons.append(row_btns)
         if clean_line := re.sub(
@@ -1436,9 +1442,7 @@ async def manual_filters(client: Client, message: Message, text=False) -> bool:
             group_id = active_grp
 
     name = text or message.text or message.caption or ""
-    reply_id = (
-        message.reply_to_message.id if message.reply_to_message else message.id
-    )
+    reply_id = message.reply_to_message.id if message.reply_to_message else message.id
     if not (keywords := await get_filters(group_id)):
         return False
 
@@ -1450,7 +1454,11 @@ async def manual_filters(client: Client, message: Message, text=False) -> bool:
         ):
             reply_text, btn, alert, fileid = await find_filter(group_id, keyword)
             # Handle swapped fileid/alert from older filter entries gracefully
-            if str(fileid).strip() in ["[]", "None", ""] and str(alert).strip() not in ["[]", "None", ""]:
+            if str(fileid).strip() in ["[]", "None", ""] and str(alert).strip() not in [
+                "[]",
+                "None",
+                "",
+            ]:
                 fileid, alert = alert, fileid
 
             if reply_text:
