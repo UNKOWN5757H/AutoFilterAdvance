@@ -407,9 +407,7 @@ async def god_tier_search(query: str) -> Tuple[list, int, int, str, bool]:
     is_short_query = len(clean_query) <= 2
 
     # 1. Primary search with sanitized query
-    files, offset, total = await safe_search_db(
-        clean_query, max_results=10, offset=0
-    )
+    files, offset, total = await safe_search_db(clean_query, max_results=10, offset=0)
     if files:
         return files, offset, total, clean_query, False
 
@@ -417,9 +415,7 @@ async def god_tier_search(query: str) -> Tuple[list, int, int, str, bool]:
     raw_alnum = re.sub(r"[^a-zA-Z0-9]", " ", query.lower())
     raw_alnum = re.sub(r"\s+", " ", raw_alnum).strip()
     if raw_alnum and raw_alnum != clean_query:
-        files, offset, total = await safe_search_db(
-            raw_alnum, max_results=10, offset=0
-        )
+        files, offset, total = await safe_search_db(raw_alnum, max_results=10, offset=0)
         if files:
             return files, offset, total, raw_alnum, False
 
@@ -788,9 +784,7 @@ async def auto_filter(client: Client, msg: Message):
         # Silently auto-delete user query (msg) and bot results (m) without sending any extra warning text
         delete_timer = get_auto_delete_timer("AUTO_DELETE_TIME", 1800)
         if delete_timer > 0 and m:
-            schedule_auto_delete(
-                client, msg.chat.id, False, delete_timer, msg, m
-            )
+            schedule_auto_delete(client, msg.chat.id, False, delete_timer, msg, m)
 
     except Exception as e:
         logger.error(f"Fatal error in auto_filter: {e}")
@@ -902,9 +896,7 @@ async def pagination_handler(bot: Client, query: CallbackQuery):
             show_alert=True,
         )
 
-    files, n_offset, total = await safe_search_db(
-        search, max_results=10, offset=offset
-    )
+    files, n_offset, total = await safe_search_db(search, max_results=10, offset=offset)
     if not files:
         return await query.answer("No more files found.", show_alert=True)
 
