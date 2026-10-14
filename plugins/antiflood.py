@@ -275,9 +275,7 @@ def _build_flood_panel() -> tuple[str, InlineKeyboardMarkup]:
 @Client.on_message(filters.command(["antiflood", "floodstatus"]) & admin_filter)
 async def antiflood_dashboard_cmd(client: Client, message: Message):
     text, markup = _build_flood_panel()
-    await message.reply_text(
-        text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
-    )
+    await message.reply_text(text, reply_markup=markup, parse_mode=enums.ParseMode.HTML)
 
 
 @Client.on_message(filters.command(["unflood", "unmute"]) & admin_filter)
@@ -316,7 +314,9 @@ async def unflood_user_cmd(client: Client, message: Message):
     )
 
 
-@Client.on_callback_query(filters.regex(r"^af_(toggle|clear_mutes|refresh|close|unmute:(-?\d+):(\d+))$"))
+@Client.on_callback_query(
+    filters.regex(r"^af_(toggle|clear_mutes|refresh|close|unmute:(-?\d+):(\d+))$")
+)
 async def antiflood_callbacks(client: Client, query: CallbackQuery):
     global FLOOD_ENABLED
     data = query.data
