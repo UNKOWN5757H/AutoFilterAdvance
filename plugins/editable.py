@@ -212,11 +212,7 @@ def _sync_ui_to_runtime(doc: Dict[str, Any]):
 async def get_ui(force_refresh: bool = False) -> Dict[str, Any]:
     global _UI_CACHE, _UI_CACHE_TS
     now = time.time()
-    if (
-        not force_refresh
-        and _UI_CACHE is not None
-        and (now - _UI_CACHE_TS) < 60
-    ):
+    if not force_refresh and _UI_CACHE is not None and (now - _UI_CACHE_TS) < 60:
         return _UI_CACHE
 
     try:
@@ -247,7 +243,9 @@ async def update_ui(key: str, value: Any):
     _sync_ui_to_runtime(_UI_CACHE)
 
 
-def build_custom_button_rows(btns_data: List[Dict[str, Any]]) -> List[List[InlineKeyboardButton]]:
+def build_custom_button_rows(
+    btns_data: List[Dict[str, Any]],
+) -> List[List[InlineKeyboardButton]]:
     """Builds inline button rows honoring sidebyside / belowside layout and button colors."""
     rows: List[List[InlineKeyboardButton]] = []
     if not btns_data or not isinstance(btns_data, list):
@@ -434,9 +432,7 @@ def parse_button_cmd(
                     color = el
             return btn_text, url, layout, color
 
-    match = re.search(
-        r'["“\']([^"”\']+)["”\']\s+(\S+)(?:\s+(\S+))?(?:\s+(\S+))?', body
-    )
+    match = re.search(r'["“\']([^"”\']+)["”\']\s+(\S+)(?:\s+(\S+))?(?:\s+(\S+))?', body)
     if match:
         btn_text = match.group(1).strip()
         url = _normalize_url(match.group(2).strip())
@@ -466,7 +462,9 @@ def parse_button_cmd(
     return None, None, layout, color
 
 
-def parse_edit_button_args(text: str) -> Tuple[Optional[int], Optional[str], Optional[str]]:
+def parse_edit_button_args(
+    text: str,
+) -> Tuple[Optional[int], Optional[str], Optional[str]]:
     """
     Parses button number, layout, and color in any order:
     e.g., `/editstartbuttons 1 sidebyside green` or `/editstartbuttons 1 green sidebyside`
@@ -1005,7 +1003,9 @@ async def rem_about_btn(client: Client, message: Message):
 # ============================================================
 # 🎯 LIVE UI PREVIEW ENGINE
 # ============================================================
-@Client.on_message(filters.command(["preview_ui", "preview"]) & filters.incoming, group=-2)
+@Client.on_message(
+    filters.command(["preview_ui", "preview"]) & filters.incoming, group=-2
+)
 async def preview_ui_cmd(client: Client, message: Message):
     if not await is_global_admin(message):
         return await safe_reply_text(
