@@ -58,6 +58,14 @@ except ImportError:
             return []
 
 
+try:
+    from plugins.uibuttons import (
+        get_deleted_file_notify_keyboard as _get_deleted_file_notify_keyboard,
+    )
+except Exception:
+    _get_deleted_file_notify_keyboard = None
+
+
 logger = getLogger(__name__)
 logger.setLevel(ERROR)
 
@@ -603,6 +611,7 @@ except Exception as e:
 
 DEFAULT_CLEAN_WORDS = ["sandalwood", "mkv", "mp4", "avi", "webm", "zip", "rar"]
 _CLEAN_WORDS_CACHE: Tuple[float, list] = (0.0, DEFAULT_CLEAN_WORDS)
+_PROMO_CACHE: Tuple[float, List[Dict[str, str]]] = (0.0, [])
 _FEATURE_FLAGS_CACHE: Dict[str, Any] = {
     "ts": 0.0,
     "autotranslate": True,
@@ -663,6 +672,43 @@ async def get_clean_words() -> list:
         return words
     except Exception:
         return DEFAULT_CLEAN_WORDS
+
+
+async def get_active_promos() -> List[Dict[str, str]]:
+    """Fetches active promotional buttons added via /addpromo in broadcast.py or plugin_db."""
+    global _PROMO_CACHE
+    now = time.time()
+    if now - _PROMO_CACHE[0] < 60:
+        return _PROMO_CACHE[1]
+
+    promos: List[Dict[str, str]] = []
+    if _plugin_db is not None and hasattr(_plugin_db, "get_promos"):
+        try:
+            raw_p = await _plugin_db.get_promos()
+            if isinstance(raw_p, list):
+                for item in raw_p:
+                    if isinstance(item, dict) and item.get("text") and item.get("url"):
+                        promos.append(
+                            {"text": str(item["text"]), "url": str(item["url"])}
+                        )
+        except Exception:
+            pass
+
+    if not promos and _BOT_DB is not None:
+        for col_name in ("promos", "promo_buttons"):
+            try:
+                cursor = _BOT_DB[col_name].find({})
+                docs = await cursor.to_list(length=10)
+                for d in docs:
+                    if isinstance(d, dict) and d.get("text") and d.get("url"):
+                        promos.append({"text": str(d["text"]), "url": str(d["url"])})
+                if promos:
+                    break
+            except Exception:
+                continue
+
+    _PROMO_CACHE = (now, promos)
+    return promos
 
 
 def clean_filename(name: str, clean_words: list) -> str:
@@ -1270,7 +1316,7 @@ def _build_dym_view(
 
 
 async def god_tier_search(
-    query: str, allow_translit: bool = True
+    query: str, allow_translit: bool = True, allow_fuzzy: bool = True
 ) -> Tuple[list, int, int, str, bool]:
     was_transliterated = bool(allow_translit and has_indic_script(query))
     translit_variants = (
@@ -1324,7 +1370,7 @@ async def god_tier_search(
             )
             return files, offset, total, no_year_query, was_transliterated
 
-    if is_short_query:
+    if is_short_query or not allow_fuzzy:
         return [], 0, 0, query, False
 
     try:
@@ -1411,6 +1457,11 @@ async def build_result_buttons(
                 )
             ]
         )
+
+    # Attach any active Promotional Links configured via /addpromo
+    promos = await get_active_promos()
+    for p in promos[:2]:
+        btn.append([create_btn(text=p["text"], url=p["url"])])
 
     for file in files:
         file_id = str(
@@ -1559,15 +1610,19 @@ async def _auto_delete_worker(
         notify_text = (
             "<b>Successfully deleted your file, if you want request again in group.</b>"
         )
-        markup = InlineKeyboardMarkup(
-            [
+        markup = (
+            _get_deleted_file_notify_keyboard()
+            if callable(_get_deleted_file_notify_keyboard)
+            else InlineKeyboardMarkup(
                 [
-                    create_btn(
-                        "Movie Request 📝",
-                        url="https://t.me/Sandalwood_Kannada_Group",
-                    )
+                    [
+                        create_btn(
+                            "Movie Request 📝",
+                            url="https://t.me/Sandalwood_Kannada_Group",
+                        )
+                    ]
                 ]
-            ]
+            )
         )
         try:
             await client.send_message(
@@ -1695,11 +1750,19 @@ async def auto_filter(client: Client, msg: Message):
 
         autotranslate_on, multichoice_on = await get_feature_flags()
 
+        try:
+            b_set = await get_bot_settings() or {}
+        except Exception:
+            b_set = {}
+
+        try:
+            settings = await get_settings(msg.chat.id) or {}
+        except Exception:
+            settings = {}
+
+        spell_check_on = bool(settings.get("spell_check", True))
+
         if has_indic_script(search) and not autotranslate_on:
-            try:
-                b_set = await get_bot_settings() or {}
-            except Exception:
-                b_set = {}
             fnf_img = b_set.get("not_found_img", getattr(info, "NOT_FOUND_IMG", None))
             fnf_txt = b_set.get(
                 "not_found_text",
@@ -1715,26 +1778,22 @@ async def auto_filter(client: Client, msg: Message):
                 autotranslate_on=False,
             )
 
-        try:
-            b_set = await get_bot_settings() or {}
-        except Exception:
-            b_set = {}
-
-        try:
-            settings = await get_settings(msg.chat.id) or {}
-        except Exception:
-            settings = {}
-
         inline_lang, inline_qual = extract_inline_lang_and_qual(search)
 
-        cache_key = f"{search.lower()}|at:{int(autotranslate_on)}"
+        cache_key = (
+            f"{search.lower()}|at:{int(autotranslate_on)}|sp:{int(spell_check_on)}"
+        )
         cached_data = GLOBAL_SEARCH_CACHE.get(cache_key)
 
         if cached_data:
             files, offset, total_results, search_query, was_corrected = cached_data
         else:
             files, offset, total_results, search_query, was_corrected = (
-                await god_tier_search(search, allow_translit=autotranslate_on)
+                await god_tier_search(
+                    search,
+                    allow_translit=autotranslate_on,
+                    allow_fuzzy=spell_check_on,
+                )
             )
             if files:
                 GLOBAL_SEARCH_CACHE.set(
@@ -1754,7 +1813,7 @@ async def auto_filter(client: Client, msg: Message):
                 fnf_img,
                 fnf_txt,
                 raw_search=search,
-                multichoice_on=multichoice_on,
+                multichoice_on=bool(multichoice_on and spell_check_on),
                 autotranslate_on=autotranslate_on,
             )
 
