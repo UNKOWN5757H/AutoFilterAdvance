@@ -281,9 +281,7 @@ def get_stats_keyboard() -> InlineKeyboardMarkup:
 
 
 def get_cleanwords_keyboard(use_default: bool = True) -> InlineKeyboardMarkup:
-    mode_label = (
-        "defaultcleanfilename ✅" if use_default else "defaultcleanfilename"
-    )
+    mode_label = "defaultcleanfilename ✅" if use_default else "defaultcleanfilename"
     return InlineKeyboardMarkup(
         [
             [
