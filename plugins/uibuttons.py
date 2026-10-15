@@ -126,6 +126,43 @@ HELP_SHORTCUT_MAP: Dict[str, str] = {
 }
 
 # ============================================================
+# 🔗 LIVE CONNECTION TO plugins/editable.py
+# ============================================================
+async def _ensure_ui_synced() -> Dict[str, Any]:
+    """Ensures custom UI texts & images from plugins/editable.py are synced to runtime."""
+    try:
+        from plugins.editable import get_ui
+
+        return await get_ui()
+    except ImportError:
+        try:
+            from editable import get_ui
+
+            return await get_ui()
+        except Exception:
+            return {}
+    except Exception:
+        return {}
+
+
+async def _get_custom_rows(menu_name: str) -> List[List[InlineKeyboardButton]]:
+    """Fetches custom inline button rows configured via plugins/editable.py."""
+    try:
+        from plugins.editable import get_custom_menu_rows
+
+        return await get_custom_menu_rows(menu_name)
+    except ImportError:
+        try:
+            from editable import get_custom_menu_rows
+
+            return await get_custom_menu_rows(menu_name)
+        except Exception:
+            return []
+    except Exception:
+        return []
+
+
+# ============================================================
 # 🎨 SAFE TELEGRAM BUTTON STYLE DETECTION
 # ============================================================
 BTN_PRIMARY = None
@@ -570,7 +607,7 @@ def append_fsub_back_button(
 
 
 async def get_start_keyboard(client: Client, user_id: int) -> InlineKeyboardMarkup:
-    buttons = [
+    buttons: List[List[InlineKeyboardButton]] = [
         [
             create_btn(
                 "✈️ Gʀᴏᴜᴘ 1",
@@ -589,6 +626,12 @@ async def get_start_keyboard(client: Client, user_id: int) -> InlineKeyboardMark
             ),
         ]
     ]
+
+    # Attach any custom Start buttons added via /addstartbutton in plugins/editable.py
+    custom_rows = await _get_custom_rows("start")
+    if custom_rows:
+        buttons.extend(custom_rows)
+
     if await is_global_admin(user_id):
         buttons.append(
             [
@@ -609,63 +652,77 @@ async def get_start_keyboard(client: Client, user_id: int) -> InlineKeyboardMark
 
 
 async def get_help_keyboard() -> InlineKeyboardMarkup:
-    """Main Help Menu Keyboard with all 20 categories and zero colours."""
-    return InlineKeyboardMarkup(
+    """Main Help Menu Keyboard with all 20 categories and custom help buttons."""
+    rows: List[List[InlineKeyboardButton]] = [
         [
-            [
-                create_btn("🖥️ UI Start", callback_data="helps_uistart"),
-                create_btn("🖥️ UI Help", callback_data="helps_uihelp"),
-                create_btn("🖥️ UI About", callback_data="helps_uiabout"),
-            ],
-            [
-                create_btn("👋 Welcome", callback_data="helps_welcome"),
-                create_btn("🖼️ Images", callback_data="helps_images"),
-            ],
-            [
-                create_btn("🔍 Spell Check", callback_data="helps_spell"),
-                create_btn("📝 Filters", callback_data="helps_filters"),
-            ],
-            [
-                create_btn("📱 Force Sub", callback_data="helps_forcesub"),
-                create_btn("👥 Force Add", callback_data="helps_forceadd"),
-            ],
-            [
-                create_btn("🚫 Bans", callback_data="helps_bans"),
-                create_btn("🗑️ Delete", callback_data="helps_delete"),
-            ],
-            [
-                create_btn("📢 Promotions", callback_data="helps_promotions"),
-                create_btn("📚 Index", callback_data="helps_index"),
-            ],
-            [
-                create_btn("⚙️ Settings", callback_data="helps_settings"),
-                create_btn("🌐 Connections", callback_data="helps_connections"),
-            ],
-            [
-                create_btn("📊 Utilities", callback_data="helps_utilities"),
-                create_btn("💬 Custom Messages", callback_data="helps_custommessages"),
-            ],
-            [
-                create_btn("📝 Post Handle", callback_data="helps_posthand"),
-                create_btn("📝 Custom Captions", callback_data="helps_customcaption"),
-            ],
-            [
-                create_btn("💬 PM Auto Reply", callback_data="helps_pmautoreply"),
-                create_btn("🧹 Clean Filename", callback_data="helps_cleanfile"),
-            ],
-            [
-                create_btn("💾 Backup", callback_data="helps_backup"),
-            ],
-            [
-                create_btn("🔙 Back", callback_data="start"),
-                create_btn("🔐 Close", callback_data="close_data"),
-            ],
+            create_btn("🖥️ UI Start", callback_data="helps_uistart"),
+            create_btn("🖥️ UI Help", callback_data="helps_uihelp"),
+            create_btn("🖥️ UI About", callback_data="helps_uiabout"),
+        ],
+        [
+            create_btn("👋 Welcome", callback_data="helps_welcome"),
+            create_btn("🖼️ Images", callback_data="helps_images"),
+        ],
+        [
+            create_btn("🔍 Spell Check", callback_data="helps_spell"),
+            create_btn("📝 Filters", callback_data="helps_filters"),
+        ],
+        [
+            create_btn("📱 Force Sub", callback_data="helps_forcesub"),
+            create_btn("👥 Force Add", callback_data="helps_forceadd"),
+        ],
+        [
+            create_btn("🚫 Bans", callback_data="helps_bans"),
+            create_btn("🗑️ Delete", callback_data="helps_delete"),
+        ],
+        [
+            create_btn("📢 Promotions", callback_data="helps_promotions"),
+            create_btn("📚 Index", callback_data="helps_index"),
+        ],
+        [
+            create_btn("⚙️ Settings", callback_data="helps_settings"),
+            create_btn("🌐 Connections", callback_data="helps_connections"),
+        ],
+        [
+            create_btn("📊 Utilities", callback_data="helps_utilities"),
+            create_btn("💬 Custom Messages", callback_data="helps_custommessages"),
+        ],
+        [
+            create_btn("📝 Post Handle", callback_data="helps_posthand"),
+            create_btn("📝 Custom Captions", callback_data="helps_customcaption"),
+        ],
+        [
+            create_btn("💬 PM Auto Reply", callback_data="helps_pmautoreply"),
+            create_btn("🧹 Clean Filename", callback_data="helps_cleanfile"),
+        ],
+        [
+            create_btn("💾 Backup", callback_data="helps_backup"),
+        ],
+    ]
+
+    # Attach any custom Help buttons added via /addhelpbutton in plugins/editable.py
+    custom_rows = await _get_custom_rows("help")
+    if custom_rows:
+        rows.extend(custom_rows)
+
+    rows.append(
+        [
+            create_btn("🔙 Back", callback_data="start"),
+            create_btn("🔐 Close", callback_data="close_data"),
         ]
     )
+    return InlineKeyboardMarkup(rows)
 
 
 async def get_about_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
+    rows: List[List[InlineKeyboardButton]] = []
+
+    # Attach any custom About buttons added via /addaboutbutton in plugins/editable.py
+    custom_rows = await _get_custom_rows("about")
+    if custom_rows:
+        rows.extend(custom_rows)
+
+    rows.extend(
         [
             [create_btn("📊 Sᴛᴀᴛᴜs", callback_data="stats")],
             [
@@ -674,6 +731,7 @@ async def get_about_keyboard() -> InlineKeyboardMarkup:
             ],
         ]
     )
+    return InlineKeyboardMarkup(rows)
 
 
 def get_stats_keyboard() -> InlineKeyboardMarkup:
@@ -1581,7 +1639,21 @@ async def build_interactive_help_section(
 
     state: Dict[str, Any] = {}
 
-    if section_key == "helps_spell":
+    if section_key in ["helps_uistart", "helps_uihelp", "helps_uiabout"]:
+        ui_doc = await _ensure_ui_synced()
+        menu_prefix = section_key.replace("helps_ui", "")
+        has_txt = bool(ui_doc.get(f"{menu_prefix}_text"))
+        has_img = bool(ui_doc.get(f"{menu_prefix}_img"))
+        btns_list = ui_doc.get(f"{menu_prefix}_buttons", [])
+        base_text += (
+            f"\n\n━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🎛️ <b>Live {menu_prefix.title()} UI Status:</b>\n"
+            f"• <b>Custom Text:</b> <code>{'Custom Set ✅' if has_txt else 'Default'}</code>\n"
+            f"• <b>Custom Image:</b> <code>{'Set 🖼️' if has_img else 'Default / None'}</code>\n"
+            f"• <b>Custom Buttons:</b> <code>{len(btns_list)}</code>"
+        )
+
+    elif section_key == "helps_spell":
         try:
             from plugins.pm_filter import get_feature_flags
 
@@ -2318,6 +2390,11 @@ async def _handle_help_cmd_button(client: Client, query: CallbackQuery, cmd_name
                 reply_markup=get_close_keyboard(),
                 parse_mode=enums.ParseMode.HTML,
             )
+        elif back_sec in ["helps_uistart", "helps_uihelp", "helps_uiabout"]:
+            text, markup = await build_interactive_help_section(
+                client, back_sec, uid, user_mention, query.message
+            )
+            await transition_ui_message(client, query.message, text, markup)
         return
 
     # 4. Zero-argument commands -> Dispatch immediately!
@@ -2333,6 +2410,26 @@ async def _handle_help_cmd_button(client: Client, query: CallbackQuery, cmd_name
             reply_markup=get_close_keyboard(),
             parse_mode=enums.ParseMode.HTML,
         )
+    elif cmd_clean in [
+        "defaultstarttext",
+        "remstartimage",
+        "remstartbutton",
+        "defaulthelptext",
+        "remhelpimage",
+        "remhelpbutton",
+        "defaultabouttext",
+        "remaboutimage",
+        "remaboutbutton",
+    ]:
+        sec_map = (
+            "helps_uistart"
+            if "start" in cmd_clean
+            else "helps_uihelp" if "help" in cmd_clean else "helps_uiabout"
+        )
+        text, markup = await build_interactive_help_section(
+            client, sec_map, uid, user_mention, query.message
+        )
+        await transition_ui_message(client, query.message, text, markup)
 
 
 # ============================================================
@@ -2388,6 +2485,7 @@ async def start(client: Client, message: Message):
         else getattr(message.sender_chat, "id", 0)
     )
     cancel_cmd_user_input(message.chat.id)
+    await _ensure_ui_synced()
 
     is_admin = await is_global_admin(uid)
 
@@ -3131,6 +3229,7 @@ async def ui_menus_cb_handler(client: Client, query: CallbackQuery):
     b_name = getattr(temp, "B_NAME", None) or "MovieBot"
 
     cancel_cmd_user_input(query.message.chat.id)
+    await _ensure_ui_synced()
     is_admin = await is_global_admin(uid)
 
     if (
