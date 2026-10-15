@@ -8,7 +8,9 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from pyrogram import Client, enums, filters
 from pyrogram.errors import (
     ChatAdminRequired,
+    ChatWriteForbidden,
     FloodWait,
+    Forbidden,
     MessageIdInvalid,
     MessageNotModified,
     PeerIdInvalid,
@@ -30,6 +32,9 @@ from utils import get_size, parse_text_and_markup
 
 logger = getLogger(__name__)
 logger.setLevel(ERROR)
+
+# Strong reference set so sleeping auto-delete tasks are never garbage-collected
+AUTO_DELETE_TASKS = set()
 
 # Safe optional imports
 try:
@@ -116,6 +121,8 @@ async def safe_reply_text(
         compat_kw.pop("reply_parameters", None)
         compat_kw.pop("reply_to_message_id", None)
         return await message.reply_text(text, **compat_kw)
+    except (ChatWriteForbidden, Forbidden, UserIsBlocked, PeerIdInvalid):
+        return None
 
 
 async def safe_edit_text(
@@ -130,6 +137,8 @@ async def safe_edit_text(
         compat_kw.pop("disable_web_page_preview", None)
         compat_kw.pop("link_preview_options", None)
         return await message.edit_text(text, **compat_kw)
+    except (MessageNotModified, MessageIdInvalid, ChatWriteForbidden, Forbidden):
+        return None
 
 
 async def safe_send_message(
@@ -150,6 +159,8 @@ async def safe_send_message(
         compat_kw.pop("reply_parameters", None)
         compat_kw.pop("reply_to_message_id", None)
         return await client.send_message(chat_id=chat_id, text=text, **compat_kw)
+    except (ChatWriteForbidden, Forbidden, UserIsBlocked, PeerIdInvalid):
+        return None
 
 
 # ============================================================
@@ -188,6 +199,100 @@ def create_btn(text, url=None, callback_data=None, style=None):
     except Exception:
         kwargs.pop("style", None)
         return InlineKeyboardButton(**kwargs)
+
+
+# ============================================================
+# ⏳ SELF-CONTAINED AUTO-DELETE ENGINE (ZERO IMPORT ERRORS)
+# ============================================================
+def get_auto_delete_timer(
+    var_name: str = "FILE_AUTO_DELETE", default_time: int = 1800
+) -> int:
+    try:
+        global_switch = getattr(info, "AUTO_DELETE", True)
+        if str(global_switch).strip().lower() in ["false", "off", "0", "no"]:
+            return 0
+        raw_val = getattr(
+            info,
+            var_name,
+            getattr(
+                info,
+                "FILE_AUTO_DELETE",
+                getattr(info, "AUTO_DELETE_TIME", default_time),
+            ),
+        )
+        if isinstance(raw_val, bool):
+            return default_time if raw_val else 0
+        val = int(str(raw_val).strip())
+        return 1800 if 0 < val < 10 else max(0, val)
+    except Exception:
+        return default_time
+
+
+def format_duration(seconds: int) -> str:
+    if seconds <= 0:
+        return "0 Seconds"
+    m, s = divmod(int(seconds), 60)
+    if m > 0 and s > 0:
+        return f"{m} Minute{'s' if m != 1 else ''} {s} Second{'s' if s != 1 else ''}"
+    if m > 0:
+        return f"{m} Minute{'s' if m != 1 else ''}"
+    return f"{s} Second{'s' if s != 1 else ''}"
+
+
+async def _fsub_auto_delete_worker(
+    client: Client, chat_id: int, is_pm: bool, delay: int, *messages
+):
+    await asyncio.sleep(delay)
+
+    msg_ids = [m.id for m in messages if m is not None and hasattr(m, "id") and m.id]
+    if msg_ids:
+        try:
+            await client.delete_messages(chat_id, msg_ids)
+        except Exception:
+            for m in messages:
+                if m is not None:
+                    try:
+                        await m.delete()
+                    except Exception:
+                        pass
+
+    if is_pm:
+        notify_text = (
+            "<b>Successfully deleted your file, if you want request again in group.</b>"
+        )
+        markup = InlineKeyboardMarkup(
+            [
+                [
+                    create_btn(
+                        "Movie Request 📝",
+                        url="https://t.me/Sandalwood_Kannada_Group",
+                        style=BTN_SUCCESS,
+                    )
+                ]
+            ]
+        )
+        try:
+            await safe_send_message(
+                client,
+                chat_id,
+                text=notify_text,
+                reply_markup=markup,
+                parse_mode=enums.ParseMode.HTML,
+            )
+        except Exception:
+            pass
+
+
+def schedule_auto_delete(
+    client: Client, chat_id: int, is_pm: bool, delay: int, *messages
+):
+    if delay <= 0:
+        return
+    task = asyncio.create_task(
+        _fsub_auto_delete_worker(client, chat_id, is_pm, delay, *messages)
+    )
+    AUTO_DELETE_TASKS.add(task)
+    task.add_done_callback(AUTO_DELETE_TASKS.discard)
 
 
 # ============================================================
@@ -646,7 +751,6 @@ async def _get_missing_channel_buttons(
     if not eligible_channels:
         return []
 
-    # Run membership checks in parallel so multiple FSub channels resolve in 1 round-trip
     async def _check_single(cid_str: str):
         ch_data = channels_dict.get(cid_str, {})
         is_req = ch_data.get("type") == "req"
@@ -736,7 +840,7 @@ async def ForceSub(
                 disable_web_page_preview=True,
                 parse_mode=enums.ParseMode.HTML,
             )
-        except (UserIsBlocked, PeerIdInvalid):
+        except (UserIsBlocked, PeerIdInvalid, ChatWriteForbidden, Forbidden):
             return False
         except Exception as e:
             logger.error(f"ForceSub reply error: {e}")
@@ -895,12 +999,6 @@ async def _deliver_verified_file(
 
     if sent_msg:
         try:
-            from plugins.pm_filter import (
-                format_duration,
-                get_auto_delete_timer,
-                schedule_auto_delete,
-            )
-
             delete_timer = get_auto_delete_timer("FILE_AUTO_DELETE", 1800)
             if delete_timer > 0:
                 time_str = format_duration(delete_timer)
@@ -945,9 +1043,12 @@ async def refresh_fsub_callback(bot: Client, query: CallbackQuery):
         not_joined_buttons = await _get_missing_channel_buttons(bot, user_id, config)
 
         if not_joined_buttons:
-            await query.answer(
-                "❌ You haven't joined all required channels yet!", show_alert=True
-            )
+            try:
+                await query.answer(
+                    "❌ You haven't joined all required channels yet!", show_alert=True
+                )
+            except QueryIdInvalid:
+                pass
             cb_data = f"refresh_fsub#{mode}#{file_id}"
             not_joined_buttons.append(
                 [
@@ -1176,14 +1277,12 @@ async def add_dynamic_fsub(bot: Client, message: Message):
             return
         txt = resp.text.strip().lower()
         if txt == "/cancel":
-            try:
+            if ask_msg:
                 await safe_edit_text(
                     ask_msg,
                     "❌ <b>FSub setup cancelled.</b>",
                     parse_mode=enums.ParseMode.HTML,
                 )
-            except Exception:
-                pass
             return
         if txt in ["y", "yes", "n", "no"]:
             is_req = txt in ["y", "yes"]
@@ -1194,14 +1293,14 @@ async def add_dynamic_fsub(bot: Client, message: Message):
             _, result_text = await _finalize_setfsub(
                 bot, message.chat.id, channel_id, is_req
             )
-            try:
+            if ask_msg:
                 await safe_edit_text(
                     ask_msg,
                     result_text,
                     disable_web_page_preview=True,
                     parse_mode=enums.ParseMode.HTML,
                 )
-            except Exception:
+            else:
                 await safe_reply_text(
                     message,
                     result_text,
@@ -1220,7 +1319,6 @@ async def fsub_admin_callbacks(bot: Client, query: CallbackQuery):
         return await query.answer("❌ Unauthorized: Admin only.", show_alert=True)
 
     data = query.data
-    # Cancel any active text listener in this chat so it doesn't stay open
     if query.message.chat.id in _WAITING_REQUESTS:
         fut = _WAITING_REQUESTS[query.message.chat.id].get("future")
         if fut and not fut.done():
@@ -1515,17 +1613,19 @@ async def purge_requests(bot: Client, message: Message):
 
         if resp.text.strip().lower() in ["y", "yes"]:
             count = await clear_all_join_requests()
-            await safe_edit_text(
-                ask_msg,
-                f"✅ <b>All join requests purged successfully!</b> (<code>{count}</code> deleted)",
-                parse_mode=enums.ParseMode.HTML,
-            )
+            if ask_msg:
+                await safe_edit_text(
+                    ask_msg,
+                    f"✅ <b>All join requests purged successfully!</b> (<code>{count}</code> deleted)",
+                    parse_mode=enums.ParseMode.HTML,
+                )
         else:
-            await safe_edit_text(
-                ask_msg,
-                "❌ <b>Operation cancelled.</b>",
-                parse_mode=enums.ParseMode.HTML,
-            )
+            if ask_msg:
+                await safe_edit_text(
+                    ask_msg,
+                    "❌ <b>Operation cancelled.</b>",
+                    parse_mode=enums.ParseMode.HTML,
+                )
     except (asyncio.TimeoutError, asyncio.CancelledError):
         pass
     except Exception as e:
