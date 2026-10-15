@@ -125,6 +125,7 @@ HELP_SHORTCUT_MAP: Dict[str, str] = {
     "posthand": "helps_posthand",
 }
 
+
 # ============================================================
 # 🔗 LIVE CONNECTION TO plugins/editable.py
 # ============================================================
