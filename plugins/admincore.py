@@ -1,17 +1,22 @@
 import asyncio
 import html
+import inspect
 import os
 import platform
 import shutil
 import sys
 import time
 from logging import ERROR, getLogger
+from typing import List, Optional, Tuple
 
 from motor.motor_asyncio import AsyncIOMotorClient
 from pyrogram import Client, enums, filters
 from pyrogram.errors import (
+    ChatWriteForbidden,
     FloodWait,
+    Forbidden,
     InputUserDeactivated,
+    MessageIdInvalid,
     MessageNotModified,
     PeerIdInvalid,
     QueryIdInvalid,
@@ -68,6 +73,108 @@ if not hasattr(info, "REPAIR_MODE"):
     info.REPAIR_MODE = False
 
 # ============================================================
+# 🛡️ PYROGRAM v2.2.26 (LAYER 230) COMPATIBILITY ENGINE
+# ============================================================
+try:
+    from pyrogram.types import LinkPreviewOptions
+except ImportError:
+    LinkPreviewOptions = None
+
+try:
+    from pyrogram.types import ReplyParameters
+except ImportError:
+    ReplyParameters = None
+
+_SEND_MSG_PARAMS = set(inspect.signature(Client.send_message).parameters.keys())
+_REPLY_PARAMS = set(inspect.signature(Message.reply_text).parameters.keys())
+_EDIT_PARAMS = set(inspect.signature(Message.edit_text).parameters.keys())
+
+
+def _prepare_compat_kwargs(
+    kwargs: dict, supported_params: set, disable_preview: Optional[bool] = None
+) -> dict:
+    clean_kw = dict(kwargs)
+    explicit_disable = clean_kw.pop("disable_web_page_preview", disable_preview)
+
+    if explicit_disable is not None:
+        if "disable_web_page_preview" in supported_params:
+            clean_kw["disable_web_page_preview"] = bool(explicit_disable)
+        elif (
+            "link_preview_options" in supported_params
+            and LinkPreviewOptions is not None
+        ):
+            try:
+                clean_kw["link_preview_options"] = LinkPreviewOptions(
+                    is_disabled=bool(explicit_disable)
+                )
+            except Exception:
+                pass
+
+    if "reply_to_message_id" in clean_kw:
+        rep_id = clean_kw.pop("reply_to_message_id")
+        if rep_id:
+            if "reply_to_message_id" in supported_params:
+                clean_kw["reply_to_message_id"] = rep_id
+            elif "reply_parameters" in supported_params and ReplyParameters is not None:
+                try:
+                    clean_kw["reply_parameters"] = ReplyParameters(message_id=rep_id)
+                except Exception:
+                    pass
+
+    return clean_kw
+
+
+async def safe_reply_text(
+    message: Message, text: str, disable_web_page_preview: bool = True, **kwargs
+):
+    compat_kw = _prepare_compat_kwargs(
+        kwargs, _REPLY_PARAMS, disable_preview=disable_web_page_preview
+    )
+    try:
+        return await message.reply_text(text, **compat_kw)
+    except TypeError:
+        compat_kw.pop("disable_web_page_preview", None)
+        compat_kw.pop("link_preview_options", None)
+        compat_kw.pop("reply_parameters", None)
+        compat_kw.pop("reply_to_message_id", None)
+        return await message.reply_text(text, **compat_kw)
+    except (ChatWriteForbidden, Forbidden, UserIsBlocked, PeerIdInvalid):
+        return None
+
+
+async def safe_edit_text(
+    message: Message, text: str, disable_web_page_preview: bool = True, **kwargs
+):
+    compat_kw = _prepare_compat_kwargs(
+        kwargs, _EDIT_PARAMS, disable_preview=disable_web_page_preview
+    )
+    try:
+        return await message.edit_text(text, **compat_kw)
+    except TypeError:
+        compat_kw.pop("disable_web_page_preview", None)
+        compat_kw.pop("link_preview_options", None)
+        return await message.edit_text(text, **compat_kw)
+    except (MessageNotModified, MessageIdInvalid, ChatWriteForbidden, Forbidden):
+        return None
+
+
+async def safe_answer(
+    query: CallbackQuery,
+    text: Optional[str] = None,
+    show_alert: bool = False,
+):
+    if not query:
+        return
+    try:
+        if text is not None:
+            await query.answer(str(text)[:200], show_alert=show_alert)
+        else:
+            await query.answer(show_alert=show_alert)
+    except (QueryIdInvalid, Exception):
+        pass
+
+
+# ============================================================
 # ⚙️ MONGODB FALLBACK COLLECTIONS
 # ============================================================
 _DB_CLIENT = None
@@ -92,7 +199,7 @@ _CLEAN_USERS_CANCEL = False
 # ============================================================
 # 👑 SMART AUTHORIZATION
 # ============================================================
-def get_admin_list():
+def get_admin_list() -> List[int]:
     raw_admins = getattr(info, "ADMINS", [])
     if isinstance(raw_admins, (str, int)):
         raw_admins = str(raw_admins).replace(",", " ").split()
@@ -346,7 +453,7 @@ async def safe_if_active(user_id: str, group_id: str) -> bool:
 # ============================================================
 # 🔗 CONNECTION COMMANDS & CALLBACKS
 # ============================================================
-@Client.on_message(filters.command("connect") & filters.incoming)
+@Client.on_message(filters.command("connect") & filters.incoming, group=-2)
 async def addconnection_cmd(client: Client, message: Message):
     uid = str(
         message.from_user.id
@@ -354,14 +461,16 @@ async def addconnection_cmd(client: Client, message: Message):
         else getattr(message.sender_chat, "id", 0)
     )
     if not await quick_admin_check(client, message):
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "❌ <b>Unauthorized:</b> Admin access required.",
             parse_mode=enums.ParseMode.HTML,
         )
 
     if message.chat.type == enums.ChatType.PRIVATE:
         if len(message.command) < 2:
-            return await message.reply_text(
+            return await safe_reply_text(
+                message,
                 "⚠️ <b>Usage in PM:</b> <code>/connect &lt;group_id&gt;</code>",
                 parse_mode=enums.ParseMode.HTML,
             )
@@ -375,12 +484,14 @@ async def addconnection_cmd(client: Client, message: Message):
                     enums.ChatMemberStatus.ADMINISTRATOR,
                     enums.ChatMemberStatus.OWNER,
                 ]:
-                    return await message.reply_text(
+                    return await safe_reply_text(
+                        message,
                         f"❌ You are not an Admin in <code>{title}</code>",
                         parse_mode=enums.ParseMode.HTML,
                     )
         except Exception as e:
-            return await message.reply_text(
+            return await safe_reply_text(
+                message,
                 f"❌ Invalid Group ID or I'm not in that group!\n<b>Error:</b> <code>{html.escape(str(e))}</code>",
                 parse_mode=enums.ParseMode.HTML,
             )
@@ -389,7 +500,8 @@ async def addconnection_cmd(client: Client, message: Message):
         title = html.escape(message.chat.title or "Group")
 
     await safe_add_connection(group_id, uid)
-    await message.reply_text(
+    await safe_reply_text(
+        message,
         f"✅ <b>Successfully connected & activated:</b>\n"
         f"📢 <code>{title}</code> (<code>{group_id}</code>)\n\n"
         f"You can now manage this group directly from my PM!",
@@ -397,7 +509,7 @@ async def addconnection_cmd(client: Client, message: Message):
     )
 
 
-@Client.on_message(filters.command("disconnect") & filters.incoming)
+@Client.on_message(filters.command("disconnect") & filters.incoming, group=-2)
 async def deleteconnection_cmd(client: Client, message: Message):
     uid = str(
         message.from_user.id
@@ -405,14 +517,16 @@ async def deleteconnection_cmd(client: Client, message: Message):
         else getattr(message.sender_chat, "id", 0)
     )
     if not await quick_admin_check(client, message):
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "❌ <b>Unauthorized:</b> Admin access required.",
             parse_mode=enums.ParseMode.HTML,
         )
 
     if message.chat.type == enums.ChatType.PRIVATE:
         if len(message.command) < 2:
-            return await message.reply_text(
+            return await safe_reply_text(
+                message,
                 "⚠️ <b>Usage in PM:</b> <code>/disconnect &lt;group_id&gt;</code>\n"
                 "Or use <code>/connections</code> to manage them interactively.",
                 parse_mode=enums.ParseMode.HTML,
@@ -422,26 +536,37 @@ async def deleteconnection_cmd(client: Client, message: Message):
         group_id = str(message.chat.id)
 
     if await safe_delete_connection(uid, group_id):
-        await message.reply_text(
+        await safe_reply_text(
+            message,
             f"✅ <b>Successfully disconnected from:</b> <code>{html.escape(group_id)}</code>",
             parse_mode=enums.ParseMode.HTML,
         )
     else:
-        await message.reply_text(
+        await safe_reply_text(
+            message,
             "⚠️ This chat isn't in your connections list!",
             parse_mode=enums.ParseMode.HTML,
         )
 
 
-@Client.on_message(filters.command("connections") & filters.private & filters.incoming)
+@Client.on_message(filters.command("connections") & filters.incoming, group=-2)
 async def connections_cmd(client: Client, message: Message):
-    if not message.from_user:
-        return
-    uid = str(message.from_user.id)
-    groups = await safe_all_connections(uid)
+    uid = str(
+        message.from_user.id
+        if message.from_user
+        else getattr(message.sender_chat, "id", 0)
+    )
+    if not await quick_admin_check(client, message):
+        return await safe_reply_text(
+            message,
+            "❌ <b>Unauthorized:</b> Admin access required.",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
+    groups = await safe_all_connections(uid)
     if not groups:
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "⚠️ <b>No active connections!</b>\nUse <code>/connect &lt;group_id&gt;</code> to add one.",
             parse_mode=enums.ParseMode.HTML,
         )
@@ -450,7 +575,8 @@ async def connections_cmd(client: Client, message: Message):
 
 
 @Client.on_callback_query(
-    filters.regex(r"^(groupcb|connectcb|inactcb|disconnectcb|backcb|conn_close)")
+    filters.regex(r"^(groupcb|connectcb|inactcb|disconnectcb|backcb|conn_close)"),
+    group=-2,
 )
 async def connection_callbacks(client: Client, query: CallbackQuery):
     data = query.data
@@ -458,12 +584,12 @@ async def connection_callbacks(client: Client, query: CallbackQuery):
 
     try:
         if data == "conn_close":
-            await query.answer("Closed!")
+            await safe_answer(query, "Closed!")
             return await query.message.delete()
 
         if data.startswith("groupcb:"):
             group_id = data.split(":", 1)[1]
-            await query.answer()
+            await safe_answer(query)
             try:
                 chat_obj = await client.get_chat(int(group_id))
                 title = html.escape(chat_obj.title or "Unknown Group")
@@ -495,7 +621,8 @@ async def connection_callbacks(client: Client, query: CallbackQuery):
                     InlineKeyboardButton("🔐 Close", callback_data="conn_close"),
                 ],
             ]
-            await query.message.edit_text(
+            await safe_edit_text(
+                query.message,
                 f"⚙️ <b>Manage Connection:</b>\n\n"
                 f"📢 <b>Group:</b> <code>{title}</code>\n"
                 f"🆔 <b>ID:</b> <code>{group_id}</code>\n"
@@ -507,27 +634,23 @@ async def connection_callbacks(client: Client, query: CallbackQuery):
         elif data.startswith("connectcb:"):
             group_id = data.split(":", 1)[1]
             await safe_make_active(uid, group_id)
-            await query.answer("✅ Connection Activated!", show_alert=True)
+            await safe_answer(query, "✅ Connection Activated!", show_alert=True)
             await generate_connections_menu(client, query.message, uid, is_edit=True)
 
         elif data.startswith("inactcb:"):
             await safe_make_inactive(uid)
-            await query.answer("📴 Connection Deactivated!", show_alert=True)
+            await safe_answer(query, "📴 Connection Deactivated!", show_alert=True)
             await generate_connections_menu(client, query.message, uid, is_edit=True)
 
         elif data.startswith("disconnectcb:"):
             group_id = data.split(":", 1)[1]
             await safe_delete_connection(uid, group_id)
-            await query.answer("🗑️ Connection Deleted!", show_alert=True)
+            await safe_answer(query, "🗑️ Connection Deleted!", show_alert=True)
             await generate_connections_menu(client, query.message, uid, is_edit=True)
 
         elif data == "backcb":
-            await query.answer()
+            await safe_answer(query)
             await generate_connections_menu(client, query.message, uid, is_edit=True)
-    except MessageNotModified:
-        pass
-    except QueryIdInvalid:
-        pass
     except Exception as e:
         logger.error(f"Connection callback error: {e}")
 
@@ -545,11 +668,11 @@ async def generate_connections_menu(
             [[InlineKeyboardButton("🔐 Close", callback_data="conn_close")]]
         )
         if is_edit:
-            return await message.edit_text(
-                text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
+            return await safe_edit_text(
+                message, text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
             )
-        return await message.reply_text(
-            text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
+        return await safe_reply_text(
+            message, text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
         )
 
     buttons = []
@@ -581,17 +704,158 @@ async def generate_connections_menu(
         "<i>(Click a group below to Activate, Deactivate, or Disconnect it)</i>"
     )
     if is_edit:
-        await message.edit_text(
+        await safe_edit_text(
+            message,
             text,
             reply_markup=InlineKeyboardMarkup(buttons),
             parse_mode=enums.ParseMode.HTML,
         )
     else:
-        await message.reply_text(
+        await safe_reply_text(
+            message,
             text,
             reply_markup=InlineKeyboardMarkup(buttons),
             parse_mode=enums.ParseMode.HTML,
         )
+
+
+# ============================================================
+# 📤 EXPORT USERS, GROUPS & CHANNELS COMMANDS
+# ============================================================
+@Client.on_message(
+    filters.command(["exportusers", "exportgroups", "exportchannels"])
+    & filters.incoming,
+    group=-2,
+)
+async def export_data_cmds(client: Client, message: Message):
+    uid = (
+        message.from_user.id
+        if message.from_user
+        else getattr(message.sender_chat, "id", 0)
+    )
+    if not await is_global_admin(uid):
+        return await safe_reply_text(
+            message,
+            "❌ <b>Unauthorized:</b> Global Bot Admin only.",
+            parse_mode=enums.ParseMode.HTML,
+        )
+
+    cmd = message.command[0].lower().strip()
+    sts = await safe_reply_text(
+        message,
+        f"⏳ <b>Exporting {cmd.replace('export', '').title()} list...</b>",
+        parse_mode=enums.ParseMode.HTML,
+    )
+
+    file_path = f"{cmd}_{int(time.time())}.txt"
+    lines = []
+
+    try:
+        if cmd == "exportusers":
+            raw_users = await _db.get_all_users()
+            users = (
+                await raw_users.to_list(length=None)
+                if hasattr(raw_users, "to_list")
+                else list(raw_users)
+            )
+            for idx, u in enumerate(users, 1):
+                u_id = u.get("id") or u.get("user_id")
+                u_name = u.get("name") or "User"
+                if u_id:
+                    lines.append(f"{idx}. {u_id} - {u_name}")
+            caption = f"📤 <b>Exported Users List</b>\n👥 <b>Total Users:</b> <code>{len(lines)}</code>"
+        else:
+            raw_chats = await _db.get_all_chats()
+            chats = (
+                await raw_chats.to_list(length=None)
+                if hasattr(raw_chats, "to_list")
+                else list(raw_chats)
+            )
+            for idx, c in enumerate(chats, 1):
+                c_id = c.get("id") or c.get("chat_id")
+                c_title = c.get("title") or c.get("name") or "Chat"
+                if c_id:
+                    lines.append(f"{idx}. {c_id} - {c_title}")
+            label = "Channels & Groups" if cmd == "exportchannels" else "Groups"
+            caption = f"📤 <b>Exported {label} List</b>\n🏘 <b>Total {label}:</b> <code>{len(lines)}</code>"
+
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines) if lines else "No records found.")
+
+        await message.reply_document(
+            document=file_path,
+            caption=caption,
+            parse_mode=enums.ParseMode.HTML,
+        )
+    except Exception as e:
+        await safe_reply_text(
+            message,
+            f"❌ <b>Export Error:</b> <code>{html.escape(str(e))}</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
+    finally:
+        if sts:
+            try:
+                await sts.delete()
+            except Exception:
+                pass
+        if os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except Exception:
+                pass
+
+
+# ============================================================
+# ⚡ OPTIMIZE DATABASE INDEXES COMMAND (/optimize_db)
+# ============================================================
+@Client.on_message(filters.command("optimize_db") & filters.incoming, group=-2)
+async def optimize_db_cmd(client: Client, message: Message):
+    uid = (
+        message.from_user.id
+        if message.from_user
+        else getattr(message.sender_chat, "id", 0)
+    )
+    if not await is_global_admin(uid):
+        return await safe_reply_text(
+            message,
+            "❌ <b>Unauthorized:</b> Global Bot Admin only.",
+            parse_mode=enums.ParseMode.HTML,
+        )
+
+    sts = await safe_reply_text(
+        message,
+        "⚡ <b>Optimizing MongoDB Indexes...</b>",
+        parse_mode=enums.ParseMode.HTML,
+    )
+    created_indexes = []
+    try:
+        if _Media is not None:
+            col = getattr(_Media, "collection", _Media)
+            idx1 = await col.create_index([("file_name", 1)])
+            created_indexes.append(f"Media: {idx1}")
+        if _BOT_DB is not None:
+            idx2 = await _BOT_DB["active_connections"].create_index([("user_id", 1)])
+            created_indexes.append(f"Connections: {idx2}")
+            idx3 = await _BOT_DB["fsub_join_requests"].create_index(
+                [("user_id", 1), ("chat_id", 1)]
+            )
+            created_indexes.append(f"FSub Requests: {idx3}")
+
+        summary = "\n".join(f"• <code>{x}</code>" for x in created_indexes)
+        if sts:
+            await safe_edit_text(
+                sts,
+                f"✅ <b>Database Optimization Complete!</b>\n\n{summary or 'All indexes verified.'}",
+                parse_mode=enums.ParseMode.HTML,
+            )
+    except Exception as e:
+        if sts:
+            await safe_edit_text(
+                sts,
+                f"⚠️ <b>Optimization Notice:</b> <code>{html.escape(str(e))}</code>",
+                parse_mode=enums.ParseMode.HTML,
+            )
 
 
 # ============================================================
@@ -600,8 +864,8 @@ async def generate_connections_menu(
 @Client.on_message(filters.command(["info", "id"]) & filters.incoming)
 async def who_is(client: Client, message: Message):
     is_admin = await quick_admin_check(client, message)
-    status = await message.reply_text(
-        "🔍 <b>Fetching user info...</b>", parse_mode=enums.ParseMode.HTML
+    status = await safe_reply_text(
+        message, "🔍 <b>Fetching user info...</b>", parse_mode=enums.ParseMode.HTML
     )
 
     try:
@@ -620,11 +884,14 @@ async def who_is(client: Client, message: Message):
         if not user:
             user = message.from_user
         if not user:
-            return await status.edit_text(
-                f"🆔 <b>Chat ID:</b> <code>{message.chat.id}</code>\n"
-                "⚠️ <i>Reply to a user or provide a User ID to inspect user details.</i>",
-                parse_mode=enums.ParseMode.HTML,
-            )
+            if status:
+                return await safe_edit_text(
+                    status,
+                    f"🆔 <b>Chat ID:</b> <code>{message.chat.id}</code>\n"
+                    "⚠️ <i>Reply to a user or provide a User ID to inspect user details.</i>",
+                    parse_mode=enums.ParseMode.HTML,
+                )
+            return
 
         first_name = html.escape(user.first_name or "None")
         last_name = html.escape(user.last_name or "None")
@@ -684,31 +951,47 @@ async def who_is(client: Client, message: Message):
                     reply_markup=markup,
                     parse_mode=enums.ParseMode.HTML,
                 )
-                await status.delete()
+                if status:
+                    await status.delete()
                 return
             except Exception:
                 pass
 
-        await status.edit_text(
-            text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
-        )
+        if status:
+            await safe_edit_text(
+                status, text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
+            )
     except Exception as e:
         logger.error(f"Info Command Error: {e}")
-        await status.edit_text(
-            "❌ <b>An error occurred while fetching user data.</b>",
-            parse_mode=enums.ParseMode.HTML,
-        )
+        if status:
+            await safe_edit_text(
+                status,
+                "❌ <b>An error occurred while fetching user data.</b>",
+                parse_mode=enums.ParseMode.HTML,
+            )
 
 
 # ============================================================
 # ⚙️ INTERACTIVE ADMIN SETTINGS & REPAIR MODE
 # ============================================================
-def _build_admin_settings_panel() -> tuple[str, InlineKeyboardMarkup]:
+async def _build_admin_settings_panel() -> Tuple[str, InlineKeyboardMarkup]:
     repair_on = bool(getattr(info, "REPAIR_MODE", False))
+    react_on = bool(getattr(info, "ENABLE_REACTION", True))
+
     fsub_on = bool(getattr(info, "IS_FSUB_ENABLED", True))
+    fsub_ch_count = 0
+    try:
+        from plugins.fsub import get_fsub_config
+
+        f_cfg = await get_fsub_config()
+        fsub_on = bool(f_cfg.get("is_enabled", True))
+        fsub_ch_count = len(f_cfg.get("channels", {}))
+    except Exception:
+        pass
 
     repair_status = "🟢 ENABLED" if repair_on else "🔴 DISABLED"
     fsub_status = "🟢 ENABLED" if fsub_on else "🔴 DISABLED"
+    react_status = "🟢 ENABLED" if react_on else "🔴 DISABLED"
     auth_ch = html.escape(str(getattr(info, "AUTH_CHANNEL", None) or "❌ Not Set"))
     req_ch = html.escape(str(getattr(info, "REQ_CHANNEL", None) or "❌ Not Set"))
     admin_count = len(get_admin_list())
@@ -717,7 +1000,8 @@ def _build_admin_settings_panel() -> tuple[str, InlineKeyboardMarkup]:
         "⚙️ <b>Current Admin Settings Dashboard</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"🛠️ <b>Repair Mode:</b> <code>{repair_status}</code>\n"
-        f"🔐 <b>Force Subscribe:</b> <code>{fsub_status}</code>\n\n"
+        f"🔐 <b>Force Subscribe:</b> <code>{fsub_status}</code> (<code>{fsub_ch_count}</code> Dynamic Channels)\n"
+        f"❤️ <b>Auto Reactions:</b> <code>{react_status}</code>\n\n"
         f"📢 <b>Main FSub Channel:</b> <code>{auth_ch}</code>\n"
         f"📨 <b>Request FSub Channel:</b> <code>{req_ch}</code>\n\n"
         f"👥 <b>Total Admins Configured:</b> <code>{admin_count}</code>\n"
@@ -727,6 +1011,7 @@ def _build_admin_settings_panel() -> tuple[str, InlineKeyboardMarkup]:
 
     repair_btn_lbl = "🔴 Disable Repair Mode" if repair_on else "🟢 Enable Repair Mode"
     fsub_btn_lbl = "🔴 Disable ForceSub" if fsub_on else "🟢 Enable ForceSub"
+    react_btn_lbl = "🔴 Disable Reactions" if react_on else "🟢 Enable Reactions"
 
     markup = InlineKeyboardMarkup(
         [
@@ -736,6 +1021,7 @@ def _build_admin_settings_panel() -> tuple[str, InlineKeyboardMarkup]:
                 )
             ],
             [InlineKeyboardButton(fsub_btn_lbl, callback_data="admset:toggle_fsub")],
+            [InlineKeyboardButton(react_btn_lbl, callback_data="admset:toggle_react")],
             [
                 InlineKeyboardButton("🔄 Refresh", callback_data="admset:refresh"),
                 InlineKeyboardButton("🔐 Close", callback_data="admset:close"),
@@ -745,7 +1031,7 @@ def _build_admin_settings_panel() -> tuple[str, InlineKeyboardMarkup]:
     return text, markup
 
 
-@Client.on_message(filters.command("repairmode") & filters.incoming)
+@Client.on_message(filters.command("repairmode") & filters.incoming, group=-2)
 async def toggle_repair_mode(bot: Client, message: Message):
     uid = (
         message.from_user.id
@@ -753,7 +1039,8 @@ async def toggle_repair_mode(bot: Client, message: Message):
         else getattr(message.sender_chat, "id", 0)
     )
     if not await is_global_admin(uid):
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "❌ <b>Unauthorized:</b> You must be a Global Bot Admin.",
             parse_mode=enums.ParseMode.HTML,
         )
@@ -775,10 +1062,10 @@ async def toggle_repair_mode(bot: Client, message: Message):
         text += "⚠️ <i>The bot is now in maintenance mode. It will NOT send any files to users until this is disabled.</i>"
     else:
         text += "✅ <i>The bot has returned to normal operation and will process file requests.</i>"
-    await message.reply_text(text, parse_mode=enums.ParseMode.HTML)
+    await safe_reply_text(message, text, parse_mode=enums.ParseMode.HTML)
 
 
-@Client.on_message(filters.command("adminsettings") & filters.incoming)
+@Client.on_message(filters.command("adminsettings") & filters.incoming, group=-2)
 async def show_admin_settings(bot: Client, message: Message):
     uid = (
         message.from_user.id
@@ -786,85 +1073,71 @@ async def show_admin_settings(bot: Client, message: Message):
         else getattr(message.sender_chat, "id", 0)
     )
     if not await is_global_admin(uid):
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "❌ <b>Unauthorized:</b> You must be a Global Bot Admin.",
             parse_mode=enums.ParseMode.HTML,
         )
 
-    text, markup = _build_admin_settings_panel()
-    await message.reply_text(text, reply_markup=markup, parse_mode=enums.ParseMode.HTML)
+    text, markup = await _build_admin_settings_panel()
+    await safe_reply_text(
+        message, text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
+    )
 
 
 @Client.on_callback_query(
-    filters.regex(r"^admset:(toggle_repair|toggle_fsub|refresh|close)$")
+    filters.regex(r"^admset:(toggle_repair|toggle_fsub|toggle_react|refresh|close)$"),
+    group=-2,
 )
 async def admin_settings_cb(client: Client, query: CallbackQuery):
     if not await is_global_admin(query.from_user.id):
-        return await query.answer(
-            "❌ Unauthorized: Global Admin only!", show_alert=True
+        return await safe_answer(
+            query, "❌ Unauthorized: Global Admin only!", show_alert=True
         )
 
     action = query.matches[0].group(1)
     try:
         if action == "close":
-            await query.answer("Closed!")
+            await safe_answer(query, "Closed!")
             return await query.message.delete()
         elif action == "toggle_repair":
             info.REPAIR_MODE = not getattr(info, "REPAIR_MODE", False)
-            await query.answer(
+            await safe_answer(
+                query,
                 f"🛠️ Repair Mode {'ENABLED' if info.REPAIR_MODE else 'DISABLED'}!",
                 show_alert=True,
             )
         elif action == "toggle_fsub":
-            info.IS_FSUB_ENABLED = not getattr(info, "IS_FSUB_ENABLED", True)
-            await query.answer(
+            try:
+                from plugins.fsub import get_fsub_config, update_fsub_config
+
+                cfg = await get_fsub_config(force_refresh=True)
+                new_fsub = not bool(cfg.get("is_enabled", True))
+                await update_fsub_config("is_enabled", new_fsub)
+                info.IS_FSUB_ENABLED = new_fsub
+            except Exception:
+                info.IS_FSUB_ENABLED = not getattr(info, "IS_FSUB_ENABLED", True)
+            await safe_answer(
+                query,
                 f"🔐 Force Subscribe {'ENABLED' if info.IS_FSUB_ENABLED else 'DISABLED'}!",
                 show_alert=True,
             )
+        elif action == "toggle_react":
+            info.ENABLE_REACTION = not getattr(info, "ENABLE_REACTION", True)
+            await safe_answer(
+                query,
+                f"❤️ Auto Reactions {'ENABLED' if info.ENABLE_REACTION else 'DISABLED'}!",
+                show_alert=True,
+            )
         else:
-            await query.answer("Refreshed!")
+            await safe_answer(query, "Refreshed!")
 
-        text, markup = _build_admin_settings_panel()
-        await query.message.edit_text(
-            text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
+        text, markup = await _build_admin_settings_panel()
+        await safe_edit_text(
+            query.message, text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
         )
-    except MessageNotModified:
-        pass
-    except QueryIdInvalid:
-        pass
     except Exception as e:
         logger.error(f"Admin settings callback error: {e}")
-
-
-@Client.on_message(filters.command("leave") & filters.incoming)
-async def leave_chat(bot: Client, message: Message):
-    uid = (
-        message.from_user.id
-        if message.from_user
-        else getattr(message.sender_chat, "id", 0)
-    )
-    if not await is_global_admin(uid):
-        return await message.reply_text(
-            "❌ <b>Unauthorized.</b>", parse_mode=enums.ParseMode.HTML
-        )
-
-    if len(message.command) == 1:
-        return await message.reply_text(
-            "⚠️ <b>Usage:</b> <code>/leave &lt;chat_id&gt;</code>",
-            parse_mode=enums.ParseMode.HTML,
-        )
-    try:
-        chat_id = int(message.command[1].strip())
-        await bot.leave_chat(chat_id)
-        await message.reply_text(
-            f"✅ Left the chat <code>{chat_id}</code> successfully.",
-            parse_mode=enums.ParseMode.HTML,
-        )
-    except Exception as e:
-        await message.reply_text(
-            f"⚠️ <b>Error:</b> <code>{html.escape(str(e))}</code>",
-            parse_mode=enums.ParseMode.HTML,
-        )
 
 
 # ============================================================
@@ -945,7 +1218,7 @@ async def get_total_banned_count() -> int:
     return max(counts) if counts else 0
 
 
-@Client.on_message(filters.command("ban") & filters.incoming)
+@Client.on_message(filters.command("ban") & filters.incoming, group=-2)
 async def ban_user_cmd(bot: Client, message: Message):
     uid = (
         message.from_user.id
@@ -953,7 +1226,8 @@ async def ban_user_cmd(bot: Client, message: Message):
         else getattr(message.sender_chat, "id", 0)
     )
     if not await is_global_admin(uid):
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "❌ <b>Unauthorized: Global Admin Only.</b>",
             parse_mode=enums.ParseMode.HTML,
         )
@@ -962,27 +1236,36 @@ async def ban_user_cmd(bot: Client, message: Message):
     if message.reply_to_message and message.reply_to_message.from_user:
         user_id = message.reply_to_message.from_user.id
     elif len(message.command) > 1:
-        try:
-            user_id = int(message.command[1].strip())
-        except ValueError:
-            pass
+        target = message.command[1].strip()
+        if target.lstrip("-").isdigit():
+            user_id = int(target)
+        else:
+            try:
+                u_obj = await bot.get_users(target)
+                user_id = u_obj.id
+            except Exception:
+                pass
 
     if not user_id:
-        return await message.reply_text(
-            "⚙️ <b>Usage:</b> <code>/ban [user_id]</code> or reply to a user.",
+        return await safe_reply_text(
+            message,
+            "⚙️ <b>Usage:</b> <code>/ban [user_id or @username]</code> or reply to a user.",
             parse_mode=enums.ParseMode.HTML,
         )
 
     try:
         if await is_global_admin(user_id):
-            return await message.reply_text(
+            return await safe_reply_text(
+                message,
                 "❌ <b>You cannot ban a bot administrator!</b>",
                 parse_mode=enums.ParseMode.HTML,
             )
         bot_id = bot.me.id if getattr(bot, "me", None) else (await bot.get_me()).id
         if user_id == bot_id:
-            return await message.reply_text(
-                "❌ <b>I cannot ban myself!</b>", parse_mode=enums.ParseMode.HTML
+            return await safe_reply_text(
+                message,
+                "❌ <b>I cannot ban myself!</b>",
+                parse_mode=enums.ParseMode.HTML,
             )
 
         await perform_ban_user(user_id)
@@ -995,20 +1278,22 @@ async def ban_user_cmd(bot: Client, message: Message):
                 ]
             ]
         )
-        await message.reply_text(
+        await safe_reply_text(
+            message,
             f"🚫 <b>User <code>{user_id}</code> has been successfully BANNED.</b>\n"
             f"They can no longer use this bot.",
             reply_markup=markup,
             parse_mode=enums.ParseMode.HTML,
         )
     except Exception as e:
-        await message.reply_text(
+        await safe_reply_text(
+            message,
             f"❌ <b>Error:</b> <code>{html.escape(str(e))}</code>",
             parse_mode=enums.ParseMode.HTML,
         )
 
 
-@Client.on_message(filters.command("unban") & filters.incoming)
+@Client.on_message(filters.command("unban") & filters.incoming, group=-2)
 async def unban_user_cmd(bot: Client, message: Message):
     uid = (
         message.from_user.id
@@ -1016,7 +1301,8 @@ async def unban_user_cmd(bot: Client, message: Message):
         else getattr(message.sender_chat, "id", 0)
     )
     if not await is_global_admin(uid):
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "❌ <b>Unauthorized: Global Admin Only.</b>",
             parse_mode=enums.ParseMode.HTML,
         )
@@ -1025,78 +1311,93 @@ async def unban_user_cmd(bot: Client, message: Message):
     if message.reply_to_message and message.reply_to_message.from_user:
         user_id = message.reply_to_message.from_user.id
     elif len(message.command) > 1:
-        try:
-            user_id = int(message.command[1].strip())
-        except ValueError:
-            pass
+        target = message.command[1].strip()
+        if target.lstrip("-").isdigit():
+            user_id = int(target)
+        else:
+            try:
+                u_obj = await bot.get_users(target)
+                user_id = u_obj.id
+            except Exception:
+                pass
 
     if not user_id:
-        return await message.reply_text(
-            "⚙️ <b>Usage:</b> <code>/unban [user_id]</code> or reply to a user.",
+        return await safe_reply_text(
+            message,
+            "⚙️ <b>Usage:</b> <code>/unban [user_id or @username]</code> or reply to a user.",
             parse_mode=enums.ParseMode.HTML,
         )
 
     try:
         if not await check_user_banned(user_id):
-            return await message.reply_text(
+            return await safe_reply_text(
+                message,
                 f"⚠️ <b>User <code>{user_id}</code> is not currently banned.</b>",
                 parse_mode=enums.ParseMode.HTML,
             )
         await perform_unban_user(user_id)
-        await message.reply_text(
+        await safe_reply_text(
+            message,
             f"✅ <b>User <code>{user_id}</code> has been successfully UNBANNED.</b>",
             parse_mode=enums.ParseMode.HTML,
         )
     except Exception as e:
-        await message.reply_text(
+        await safe_reply_text(
+            message,
             f"❌ <b>Error:</b> <code>{html.escape(str(e))}</code>",
             parse_mode=enums.ParseMode.HTML,
         )
 
 
-@Client.on_callback_query(filters.regex(r"^adm_(ban|unban):(\d+)$"))
+@Client.on_callback_query(filters.regex(r"^adm_(ban|unban):(\d+)$"), group=-2)
 async def inline_ban_unban_cb(client: Client, query: CallbackQuery):
     if not await is_global_admin(query.from_user.id):
-        return await query.answer(
-            "❌ Unauthorized: Global Admin only!", show_alert=True
+        return await safe_answer(
+            query, "❌ Unauthorized: Global Admin only!", show_alert=True
         )
 
     action, raw_uid = query.matches[0].group(1), int(query.matches[0].group(2))
     if action == "ban":
         if await is_global_admin(raw_uid):
-            return await query.answer("❌ Cannot ban an admin!", show_alert=True)
+            return await safe_answer(query, "❌ Cannot ban an admin!", show_alert=True)
         await perform_ban_user(raw_uid)
-        await query.answer(f"🚫 User {raw_uid} banned!", show_alert=True)
-        await query.message.edit_reply_markup(
-            reply_markup=InlineKeyboardMarkup(
-                [
+        await safe_answer(query, f"🚫 User {raw_uid} banned!", show_alert=True)
+        try:
+            await query.message.edit_reply_markup(
+                reply_markup=InlineKeyboardMarkup(
                     [
-                        InlineKeyboardButton(
-                            "✅ Unban User", callback_data=f"adm_unban:{raw_uid}"
-                        )
-                    ],
-                    [InlineKeyboardButton("🔐 Close", callback_data="close_data")],
-                ]
+                        [
+                            InlineKeyboardButton(
+                                "✅ Unban User", callback_data=f"adm_unban:{raw_uid}"
+                            )
+                        ],
+                        [InlineKeyboardButton("🔐 Close", callback_data="close_data")],
+                    ]
+                )
             )
-        )
+        except Exception:
+            pass
     else:
         await perform_unban_user(raw_uid)
-        await query.answer(f"✅ User {raw_uid} unbanned!", show_alert=True)
-        await query.message.edit_reply_markup(
-            reply_markup=InlineKeyboardMarkup(
-                [
+        await safe_answer(query, f"✅ User {raw_uid} unbanned!", show_alert=True)
+        try:
+            await query.message.edit_reply_markup(
+                reply_markup=InlineKeyboardMarkup(
                     [
-                        InlineKeyboardButton(
-                            "🚫 Ban User", callback_data=f"adm_ban:{raw_uid}"
-                        )
-                    ],
-                    [InlineKeyboardButton("🔐 Close", callback_data="close_data")],
-                ]
+                        [
+                            InlineKeyboardButton(
+                                "🚫 Ban User", callback_data=f"adm_ban:{raw_uid}"
+                            )
+                        ],
+                        [InlineKeyboardButton("🔐 Close", callback_data="close_data")],
+                    ]
+                )
             )
-        )
+        except Exception:
+            pass
 
 
-@Client.on_message(filters.command("bannedusers") & filters.incoming)
+@Client.on_message(filters.command("bannedusers") & filters.incoming, group=-2)
 async def check_banned_users(bot: Client, message: Message):
     uid = (
         message.from_user.id
@@ -1104,18 +1405,20 @@ async def check_banned_users(bot: Client, message: Message):
         else getattr(message.sender_chat, "id", 0)
     )
     if not await is_global_admin(uid):
-        return await message.reply_text(
-            "❌ <b>Unauthorized.</b>", parse_mode=enums.ParseMode.HTML
+        return await safe_reply_text(
+            message, "❌ <b>Unauthorized.</b>", parse_mode=enums.ParseMode.HTML
         )
 
     try:
         count = await get_total_banned_count()
-        await message.reply_text(
+        await safe_reply_text(
+            message,
             f"📊 <b>Total Banned Users:</b> <code>{count}</code>",
             parse_mode=enums.ParseMode.HTML,
         )
     except Exception as e:
-        await message.reply_text(
+        await safe_reply_text(
+            message,
             f"❌ <b>Error:</b> <code>{html.escape(str(e))}</code>",
             parse_mode=enums.ParseMode.HTML,
         )
@@ -1124,7 +1427,7 @@ async def check_banned_users(bot: Client, message: Message):
 # ============================================================
 # 📜 LOGS & SERVER COMMANDS
 # ============================================================
-@Client.on_message(filters.command("logs") & filters.incoming)
+@Client.on_message(filters.command("logs") & filters.incoming, group=-2)
 async def get_logs_cmd(bot: Client, message: Message):
     uid = (
         message.from_user.id
@@ -1135,7 +1438,8 @@ async def get_logs_cmd(bot: Client, message: Message):
         return
     log_file = "TelegramBot.log"
     if not os.path.exists(log_file):
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "⚠️ <b>Log file not found!</b> No errors recorded yet.",
             parse_mode=enums.ParseMode.HTML,
         )
@@ -1146,7 +1450,8 @@ async def get_logs_cmd(bot: Client, message: Message):
             parse_mode=enums.ParseMode.HTML,
         )
     except Exception as e:
-        await message.reply_text(
+        await safe_reply_text(
+            message,
             f"❌ <b>Failed to send logs:</b>\n<code>{html.escape(str(e))}</code>",
             parse_mode=enums.ParseMode.HTML,
         )
@@ -1179,7 +1484,7 @@ async def _build_server_stats_text() -> str:
     return text
 
 
-@Client.on_message(filters.command("server") & filters.incoming)
+@Client.on_message(filters.command("server") & filters.incoming, group=-2)
 async def server_stats_cmd(bot: Client, message: Message):
     uid = (
         message.from_user.id
@@ -1187,12 +1492,14 @@ async def server_stats_cmd(bot: Client, message: Message):
         else getattr(message.sender_chat, "id", 0)
     )
     if not await is_global_admin(uid):
-        return await message.reply_text(
-            "❌ <b>Unauthorized.</b>", parse_mode=enums.ParseMode.HTML
+        return await safe_reply_text(
+            message, "❌ <b>Unauthorized.</b>", parse_mode=enums.ParseMode.HTML
         )
 
-    msg = await message.reply_text(
-        "⏳ <b>Fetching server statistics...</b>", parse_mode=enums.ParseMode.HTML
+    msg = await safe_reply_text(
+        message,
+        "⏳ <b>Fetching server statistics...</b>",
+        parse_mode=enums.ParseMode.HTML,
     )
     text = await _build_server_stats_text()
     markup = InlineKeyboardMarkup(
@@ -1203,14 +1510,17 @@ async def server_stats_cmd(bot: Client, message: Message):
             ]
         ]
     )
-    await msg.edit_text(text, reply_markup=markup, parse_mode=enums.ParseMode.HTML)
+    if msg:
+        await safe_edit_text(
+            msg, text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
+        )
 
 
-@Client.on_callback_query(filters.regex(r"^srv_refresh$"))
+@Client.on_callback_query(filters.regex(r"^srv_refresh$"), group=-2)
 async def server_refresh_cb(client: Client, query: CallbackQuery):
     if not await is_global_admin(query.from_user.id):
-        return await query.answer("❌ Unauthorized.", show_alert=True)
-    await query.answer("Refreshing server stats...")
+        return await safe_answer(query, "❌ Unauthorized.", show_alert=True)
+    await safe_answer(query, "Refreshing server stats...")
     text = await _build_server_stats_text()
     markup = InlineKeyboardMarkup(
         [
@@ -1220,15 +1530,12 @@ async def server_refresh_cb(client: Client, query: CallbackQuery):
             ]
         ]
     )
-    try:
-        await query.message.edit_text(
-            text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
-        )
-    except MessageNotModified:
-        pass
+    await safe_edit_text(
+        query.message, text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
+    )
 
 
-@Client.on_message(filters.command("restart") & filters.incoming)
+@Client.on_message(filters.command("restart") & filters.incoming, group=-2)
 async def restart_bot_cmd(bot: Client, message: Message):
     uid = (
         message.from_user.id
@@ -1236,11 +1543,12 @@ async def restart_bot_cmd(bot: Client, message: Message):
         else getattr(message.sender_chat, "id", 0)
     )
     if not await is_global_admin(uid):
-        return await message.reply_text(
-            "❌ <b>Unauthorized.</b>", parse_mode=enums.ParseMode.HTML
+        return await safe_reply_text(
+            message, "❌ <b>Unauthorized.</b>", parse_mode=enums.ParseMode.HTML
         )
 
-    await message.reply_text(
+    await safe_reply_text(
+        message,
         "⚠️ <b>Are you sure you want to restart the bot?</b>",
         reply_markup=InlineKeyboardMarkup(
             [
@@ -1256,20 +1564,22 @@ async def restart_bot_cmd(bot: Client, message: Message):
     )
 
 
-@Client.on_callback_query(filters.regex(r"^util_restart$"))
+@Client.on_callback_query(filters.regex(r"^util_restart$"), group=-2)
 async def confirm_restart_cb(bot: Client, query: CallbackQuery):
     uid = query.from_user.id
     if not await is_global_admin(uid):
-        return await query.answer("❌ Unauthorized.", show_alert=True)
+        return await safe_answer(query, "❌ Unauthorized.", show_alert=True)
 
-    await query.answer("♻️ Restarting...", show_alert=True)
-    msg = await query.edit_message_text(
+    await safe_answer(query, "♻️ Restarting...", show_alert=True)
+    msg = await safe_edit_text(
+        query.message,
         "♻️ <b>Bot is restarting... Please wait.</b>",
         parse_mode=enums.ParseMode.HTML,
     )
     try:
+        target_msg = msg or query.message
         with open("restart.txt", "w") as f:
-            f.write(f"{msg.chat.id}\n{msg.id}")
+            f.write(f"{target_msg.chat.id}\n{target_msg.id}")
     except Exception:
         pass
     os.execl(sys.executable, sys.executable, *sys.argv)
@@ -1292,7 +1602,7 @@ async def _build_db_stats_text() -> str:
     )
 
 
-@Client.on_message(filters.command(["stats", "total"]) & filters.incoming)
+@Client.on_message(filters.command(["stats", "total"]) & filters.incoming, group=-2)
 async def bot_stats_cmd(bot: Client, message: Message):
     uid = (
         message.from_user.id
@@ -1300,12 +1610,14 @@ async def bot_stats_cmd(bot: Client, message: Message):
         else getattr(message.sender_chat, "id", 0)
     )
     if not await is_global_admin(uid):
-        return await message.reply_text(
-            "❌ <b>Unauthorized.</b>", parse_mode=enums.ParseMode.HTML
+        return await safe_reply_text(
+            message, "❌ <b>Unauthorized.</b>", parse_mode=enums.ParseMode.HTML
         )
 
-    status_msg = await message.reply_text(
-        "⏳ <b>Fetching Database Stats...</b>", parse_mode=enums.ParseMode.HTML
+    status_msg = await safe_reply_text(
+        message,
+        "⏳ <b>Fetching Database Stats...</b>",
+        parse_mode=enums.ParseMode.HTML,
     )
     try:
         stats_text = await _build_db_stats_text()
@@ -1319,21 +1631,27 @@ async def bot_stats_cmd(bot: Client, message: Message):
                 ]
             ]
         )
-        await status_msg.edit_text(
-            stats_text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
-        )
+        if status_msg:
+            await safe_edit_text(
+                status_msg,
+                stats_text,
+                reply_markup=markup,
+                parse_mode=enums.ParseMode.HTML,
+            )
     except Exception as e:
-        await status_msg.edit_text(
-            f"❌ <b>Error fetching stats:</b> <code>{html.escape(str(e))}</code>",
-            parse_mode=enums.ParseMode.HTML,
-        )
+        if status_msg:
+            await safe_edit_text(
+                status_msg,
+                f"❌ <b>Error fetching stats:</b> <code>{html.escape(str(e))}</code>",
+                parse_mode=enums.ParseMode.HTML,
+            )
 
 
-@Client.on_callback_query(filters.regex(r"^adm_stats_refresh$"))
+@Client.on_callback_query(filters.regex(r"^adm_stats_refresh$"), group=-2)
 async def adm_stats_refresh_cb(client: Client, query: CallbackQuery):
     if not await is_global_admin(query.from_user.id):
-        return await query.answer("❌ Unauthorized.", show_alert=True)
-    await query.answer("Refreshing stats...")
+        return await safe_answer(query, "❌ Unauthorized.", show_alert=True)
+    await safe_answer(query, "Refreshing stats...")
     try:
         stats_text = await _build_db_stats_text()
         markup = InlineKeyboardMarkup(
@@ -1346,14 +1664,17 @@ async def adm_stats_refresh_cb(client: Client, query: CallbackQuery):
                 ]
             ]
         )
-        await query.message.edit_text(
-            stats_text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
+        await safe_edit_text(
+            query.message,
+            stats_text,
+            reply_markup=markup,
+            parse_mode=enums.ParseMode.HTML,
         )
-    except MessageNotModified:
+    except Exception:
         pass
 
 
-@Client.on_message(filters.command("cleanusers") & filters.incoming)
+@Client.on_message(filters.command("cleanusers") & filters.incoming, group=-2)
 async def clean_users_cmd(bot: Client, message: Message):
     global _CLEAN_USERS_CANCEL
     uid = (
@@ -1362,15 +1683,16 @@ async def clean_users_cmd(bot: Client, message: Message):
         else getattr(message.sender_chat, "id", 0)
     )
     if not await is_global_admin(uid):
-        return await message.reply_text(
-            "❌ <b>Unauthorized.</b>", parse_mode=enums.ParseMode.HTML
+        return await safe_reply_text(
+            message, "❌ <b>Unauthorized.</b>", parse_mode=enums.ParseMode.HTML
         )
 
     _CLEAN_USERS_CANCEL = False
     cancel_kb = InlineKeyboardMarkup(
         [[InlineKeyboardButton("🛑 Stop Cleaning", callback_data="cancel_cleanusers")]]
     )
-    status_msg = await message.reply_text(
+    status_msg = await safe_reply_text(
+        message,
         "⏳ <b>Starting Deep Clean...</b> (Scanning dead/blocked accounts)",
         reply_markup=cancel_kb,
         parse_mode=enums.ParseMode.HTML,
@@ -1384,10 +1706,13 @@ async def clean_users_cmd(bot: Client, message: Message):
             else list(users_cursor)
         )
     except Exception as e:
-        return await status_msg.edit_text(
-            f"❌ <b>Failed to fetch users:</b> <code>{html.escape(str(e))}</code>",
-            parse_mode=enums.ParseMode.HTML,
-        )
+        if status_msg:
+            return await safe_edit_text(
+                status_msg,
+                f"❌ <b>Failed to fetch users:</b> <code>{html.escape(str(e))}</code>",
+                parse_mode=enums.ParseMode.HTML,
+            )
+        return
 
     active, blocked, total_users = 0, 0, len(users)
 
@@ -1418,12 +1743,15 @@ async def clean_users_cmd(bot: Client, message: Message):
 
     for i in range(0, total_users, 30):
         if _CLEAN_USERS_CANCEL:
-            return await status_msg.edit_text(
-                f"🛑 <b>Deep Clean Stopped by Admin!</b>\n\n"
-                f"🟢 <b>Active Scanned:</b> <code>{active}</code>\n"
-                f"🔴 <b>Dead Removed So Far:</b> <code>{blocked}</code>",
-                parse_mode=enums.ParseMode.HTML,
-            )
+            if status_msg:
+                return await safe_edit_text(
+                    status_msg,
+                    f"🛑 <b>Deep Clean Stopped by Admin!</b>\n\n"
+                    f"🟢 <b>Active Scanned:</b> <code>{active}</code>\n"
+                    f"🔴 <b>Dead Removed So Far:</b> <code>{blocked}</code>",
+                    parse_mode=enums.ParseMode.HTML,
+                )
+            return
 
         chunk = users[i : i + 30]
         results = await asyncio.gather(*[check_user(u) for u in chunk])
@@ -1432,40 +1760,42 @@ async def clean_users_cmd(bot: Client, message: Message):
         blocked += results.count("blocked")
 
         if (i + len(chunk)) % 150 == 0 or (i + len(chunk)) == total_users:
-            try:
-                await status_msg.edit_text(
+            if status_msg:
+                await safe_edit_text(
+                    status_msg,
                     f"⏳ <b>Cleaning Database...</b>\n"
                     f"📊 <b>Scanned:</b> <code>{i + len(chunk)} / {total_users}</code>\n"
                     f"🟢 <b>Active:</b> <code>{active}</code> | 🔴 <b>Removed:</b> <code>{blocked}</code>",
                     reply_markup=cancel_kb,
                     parse_mode=enums.ParseMode.HTML,
                 )
-            except Exception:
-                pass
         await asyncio.sleep(1.5)
 
-    await status_msg.edit_text(
-        f"✅ <b>Deep Clean Completed!</b>\n\n"
-        f"🟢 <b>Active Users Kept:</b> <code>{active}</code>\n"
-        f"🔴 <b>Dead Accounts Removed:</b> <code>{blocked}</code>",
-        parse_mode=enums.ParseMode.HTML,
-    )
+    if status_msg:
+        await safe_edit_text(
+            status_msg,
+            f"✅ <b>Deep Clean Completed!</b>\n\n"
+            f"🟢 <b>Active Users Kept:</b> <code>{active}</code>\n"
+            f"🔴 <b>Dead Accounts Removed:</b> <code>{blocked}</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
 
-@Client.on_callback_query(filters.regex(r"^cancel_cleanusers$"))
+@Client.on_callback_query(filters.regex(r"^cancel_cleanusers$"), group=-2)
 async def cancel_cleanusers_cb(client: Client, query: CallbackQuery):
     global _CLEAN_USERS_CANCEL
     if not await is_global_admin(query.from_user.id):
-        return await query.answer("❌ Unauthorized.", show_alert=True)
+        return await safe_answer(query, "❌ Unauthorized.", show_alert=True)
     _CLEAN_USERS_CANCEL = True
-    await query.answer("🛑 Stopping user cleanup...", show_alert=True)
+    await safe_answer(query, "🛑 Stopping user cleanup...", show_alert=True)
 
 
 # ============================================================
 # 🔥 DATABASE WIPE COMMANDS
 # ============================================================
 @Client.on_message(
-    filters.command(["clearfiles", "clearusers", "clearfsubusers"]) & filters.incoming
+    filters.command(["clearfiles", "clearusers"]) & filters.incoming,
+    group=-2,
 )
 async def wipe_prompt_cmd(bot: Client, message: Message):
     uid = (
@@ -1474,16 +1804,15 @@ async def wipe_prompt_cmd(bot: Client, message: Message):
         else getattr(message.sender_chat, "id", 0)
     )
     if not await is_global_admin(uid):
-        return await message.reply_text(
-            "❌ <b>Unauthorized.</b>", parse_mode=enums.ParseMode.HTML
+        return await safe_reply_text(
+            message, "❌ <b>Unauthorized.</b>", parse_mode=enums.ParseMode.HTML
         )
 
     cmd = message.command[0].lower()
-    action = (
-        "files" if cmd == "clearfiles" else "users" if cmd == "clearusers" else "fsub"
-    )
+    action = "files" if cmd == "clearfiles" else "users"
 
-    await message.reply_text(
+    await safe_reply_text(
+        message,
         f"⚠️ <b>WARNING!</b> ⚠️\nAre you sure you want to permanently delete <b>ALL {action.upper()}</b> in your database?",
         reply_markup=InlineKeyboardMarkup(
             [
@@ -1500,15 +1829,16 @@ async def wipe_prompt_cmd(bot: Client, message: Message):
     )
 
 
-@Client.on_callback_query(filters.regex(r"^nuke_(files|users|fsub)$"))
+@Client.on_callback_query(filters.regex(r"^nuke_(files|users|fsub)$"), group=-2)
 async def nuke_callbacks(bot: Client, query: CallbackQuery):
     uid = query.from_user.id
     if not await is_global_admin(uid):
-        return await query.answer("❌ Unauthorized.", show_alert=True)
+        return await safe_answer(query, "❌ Unauthorized.", show_alert=True)
 
-    await query.answer("Processing request...", show_alert=False)
+    await safe_answer(query, "Processing request...", show_alert=False)
     action = query.data.split("_")[1]
-    await query.message.edit_text(
+    await safe_edit_text(
+        query.message,
         "⏳ <b>Executing request... This may take a moment.</b>",
         parse_mode=enums.ParseMode.HTML,
     )
@@ -1516,14 +1846,16 @@ async def nuke_callbacks(bot: Client, query: CallbackQuery):
     try:
         if action == "files":
             if _Media is None:
-                return await query.message.edit_text(
+                return await safe_edit_text(
+                    query.message,
                     "❌ <b>Media collection unavailable.</b>",
                     parse_mode=enums.ParseMode.HTML,
                 )
             collection = getattr(_Media, "collection", _Media)
             res = await collection.delete_many({})
             count = getattr(res, "deleted_count", "All")
-            await query.message.edit_text(
+            await safe_edit_text(
+                query.message,
                 f"✅ <b>Database Wiped!</b>\n🗑 <b>Deleted Files:</b> <code>{count}</code>",
                 parse_mode=enums.ParseMode.HTML,
             )
@@ -1531,24 +1863,27 @@ async def nuke_callbacks(bot: Client, query: CallbackQuery):
             collection = getattr(_db, "col", _db)
             res = await collection.delete_many({})
             count = getattr(res, "deleted_count", "All")
-            await query.message.edit_text(
+            await safe_edit_text(
+                query.message,
                 f"✅ <b>Database Wiped!</b>\n🗑 <b>Deleted Users:</b> <code>{count}</code>",
                 parse_mode=enums.ParseMode.HTML,
             )
         elif action == "fsub":
             if _plugin_db is not None and hasattr(_plugin_db, "clear_fsub_users"):
                 await _plugin_db.clear_fsub_users()
-            elif _BOT_DB is not None:
+            if _BOT_DB is not None:
                 for col_name in await _BOT_DB.list_collection_names():
                     if "fsub" in col_name.lower() or "join_req" in col_name.lower():
                         await _BOT_DB[col_name].delete_many({})
-            await query.message.edit_text(
+            await safe_edit_text(
+                query.message,
                 "✅ <b>Force Subscribe Database has been completely cleared.</b>",
                 parse_mode=enums.ParseMode.HTML,
             )
     except Exception as e:
         logger.exception(f"Error during nuke_{action}")
-        await query.message.edit_text(
+        await safe_edit_text(
+            query.message,
             f"❌ <b>Error occurred:</b>\n<code>{html.escape(str(e))}</code>",
             parse_mode=enums.ParseMode.HTML,
         )
