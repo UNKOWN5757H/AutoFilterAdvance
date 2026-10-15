@@ -55,6 +55,18 @@ except Exception:
         return {}
 
 
+try:
+    from plugins.uibuttons import (
+        get_default_file_keyboard as _get_default_file_keyboard,
+    )
+    from plugins.uibuttons import (
+        get_deleted_file_notify_keyboard as _get_deleted_file_notify_keyboard,
+    )
+except Exception:
+    _get_default_file_keyboard = None
+    _get_deleted_file_notify_keyboard = None
+
+
 # ============================================================
 # 🛡️ PYROGRAM v2.2.26 (LAYER 230) COMPATIBILITY ENGINE
 # ============================================================
@@ -163,6 +175,25 @@ async def safe_send_message(
         return None
 
 
+async def safe_answer(
+    query: CallbackQuery,
+    text: Optional[str] = None,
+    show_alert: bool = False,
+    url: Optional[str] = None,
+):
+    if not query:
+        return
+    try:
+        kwargs: Dict[str, Any] = {"show_alert": show_alert}
+        if text is not None:
+            kwargs["text"] = str(text)[:200]
+        if url is not None:
+            kwargs["url"] = url
+        await query.answer(**kwargs)
+    except (QueryIdInvalid, Exception):
+        pass
+
+
 # ============================================================
 # 🎨 SAFE TELEGRAM BUTTON STYLE DETECTION
 # ============================================================
@@ -260,16 +291,20 @@ async def _fsub_auto_delete_worker(
         notify_text = (
             "<b>Successfully deleted your file, if you want request again in group.</b>"
         )
-        markup = InlineKeyboardMarkup(
-            [
+        markup = (
+            _get_deleted_file_notify_keyboard()
+            if callable(_get_deleted_file_notify_keyboard)
+            else InlineKeyboardMarkup(
                 [
-                    create_btn(
-                        "Movie Request 📝",
-                        url="https://t.me/Sandalwood_Kannada_Group",
-                        style=BTN_SUCCESS,
-                    )
+                    [
+                        create_btn(
+                            "Movie Request 📝",
+                            url="https://t.me/Sandalwood_Kannada_Group",
+                            style=BTN_SUCCESS,
+                        )
+                    ]
                 ]
-            ]
+            )
         )
         try:
             await safe_send_message(
@@ -301,6 +336,7 @@ def schedule_auto_delete(
 _fsub_db = None
 _active_db = None
 _fsub_reqs_db = None
+_fsub_users_db = None
 _BOT_DB = None
 
 # Ultra-fast in-memory cache so ForceSub checks don't wait on DB round-trips
@@ -314,6 +350,7 @@ try:
     _fsub_db = _BOT_DB["fsub_config"]
     _active_db = _BOT_DB["active_connections"]
     _fsub_reqs_db = _BOT_DB["fsub_join_requests"]
+    _fsub_users_db = _BOT_DB["fsub_verified_users"]
 except Exception as e:
     logger.error(f"Failed to init FSub DB: {e}")
 
@@ -375,11 +412,52 @@ async def update_fsub_channels(channels_dict: dict):
 
 
 async def safe_add_fsub_user(user_id: int):
+    if _fsub_users_db is not None:
+        try:
+            await _fsub_users_db.update_one(
+                {"_id": int(user_id)},
+                {"$set": {"timestamp": time.time()}},
+                upsert=True,
+            )
+        except Exception:
+            pass
     if _plugin_db is not None and hasattr(_plugin_db, "add_fsub_user"):
         try:
             await _plugin_db.add_fsub_user(user_id)
         except Exception:
             pass
+
+
+async def get_total_fsub_users() -> int:
+    total = 0
+    if _fsub_users_db is not None:
+        try:
+            total = await _fsub_users_db.count_documents({})
+        except Exception:
+            pass
+    if _plugin_db is not None and hasattr(_plugin_db, "get_fsub_users_count"):
+        try:
+            p_cnt = await _plugin_db.get_fsub_users_count()
+            total = max(total, int(p_cnt or 0))
+        except Exception:
+            pass
+    return total
+
+
+async def clear_all_fsub_users() -> int:
+    deleted = 0
+    if _fsub_users_db is not None:
+        try:
+            res = await _fsub_users_db.delete_many({})
+            deleted = getattr(res, "deleted_count", 0)
+        except Exception:
+            pass
+    if _plugin_db is not None and hasattr(_plugin_db, "clear_fsub_users"):
+        try:
+            await _plugin_db.clear_fsub_users()
+        except Exception:
+            pass
+    return deleted
 
 
 async def record_join_request(
@@ -456,6 +534,9 @@ async def get_total_join_requests() -> int:
         if _join_reqs_db and _join_reqs_db.isActive():
             legacy_total = await _join_reqs_db.total_requests()
             total = max(total, int(legacy_total or 0))
+        elif _join_reqs_db and hasattr(_join_reqs_db, "get_all_users_count"):
+            legacy_total = await _join_reqs_db.get_all_users_count()
+            total = max(total, int(legacy_total or 0))
     except Exception:
         pass
     return total
@@ -471,7 +552,10 @@ async def clear_all_join_requests() -> int:
             pass
     try:
         if _join_reqs_db and _join_reqs_db.isActive():
-            await _join_reqs_db.clear_all()
+            if hasattr(_join_reqs_db, "clear_all"):
+                await _join_reqs_db.clear_all()
+            elif hasattr(_join_reqs_db, "delete_all_users"):
+                await _join_reqs_db.delete_all_users()
     except Exception:
         pass
     return deleted
@@ -819,7 +903,14 @@ async def ForceSub(
 
         b_settings = await get_bot_settings()
         custom_fsub_img = b_settings.get("fsub_img", getattr(info, "FSUB_IMG", None))
-        fsub_caption = "<b>⚠️ Please join the channels below to get your file!</b>"
+        fsub_caption = b_settings.get(
+            "fsub_msg",
+            getattr(
+                info,
+                "FSUB_MSG",
+                "<b>⚠️ Please join the channels below to get your file!</b>",
+            ),
+        )
 
         try:
             if custom_fsub_img and str(custom_fsub_img).lower() != "none":
@@ -870,6 +961,22 @@ async def _deliver_verified_file(
     protect = mode in ["filep", "checksubp"]
     files_ = await get_file_details(file_id)
 
+    default_file_kb = (
+        _get_default_file_keyboard()
+        if callable(_get_default_file_keyboard)
+        else InlineKeyboardMarkup(
+            [
+                [
+                    create_btn(
+                        text="🎥 ಕನ್ನಡ ಹೊಸ ಮೂವೀಗಳು 🎥",
+                        url="https://t.me/sandalwood_kannada_moviesz",
+                        style=BTN_SUCCESS,
+                    )
+                ]
+            ]
+        )
+    )
+
     if files_:
         files = files_[0]
         title = str(
@@ -915,18 +1022,7 @@ async def _deliver_verified_file(
             f_caption += f"\n\n{info.CAPTION_PLUS}"
 
         final_caption, final_keyboard = parse_text_and_markup(
-            f_caption,
-            InlineKeyboardMarkup(
-                [
-                    [
-                        create_btn(
-                            text="🎥 ಕನ್ನಡ ಹೊಸ ಮೂವೀಗಳು 🎥",
-                            url="https://t.me/sandalwood_kannada_moviesz",
-                            style=BTN_SUCCESS,
-                        )
-                    ]
-                ]
-            ),
+            f_caption, default_file_kb
         )
     else:
         # Check if stored in genlink_files DB
@@ -943,17 +1039,7 @@ async def _deliver_verified_file(
 
         db_file_id = file_id
         final_caption = "<b>🎉 Thank you for joining! Here is your file:</b>"
-        final_keyboard = InlineKeyboardMarkup(
-            [
-                [
-                    create_btn(
-                        text="🎥 ಕನ್ನಡ ಹೊಸ ಮೂವೀಗಳು 🎥",
-                        url="https://t.me/sandalwood_kannada_moviesz",
-                        style=BTN_SUCCESS,
-                    )
-                ]
-            ]
-        )
+        final_keyboard = default_file_kb
 
     sent_msg = None
     try:
@@ -1043,12 +1129,11 @@ async def refresh_fsub_callback(bot: Client, query: CallbackQuery):
         not_joined_buttons = await _get_missing_channel_buttons(bot, user_id, config)
 
         if not_joined_buttons:
-            try:
-                await query.answer(
-                    "❌ You haven't joined all required channels yet!", show_alert=True
-                )
-            except QueryIdInvalid:
-                pass
+            await safe_answer(
+                query,
+                "❌ You haven't joined all required channels yet!",
+                show_alert=True,
+            )
             cb_data = f"refresh_fsub#{mode}#{file_id}"
             not_joined_buttons.append(
                 [
@@ -1068,10 +1153,7 @@ async def refresh_fsub_callback(bot: Client, query: CallbackQuery):
             return
 
     await safe_add_fsub_user(user_id)
-    try:
-        await query.answer("✅ Subscriptions verified!", show_alert=False)
-    except QueryIdInvalid:
-        pass
+    await safe_answer(query, "✅ Subscriptions verified!", show_alert=False)
 
     try:
         await query.message.delete()
@@ -1142,6 +1224,32 @@ async def disable_fsub(bot: Client, message: Message):
     await safe_reply_text(
         message,
         "❌ <b>Force Subscribe has been DISABLED.</b>",
+        parse_mode=enums.ParseMode.HTML,
+    )
+
+
+@Client.on_message(filters.command("setfsubcount") & filters.incoming, group=-3)
+async def set_fsub_count_cmd(bot: Client, message: Message):
+    target_chat_id = await get_target_chat(bot, message)
+    if not await verify_admin(bot, message, target_chat_id):
+        return await safe_reply_text(
+            message,
+            "❌ <b>Unauthorized:</b> Admin only.",
+            parse_mode=enums.ParseMode.HTML,
+        )
+
+    if len(message.command) < 2 or not message.command[1].strip().isdigit():
+        return await safe_reply_text(
+            message,
+            "⚙️ <b>Usage:</b> <code>/setfsubcount &lt;number&gt;</code>\n<i>(Use 0 for unlimited active channels)</i>",
+            parse_mode=enums.ParseMode.HTML,
+        )
+
+    count_val = int(message.command[1].strip())
+    await update_fsub_config("max_count", count_val)
+    await safe_reply_text(
+        message,
+        f"✅ <b>Maximum ForceSub Queue Count set to:</b> <code>{count_val if count_val > 0 else 'Unlimited'}</code>",
         parse_mode=enums.ParseMode.HTML,
     )
 
@@ -1316,7 +1424,7 @@ async def add_dynamic_fsub(bot: Client, message: Message):
 )
 async def fsub_admin_callbacks(bot: Client, query: CallbackQuery):
     if not await verify_cb_admin(bot, query):
-        return await query.answer("❌ Unauthorized: Admin only.", show_alert=True)
+        return await safe_answer(query, "❌ Unauthorized: Admin only.", show_alert=True)
 
     data = query.data
     if query.message.chat.id in _WAITING_REQUESTS:
@@ -1328,14 +1436,14 @@ async def fsub_admin_callbacks(bot: Client, query: CallbackQuery):
     if data.startswith("fsub_setup#"):
         _, mode, channel_id = data.split("#", 2)
         if mode == "cancel":
-            await query.answer("Cancelled.")
+            await safe_answer(query, "Cancelled.")
             return await safe_edit_text(
                 query.message,
                 "❌ <b>FSub setup cancelled.</b>",
                 parse_mode=enums.ParseMode.HTML,
             )
 
-        await query.answer("⏳ Configuring FSub channel...")
+        await safe_answer(query, "⏳ Configuring FSub channel...")
         is_req = mode == "req"
         _, result_text = await _finalize_setfsub(
             bot, query.message.chat.id, channel_id, is_req
@@ -1355,7 +1463,7 @@ async def fsub_admin_callbacks(bot: Client, query: CallbackQuery):
             del channels[channel_id]
             _INVITE_LINK_CACHE.pop(channel_id, None)
             await update_fsub_channels(channels)
-            await query.answer("🗑️ Channel removed!", show_alert=True)
+            await safe_answer(query, "🗑️ Channel removed!", show_alert=True)
             text, markup = await build_fsub_list_ui("All")
             return await safe_edit_text(
                 query.message,
@@ -1364,12 +1472,12 @@ async def fsub_admin_callbacks(bot: Client, query: CallbackQuery):
                 disable_web_page_preview=True,
                 parse_mode=enums.ParseMode.HTML,
             )
-        return await query.answer("Channel already removed.", show_alert=True)
+        return await safe_answer(query, "Channel already removed.", show_alert=True)
 
     if data.startswith("fsub_purge#"):
         _, action = data.split("#", 1)
         if action == "cancel":
-            await query.answer("Cancelled.")
+            await safe_answer(query, "Cancelled.")
             return await safe_edit_text(
                 query.message,
                 "❌ <b>Operation cancelled.</b>",
@@ -1377,7 +1485,7 @@ async def fsub_admin_callbacks(bot: Client, query: CallbackQuery):
             )
         if action == "confirm":
             count = await clear_all_join_requests()
-            await query.answer("✅ Join requests purged!", show_alert=True)
+            await safe_answer(query, "✅ Join requests purged!", show_alert=True)
             return await safe_edit_text(
                 query.message,
                 f"✅ <b>All join requests purged successfully!</b> (<code>{count}</code> deleted)",
@@ -1510,6 +1618,162 @@ async def get_all_fsub(bot: Client, message: Message):
         text,
         reply_markup=markup,
         disable_web_page_preview=True,
+        parse_mode=enums.ParseMode.HTML,
+    )
+
+
+@Client.on_message(filters.command("getactivefsub") & filters.incoming, group=-3)
+async def get_active_fsub_cmd(bot: Client, message: Message):
+    target_chat_id = await get_target_chat(bot, message)
+    if not await verify_admin(bot, message, target_chat_id):
+        return await safe_reply_text(
+            message,
+            "❌ <b>Unauthorized:</b> Admin only.",
+            parse_mode=enums.ParseMode.HTML,
+        )
+
+    text, markup = await build_fsub_list_ui("Active", filter_status="active")
+    await safe_reply_text(
+        message,
+        text,
+        reply_markup=markup,
+        disable_web_page_preview=True,
+        parse_mode=enums.ParseMode.HTML,
+    )
+
+
+@Client.on_message(filters.command("getpendingfsub") & filters.incoming, group=-3)
+async def get_pending_fsub_cmd(bot: Client, message: Message):
+    target_chat_id = await get_target_chat(bot, message)
+    if not await verify_admin(bot, message, target_chat_id):
+        return await safe_reply_text(
+            message,
+            "❌ <b>Unauthorized:</b> Admin only.",
+            parse_mode=enums.ParseMode.HTML,
+        )
+
+    text, markup = await build_fsub_list_ui("Pending", filter_status="pending")
+    await safe_reply_text(
+        message,
+        text,
+        reply_markup=markup,
+        disable_web_page_preview=True,
+        parse_mode=enums.ParseMode.HTML,
+    )
+
+
+@Client.on_message(
+    filters.command(["activatefsub", "deactivatefsub"]) & filters.incoming, group=-3
+)
+async def toggle_fsub_channel_status_cmd(bot: Client, message: Message):
+    target_chat_id = await get_target_chat(bot, message)
+    if not await verify_admin(bot, message, target_chat_id):
+        return await safe_reply_text(
+            message,
+            "❌ <b>Unauthorized:</b> Admin only.",
+            parse_mode=enums.ParseMode.HTML,
+        )
+
+    cmd = message.command[0].lower()
+    if len(message.command) < 2:
+        return await safe_reply_text(
+            message,
+            f"⚙️ <b>Usage:</b> <code>/{cmd} &lt;channel_id&gt;</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
+
+    cid = message.command[1].strip()
+    config = await get_fsub_config(force_refresh=True)
+    channels = config.get("channels", {})
+    if cid not in channels:
+        return await safe_reply_text(
+            message,
+            f"❌ <b>Channel <code>{cid}</code> not found in FSub database.</b>",
+            parse_mode=enums.ParseMode.HTML,
+        )
+
+    new_status = "active" if cmd == "activatefsub" else "pending"
+    channels[cid]["status"] = new_status
+    await update_fsub_channels(channels)
+    await safe_reply_text(
+        message,
+        f"✅ <b>Channel <code>{cid}</code> status updated to:</b> <code>{new_status.upper()}</code>",
+        parse_mode=enums.ParseMode.HTML,
+    )
+
+
+@Client.on_message(filters.command("updatefsubtarget") & filters.incoming, group=-3)
+async def update_fsub_target_cmd(bot: Client, message: Message):
+    target_chat_id = await get_target_chat(bot, message)
+    if not await verify_admin(bot, message, target_chat_id):
+        return await safe_reply_text(
+            message,
+            "❌ <b>Unauthorized:</b> Admin only.",
+            parse_mode=enums.ParseMode.HTML,
+        )
+
+    if len(message.command) < 3:
+        return await safe_reply_text(
+            message,
+            "⚙️ <b>Usage:</b> <code>/updatefsubtarget &lt;channel_id&gt; &lt;custom_invite_url_or_off&gt;</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
+
+    cid = message.command[1].strip()
+    target_link = message.command[2].strip()
+    config = await get_fsub_config(force_refresh=True)
+    channels = config.get("channels", {})
+    if cid not in channels:
+        return await safe_reply_text(
+            message,
+            f"❌ <b>Channel <code>{cid}</code> not found in FSub database.</b>",
+            parse_mode=enums.ParseMode.HTML,
+        )
+
+    channels[cid]["target"] = (
+        None if target_link.lower() in ["off", "none", "reset"] else target_link
+    )
+    _INVITE_LINK_CACHE.pop(cid, None)
+    await update_fsub_channels(channels)
+    await safe_reply_text(
+        message,
+        f"✅ <b>Updated custom target link for <code>{cid}</code>!</b>",
+        parse_mode=enums.ParseMode.HTML,
+    )
+
+
+@Client.on_message(filters.command("checkfsubusers") & filters.incoming, group=-3)
+async def check_fsub_users_cmd(bot: Client, message: Message):
+    target_chat_id = await get_target_chat(bot, message)
+    if not await verify_admin(bot, message, target_chat_id):
+        return await safe_reply_text(
+            message,
+            "❌ <b>Unauthorized:</b> Admin only.",
+            parse_mode=enums.ParseMode.HTML,
+        )
+
+    count = await get_total_fsub_users()
+    await safe_reply_text(
+        message,
+        f"👥 <b>Total Verified ForceSub Users:</b> <code>{count}</code>",
+        parse_mode=enums.ParseMode.HTML,
+    )
+
+
+@Client.on_message(filters.command("clearfsubusers") & filters.incoming, group=-3)
+async def clear_fsub_users_cmd(bot: Client, message: Message):
+    target_chat_id = await get_target_chat(bot, message)
+    if not await verify_admin(bot, message, target_chat_id):
+        return await safe_reply_text(
+            message,
+            "❌ <b>Unauthorized:</b> Admin only.",
+            parse_mode=enums.ParseMode.HTML,
+        )
+
+    deleted = await clear_all_fsub_users()
+    await safe_reply_text(
+        message,
+        f"🗑️ <b>Cleared all ForceSub user records!</b> (<code>{deleted}</code> removed)",
         parse_mode=enums.ParseMode.HTML,
     )
 
