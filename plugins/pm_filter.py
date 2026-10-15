@@ -540,6 +540,41 @@ def clean_filename(name: str, clean_words: list) -> str:
     return (name[:42] + "..") if len(name) > 45 else (name or "File")
 
 
+def get_auto_delete_timer(
+    var_name: str = "AUTO_DELETE_TIME", default_time: int = 300
+) -> int:
+    try:
+        global_switch = getattr(info, "AUTO_DELETE", True)
+        if str(global_switch).strip().lower() in ["false", "off", "0", "no"]:
+            return 0
+        raw_val = getattr(
+            info,
+            var_name,
+            getattr(
+                info,
+                "AUTO_DELETE_TIME",
+                getattr(info, "FILE_AUTO_DELETE", default_time),
+            ),
+        )
+        if isinstance(raw_val, bool):
+            return default_time if raw_val else 0
+        val = int(str(raw_val).strip())
+        return max(0, val)
+    except Exception:
+        return default_time
+
+
+def format_duration(seconds: int) -> str:
+    if seconds <= 0:
+        return "0 Seconds"
+    m, s = divmod(int(seconds), 60)
+    if m > 0 and s > 0:
+        return f"{m} Minute{'s' if m != 1 else ''} {s} Second{'s' if s != 1 else ''}"
+    if m > 0:
+        return f"{m} Minute{'s' if m != 1 else ''}"
+    return f"{s} Second{'s' if s != 1 else ''}"
+
+
 async def resolve_auto_delete_timer(
     chat_id: Optional[int] = None, default_time: int = 300
 ) -> int:
@@ -547,7 +582,6 @@ async def resolve_auto_delete_timer(
     Reliably resolves the auto-delete timer in seconds across group settings,
     bot_settings DB, plugin_db, temp, and info.py so auto-delete never fails.
     """
-    # 1. Check group-specific settings first
     if chat_id:
         try:
             g_set = await get_settings(chat_id) or {}
@@ -568,7 +602,6 @@ async def resolve_auto_delete_timer(
         except Exception:
             pass
 
-    # 2. Check global bot_settings from custom_settings / MongoDB
     try:
         b_set = await get_bot_settings() or {}
         for k in (
@@ -586,7 +619,6 @@ async def resolve_auto_delete_timer(
     except Exception:
         pass
 
-    # 3. Check _plugin_db if available
     if _plugin_db is not None:
         for attr_name in ("get_buttondel", "get_autodelete"):
             if hasattr(_plugin_db, attr_name):
@@ -599,7 +631,6 @@ async def resolve_auto_delete_timer(
                 except Exception:
                     pass
 
-    # 4. Check runtime temp & info.py variables
     for source in (temp, info):
         for k in (
             "BUTTON_AUTO_DELETE",
@@ -788,6 +819,7 @@ GLOBAL_SEARCH_CACHE = TTLCache(maxsize=3000, ttl=600)
 BUTTONS_CACHE = TTLCache(maxsize=3000, ttl=1800)
 FILTER_STATE_CACHE = TTLCache(maxsize=3000, ttl=1800)
 SUGGESTIONS_CACHE = TTLCache(maxsize=2000, ttl=1800)
+DYM_QUERY_CACHE = TTLCache(maxsize=2000, ttl=1800)
 USER_LAST_REQ = TTLCache(maxsize=5000, ttl=60)
 FUZZY_TITLES_CACHE = TTLCache(maxsize=10, ttl=600)
 
@@ -795,12 +827,25 @@ FUZZY_TITLES_CACHE = TTLCache(maxsize=10, ttl=600)
 def get_filter_state(key: str) -> dict:
     state = FILTER_STATE_CACHE.get(key)
     if not state or not isinstance(state, dict):
-        return {"lang": None, "qual": None}
+        return {"lang": None, "qual": None, "from_dym": False}
     return state
 
 
-def set_filter_state(key: str, lang: Optional[str] = None, qual: Optional[str] = None):
-    FILTER_STATE_CACHE.set(key, {"lang": lang, "qual": qual})
+def set_filter_state(
+    key: str,
+    lang: Optional[str] = None,
+    qual: Optional[str] = None,
+    from_dym: Optional[bool] = None,
+):
+    prev = get_filter_state(key)
+    FILTER_STATE_CACHE.set(
+        key,
+        {
+            "lang": lang,
+            "qual": qual,
+            "from_dym": prev.get("from_dym", False) if from_dym is None else from_dym,
+        },
+    )
 
 
 def build_effective_search_query(base_query: str, state: dict) -> str:
@@ -828,7 +873,7 @@ def sanitize_search_query(text: str, allow_translit: bool = True) -> str:
     basic_q = re.sub(r"\s+", " ", basic_q).strip()
 
     q = re.sub(
-        r"(?i)\b(4320p|2160p|1440p|1080p|720p|540p|480p|360p|240p|144p|4k|2k|8k|mkv|mp4|avi|hdrip|web-?dl|webrip|bluray|brrip|dvdrip|x264|x265|hevc|dual audio|multi audio|hindi|kannada|tulu|telugu|tamil|malayalam|marathi|gujarati|bengali|punjabi|nepali|english|subtitles|subs|esub|episodes|season\s*\d+|s\d+e\d+|complete)\b",
+        r"(?i)\b(4320p|2160p|1440p|1080p|720p|540p|480p|360p|240p|144p|4k|2k|8k|mkv|mp4|avi|hdrip|web-?dl|webrip|bluray|brrip|dvdrip|x264|x265|hevc|aac\d*|ddp?\d*|\d+ch|10bit|8bit|hdr|sdr|dual audio|multi audio|hindi|kannada|tulu|telugu|tamil|malayalam|marathi|gujarati|bengali|punjabi|nepali|english|subtitles|subs|esub|episodes|season\s*\d+|s\d+e\d+|complete)\b",
         "",
         raw_q,
     )
@@ -964,15 +1009,18 @@ async def smart_filtered_search(
 
 
 def _extract_clean_movie_title(raw_filename: str) -> str:
+    """Extracts a clean movie title without audio/codec suffixes like 'Aac 40', 'Dd5 1', 'Ddp5'."""
     if not raw_filename:
         return ""
     s = re.sub(r"https?://\S+|t\.me/\S+|@\w+|\[[^\]]*\]|\([^)]*\)", " ", raw_filename)
     s = re.sub(r"[_.-]", " ", s)
     s = re.split(
-        r"(?i)\b(4320p|2160p|1440p|1080p|720p|540p|480p|360p|240p|144p|4k|2k|8k|hdrip|web-?dl|webrip|bluray|brrip|dvdrip|camrip|hdts|predvd|x264|x265|hevc|avc|aac|ddp?5|atmos|dual\s*audio|multi\s*audio|kannada|tulu|telugu|tamil|malayalam|hindi|english|marathi|gujarati|bengali|punjabi|nepali|esub|subtitles|mkv|mp4|avi)\b",
+        r"(?i)\b(4320p|2160p|1440p|1080p|720p|540p|480p|360p|240p|144p|4k|2k|8k|hdrip|web-?dl|webrip|bluray|brrip|dvdrip|camrip|hdts|predvd|x264|x265|hevc|avc|aac\d*|ddp?\d*|dd\d*|ac3|eac3|atmos|10bit|8bit|hdr|sdr|dual\s*audio|multi\s*audio|kannada|tulu|telugu|tamil|malayalam|hindi|english|marathi|gujarati|bengali|punjabi|nepali|esub|subtitles|mkv|mp4|avi)\b",
         s,
     )[0]
     s = re.sub(r"[^a-zA-Z0-9\s]", " ", s)
+    # Remove trailing isolated 1-2 digit audio numbers (like 40, 70, 5 1) while keeping 4-digit years
+    s = re.sub(r"\b(?!(?:19|20)\d{2}\b)\d{1,3}\b$", "", s.strip())
     s = re.sub(r"\s+", " ", s).strip()
     if len(s) < 2:
         return sanitize_search_query(raw_filename)
@@ -998,9 +1046,6 @@ async def get_cached_db_titles() -> List[str]:
             clean_t = _extract_clean_movie_title(fn)
             if clean_t and len(clean_t) >= 2:
                 title_set.add(clean_t)
-            san_t = sanitize_search_query(fn)
-            if san_t and 2 <= len(san_t) <= 35:
-                title_set.add(san_t)
 
         db_titles = sorted(title_set)
         FUZZY_TITLES_CACHE.set("titles", db_titles)
@@ -1079,7 +1124,9 @@ async def get_did_you_mean_suggestions(
     for _, cand in scored_candidates:
         if len(unique_suggestions) >= max_suggestions:
             break
-        root_key = re.sub(r"\b(19\d{2}|20\d{2})\b", "", cand).strip()
+        # Deduplicate by clean movie base name (without year/codec numbers) so "Bheema 2024" only appears once
+        root_key = re.sub(r"\b\d+\b", "", cand).strip()
+        root_key = re.sub(r"\s+", " ", root_key)
         if not root_key or root_key in seen_roots:
             continue
 
@@ -1094,6 +1141,32 @@ async def get_did_you_mean_suggestions(
             unique_suggestions.append(cand)
 
     return unique_suggestions
+
+
+def _build_dym_view(
+    mention: str, raw_search: str, req: int, key: str, suggestions: List[str]
+) -> Tuple[str, InlineKeyboardMarkup]:
+    safe_typed = html.escape(raw_search.strip()) if raw_search else "Movie"
+    dym_text = (
+        f"<b>Hᴇʏ {mention} 👋🏻\n\n"
+        f"🚫 Nᴏ Eхᴀᴄᴛ Mᴀᴛᴄʜ Fᴏʀ : <code>{safe_typed}</code>\n\n"
+        f"💡 Dɪᴅ Yᴏᴜ Mᴇᴀɴ Oɴᴇ Oғ Tʜᴇsᴇ Mᴏᴠɪᴇs? 👇</b>"
+    )
+    dym_btns = []
+    row = []
+    for idx, sug_title in enumerate(suggestions):
+        row.append(
+            create_btn(
+                text=f"🎬 {sug_title.title()}",
+                callback_data=f"dym#{req}#{key}#{idx}",
+            )
+        )
+        if len(row) == 2:
+            dym_btns.append(row)
+            row = []
+    if row:
+        dym_btns.append(row)
+    return dym_text, InlineKeyboardMarkup(dym_btns)
 
 
 async def god_tier_search(
@@ -1177,7 +1250,6 @@ async def god_tier_search(
 
 # ============================================================
 # 🧩 KEYBOARD BUILDER FOR AUTO-FILTER RESULTS
-# (ONLY 4 SPECIFIED BUTTONS HAVE BLUE COLOUR: BTN_PRIMARY)
 # ============================================================
 async def build_result_buttons(
     files: list,
@@ -1195,6 +1267,7 @@ async def build_result_buttons(
     active_lang = LANG_MAP.get(state.get("lang") or "")
     active_qual = state.get("qual")
     has_active_filter = bool(active_lang or active_qual)
+    from_dym = bool(state.get("from_dym") and SUGGESTIONS_CACHE.get(key))
 
     lang_btn_text = f"🔊 {active_lang}" if active_lang else "🔊 Language"
     qual_btn_text = f"🎥 {active_qual}" if active_qual else "🎥 Quality"
@@ -1286,68 +1359,56 @@ async def build_result_buttons(
     )
     page_cb = f"pages#{current_page}#{total_pages}#{total_results}"
 
-    # 2, 3, 4. Blue buttons: ⬅️ BACK, 📄 1/1, NEXT ➡️
-    if not offset and off_set is None:
-        btn.append(
-            [
-                create_btn(
-                    text=f"📄 {current_page}/{total_pages}",
-                    callback_data=page_cb,
-                    style=BTN_PRIMARY,
-                )
-            ]
+    # Bottom navigation row:
+    # If the user came from Multi-Choice ("Did You Mean?"), place a no-colour "⬅️ Back"
+    # button at the very bottom beside the pagination buttons!
+    nav_row: List[InlineKeyboardButton] = []
+
+    if off_set is not None:
+        nav_row.append(
+            create_btn(
+                "⬅️ BACK",
+                callback_data=f"next_{req}_{key}_{off_set}",
+                style=BTN_PRIMARY,
+            )
         )
-    elif not offset:
-        btn.append(
-            [
-                create_btn(
-                    "⬅️ BACK",
-                    callback_data=f"next_{req}_{key}_{off_set}",
-                    style=BTN_PRIMARY,
-                ),
-                create_btn(
-                    f"📄 {current_page}/{total_pages}",
-                    callback_data=page_cb,
-                    style=BTN_PRIMARY,
-                ),
-            ]
-        )
-    elif off_set is None:
-        btn.append(
-            [
-                create_btn(
-                    f"📄 {current_page}/{total_pages}",
-                    callback_data=page_cb,
-                    style=BTN_PRIMARY,
-                ),
-                create_btn(
-                    "NEXT ➡️",
-                    callback_data=f"next_{req}_{key}_{offset}",
-                    style=BTN_PRIMARY,
-                ),
-            ]
-        )
-    else:
-        btn.append(
-            [
-                create_btn(
-                    "⬅️ BACK",
-                    callback_data=f"next_{req}_{key}_{off_set}",
-                    style=BTN_PRIMARY,
-                ),
-                create_btn(
-                    f"📄 {current_page}/{total_pages}",
-                    callback_data=page_cb,
-                    style=BTN_PRIMARY,
-                ),
-                create_btn(
-                    "NEXT ➡️",
-                    callback_data=f"next_{req}_{key}_{offset}",
-                    style=BTN_PRIMARY,
-                ),
-            ]
+    elif from_dym:
+        nav_row.append(
+            create_btn(
+                "⬅️ Back",
+                callback_data=f"dymback#{req}#{key}",
+                style=None,  # No colour as requested
+            )
         )
 
+    nav_row.append(
+        create_btn(
+            text=f"📄 {current_page}/{total_pages}",
+            callback_data=page_cb,
+            style=BTN_PRIMARY,
+        )
+    )
+
+    if offset:
+        nav_row.append(
+            create_btn(
+                "NEXT ➡️",
+                callback_data=f"next_{req}_{key}_{offset}",
+                style=BTN_PRIMARY,
+            )
+        )
+
+    if from_dym and off_set is not None:
+        # When on Page 2+ of a Multi-Choice result, keep the no-colour Back to Choices button beside the row
+        nav_row.append(
+            create_btn(
+                "🔙 Choices",
+                callback_data=f"dymback#{req}#{key}",
+                style=None,
+            )
+        )
+
+    btn.append(nav_row)
     return btn
 
 
@@ -1357,7 +1418,6 @@ async def build_result_buttons(
 async def _delete_single_message(
     client: Client, chat_id: int, msg_obj: Optional[Message]
 ):
-    """Deletes a single message reliably with FloodWait & fallback handling."""
     if msg_obj is None:
         return
     msg_id = getattr(msg_obj, "id", None) or getattr(msg_obj, "message_id", None)
@@ -1392,8 +1452,6 @@ async def _auto_delete_worker(
 ):
     await asyncio.sleep(delay)
 
-    # Delete each message individually so a permission restriction on a user's message
-    # never blocks deleting the bot's own auto-filter message!
     for m in messages:
         if m is not None:
             await _delete_single_message(client, chat_id, m)
@@ -1457,51 +1515,19 @@ async def _send_not_found(
     )
 
     if suggestions:
+        # Save suggestions & raw search query, and send as TEXT ONLY (No image on Multi-Choice!)
         SUGGESTIONS_CACHE.set(key, suggestions)
+        DYM_QUERY_CACHE.set(key, raw_search.strip())
         mention = msg.from_user.mention if msg.from_user else "User"
-        safe_typed = html.escape(raw_search.strip())
-        dym_text = (
-            f"<b>Hᴇʏ {mention} 👋🏻\n\n"
-            f"🚫 Nᴏ Eхᴀᴄᴛ Mᴀᴛᴄʜ Fᴏʀ : <code>{safe_typed}</code>\n\n"
-            f"💡 Dɪᴅ Yᴏᴜ Mᴇᴀɴ Oɴᴇ Oғ Tʜᴇsᴇ Mᴏᴠɪᴇs? 👇</b>"
+        dym_text, dym_markup = _build_dym_view(
+            mention, raw_search, req, key, suggestions
         )
-        dym_btns = []
-        row = []
-        for idx, sug_title in enumerate(suggestions):
-            row.append(
-                create_btn(
-                    text=f"🎬 {sug_title.title()}",
-                    callback_data=f"dym#{req}#{key}#{idx}",
-                )
-            )
-            if len(row) == 2:
-                dym_btns.append(row)
-                row = []
-        if row:
-            dym_btns.append(row)
-
-        dym_markup = InlineKeyboardMarkup(dym_btns)
         try:
-            if img:
-                try:
-                    k_msg = await msg.reply_photo(
-                        photo=img,
-                        caption=dym_text,
-                        reply_markup=dym_markup,
-                        parse_mode=enums.ParseMode.HTML,
-                    )
-                except Exception:
-                    k_msg = await msg.reply_text(
-                        text=dym_text,
-                        reply_markup=dym_markup,
-                        parse_mode=enums.ParseMode.HTML,
-                    )
-            else:
-                k_msg = await msg.reply_text(
-                    text=dym_text,
-                    reply_markup=dym_markup,
-                    parse_mode=enums.ParseMode.HTML,
-                )
+            k_msg = await msg.reply_text(
+                text=dym_text,
+                reply_markup=dym_markup,
+                parse_mode=enums.ParseMode.HTML,
+            )
         except Exception:
             pass
     else:
@@ -1645,17 +1671,19 @@ async def auto_filter(client: Client, msg: Message):
         BUTTONS_CACHE.set(key, search_query)
 
         if inline_lang or inline_qual:
-            inline_state = {"lang": inline_lang, "qual": inline_qual}
+            inline_state = {"lang": inline_lang, "qual": inline_qual, "from_dym": False}
             f_files, f_offset, f_total = await smart_filtered_search(
                 search_query, inline_state, max_results=10, offset=0
             )
             if f_files:
                 files, offset, total_results = f_files, f_offset, f_total
-                set_filter_state(key, lang=inline_lang, qual=inline_qual)
+                set_filter_state(
+                    key, lang=inline_lang, qual=inline_qual, from_dym=False
+                )
             else:
-                set_filter_state(key, lang=None, qual=None)
+                set_filter_state(key, lang=None, qual=None, from_dym=False)
         else:
-            set_filter_state(key, lang=None, qual=None)
+            set_filter_state(key, lang=None, qual=None, from_dym=False)
 
         try:
             total_results = int(total_results)
@@ -1752,7 +1780,6 @@ async def auto_filter(client: Client, msg: Message):
             logger.error(f"Failed sending auto_filter message: {e}")
             return
 
-        # Auto-delete bot result message (m) first, then user message (msg)
         delete_timer = await resolve_auto_delete_timer(msg.chat.id, default_time=300)
         if delete_timer > 0 and m:
             schedule_auto_delete(client, msg.chat.id, False, delete_timer, m, msg)
@@ -1959,7 +1986,7 @@ async def pm_feature_toggle_callback(bot: Client, query: CallbackQuery):
 # 🌐 LANGUAGE, 🎞️ QUALITY & 💡 "DID YOU MEAN?" CALLBACK HANDLERS
 # ============================================================
 @Client.on_callback_query(
-    filters.regex(r"^(flang#|fqual#|setlang#|setqual#|fback#|freset#|dym#)"),
+    filters.regex(r"^(flang#|fqual#|setlang#|setqual#|fback#|freset#|dym#|dymback#)"),
     group=-2,
 )
 async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
@@ -1979,6 +2006,36 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
             "⚠️ That's not for you! Request your own movie in the group.",
             show_alert=True,
         )
+
+    # 🔙 User clicked the bottom "⬅️ Back" button to return to the Multi-Choice ("Did You Mean?") list
+    if action == "dymback":
+        suggestions = SUGGESTIONS_CACHE.get(key)
+        if not suggestions:
+            return await query.answer(
+                "⌛ Suggestions expired. Please type the movie name again!",
+                show_alert=True,
+            )
+        raw_search = DYM_QUERY_CACHE.get(key) or "Movie"
+        mention = query.from_user.mention if query.from_user else "User"
+        dym_text, dym_markup = _build_dym_view(
+            mention, raw_search, req, key, suggestions
+        )
+        try:
+            if query.message.photo or query.message.video or query.message.document:
+                await query.message.edit_caption(
+                    caption=dym_text,
+                    reply_markup=dym_markup,
+                    parse_mode=enums.ParseMode.HTML,
+                )
+            else:
+                await query.message.edit_text(
+                    text=dym_text,
+                    reply_markup=dym_markup,
+                    parse_mode=enums.ParseMode.HTML,
+                )
+        except (MessageNotModified, MessageIdInvalid):
+            pass
+        return await query.answer("⬅️ Back to Multi-Choice suggestions!")
 
     # 💡 User clicked a "Did You Mean?" movie suggestion button
     if action == "dym":
@@ -2005,7 +2062,8 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
 
         files.sort(key=lambda x: _score_file_relevance(x, chosen_title), reverse=True)
         BUTTONS_CACHE.set(key, chosen_title)
-        set_filter_state(key, lang=None, qual=None)
+        # Mark from_dym=True so the bottom "⬅️ Back" button appears beside pagination
+        set_filter_state(key, lang=None, qual=None, from_dym=True)
 
         settings = await get_settings(query.message.chat.id) or {}
         if not getattr(temp, "U_NAME", None):
@@ -2147,7 +2205,11 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
         chosen = parts[3] if len(parts) > 3 else "all"
         new_qual = None if chosen == "all" or chosen == new_qual else chosen
 
-    candidate_state = {"lang": new_lang, "qual": new_qual}
+    candidate_state = {
+        "lang": new_lang,
+        "qual": new_qual,
+        "from_dym": state.get("from_dym", False),
+    }
     files, n_offset, total = await smart_filtered_search(
         base_search, candidate_state, max_results=10, offset=0
     )
@@ -2163,7 +2225,9 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
             show_alert=True,
         )
 
-    set_filter_state(key, lang=new_lang, qual=new_qual)
+    set_filter_state(
+        key, lang=new_lang, qual=new_qual, from_dym=state.get("from_dym", False)
+    )
 
     settings = await get_settings(query.message.chat.id) or {}
     if not getattr(temp, "U_NAME", None):
