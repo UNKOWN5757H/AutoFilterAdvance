@@ -12,39 +12,43 @@ class script(object):
 
     LOG_TEXT_G = """<b>#Nᴇᴡ_Gʀᴏᴜᴘ</b>\n\n<b>Group Name:</b> <code>{}</code>\n<b>Group ID:</b> <code>{}</code>\n<b>Members:</b> <code>{}</code>\n<b>Added By:</b> {}"""
 
-    LOG_TEXT_P = (
-        """<b>#Nᴇᴡ_Usᴇʀ</b>\n\n<b>User ID:</b> <code>{}</code>\n<b>Profile:</b> {}"""
-    )
+    LOG_TEXT_P = """<b>#Nᴇᴡ_Usᴇʀ</b>\n\n<b>User ID:</b> <code>{}</code>\n<b>Profile:</b> {}"""
 
     # ==========================================
     # 🎨 UI CUSTOMIZATION MENUS
     # ==========================================
-    UISTART_TXT = """<blockquote><b>🎨 Sᴛᴀʀᴛ Mᴇɴᴜ Cᴜsᴛᴏᴍɪᴢᴀᴛɪᴏɴ</b></blockquote>\n
-<b>‣ /setstarttext</b> - Set custom text
-<b>‣ /defaultstarttext</b> - Revert to default text
-<b>‣ /setstartimage</b> - Set image (reply to photo)
-<b>‣ /remstartimage</b> - Remove custom image
-<b>‣ /addstartbutton</b> - Add a button (e.g. <code>/addstartbutton "Text" https://link.com</code>)
-<b>‣ /editstartbuttons</b> - Edit layout & color (e.g. <code>/editstartbuttons 1 sidebyside green</code>)
-<b>‣ /remstartbutton</b> - Clear all custom buttons"""
+    UISTART_TXT = """<blockquote><b>🎨 Sᴛᴀʀᴛ Mᴇɴᴜ Cᴜsᴛᴏᴍɪᴢᴀᴛɪᴏɴ (<code>/uistart</code>)</b></blockquote>\n
+<b>‣ <code>/setstarttext</code></b> - Set custom start text
+<b>‣ <code>/defaultstarttext</code></b> - Revert to default start text
+<b>‣ <code>/setstartimage</code></b> - Set custom start image (reply to photo)
+<b>‣ <code>/remstartimage</code></b> - Remove custom start image
+<b>‣ <code>/addstartbutton</code></b> - Add a start button (e.g. <code>/addstartbutton "Text" https://link.com</code>)
+<b>‣ <code>/editstartbuttons</code></b> - Edit layout & colour (e.g. <code>/editstartbuttons 1 sidebyside green</code>)
+<b>‣ <code>/remstartbutton</code></b> - Clear all custom start buttons
 
-    UIHELP_TXT = """<blockquote><b>🎨 Hᴇʟᴘ Mᴇɴᴜ Cᴜsᴛᴏᴍɪᴢᴀᴛɪᴏɴ</b></blockquote>\n
-<b>‣ /sethelptext</b> - Set custom text
-<b>‣ /defaulthelptext</b> - Revert to default text
-<b>‣ /sethelpimage</b> - Set image (reply to photo)
-<b>‣ /remhelpimage</b> - Remove custom image
-<b>‣ /addhelpbutton</b> - Add a button (e.g. <code>/addhelpbutton "Text" https://link.com</code>)
-<b>‣ /edithelpbuttons</b> - Edit layout & color (e.g. <code>/edithelpbuttons 1 belowside red</code>)
-<b>‣ /remhelpbutton</b> - Clear all custom buttons"""
+👇 <i>Tap any button below to configure or execute directly:</i>"""
 
-    UIABOUT_TXT = """<blockquote><b>🎨 Aʙᴏᴜᴛ Mᴇɴᴜ Cᴜsᴛᴏᴍɪᴢᴀᴛɪᴏɴ</b></blockquote>\n
-<b>‣ /setabouttext</b> - Set custom text
-<b>‣ /defaultabouttext</b> - Revert to default text
-<b>‣ /setaboutimage</b> - Set image (reply to photo)
-<b>‣ /remaboutimage</b> - Remove custom image
-<b>‣ /addaboutbutton</b> - Add a button (e.g. <code>/addaboutbutton "Text" https://link.com</code>)
-<b>‣ /editaboutbuttons</b> - Edit layout & color
-<b>‣ /remaboutbutton</b> - Clear all custom buttons"""
+    UIHELP_TXT = """<blockquote><b>🎨 Hᴇʟᴘ Mᴇɴᴜ Cᴜsᴛᴏᴍɪᴢᴀᴛɪᴏɴ (<code>/uihelp</code>)</b></blockquote>\n
+<b>‣ <code>/sethelptext</code></b> - Set custom help text
+<b>‣ <code>/defaulthelptext</code></b> - Revert to default help text
+<b>‣ <code>/sethelpimage</code></b> - Set custom help image (reply to photo)
+<b>‣ <code>/remhelpimage</code></b> - Remove custom help image
+<b>‣ <code>/addhelpbutton</code></b> - Add a help button (e.g. <code>/addhelpbutton "Text" https://link.com</code>)
+<b>‣ <code>/edithelpbuttons</code></b> - Edit layout & colour (e.g. <code>/edithelpbuttons 1 belowside red</code>)
+<b>‣ <code>/remhelpbutton</code></b> - Clear all custom help buttons
+
+👇 <i>Tap any button below to configure or execute directly:</i>"""
+
+    UIABOUT_TXT = """<blockquote><b>🎨 Aʙᴏᴜᴛ Mᴇɴᴜ Cᴜsᴛᴏᴍɪᴢᴀᴛɪᴏɴ (<code>/uiabout</code>)</b></blockquote>\n
+<b>‣ <code>/setabouttext</code></b> - Set custom about text
+<b>‣ <code>/defaultabouttext</code></b> - Revert to default about text
+<b>‣ <code>/setaboutimage</code></b> - Set custom about image (reply to photo)
+<b>‣ <code>/remaboutimage</code></b> - Remove custom about image
+<b>‣ <code>/addaboutbutton</code></b> - Add an about button (e.g. <code>/addaboutbutton "Text" https://link.com</code>)
+<b>‣ <code>/editaboutbuttons</code></b> - Edit layout & colour
+<b>‣ <code>/remaboutbutton</code></b> - Clear all custom about buttons
+
+👇 <i>Tap any button below to configure or execute directly:</i>"""
 
     # ==========================================
     # 📝 FORMATTING GUIDE
@@ -59,44 +63,45 @@ class script(object):
 • <code>||Spoiler||</code> ➔ <tg-spoiler>Spoiler</tg-spoiler>
 • <code>`Mono`</code> ➔ <code>Mono</code>
 • <code>&gt; Quote</code> ➔ Quote
-• <code>[Link Text](http://url.com)</code> ➔ Link
-"""
+• <code>[Link Text](http://url.com)</code> ➔ Link"""
 
     # ==========================================
     # 👋 WELCOME SETTINGS
     # ==========================================
-    WELCOME_TXT = f"""<b>👋 Wᴇʟᴄᴏᴍᴇ Mᴇssᴀɢᴇs (Gʀᴏᴜᴘ Aᴅᴍɪɴs)</b>
+    WELCOME_TXT = f"""<blockquote><b>👋 Wᴇʟᴄᴏᴍᴇ Mᴇssᴀɢᴇs (<code>/welcome</code>)</b></blockquote>
 
 • <code>/enablewelcome</code> - Turn ON welcome messages.
 • <code>/disablewelcome</code> - Turn OFF welcome messages.
-• <code>/setwelcometxt &lt;text&gt;</code> - Set custom text.
+• <code>/setwelcometxt &lt;text&gt;</code> - Set custom welcome text.
 <i>Variables: {{mention}}, {{title}}, {{count}}</i>
-• <code>/setwelcomeimg</code> - Reply to an image to set it.
-• <code>/setwelcome</code> - Reply to an image with a caption to set both!
+• <code>/setwelcomeimg</code> - Reply to an image to set welcome photo.
+• <code>/setwelcome</code> - Reply to an image with caption to set both!
 • <code>/delwelcome</code> - Delete custom welcome settings.
 {FORMAT_GUIDE}"""
 
     # ==========================================
     # 🖼️ IMAGE SETTINGS
     # ==========================================
-    IMAGES_TXT = """<b>🖼️ Gʟᴏʙᴀʟ Iᴍᴀɢᴇs (Bᴏᴛ Aᴅᴍɪɴ)</b>
+    IMAGES_TXT = """<blockquote><b>🖼️ Gʟᴏʙᴀʟ Iᴍᴀɢᴇs Mᴀɴᴀɢᴇʀ (<code>/images</code>)</b></blockquote>
 
 <b>Aᴜᴛᴏ-Fɪʟᴛᴇʀ Iᴍᴀɢᴇ</b>
-• <code>/setautoimg</code> - Reply to an image to set a global default filter image.
-• <code>/remautoimg</code> - Remove global default image.
+• <code>/setautoimg</code> - Set global default auto-filter image.
+• <code>/remautoimg</code> - Remove global auto-filter image.
 
 <b>Fɪʟᴇ Nᴏᴛ Fᴏᴜɴᴅ Iᴍᴀɢᴇ</b>
-• <code>/setfilenotfoundimg</code> - Reply to image to set FNF image.
-• <code>/remfilenotfoundimg</code> - Remove FNF image.
-• <code>/defaultfilenotfoundimg</code> - Reset to repo default.
+• <code>/setfilenotfoundimg</code> - Set File Not Found image.
+• <code>/remfilenotfoundimg</code> - Remove File Not Found image.
+• <code>/defaultfilenotfoundimg</code> - Reset to default File Not Found image.
 
 <b>Fᴏʀᴄᴇ Sᴜʙsᴄʀɪʙᴇ Iᴍᴀɢᴇ</b>
-• <code>/setfsubimg</code> - Reply to an image to set it as the Force Subscribe alert photo!"""
+• <code>/setfsubimg</code> - Set the Force Subscribe alert photo.
+
+👇 <i>Tap any button below to upload or manage images directly:</i>"""
 
     # ==========================================
     # 🔍 SPELL CHECK, SMART SEARCH & NOT FOUND
     # ==========================================
-    SPELLCHECK_TXT = """<b>🔍 Sᴘᴇʟʟ Cʜᴇᴄᴋ & Sᴍᴀʀᴛ Sᴇᴀʀᴄʜ</b>
+    SPELLCHECK_TXT = """<blockquote><b>🔍 Sᴘᴇʟʟ Cʜᴇᴄᴋ & Sᴍᴀʀᴛ Sᴇᴀʀᴄʜ (<code>/spellcheck</code>)</b></blockquote>
 
 <b>Sᴘᴇʟʟ Cʜᴇᴄᴋ & Sᴍᴀʀᴛ Tᴏɢɢʟᴇs</b>
 ‣ <code>/enablespellcheck</code> - Turn ON spelling suggestions.
@@ -118,12 +123,12 @@ class script(object):
     # ==========================================
     # 📝 FILTERS (Manual & Auto-Filter)
     # ==========================================
-    FILTERS_TXT = """<blockquote><b>📝 Filter Management\nAdd, delete, or view filters to customize responses based on keywords.</b></blockquote>\n
-<b>‣ <code>/filter</code> - Add a text filter (Reply <code>/filter keyword</code> to a message)
-‣ <code>/addfilter</code> - Add a text filter from pre-made buttons
-‣ <code>/filterimage</code> - Update only image for a filter (Reply to image with <code>/filterimage keyword</code>)
-‣ <code>/editfiltercolur</code> - Change button colour (<code>/editfiltercolur keyword 1 green</code>)
-‣ <code>/delfilter</code> - Delete a text filter (<code>/delfilter keyword</code>)
+    FILTERS_TXT = """<blockquote><b>📝 Fɪʟᴛᴇʀ Mᴀɴᴀɢᴇᴍᴇɴᴛ (<code>/Autofilter</code>)</b></blockquote>\n
+<b>‣ <code>/filter</code> - Add a text/media filter (<code>/filter keyword</code>)
+‣ <code>/addfilter</code> - Add a filter from pre-made inline buttons
+‣ <code>/filterimage</code> - Update only the media/image for a filter
+‣ <code>/editfiltercolur</code> - Change filter button colour (<code>/editfiltercolur keyword 1 green</code>)
+‣ <code>/delfilter</code> - Delete a filter (<code>/delfilter keyword</code>)
 ‣ <code>/listfilters</code> - List all filters currently added in the group
 
 Supports text, photo, video, animation, and sticker filters.</b>"""
@@ -148,213 +153,162 @@ Supports text, photo, video, animation, and sticker filters.</b>"""
     # ==========================================
     # 📱 FORCE SUBSCRIBE
     # ==========================================
-    FORCESUB_TXT = """<blockquote><b>Force Subscription Management\nSet, manage, or clear force subscribe channels.</b></blockquote>\n
-<b>‣ /enablefsub - Enable force subscribe
-‣ /disablefsub - Disable force subscribe
-‣ /setfsubcount - Set maximum Fsub chat count for queue
-‣ /setfsub - Set force subscribe channel (<code>/setfsub channel_id</code>)
-‣ /rmfsub - Remove force subscribe channel (<code>/rmfsub channel_id</code>)
-‣ /rmallfsub - Remove all force subscribe channels
-‣ /getallfsub - Get all force subscribe channel details
-‣ /getactivefsub - Get active force subscribe channels
-‣ /getpendingfsub - Get pending force subscribe channels in queue
-‣ /activatefsub - Activate pending force subscribe channel
-‣ /deactivatefsub - Deactivate force subscribe channel
-‣ /updatefsubtarget - Update force subscribe channel target
-‣ /checkfsubusers - Check force subscribe users count
-‣ /clearfsubusers - Clear all force subscribe users from DB\n
-🚪 JOIN REQUESTS:
-‣ /totalrequests - Get total pending join requests
-‣ /purgerequests - Purge all join requests from database</b>"""
+    FORCESUB_TXT = """<blockquote><b>📱 Fᴏʀᴄᴇ Sᴜʙsᴄʀɪᴘᴛɪᴏɴ Mᴀɴᴀɢᴇᴍᴇɴᴛ (<code>/forcesub</code>)</b></blockquote>\n
+<b>‣ <code>/enablefsub</code> - Enable force subscribe
+‣ <code>/disablefsub</code> - Disable force subscribe
+‣ <code>/rotatefsub</code> - Toggle 1-hour auto-rotation on/off
+‣ <code>/setfsub</code> - Add force subscribe channel (<code>/setfsub channel_id</code>)
+‣ <code>/rmfsub</code> - Remove force subscribe channel (<code>/rmfsub channel_id</code>)
+‣ <code>/rmallfsub</code> - Remove all force subscribe channels
+‣ <code>/getallfsub</code> - View all force subscribe channels
+
+🚪 Jᴏɪɴ Rᴇǫᴜᴇsᴛs:
+‣ <code>/totalrequests</code> - Get total pending join requests
+‣ <code>/purgerequests</code> - Purge all join requests from database</b>"""
 
     # ==========================================
     # 👥 FORCE ADD
     # ==========================================
-    FORCEADD_TXT = """<blockquote><b>ForceAdd Management</b></blockquote>\n
-<b>‣ /setforceadd - Set a Force Add channel for the group.
-‣ /remforceadd - Remove the current Force Add channel.
-‣ /getforceadd - View the configured Force Add channel.
-‣ /topaddall - Show the all-time top inviters leaderboard.
-‣ /topadd24 - Show the top inviters in the last 24 hours.
-‣ /topadd7 - Show the top inviters from the last 7 days.
-‣ /resetadddaily - Reset today's add statistics.
-‣ /resetadd - Reset all Force Add statistics.
-‣ /myadds - Check your personal add count and ranking.</b>"""
-
-    # ==========================================
-    # 🗑️ DELETE COMMANDS
-    # ==========================================
-    DELETE_TXT = """<blockquote><b>File/Auto Deletion Management\nDelete files from the database or configure auto-delete settings for files and button messages in groups.</b></blockquote>\n
-<b>‣ /delete - Reply to a file to delete it from database
-‣ /delmulti - Delete multiple files from database with name (<code>/delmulti name</code>)
-‣ /autodelete - Set file auto delete time in seconds
-‣ /buttondel - Set button message in groups auto delete time in seconds
-‣ /purgeduplicates - Scan DB, keep highest resolution, and delete redundant clones</b>"""
+    FORCEADD_TXT = """<blockquote><b>👥 Fᴏʀᴄᴇ Aᴅᴅ Mᴀɴᴀɢᴇᴍᴇɴᴛ (<code>/forceadd</code>)</b></blockquote>\n
+<b>‣ <code>/setforceadd</code> - Set required member add count or channel for the group.
+‣ <code>/remforceadd</code> - Disable/remove Force Add for the group.
+‣ <code>/getforceadd</code> - View current Force Add configuration.
+‣ <code>/myadds</code> - Check your personal member add count & rank.
+‣ <code>/topaddall</code> - Show all-time top inviters leaderboard.
+‣ <code>/topadd24</code> - Show top inviters in the last 24 hours.
+‣ <code>/topadd7</code> - Show top inviters from the last 7 days.
+‣ <code>/resetadddaily</code> - Reset today's add statistics.
+‣ <code>/resetadd</code> - Reset all Force Add statistics.</b>"""
 
     # ==========================================
     # 🚫 BANS & RESTRICTIONS
     # ==========================================
-    BANS_TXT = """<blockquote><b>User Management\nBan or unban users to control access to the bot.</b></blockquote>\n
-<b>‣ /ban - Ban a user from bot (<code>/ban user_id</code>)
-‣ /unban - Unban a user from bot (<code>/unban user_id</code>)
-‣ /bannedusers - Check Banned Users List
-‣ /leave - Force bot to leave a chat
-‣ /enable - Whitelist a group
-‣ /disable - Blacklist a group</b>"""
+    BANS_TXT = """<blockquote><b>🚫 Usᴇʀ & Cʜᴀᴛ Rᴇsᴛʀɪᴄᴛɪᴏɴs (<code>/bans</code>)</b></blockquote>\n
+<b>‣ <code>/ban</code> - Ban a user from using the bot (<code>/ban user_id</code>)
+‣ <code>/unban</code> - Unban a user from the bot (<code>/unban user_id</code>)
+‣ <code>/bannedusers</code> - View total banned users
+‣ <code>/leave</code> - Force bot to leave a chat (<code>/leave chat_id</code>)
+‣ <code>/enable</code> - Enable / whitelist a group chat (<code>/enable chat_id</code>)
+‣ <code>/disable</code> - Disable / blacklist a group chat (<code>/disable chat_id</code>)</b>"""
 
     # ==========================================
-    # 📝 CUSTOM CAPTION & MESSAGES
+    # 🗑️ DELETE COMMANDS
     # ==========================================
-    CUSTOMCAPTION_TXT = """<blockquote><b>File Caption Management\nManage or customize captions for files, including additional captions, to enhance file presentation.</b></blockquote>\n
-<b>‣ /customcaption - Set custom caption for files (Reply to message to set, or <code>/customcaption off</code> to disable)
-‣ /captionplus - Set additional caption for files along with main caption (Reply to message to set, or <code>/captionplus off</code> to disable)</b>
-
-<b>Vᴀʀɪᴀʙʟᴇs:</b>
-• <code>{file_name}</code> - Name of the file
-• <code>{file_size}</code> - Size of the file
-• <code>{file_caption}</code> - Original caption"""
-
-    CUSTOMMESSAGES_TXT = """<blockquote><b>Custom Messages & Images\nConfigure custom messages and images for various actions.</b></blockquote>\n
-<b>‣ /infomsg - Set info message before sending file
-‣ /infoimg - Set info image before sending file
-‣ /delmsg - Set delete message after sending file
-‣ /delimg - Set delete image after sending file
-‣ /notfoundmsg - Set message to send when file not found
-‣ /notfoundimg - Set image to send when file not found
-‣ /fsubmsg - Set force subscribe message
-‣ /fsubimg - Set force subscribe image\n
-<i>(Reply to a message/image with the command to set it, or use <code>off</code> to remove)</i></b>"""
-
-    # ==========================================
-    # 📚 INDEXING (File Save)
-    # ==========================================
-    INDEX_TXT = """<b>📚 Indexing
-‣ <code>/index</code> - Save all media to DB
-‣ <code>/indexvideo</code> - Save only videos
-‣ <code>/indexdoc</code> - Save only documents
-‣ <code>/indexaudio</code> - Save only audio
-‣ <code>/resumeindex</code> - Resume stopped indexing
-
-⏩ Speed & Skip
-‣ <code>/setskip</code> - Skip first X messages
-‣ <code>/currentskip</code> - View current skip count
-‣ <code>/deleteskip</code> - Reset skip to 0
-‣ <code>/setindexspeed</code> - Set delay between fetches
-
-⚖️ Filters
-‣ <code>/setminsize</code> - Set minimum file size (MB)
-‣ <code>/setblacklist</code> - Add words to ignore
-‣ <code>/remblacklist</code> - Remove ignored word
-‣ <code>/allblacklist</code> - View ignored words
-‣ <code>/setwhitelist</code> - Index ONLY these words
-‣ <code>/remwhitelist</code> - Remove whitelist word
-‣ <code>/allwhitelist</code> - View whitelist words
-
-🛡️ Auto-Backup & Links
-‣ <code>/setbackupchannel</code> - Set private backup chat ID
-‣ <code>/autobackup</code> - Toggle Anti-Copyright shield
-‣ <code>/link</code> - Get shareable link for a file
-‣ <code>/plink</code> - Get protected shareable link
-‣ <code>/batch</code> - Index entire channel in bulk
-‣ <code>/pbatch</code> - Index entire channel in bulk (Protected Content)
-
-🧹 Database Cleanup
-‣ <code>/purgeduplicates</code> - Scan & Delete duplicate DB entries
-‣ <code>/cleandeadlinks</code> - Remove broken Telegram links
-‣ <code>/total</code> - Count total indexed files
-‣ <code>/clearfiles</code> - ⚠️ Nuke entire file database!</b>"""
+    DELETE_TXT = """<blockquote><b>🗑️ Fɪʟᴇ & Aᴜᴛᴏ-Dᴇʟᴇᴛɪᴏɴ Mᴀɴᴀɢᴇᴍᴇɴᴛ (<code>/deletes</code>)</b></blockquote>\n
+<b>‣ <code>/delete</code> - Reply to a file or send file name to delete from DB
+‣ <code>/delmulti</code> - Delete multiple files matching a keyword (<code>/delmulti keyword</code>)
+‣ <code>/autodelete</code> - Set PM file auto-delete timer in seconds
+‣ <code>/buttondel</code> - Set group search results auto-delete timer in seconds
+‣ <code>/purgeduplicates</code> - Scan DB and remove duplicate files automatically</b>"""
 
     # ==========================================
     # 📢 PROMOTIONS & BROADCAST
     # ==========================================
-    PROMOTIONS_TXT = """<blockquote><b>Manage Promotional Links\nEasily add, delete, or view promotional links displayed between search results.</b></blockquote>\n
-<b>‣ /addpromo - Set promotional links between results (<code>/addpromo "Button Text" URL</code>)
-‣ /delpromo - Delete promotional links between results (<code>/delpromo URL</code>)
-‣ /listpromos - List all promotional links currently added in the DB
+    PROMOTIONS_TXT = """<blockquote><b>📢 Pʀᴏᴍᴏᴛɪᴏɴs & Bʀᴏᴀᴅᴄᴀsᴛ Mᴀɴᴀɢᴇᴍᴇɴᴛ (<code>/broadcasts</code>)</b></blockquote>\n
+<b>‣ <code>/addpromo</code> - Add promotional button (<code>/addpromo "Button Text" URL</code>)
+‣ <code>/delpromo</code> - Delete a promotional button (<code>/delpromo URL</code>)
+‣ <code>/listpromos</code> - View all active promotional buttons
 
-💬 Bʀᴏᴀᴅᴄᴀsᴛɪɴɢ (Aᴜᴛᴏ-ᴅᴇʟᴇᴛᴇs ɪɴ 24ʜ)
-‣ /broadcast - Send to all users
-‣ /group_broadcast - Send to all groups</b>"""
+💬 Bʀᴏᴀᴅᴄᴀsᴛɪɴɢ:
+‣ <code>/broadcast</code> - Broadcast a message to all bot users
+‣ <code>/group_broadcast</code> - Broadcast a message to all connected groups
+‣ <code>/listbroadcast</code> - View active/recent broadcast status & statistics</b>"""
+
+    # ==========================================
+    # 📚 INDEXING (File Save)
+    # ==========================================
+    INDEX_TXT = """<blockquote><b>📚 Cʜᴀɴɴᴇʟ Iɴᴅᴇxɪɴɢ Mᴀɴᴀɢᴇʀ (<code>/indexs</code>)</b></blockquote>\n
+<b>📚 Iɴᴅᴇxɪɴɢ Mᴏᴅᴇs:
+‣ <code>/index</code> - Index all media from a channel
+‣ <code>/indexdoc</code> - Index only document files
+‣ <code>/indexvideo</code> - Index only video files
+‣ <code>/indexaudio</code> - Index only audio files
+‣ <code>/resumeindex</code> - Resume interrupted indexing for a channel
+
+⏩ Sᴋɪᴘ Cᴏɴᴛʀᴏʟs:
+‣ <code>/setskip</code> - Set starting message skip number
+‣ <code>/deleteskip</code> - Reset skip number back to 0
+‣ <code>/currentskip</code> - View current skip number</b>"""
 
     # ==========================================
     # ⚙️ SETTINGS & CONNECTIONS
     # ==========================================
-    SETTINGS_TXT = """<blockquote><b>Bot Settings Management</b></blockquote>\n
-<b>‣ /repairmode - Enable or disable repair mode (If on, bot will not send any files)
-‣ /adminsettings - Get current admin settings
-‣ /enablereaction - Enable Auto-Heart reactions globally
-‣ /disablereaction - Disable Auto-Heart reactions globally</b>"""
+    SETTINGS_TXT = """<blockquote><b>⚙️ Bᴏᴛ Sᴇᴛᴛɪɴɢs Mᴀɴᴀɢᴇᴍᴇɴᴛ (<code>/settings</code>)</b></blockquote>\n
+<b>‣ <code>/repairmode</code> - Enable or disable maintenance mode
+‣ <code>/adminsettings</code> - View current admin configuration dashboard
+‣ <code>/enablereaction</code> - Enable auto-reactions globally
+‣ <code>/disablereaction</code> - Disable auto-reactions globally</b>"""
 
-    CONNECTIONS_TXT = """<blockquote><b>𝗖𝗼𝗺𝗺𝗮𝗻𝗱𝘀 𝗮𝗻𝗱 𝗨𝘀𝗮𝗴𝗲\nUsed to connect bot to PM for managing filters, avoiding spamming in groups.</b></blockquote>\n
-<b>‣ /connect - Connect a particular chat to your PM
-‣ /disconnect - Disconnect from a chat
-‣ /connections - List all your connections
-
-• <code>/channels</code> - Interactive menu of all connected channels/groups.
-• <code>/leavechannel &lt;id&gt;</code> - Force leave and scrub a channel from DB.
-• <code>/exportusers</code> - Download .txt list of all users.
-• <code>/exportgroups</code> - Download .txt list of all groups.
-• <code>/exportchannels</code> - Download .txt list of all channels.</b>"""
+    CONNECTIONS_TXT = """<blockquote><b>🌐 Cᴏɴɴᴇᴄᴛɪᴏɴs & Eхᴘᴏʀᴛ Mᴀɴᴀɢᴇʀ (<code>/conection</code>)</b></blockquote>\n
+<b>‣ <code>/connect</code> - Connect a group to your PM (<code>/connect group_id</code>)
+‣ <code>/disconnect</code> - Disconnect an active group
+‣ <code>/connections</code> - View & switch between connected groups
+‣ <code>/channels</code> - Paginated list of all connected channels & groups
+‣ <code>/leavechannel</code> - Leave and remove a channel/group from DB
+‣ <code>/exportusers</code> - Export `.txt` file of all user IDs
+‣ <code>/exportgroups</code> - Export `.txt` file of all group IDs
+‣ <code>/exportchannels</code> - Export `.txt` file of all channel IDs</b>"""
 
     # ==========================================
     # 📊 UTILITIES & BACKUP
     # ==========================================
-    UTILITIES_TXT = """<blockquote><b>Utility Commands\nAccess bot logs, server stats, restart the bot, get user and file counts, send broadcasts, and more.</b></blockquote>\n
-<b>‣ /channels - List all connected groups and channels (15 per page)
-‣ /leavechannel - Leave a channel or group by ID
-‣ /logs - Get logs as a file
-‣ /server - Get server stats
-‣ /restart - Restart the bot
-‣ /stats - Database statistics
-‣ /analize - View Live Trending Search Dashboard
-‣ /exportstats - Export full search history data to .txt
-‣ /optimize_db - Optimize Database indexes for speed
-‣ /broadcast - Reply to a message to send that to all bot users
-‣ /total - Get count of total files in DB
-‣ /clearfiles - Clear all files from DB
-‣ /users_list - Get list of users in DB
-‣ /clearusers - Clear all users from DB
-‣ /cleanusers - Ping all users to purge deleted accounts
-‣ /clearfsubusers - Clear all force subscribe users from DB</b>"""
+    UTILITIES_TXT = """<blockquote><b>📊 Uᴛɪʟɪᴛɪᴇs & Dᴀᴛᴀʙᴀsᴇ Tᴏᴏʟs (<code>/utilitys</code>)</b></blockquote>\n
+<b>‣ <code>/logs</code> - Download the latest bot log file
+‣ <code>/server</code> - View live CPU, RAM, and Disk usage
+‣ <code>/stats</code> - View complete database statistics
+‣ <code>/optimize_db</code> - Optimize MongoDB indexes for maximum speed
+‣ <code>/total</code> - View total indexed files count
+‣ <code>/clearfsubusers</code> - Clear all ForceSub user records
+‣ <code>/clearfiles</code> - ⚠️ Delete all indexed media files from DB
+‣ <code>/clearusers</code> - ⚠️ Delete all users from DB
+‣ <code>/cleanusers</code> - Scan & remove blocked/deleted user accounts</b>"""
 
-    BACKUP_TXT = """<blockquote><b>Database Backup Management\nManage database backups, including scheduled backups and manual backups.</b></blockquote>\n
-<b>These commands are only available for the ADMINS of the bot.</b>\n
-<b>‣ /dbbackup - Generate full JSON backup of your database.
-‣ /dbrestore - (reply to .json file) - Restore database from file.
-‣ /dbstats - Detailed MongoDB specs.
-‣ /dbschedule - Start 24h automated backup cron job.</b>"""
+    CUSTOMMESSAGES_TXT = """<blockquote><b>💬 Cᴜsᴛᴏᴍ Mᴇssᴀɢᴇs & Iᴍᴀɢᴇs (<code>/custommessges</code>)</b></blockquote>\n
+<b>‣ <code>/infomsg</code> - Set info message before sending file
+‣ <code>/infoimg</code> - Set info image before sending file
+‣ <code>/fsubmsg</code> - Set custom Force Subscribe message
+‣ <code>/fsubimg</code> - Set custom Force Subscribe image
+‣ <code>/delmsg</code> - Set custom auto-delete warning message
+‣ <code>/delimg</code> - Set custom auto-delete warning image
+‣ <code>/notfoundmsg</code> - Set custom File Not Found message
+‣ <code>/notfoundimg</code> - Set custom File Not Found image</b>"""
+
+    CUSTOMCAPTION_TXT = """<blockquote><b>📝 Fɪʟᴇ Cᴀᴘᴛɪᴏɴ Mᴀɴᴀɢᴇᴍᴇɴᴛ (<code>/customcaptions</code>)</b></blockquote>\n
+<b>‣ <code>/customcaption</code> - Set custom file caption template (or <code>off</code> to disable)
+‣ <code>/captionplus</code> - Set extra footer caption appended to all files (or <code>off</code> to disable)</b>
+
+<b>Vᴀʀɪᴀʙʟᴇs:</b>
+• <code>{file_name}</code> - Name of the file
+• <code>{file_size}</code> - Size of the file
+• <code>{file_caption}</code> - Original file caption"""
+
+    BACKUP_TXT = """<blockquote><b>💾 Dᴀᴛᴀʙᴀsᴇ Bᴀᴄᴋᴜᴘ Mᴀɴᴀɢᴇᴍᴇɴᴛ (<code>/backups</code>)</b></blockquote>\n
+<b>‣ <code>/dbbackup</code> - Generate full JSON backup of your database
+‣ <code>/dbrestore</code> - Reply to a `.json` backup file to restore DB
+‣ <code>/dbstats</code> - View detailed MongoDB storage & collection specs
+‣ <code>/dbschedule</code> - Toggle 24-hour automated backup schedule</b>"""
 
     # ==========================================
     # 💬 PM AUTO-REPLY & POST HANDLER
     # ==========================================
-    PMAUTOREPLY_TXT = """<b>💬 PM Auto-Reply Engine</b>
-
-Configure what the bot says when someone messages it directly in PM.
+    PMAUTOREPLY_TXT = """<blockquote><b>💬 PM Aᴜᴛᴏ-Rᴇᴘʟʏ Eɴɢɪɴᴇ (<code>/pmautoreply</code>)</b></blockquote>
 
 <b>Commands:</b>
 • <code>/pmautoreply</code> - Toggle PM Auto-Reply ON or OFF.
-• <code>/setpmtext [text]</code> - Set PM reply text (HTML bold, italics, links supported).
-• <code>/rempmtext</code> - Reset text to default.
-• <code>/setpmimage [URL/Reply]</code> - Set PM image.
+• <code>/setpmtext [text]</code> - Set PM reply text (HTML supported).
+• <code>/rempmtext</code> - Reset PM text to default.
+• <code>/setpmimage</code> - Reply to a photo to set PM image.
 • <code>/rempmimage</code> - Remove PM image.
-• <code>/setpmbutton [Text | URL | Color]</code> - Set colored PM button (green, red, blue).
+• <code>/setpmbutton [Text | URL | Color]</code> - Set PM button.
 • <code>/rempmbutton</code> - Remove PM button."""
 
-    POSTHAND_TXT = """<b>📝 POST HANDLER GUIDE
+    POSTHAND_TXT = """<blockquote><b>📝 Pᴏsᴛ Hᴀɴᴅʟᴇʀ Gᴜɪᴅᴇ (<code>/post</code>)</b></blockquote>
 
-‣ <code>/post</code> - Start manual post session with interactive search
-‣ <code>/editpost</code> - Import and edit an existing channel post via link
-‣ <code>/resumepost</code> - Restore lost/interrupted draft from MongoDB
-‣ <code>/hydra</code> - Toggle Hydra Anti-Ban engine (on/off)
-‣ <code>/updatealllinks</code> - Mass update old inline URLs across channel posts
-‣ <code>/editposttitle</code> / <code>/edittitle</code> - Edit movie title in active draft
-‣ <code>/editpostyear</code> / <code>/edityear</code> - Edit release year in active draft
-‣ <code>/editpostbutton</code> - Edit custom inline button (Number Text | URL)
-‣ <code>/editpostbuttoncolour</code> / <code>/editbuttoncolour</code> - Change button colour (green/red/blue)
-‣ <code>/editpostdirect</code> / <code>/editdirect</code> - Change Direct Search button URL
-‣ <code>/editpostlangs</code> / <code>/editlangs</code> - Edit languages list in active draft
-‣ <code>/editpostresolutions</code> / <code>/editresolutions</code> - Edit resolutions list in active draft
-‣ <code>/editpostgenres</code> / <code>/editgenres</code> - Edit genres list in active draft
-‣ <code>/editpostotts</code> / <code>/editotts</code> - Edit OTT platforms list in active draft
-‣ <code>/editpostimage</code> / <code>/editimage</code> - Set preview URL/poster for draft
-‣ <code>/editpostnormalimage</code> / <code>/editnormalimage</code> - Set normal photo file_id for draft</b>"""
+<b>‣ <code>/post &lt;movie_name&gt;</code> - Start interactive movie post creator
+‣ <code>/editpost &lt;post_link&gt;</code> - Import and edit an existing channel post
+‣ <code>/edittitle</code> / <code>/edityear</code> - Edit title or year in active draft
+‣ <code>/editlangs</code> / <code>/editresolutions</code> - Edit languages or resolutions
+‣ <code>/editgenres</code> / <code>/editotts</code> - Edit genres or OTT platforms
+‣ <code>/editbutton</code> / <code>/editbuttoncolour</code> - Edit custom buttons & colours
+‣ <code>/editdirect</code> - Edit Direct Search button text/link
+‣ <code>/setpoststicker</code> / <code>/rempoststicker</code> - Manage auto-post sticker</b>"""
