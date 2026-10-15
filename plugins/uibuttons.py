@@ -64,11 +64,6 @@ except Exception:
     _plugin_db = None
 
 try:
-    from plugins.fsub import ForceSub
-except Exception:
-    ForceSub = None
-
-try:
     from utils import parse_text_and_markup as _parse_text_and_markup
 except Exception:
     _parse_text_and_markup = None
@@ -135,13 +130,6 @@ async def _ensure_ui_synced() -> Dict[str, Any]:
         from plugins.editable import get_ui
 
         return await get_ui()
-    except ImportError:
-        try:
-            from editable import get_ui
-
-            return await get_ui()
-        except Exception:
-            return {}
     except Exception:
         return {}
 
@@ -152,13 +140,6 @@ async def _get_custom_rows(menu_name: str) -> List[List[InlineKeyboardButton]]:
         from plugins.editable import get_custom_menu_rows
 
         return await get_custom_menu_rows(menu_name)
-    except ImportError:
-        try:
-            from editable import get_custom_menu_rows
-
-            return await get_custom_menu_rows(menu_name)
-        except Exception:
-            return []
     except Exception:
         return []
 
@@ -351,7 +332,6 @@ async def safe_answer(
     show_alert: bool = False,
     url: Optional[str] = None,
 ):
-    """Safely answers a CallbackQuery without ever raising QueryIdInvalid."""
     if not query:
         return
     try:
@@ -363,6 +343,111 @@ async def safe_answer(
         await query.answer(**kwargs)
     except (QueryIdInvalid, Exception):
         pass
+
+
+# ============================================================
+# ⚡ CLOUD IMAGE UPLOADER & MARKUP PARSER HELPERS
+# ============================================================
+def _upload_sync(file_bytes):
+    headers = {"User-Agent": "Mozilla/5.0"}
+    endpoints = [
+        (
+            "https://catbox.moe/user/api.php",
+            {"fileToUpload": ("img.jpg", file_bytes, "image/jpeg")},
+            {"reqtype": "fileupload"},
+        ),
+        (
+            "https://graph.org/upload",
+            {"file": ("img.jpg", file_bytes, "image/jpeg")},
+            None,
+        ),
+        ("https://envs.sh", {"file": ("img.jpg", file_bytes, "image/jpeg")}, None),
+        ("https://x0.at", {"file": ("img.jpg", file_bytes, "image/jpeg")}, None),
+        ("https://ttm.sh", {"file": ("img.jpg", file_bytes, "image/jpeg")}, None),
+        ("https://0x0.st", {"file": ("img.jpg", file_bytes, "image/jpeg")}, None),
+    ]
+    for url, files_dict, data_dict in endpoints:
+        try:
+            res = requests.post(
+                url, data=data_dict, files=files_dict, headers=headers, timeout=8
+            )
+            if res.status_code == 200:
+                if url == "https://graph.org/upload":
+                    return "https://graph.org" + res.json()[0]["src"]
+                elif res.text.strip().startswith("http"):
+                    return res.text.strip()
+        except Exception:
+            continue
+    return None
+
+
+async def upload_image_safely(client: Client, message: Message) -> Optional[str]:
+    try:
+        file_io = await client.download_media(message, in_memory=True)
+        if not file_io:
+            return None
+        return await asyncio.to_thread(_upload_sync, file_io.getvalue())
+    except Exception:
+        return None
+
+
+def safe_parse_text_and_markup(text: str, default_markup=None):
+    if not text:
+        return "", default_markup
+    if callable(_parse_text_and_markup):
+        try:
+            parsed_text, parsed_markup = _parse_text_and_markup(text, default_markup)
+            return parsed_text or text, parsed_markup or default_markup
+        except Exception as e:
+            logger.error(f"parse_text_and_markup fallback triggered: {e}")
+    return text, default_markup
+
+
+class _SafeFormatDict(dict):
+    def __missing__(self, key):
+        return ""
+
+
+def format_script_text(
+    template: str,
+    mention: str = "User",
+    uname: str = None,
+    bname: str = None,
+    **extra_kwargs,
+) -> str:
+    if not template:
+        return ""
+    uname = uname or getattr(temp, "U_NAME", None) or "Bot"
+    bname = bname or getattr(temp, "B_NAME", None) or "MovieBot"
+
+    mapping = _SafeFormatDict(
+        mention=mention,
+        user=mention,
+        uname=uname,
+        bname=bname,
+        bot=bname,
+        plane_emoji=MESSAGE_EMOJI_PLANE,
+        link_emoji=MESSAGE_EMOJI_LINK,
+        **extra_kwargs,
+    )
+
+    try:
+        return template.format_map(mapping)
+    except (IndexError, ValueError, KeyError):
+        try:
+            return template.format(
+                mention,
+                uname,
+                bname,
+                MESSAGE_EMOJI_PLANE,
+                MESSAGE_EMOJI_LINK,
+                **mapping,
+            )
+        except Exception:
+            try:
+                return template.format(mention, bname)
+            except Exception:
+                return template
 
 
 # ============================================================
@@ -409,7 +494,6 @@ async def save_pm_settings(key: str, value: Any):
 
 
 async def get_clean_words_state() -> Tuple[bool, List[str]]:
-    """Returns (use_default, active_words_list)."""
     if cw_db is None:
         return True, list(DEFAULT_CLEAN_WORDS)
     try:
@@ -467,53 +551,86 @@ async def get_active_connected_group(
 
 
 # ============================================================
-# ⚡ CLOUD IMAGE UPLOADER (ZERO-FAIL)
+# 🔄 INTERACTIVE INPUT LISTENER FOR HELP BUTTONS (NON-STUCK)
 # ============================================================
-def _upload_sync(file_bytes):
-    headers = {"User-Agent": "Mozilla/5.0"}
-    endpoints = [
-        (
-            "https://catbox.moe/user/api.php",
-            {"fileToUpload": ("img.jpg", file_bytes, "image/jpeg")},
-            {"reqtype": "fileupload"},
-        ),
-        (
-            "https://graph.org/upload",
-            {"file": ("img.jpg", file_bytes, "image/jpeg")},
-            None,
-        ),
-        ("https://envs.sh", {"file": ("img.jpg", file_bytes, "image/jpeg")}, None),
-        ("https://x0.at", {"file": ("img.jpg", file_bytes, "image/jpeg")}, None),
-        ("https://ttm.sh", {"file": ("img.jpg", file_bytes, "image/jpeg")}, None),
-        ("https://0x0.st", {"file": ("img.jpg", file_bytes, "image/jpeg")}, None),
-    ]
-    for url, files_dict, data_dict in endpoints:
-        try:
-            res = requests.post(
-                url, data=data_dict, files=files_dict, headers=headers, timeout=8
-            )
-            if res.status_code == 200:
-                if url == "https://graph.org/upload":
-                    return "https://graph.org" + res.json()[0]["src"]
-                elif res.text.strip().startswith("http"):
-                    return res.text.strip()
-        except Exception:
-            continue
-    return None
+_CMD_WAITING_INPUT: Dict[int, Dict[str, Any]] = {}
 
 
-async def upload_image_safely(client: Client, message: Message):
+def is_waiting_for_cmd_input(chat_id: int) -> bool:
+    """Used by plugins/commands.py and plugins/index.py so auto-handlers do not interrupt interactive prompts."""
+    return int(chat_id) in _CMD_WAITING_INPUT
+
+
+def cancel_cmd_user_input(chat_id: int):
+    session = _CMD_WAITING_INPUT.pop(int(chat_id), None)
+    if session:
+        fut = session.get("future")
+        if fut and not fut.done():
+            fut.cancel()
+        prompt_msg = session.get("prompt_msg")
+        if prompt_msg:
+            try:
+                asyncio.create_task(prompt_msg.delete())
+            except Exception:
+                pass
+
+
+@Client.on_message(filters.private | filters.group, group=-15)
+async def _cmd_interactive_listener(client: Client, message: Message):
+    chat_id = message.chat.id
+    if chat_id not in _CMD_WAITING_INPUT:
+        return
+    if (
+        message.text
+        and message.text.startswith("/")
+        and message.text.strip().lower() not in ["/cancel"]
+    ):
+        cancel_cmd_user_input(chat_id)
+        return
+
+    uid = (
+        message.from_user.id
+        if message.from_user
+        else getattr(message.sender_chat, "id", 0)
+    )
+    session = _CMD_WAITING_INPUT.get(chat_id)
+    if session and (uid == session["user_id"] or uid == chat_id):
+        fut = session["future"]
+        if not fut.done():
+            fut.set_result(message)
+        message.stop_propagation()
+
+
+async def wait_cmd_user_input(
+    chat_id: int,
+    user_id: int,
+    prompt_msg: Optional[Message] = None,
+    timeout: int = 90,
+) -> Optional[Message]:
+    cancel_cmd_user_input(chat_id)
+    loop = asyncio.get_running_loop()
+    future = loop.create_future()
+    _CMD_WAITING_INPUT[int(chat_id)] = {
+        "future": future,
+        "user_id": user_id,
+        "prompt_msg": prompt_msg,
+    }
     try:
-        file_io = await client.download_media(message, in_memory=True)
-        if not file_io:
-            return None
-        return await asyncio.to_thread(_upload_sync, file_io.getvalue())
-    except Exception:
+        return await asyncio.wait_for(future, timeout=timeout)
+    except (asyncio.TimeoutError, asyncio.CancelledError):
         return None
+    finally:
+        if _CMD_WAITING_INPUT.get(int(chat_id), {}).get("future") is future:
+            _CMD_WAITING_INPUT.pop(int(chat_id), None)
+        if prompt_msg:
+            try:
+                await prompt_msg.delete()
+            except Exception:
+                pass
 
 
 # ============================================================
-# 🔘 GENERAL KEYBOARD & BUTTON BUILDERS
+# 🔘 KEYBOARD & BUTTON BUILDERS
 # ============================================================
 def get_close_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([[create_btn("🔐 Close", callback_data="close_data")]])
@@ -608,7 +725,7 @@ def append_fsub_back_button(
 
 
 async def get_start_keyboard(client: Client, user_id: int) -> InlineKeyboardMarkup:
-    buttons: List[List[InlineKeyboardButton]] = [
+    buttons = [
         [
             create_btn(
                 "✈️ Gʀᴏᴜᴘ 1",
@@ -627,8 +744,6 @@ async def get_start_keyboard(client: Client, user_id: int) -> InlineKeyboardMark
             ),
         ]
     ]
-
-    # Attach any custom Start buttons added via /addstartbutton in plugins/editable.py
     custom_rows = await _get_custom_rows("start")
     if custom_rows:
         buttons.extend(custom_rows)
@@ -653,8 +768,7 @@ async def get_start_keyboard(client: Client, user_id: int) -> InlineKeyboardMark
 
 
 async def get_help_keyboard() -> InlineKeyboardMarkup:
-    """Main Help Menu Keyboard with all 20 categories and custom help buttons."""
-    rows: List[List[InlineKeyboardButton]] = [
+    rows = [
         [
             create_btn("🖥️ UI Start", callback_data="helps_uistart"),
             create_btn("🖥️ UI Help", callback_data="helps_uihelp"),
@@ -696,16 +810,11 @@ async def get_help_keyboard() -> InlineKeyboardMarkup:
             create_btn("💬 PM Auto Reply", callback_data="helps_pmautoreply"),
             create_btn("🧹 Clean Filename", callback_data="helps_cleanfile"),
         ],
-        [
-            create_btn("💾 Backup", callback_data="helps_backup"),
-        ],
+        [create_btn("💾 Backup", callback_data="helps_backup")],
     ]
-
-    # Attach any custom Help buttons added via /addhelpbutton in plugins/editable.py
     custom_rows = await _get_custom_rows("help")
     if custom_rows:
         rows.extend(custom_rows)
-
     rows.append(
         [
             create_btn("🔙 Back", callback_data="start"),
@@ -716,13 +825,10 @@ async def get_help_keyboard() -> InlineKeyboardMarkup:
 
 
 async def get_about_keyboard() -> InlineKeyboardMarkup:
-    rows: List[List[InlineKeyboardButton]] = []
-
-    # Attach any custom About buttons added via /addaboutbutton in plugins/editable.py
+    rows = []
     custom_rows = await _get_custom_rows("about")
     if custom_rows:
         rows.extend(custom_rows)
-
     rows.extend(
         [
             [create_btn("📊 Sᴛᴀᴛᴜs", callback_data="stats")],
@@ -769,14 +875,9 @@ def get_cleanwords_keyboard(use_default: bool = True) -> InlineKeyboardMarkup:
 def get_help_section_keyboard(
     section_key: str, state: Optional[Dict[str, Any]] = None
 ) -> InlineKeyboardMarkup:
-    """
-    Builds the exact requested command & toggle buttons for every Help category.
-    Strictly NO colours on any Help buttons.
-    """
     st = state or {}
     rows: List[List[InlineKeyboardButton]] = []
 
-    # 1. UI START MENU (helps_uistart)
     if section_key == "helps_uistart":
         rows.extend(
             [
@@ -803,8 +904,6 @@ def get_help_section_keyboard(
                 ],
             ]
         )
-
-    # 2. UI HELP MENU (helps_uihelp)
     elif section_key == "helps_uihelp":
         rows.extend(
             [
@@ -827,8 +926,6 @@ def get_help_section_keyboard(
                 ],
             ]
         )
-
-    # 3. UI ABOUT MENU (helps_uiabout)
     elif section_key == "helps_uiabout":
         rows.extend(
             [
@@ -855,8 +952,6 @@ def get_help_section_keyboard(
                 ],
             ]
         )
-
-    # 4. WELCOME MENU (helps_welcome)
     elif section_key == "helps_welcome":
         welc_on = bool(st.get("welc_on", True))
         rows.extend(
@@ -877,8 +972,6 @@ def get_help_section_keyboard(
                 ],
             ]
         )
-
-    # 5. IMAGES MENU (helps_images)
     elif section_key == "helps_images":
         rows.extend(
             [
@@ -905,14 +998,11 @@ def get_help_section_keyboard(
                 ],
             ]
         )
-
-    # 6. SPELL CHECK & SMART SEARCH MENU (helps_spell)
     elif section_key == "helps_spell":
         at_on = bool(st.get("at_on", True))
         mc_on = bool(st.get("mc_on", True))
         spell_on = bool(st.get("spell_on", True))
         stops_count = int(st.get("stops_count", 0))
-
         rows.extend(
             [
                 [
@@ -931,8 +1021,7 @@ def get_help_section_keyboard(
                         callback_data="hact#spell_toggle",
                     ),
                     create_btn(
-                        f"stopwords ({stops_count})",
-                        callback_data="hact#sw_list",
+                        f"stopwords ({stops_count})", callback_data="hact#sw_list"
                     ),
                 ],
                 [
@@ -954,8 +1043,6 @@ def get_help_section_keyboard(
                 ],
             ]
         )
-
-    # 7. FILTERS MENU (helps_filters)
     elif section_key == "helps_filters":
         rows.extend(
             [
@@ -975,12 +1062,9 @@ def get_help_section_keyboard(
                 ],
             ]
         )
-
-    # 8. FORCE SUBSCRIBE MENU (helps_forcesub)
     elif section_key == "helps_forcesub":
         f_on = bool(st.get("f_on", True))
         rot_on = bool(st.get("rot_on", False))
-
         rows.extend(
             [
                 [
@@ -1001,13 +1085,9 @@ def get_help_section_keyboard(
                     create_btn("Getallfsub", callback_data="hact#fsub_list"),
                     create_btn("totalrequests", callback_data="hact#cmd#totalrequests"),
                 ],
-                [
-                    create_btn("purgerequests", callback_data="hact#cmd#purgerequests"),
-                ],
+                [create_btn("purgerequests", callback_data="hact#cmd#purgerequests")],
             ]
         )
-
-    # 9. FORCE ADD MENU (helps_forceadd)
     elif section_key == "helps_forceadd":
         fa_on = bool(st.get("fa_on", False))
         rows.extend(
@@ -1037,8 +1117,6 @@ def get_help_section_keyboard(
                 ],
             ]
         )
-
-    # 10. BANS MENU (helps_bans)
     elif section_key == "helps_bans":
         rows.extend(
             [
@@ -1056,8 +1134,6 @@ def get_help_section_keyboard(
                 ],
             ]
         )
-
-    # 11. DELETE MENU (helps_delete)
     elif section_key == "helps_delete":
         rows.extend(
             [
@@ -1074,8 +1150,6 @@ def get_help_section_keyboard(
                 ],
             ]
         )
-
-    # 12. PROMOTIONS & BROADCAST MENU (helps_promotions)
     elif section_key == "helps_promotions":
         rows.extend(
             [
@@ -1095,8 +1169,6 @@ def get_help_section_keyboard(
                 ],
             ]
         )
-
-    # 13. INDEX MENU (helps_index)
     elif section_key == "helps_index":
         rows.extend(
             [
@@ -1116,8 +1188,6 @@ def get_help_section_keyboard(
                 ],
             ]
         )
-
-    # 14. SETTINGS MENU (helps_settings)
     elif section_key == "helps_settings":
         rep_on = bool(st.get("rep_on", False))
         react_on = bool(st.get("react_on", True))
@@ -1142,8 +1212,6 @@ def get_help_section_keyboard(
                 ],
             ]
         )
-
-    # 15. CONNECTIONS MENU (helps_connections)
     elif section_key == "helps_connections":
         rows.extend(
             [
@@ -1167,8 +1235,6 @@ def get_help_section_keyboard(
                 ],
             ]
         )
-
-    # 16. UTILITIES MENU (helps_utilities)
     elif section_key == "helps_utilities":
         rows.extend(
             [
@@ -1191,8 +1257,6 @@ def get_help_section_keyboard(
                 ],
             ]
         )
-
-    # 17. CUSTOM MESSAGES MENU (helps_custommessages)
     elif section_key == "helps_custommessages":
         rows.extend(
             [
@@ -1212,19 +1276,15 @@ def get_help_section_keyboard(
                 ],
             ]
         )
-
-    # 18. CUSTOM CAPTIONS MENU (helps_customcaption)
     elif section_key == "helps_customcaption":
         rows.extend(
             [
                 [
                     create_btn("customcaption", callback_data="hact#cmd#customcaption"),
                     create_btn("captionplus", callback_data="hact#cmd#captionplus"),
-                ]
+                ],
             ]
         )
-
-    # 19. BACKUP MENU (helps_backup)
     elif section_key == "helps_backup":
         rows.extend(
             [
@@ -1238,8 +1298,6 @@ def get_help_section_keyboard(
                 ],
             ]
         )
-
-    # 20. POST HANDLER MENU (helps_posthand)
     elif section_key == "helps_posthand":
         rows.extend(
             [
@@ -1278,12 +1336,9 @@ def get_help_section_keyboard(
                 ],
             ]
         )
-
-    # 21. PM AUTO-REPLY MENU (helps_pmautoreply)
     elif section_key == "helps_pmautoreply":
         pm_enabled = bool(st.get("pm_enabled", True))
         reply_admins = bool(st.get("reply_admins", True))
-
         rows.extend(
             [
                 [
@@ -1336,69 +1391,11 @@ def get_channels_page_keyboard(page: int, total_pages: int) -> InlineKeyboardMar
 
 
 # ============================================================
-# 🛠️ FORMATTING, CHANNELS & STATUS HELPERS
+# 🎛️ HELP UI SECTION BUILDERS & CHANNELS PAGE BUILDER
 # ============================================================
-def safe_parse_text_and_markup(text: str, default_markup=None):
-    if not text:
-        return "", default_markup
-    if callable(_parse_text_and_markup):
-        try:
-            parsed_text, parsed_markup = _parse_text_and_markup(text, default_markup)
-            return parsed_text or text, parsed_markup or default_markup
-        except Exception as e:
-            logger.error(f"parse_text_and_markup fallback triggered: {e}")
-    return text, default_markup
-
-
-class _SafeFormatDict(dict):
-    def __missing__(self, key):
-        return ""
-
-
-def format_script_text(
-    template: str,
-    mention: str = "User",
-    uname: str = None,
-    bname: str = None,
-    **extra_kwargs,
-) -> str:
-    """Safely formats Script templates whether they use named or positional placeholders."""
-    if not template:
-        return ""
-    uname = uname or getattr(temp, "U_NAME", None) or "Bot"
-    bname = bname or getattr(temp, "B_NAME", None) or "MovieBot"
-
-    mapping = _SafeFormatDict(
-        mention=mention,
-        user=mention,
-        uname=uname,
-        bname=bname,
-        bot=bname,
-        plane_emoji=MESSAGE_EMOJI_PLANE,
-        link_emoji=MESSAGE_EMOJI_LINK,
-        **extra_kwargs,
-    )
-
-    try:
-        return template.format_map(mapping)
-    except (IndexError, ValueError, KeyError):
-        try:
-            return template.format(
-                mention,
-                uname,
-                bname,
-                MESSAGE_EMOJI_PLANE,
-                MESSAGE_EMOJI_LINK,
-                **mapping,
-            )
-        except Exception:
-            try:
-                return template.format(mention, bname)
-            except Exception:
-                return template
-
-
-async def get_channels_page(client: Client, page: int = 1):
+async def get_channels_page(
+    client: Client, page: int = 1
+) -> Tuple[str, InlineKeyboardMarkup]:
     raw_chats = await _db.get_all_chats()
     all_chats = (
         await raw_chats.to_list(length=None)
@@ -1455,7 +1452,8 @@ async def build_status_text() -> str:
 
     try:
         if Media is not None:
-            total_files = await Media.count_documents({})
+            col = getattr(Media, "collection", Media)
+            total_files = await col.count_documents({})
     except Exception:
         pass
 
@@ -1485,90 +1483,7 @@ async def build_status_text() -> str:
     )
 
 
-# ============================================================
-# 🔄 INTERACTIVE INPUT LISTENER FOR HELP BUTTONS (NON-STUCK)
-# ============================================================
-_CMD_WAITING_INPUT: Dict[int, Dict[str, Any]] = {}
-
-
-def is_waiting_for_cmd_input(chat_id: int) -> bool:
-    return chat_id in _CMD_WAITING_INPUT
-
-
-def cancel_cmd_user_input(chat_id: int):
-    """Cancels any pending interactive input session in a chat so buttons never get stuck."""
-    session = _CMD_WAITING_INPUT.pop(chat_id, None)
-    if session:
-        fut = session.get("future")
-        if fut and not fut.done():
-            fut.cancel()
-        prompt_msg = session.get("prompt_msg")
-        if prompt_msg:
-            try:
-                asyncio.create_task(prompt_msg.delete())
-            except Exception:
-                pass
-
-
-@Client.on_message(filters.private | filters.group, group=-15)
-async def _cmd_interactive_listener(client: Client, message: Message):
-    chat_id = message.chat.id
-    if chat_id not in _CMD_WAITING_INPUT:
-        return
-    if (
-        message.text
-        and message.text.startswith("/")
-        and message.text.strip().lower() not in ["/cancel"]
-    ):
-        cancel_cmd_user_input(chat_id)
-        return
-
-    uid = (
-        message.from_user.id
-        if message.from_user
-        else getattr(message.sender_chat, "id", 0)
-    )
-    session = _CMD_WAITING_INPUT.get(chat_id)
-    if session and (uid == session["user_id"] or uid == chat_id):
-        fut = session["future"]
-        if not fut.done():
-            fut.set_result(message)
-        message.stop_propagation()
-
-
-async def wait_cmd_user_input(
-    chat_id: int,
-    user_id: int,
-    prompt_msg: Optional[Message] = None,
-    timeout: int = 90,
-) -> Optional[Message]:
-    cancel_cmd_user_input(chat_id)
-    loop = asyncio.get_running_loop()
-    future = loop.create_future()
-    _CMD_WAITING_INPUT[chat_id] = {
-        "future": future,
-        "user_id": user_id,
-        "prompt_msg": prompt_msg,
-    }
-    try:
-        return await asyncio.wait_for(future, timeout=timeout)
-    except (asyncio.TimeoutError, asyncio.CancelledError):
-        return None
-    finally:
-        if _CMD_WAITING_INPUT.get(chat_id, {}).get("future") is future:
-            _CMD_WAITING_INPUT.pop(chat_id, None)
-        if prompt_msg:
-            try:
-                await prompt_msg.delete()
-            except Exception:
-                pass
-
-
-# ============================================================
-# 🎛️ HELP UI SECTION BUILDERS & SMOOTH UI TRANSITION
-# ============================================================
 async def build_cleanwords_panel_ui() -> Tuple[str, InlineKeyboardMarkup]:
-    """Builds the Clean Filename Words panel using Script.py text and uibuttons."""
     use_default, words = await get_clean_words_state()
     mode_str = "🟢 Default Clean Words" if use_default else "🔵 Custom Clean Words"
     words_display = (
@@ -1599,10 +1514,10 @@ async def build_interactive_help_section(
     user_mention: str,
     msg_context: Optional[Message] = None,
 ) -> Tuple[str, InlineKeyboardMarkup]:
-    """Builds Help section text from Script.py and attaches interactive buttons."""
     if section_key == "helps_cleanfile":
         return await build_cleanwords_panel_ui()
 
+    ui_doc = await _ensure_ui_synced()
     bot_uname = getattr(temp, "U_NAME", None) or "my_bot"
     b_name = getattr(temp, "B_NAME", None) or "MovieBot"
 
@@ -1641,17 +1556,16 @@ async def build_interactive_help_section(
     state: Dict[str, Any] = {}
 
     if section_key in ["helps_uistart", "helps_uihelp", "helps_uiabout"]:
-        ui_doc = await _ensure_ui_synced()
         menu_prefix = section_key.replace("helps_ui", "")
         has_txt = bool(ui_doc.get(f"{menu_prefix}_text"))
         has_img = bool(ui_doc.get(f"{menu_prefix}_img"))
-        btns_list = ui_doc.get(f"{menu_prefix}_buttons", [])
+        btns_cnt = len(ui_doc.get(f"{menu_prefix}_buttons", []) or [])
         base_text += (
             f"\n\n━━━━━━━━━━━━━━━━━━━━━\n"
             f"🎛️ <b>Live {menu_prefix.title()} UI Status:</b>\n"
-            f"• <b>Custom Text:</b> <code>{'Custom Set ✅' if has_txt else 'Default'}</code>\n"
-            f"• <b>Custom Image:</b> <code>{'Set 🖼️' if has_img else 'Default / None'}</code>\n"
-            f"• <b>Custom Buttons:</b> <code>{len(btns_list)}</code>"
+            f"• <b>Custom Text:</b> <code>{'Active ✅' if has_txt else 'Default'}</code>\n"
+            f"• <b>Custom Image:</b> <code>{'Active ✅' if has_img else 'Default'}</code>\n"
+            f"• <b>Custom Buttons:</b> <code>{btns_cnt}</code>"
         )
 
     elif section_key == "helps_spell":
@@ -1741,15 +1655,24 @@ async def build_interactive_help_section(
     elif section_key == "helps_forceadd":
         conn_gid = await get_active_connected_group(user_id, msg_context)
         fa_on = False
-        if conn_gid and _BOT_DB is not None:
+        if conn_gid:
             try:
-                fa_doc = await _BOT_DB["force_add_settings"].find_one(
-                    {"chat_id": int(conn_gid)}
-                ) or await _BOT_DB["force_add"].find_one({"_id": int(conn_gid)})
-                if fa_doc:
-                    fa_on = bool(fa_doc.get("enabled", fa_doc.get("is_enabled", True)))
+                from plugins.force_add import get_fa_config
+
+                fa_cfg = await get_fa_config(conn_gid, force_refresh=True)
+                fa_on = bool(fa_cfg.get("enabled", False))
             except Exception:
-                pass
+                if _BOT_DB is not None:
+                    try:
+                        fa_doc = await _BOT_DB["force_add_settings"].find_one(
+                            {"chat_id": int(conn_gid)}
+                        )
+                        if fa_doc:
+                            fa_on = bool(
+                                fa_doc.get("enabled", fa_doc.get("is_enabled", False))
+                            )
+                    except Exception:
+                        pass
         state = {"fa_on": fa_on}
         base_text += (
             f"\n\n━━━━━━━━━━━━━━━━━━━━━\n"
@@ -1802,7 +1725,6 @@ async def build_interactive_help_section(
 async def transition_ui_message(
     client: Client, msg_obj: Message, text: str, keyboard, img=None
 ):
-    """Smoothly transitions between photo and text messages without getting stuck."""
     has_media = bool(
         msg_obj.photo or msg_obj.video or msg_obj.document or msg_obj.animation
     )
@@ -1882,558 +1804,6 @@ async def transition_ui_message(
 
 
 # ============================================================
-# 🚀 UNIVERSAL COMMAND DISPATCHER FOR HELP MENU BUTTONS
-# ============================================================
-_CMD_INPUT_PROMPTS: Dict[str, Tuple[str, str]] = {
-    # UI Start
-    "setstarttext": (
-        "helps_uistart",
-        "✏️ <b>Send the new Custom Start Text (HTML/Markdown supported):</b>",
-    ),
-    "setstartimage": (
-        "helps_uistart",
-        "🖼️ <b>Send the Photo you want to set as the Start Image:</b>",
-    ),
-    "addstartbutton": (
-        "helps_uistart",
-        '➕ <b>Send the Start Button in format:</b>\n<code>"Button Text" https://t.me/link</code>',
-    ),
-    "editstartbuttons": (
-        "helps_uistart",
-        "🎨 <b>Send Start Button layout & colour:</b>\nExample: <code>1 sidebyside green</code>",
-    ),
-    # UI Help
-    "sethelptext": (
-        "helps_uihelp",
-        "✏️ <b>Send the new Custom Help Text (HTML/Markdown supported):</b>",
-    ),
-    "sethelpimage": (
-        "helps_uihelp",
-        "🖼️ <b>Send the Photo you want to set as the Help Image:</b>",
-    ),
-    "addhelpbutton": (
-        "helps_uihelp",
-        '➕ <b>Send the Help Button in format:</b>\n<code>"Button Text" https://t.me/link</code>',
-    ),
-    "edithelpbuttons": (
-        "helps_uihelp",
-        "🎨 <b>Send Help Button layout & colour:</b>\nExample: <code>1 belowside red</code>",
-    ),
-    # UI About
-    "setabouttext": (
-        "helps_uiabout",
-        "✏️ <b>Send the new Custom About Text (HTML/Markdown supported):</b>",
-    ),
-    "setaboutimage": (
-        "helps_uiabout",
-        "🖼️ <b>Send the Photo you want to set as the About Image:</b>",
-    ),
-    "addaboutbutton": (
-        "helps_uiabout",
-        '➕ <b>Send the About Button in format:</b>\n<code>"Button Text" https://t.me/link</code>',
-    ),
-    "editaboutbuttons": (
-        "helps_uiabout",
-        "🎨 <b>Send About Button layout & colour:</b>\nExample: <code>1 sidebyside blue</code>",
-    ),
-    # Welcome
-    "setwelcomeimg": (
-        "helps_welcome",
-        "🖼️ <b>Send the Photo you want to set as the Group Welcome Image:</b>",
-    ),
-    "setwelcome": (
-        "helps_welcome",
-        "👋 <b>Send a Photo with Caption to set both Welcome Image & Text:</b>",
-    ),
-    # Images
-    "setautoimg": (
-        "helps_images",
-        "🖼️ <b>Send the Photo to set as the Global Auto-Filter Image:</b>",
-    ),
-    "setfilenotfoundimg": (
-        "helps_images",
-        "🖼️ <b>Send the Photo to set as the File Not Found Image:</b>",
-    ),
-    "setfsubimg": (
-        "helps_images",
-        "🖼️ <b>Send the Photo to set as the Force Subscribe Alert Image:</b>",
-    ),
-    # Spell Check
-    "remstopwords": (
-        "helps_spell",
-        "🛑 <b>Send the stopword(s) you want to remove:</b>",
-    ),
-    "setnotfoundtext": (
-        "helps_spell",
-        "✏️ <b>Send the new File Not Found text (HTML supported):</b>",
-    ),
-    # Filters
-    "editfiltercolur": (
-        "helps_filters",
-        "🎨 <b>Send filter keyword, button number & colour:</b>\nExample: <code>kantara 1 green</code>",
-    ),
-    "delfilter": (
-        "helps_filters",
-        "🗑️ <b>Send the filter keyword you want to delete:</b>",
-    ),
-    # Force Sub
-    "setfsub": (
-        "helps_forcesub",
-        "📢 <b>Send the Channel ID to add to Force Subscribe:</b>\nExample: <code>-1001234567890</code>",
-    ),
-    "rmfsub": (
-        "helps_forcesub",
-        "🗑️ <b>Send the Channel ID to remove from Force Subscribe:</b>\nExample: <code>-1001234567890</code>",
-    ),
-    # Force Add
-    "setforceadd": (
-        "helps_forceadd",
-        "👥 <b>Send the required member count or Channel ID for Force Add:</b>",
-    ),
-    # Bans
-    "ban": (
-        "helps_bans",
-        "🚫 <b>Send the User ID (or username) to Ban from the bot:</b>",
-    ),
-    "unban": (
-        "helps_bans",
-        "✅ <b>Send the User ID (or username) to Unban:</b>",
-    ),
-    "leave": (
-        "helps_bans",
-        "🚪 <b>Send the Group/Channel Chat ID for the bot to leave:</b>",
-    ),
-    "enable": (
-        "helps_bans",
-        "🟢 <b>Send the Group Chat ID to Enable / Whitelist:</b>",
-    ),
-    "disable": (
-        "helps_bans",
-        "🔴 <b>Send the Group Chat ID to Disable / Blacklist:</b>",
-    ),
-    # Delete
-    "delete": (
-        "helps_delete",
-        "🗑️ <b>Forward the file or send the exact filename to delete from DB:</b>",
-    ),
-    "delmulti": (
-        "helps_delete",
-        "🗑️ <b>Send the keyword to delete all matching files from DB:</b>",
-    ),
-    "autodelete": (
-        "helps_delete",
-        "⏳ <b>Send the PM File Auto-Delete timer in seconds (e.g. <code>1800</code>):</b>",
-    ),
-    "buttondel": (
-        "helps_delete",
-        "⏳ <b>Send the Group Search Results Auto-Delete timer in seconds (e.g. <code>300</code>):</b>",
-    ),
-    # Promotions
-    "addpromo": (
-        "helps_promotions",
-        '📢 <b>Send the Promo Button text & URL:</b>\nExample: <code>"Join Channel" https://t.me/channel</code>',
-    ),
-    "delpromo": (
-        "helps_promotions",
-        "🗑️ <b>Send the Promo URL (or button name) to delete:</b>",
-    ),
-    "broadcast": (
-        "helps_promotions",
-        "📡 <b>Send or forward the message you want to Broadcast to all Users:</b>",
-    ),
-    "group_broadcast": (
-        "helps_promotions",
-        "📡 <b>Send or forward the message you want to Broadcast to all Groups:</b>",
-    ),
-    # Index
-    "index": (
-        "helps_index",
-        "📚 <b>Forward the last message from your channel or send the Channel Post Link to Index All Media:</b>",
-    ),
-    "indexdoc": (
-        "helps_index",
-        "📄 <b>Forward the last message from your channel or send the Channel Post Link to Index Documents:</b>",
-    ),
-    "indexvideo": (
-        "helps_index",
-        "🎥 <b>Forward the last message from your channel or send the Channel Post Link to Index Videos:</b>",
-    ),
-    "indexaudio": (
-        "helps_index",
-        "🎵 <b>Forward the last message from your channel or send the Channel Post Link to Index Audio:</b>",
-    ),
-    "resumeindex": (
-        "helps_index",
-        "▶️ <b>Send the Channel Chat ID to Resume Indexing:</b>\nExample: <code>-1001234567890</code>",
-    ),
-    "setskip": (
-        "helps_index",
-        "⏩ <b>Send the starting message Skip Number (e.g. <code>100</code>):</b>",
-    ),
-    # Connections
-    "connect": (
-        "helps_connections",
-        "🔗 <b>Send the Group Chat ID to Connect to your PM:</b>\nExample: <code>-1001234567890</code>",
-    ),
-    "disconnect": (
-        "helps_connections",
-        "🔌 <b>Send the Group Chat ID to Disconnect:</b>",
-    ),
-    "leavechannel": (
-        "helps_connections",
-        "🚪 <b>Send the Channel/Group ID to Leave and Remove from DB:</b>",
-    ),
-    # Custom Messages
-    "infomsg": (
-        "helps_custommessages",
-        "💬 <b>Send the Info Message text (or <code>off</code> to disable):</b>",
-    ),
-    "infoimg": (
-        "helps_custommessages",
-        "🖼️ <b>Send the Photo for Info Image (or <code>off</code> to remove):</b>",
-    ),
-    "fsubmsg": (
-        "helps_custommessages",
-        "💬 <b>Send the custom Force Subscribe Message text (or <code>off</code>):</b>",
-    ),
-    "fsubimg": (
-        "helps_custommessages",
-        "🖼️ <b>Send the Photo for Force Subscribe Image (or <code>off</code>):</b>",
-    ),
-    "delmsg": (
-        "helps_custommessages",
-        "💬 <b>Send the custom Auto-Delete Warning Message (or <code>off</code>):</b>",
-    ),
-    "delimg": (
-        "helps_custommessages",
-        "🖼️ <b>Send the Photo for Auto-Delete Warning Image (or <code>off</code>):</b>",
-    ),
-    "notfoundmsg": (
-        "helps_custommessages",
-        "💬 <b>Send the custom File Not Found Message (or <code>off</code>):</b>",
-    ),
-    "notfoundimg": (
-        "helps_custommessages",
-        "🖼️ <b>Send the Photo for File Not Found Image (or <code>off</code>):</b>",
-    ),
-    # Custom Captions
-    "customcaption": (
-        "helps_customcaption",
-        "📝 <b>Send the Custom File Caption template (or <code>off</code>):</b>\nVariables: <code>{file_name}</code>, <code>{file_size}</code>, <code>{file_caption}</code>",
-    ),
-    "captionplus": (
-        "helps_customcaption",
-        "📝 <b>Send the extra Footer Caption (Caption Plus) text (or <code>off</code>):</b>",
-    ),
-    # Backup
-    "dbrestore": (
-        "helps_backup",
-        "💾 <b>Send the <code>.json</code> Backup File to Restore your Database:</b>",
-    ),
-    # Post Handler
-    "post": (
-        "helps_posthand",
-        "🎬 <b>Send the Movie Name to create an interactive Post:</b>\nExample: <code>Kantara</code>",
-    ),
-    "editpost": (
-        "helps_posthand",
-        "✏️ <b>Send the Telegram Channel Post Link to import and edit:</b>",
-    ),
-    "edittitle": (
-        "helps_posthand",
-        "✏️ <b>Send the new Movie Title for your active post draft:</b>",
-    ),
-    "edityear": (
-        "helps_posthand",
-        "📅 <b>Send the new Release Year for your active post draft:</b>",
-    ),
-    "editlangs": (
-        "helps_posthand",
-        "🔊 <b>Send the Languages separated by commas:</b>\nExample: <code>Kannada, Hindi, English</code>",
-    ),
-    "editresolutions": (
-        "helps_posthand",
-        "🖥️ <b>Send the Resolutions separated by commas:</b>\nExample: <code>720p, 1080p, 4K</code>",
-    ),
-    "editgenres": (
-        "helps_posthand",
-        "🎭 <b>Send the Genres separated by commas:</b>\nExample: <code>Action, Thriller</code>",
-    ),
-    "editotts": (
-        "helps_posthand",
-        "📺 <b>Send the OTT Platforms separated by commas:</b>\nExample: <code>Netflix, AmazonPrime</code>",
-    ),
-    "editbutton": (
-        "helps_posthand",
-        "🔘 <b>Send Row Number, Button Text & URL:</b>\nExample: <code>1 Download Now | https://t.me/link</code>",
-    ),
-    "editbuttoncolour": (
-        "helps_posthand",
-        "🎨 <b>Send Row Number & Colour (green, red, blue):</b>\nExample: <code>1 green</code>",
-    ),
-    "editdirect": (
-        "helps_posthand",
-        "🔗 <b>Send new Direct Search button text (and optional link with <code>|</code>):</b>",
-    ),
-    "setpoststicker": (
-        "helps_posthand",
-        "🀄 <b>Send the Sticker you want to set after every Channel Post:</b>",
-    ),
-    # PM Auto-Reply Image
-    "setpmimage": (
-        "helps_pmautoreply",
-        "🖼️ <b>Send the Photo you want to set as the PM Auto-Reply Image:</b>",
-    ),
-}
-
-
-async def _dispatch_synthetic_command(
-    client: Client,
-    base_msg: Message,
-    user,
-    cmd_name: str,
-    arg_text: str = "",
-    reply_msg: Optional[Message] = None,
-) -> bool:
-    """
-    Dispatches a command string (e.g. '/dbbackup' or '/post Kantara') through Pyrogram's
-    registered message handlers so clicking any Help button executes the real plugin command.
-    """
-    full_text = f"/{cmd_name}" + (f" {arg_text.strip()}" if arg_text.strip() else "")
-    cmd_parts = [cmd_name] + (arg_text.strip().split() if arg_text.strip() else [])
-
-    try:
-        synth_msg = copy.copy(base_msg)
-        synth_msg.text = full_text
-        synth_msg.caption = None
-        synth_msg.photo = None
-        synth_msg.video = None
-        synth_msg.document = None
-        synth_msg.sticker = None
-        synth_msg.animation = None
-        synth_msg.audio = None
-        synth_msg.command = cmd_parts
-        synth_msg.from_user = user
-        synth_msg.outgoing = False
-        if reply_msg is not None:
-            synth_msg.reply_to_message = reply_msg
-    except Exception as e:
-        logger.error(f"Failed building synthetic message for /{cmd_name}: {e}")
-        return False
-
-    dispatcher = getattr(client, "dispatcher", None)
-    if not dispatcher or not getattr(dispatcher, "groups", None):
-        return False
-
-    skip_names = {
-        "start",
-        "help_category_shortcut_cmds",
-        "_cmd_interactive_listener",
-        "pm_auto_reply",
-    }
-
-    for grp_id in sorted(dispatcher.groups.keys()):
-        for handler in dispatcher.groups[grp_id]:
-            cb = getattr(handler, "callback", None)
-            if not cb or getattr(cb, "__name__", "") in skip_names:
-                continue
-            try:
-                if await handler.check(client, synth_msg):
-                    await cb(client, synth_msg)
-                    return True
-            except StopPropagation:
-                return True
-            except ContinuePropagation:
-                continue
-            except Exception as e:
-                logger.error(f"Error executing dispatched command /{cmd_name}: {e}")
-                return True
-
-    return False
-
-
-async def _handle_help_cmd_button(client: Client, query: CallbackQuery, cmd_name: str):
-    """Executes or interactively prompts for any command button clicked inside the Help menu."""
-    uid = query.from_user.id if query.from_user else 0
-    user_mention = query.from_user.mention if query.from_user else "Admin"
-    chat_id = query.message.chat.id
-    cmd_clean = cmd_name.strip().lower()
-
-    # 1. Built-in instant actions that can refresh the UI or run immediately
-    if cmd_clean == "deleteskip":
-        temp.CURRENT = 0
-        return await safe_answer(query, "✅ Skip number reset to 0!", show_alert=True)
-
-    if cmd_clean == "currentskip":
-        cur = getattr(temp, "CURRENT", 0)
-        return await safe_answer(
-            query, f"⏩ Current Skip Number: {cur}", show_alert=True
-        )
-
-    if cmd_clean in ["enablereaction", "disablereaction"]:
-        info.ENABLE_REACTION = cmd_clean == "enablereaction"
-        await safe_answer(
-            query,
-            f"❤️ Auto-Reactions: {'ENABLED ✅' if info.ENABLE_REACTION else 'DISABLED ❌'}",
-        )
-        text, markup = await build_interactive_help_section(
-            client, "helps_settings", uid, user_mention, query.message
-        )
-        return await transition_ui_message(client, query.message, text, markup)
-
-    if cmd_clean == "channels":
-        await safe_answer(query, "📑 Loading channels...")
-        text, reply_markup = await get_channels_page(client, page=1)
-        return await transition_ui_message(client, query.message, text, reply_markup)
-
-    if cmd_clean in ["stats", "total"]:
-        await safe_answer(query, "📊 Loading database stats...")
-        status_text = await build_status_text()
-        return await transition_ui_message(
-            client,
-            query.message,
-            status_text,
-            get_back_close_keyboard("helps_utilities"),
-        )
-
-    # 2. Multi-step filter creation commands
-    if cmd_clean in ["filter", "addfilter", "filterimage"]:
-        await safe_answer(query)
-        usage_map = {
-            "filter": "Reply to any text or media message with:\n<code>/filter keyword</code>",
-            "addfilter": "Reply to a message with inline buttons with:\n<code>/addfilter keyword</code>",
-            "filterimage": "Reply to a photo/video with:\n<code>/filterimage keyword</code>",
-        }
-        return await safe_send_message(
-            client,
-            chat_id=chat_id,
-            text=f"📝 <b>How to use <code>/{cmd_clean}</code>:</b>\n\n{usage_map[cmd_clean]}",
-            reply_markup=get_close_keyboard(),
-            parse_mode=enums.ParseMode.HTML,
-        )
-
-    # 3. Interactive Prompt Commands (Wait for user photo/text/file & dispatch)
-    if cmd_clean in _CMD_INPUT_PROMPTS:
-        back_sec, prompt_html = _CMD_INPUT_PROMPTS[cmd_clean]
-        await safe_answer(query)
-        prompt_msg = await safe_reply_text(
-            query.message,
-            prompt_html,
-            reply_markup=get_cancel_input_keyboard(back_sec),
-            parse_mode=enums.ParseMode.HTML,
-        )
-        resp = await wait_cmd_user_input(
-            chat_id, uid, prompt_msg=prompt_msg, timeout=90
-        )
-        if not resp:
-            return
-        if resp.text and resp.text.strip().lower() == "/cancel":
-            try:
-                await resp.delete()
-            except Exception:
-                pass
-            return
-
-        # Special handling for /setpmimage directly
-        if cmd_clean == "setpmimage" and resp.photo:
-            status = await safe_reply_text(
-                resp, "⏳ <b>Uploading to Cloud...</b>", parse_mode=enums.ParseMode.HTML
-            )
-            url = await upload_image_safely(client, resp)
-            await save_pm_settings("image", url or resp.photo.file_id)
-            if status:
-                await safe_edit_text(
-                    status,
-                    "✅ <b>PM Auto-Reply Image updated!</b>",
-                    parse_mode=enums.ParseMode.HTML,
-                )
-            text, markup = await build_interactive_help_section(
-                client, "helps_pmautoreply", uid, user_mention, query.message
-            )
-            return await transition_ui_message(client, query.message, text, markup)
-
-        # If user sent media or forwarded message, pass `resp` as `reply_to_message`
-        has_media_or_fwd = bool(
-            resp.photo
-            or resp.video
-            or resp.document
-            or resp.sticker
-            or resp.audio
-            or resp.animation
-            or resp.forward_from_chat
-            or getattr(resp, "forward_origin", None)
-        )
-        arg_str = (resp.text or resp.caption or "").strip()
-
-        if has_media_or_fwd and arg_str.lower() != "off":
-            handled = await _dispatch_synthetic_command(
-                client,
-                resp,
-                query.from_user,
-                cmd_clean,
-                arg_text=arg_str,
-                reply_msg=resp,
-            )
-        else:
-            handled = await _dispatch_synthetic_command(
-                client,
-                resp,
-                query.from_user,
-                cmd_clean,
-                arg_text=arg_str,
-                reply_msg=None,
-            )
-
-        if not handled:
-            await safe_reply_text(
-                resp,
-                f"ℹ️ <b>Command:</b> <code>/{cmd_clean} {html.escape(arg_str)}</code>",
-                reply_markup=get_close_keyboard(),
-                parse_mode=enums.ParseMode.HTML,
-            )
-        elif back_sec in ["helps_uistart", "helps_uihelp", "helps_uiabout"]:
-            text, markup = await build_interactive_help_section(
-                client, back_sec, uid, user_mention, query.message
-            )
-            await transition_ui_message(client, query.message, text, markup)
-        return
-
-    # 4. Zero-argument commands -> Dispatch immediately!
-    await safe_answer(query, f"⚡ Executing /{cmd_clean}...")
-    handled = await _dispatch_synthetic_command(
-        client, query.message, query.from_user, cmd_clean
-    )
-    if not handled:
-        await safe_send_message(
-            client,
-            chat_id=chat_id,
-            text=f"⚙️ <b>Command:</b> <code>/{cmd_clean}</code>\n\n<i>Tap the command above to copy and run it.</i>",
-            reply_markup=get_close_keyboard(),
-            parse_mode=enums.ParseMode.HTML,
-        )
-    elif cmd_clean in [
-        "defaultstarttext",
-        "remstartimage",
-        "remstartbutton",
-        "defaulthelptext",
-        "remhelpimage",
-        "remhelpbutton",
-        "defaultabouttext",
-        "remaboutimage",
-        "remaboutbutton",
-    ]:
-        sec_map = (
-            "helps_uistart"
-            if "start" in cmd_clean
-            else "helps_uihelp" if "help" in cmd_clean else "helps_uiabout"
-        )
-        text, markup = await build_interactive_help_section(
-            client, sec_map, uid, user_mention, query.message
-        )
-        await transition_ui_message(client, query.message, text, markup)
-
-
-# ============================================================
 # ⚡ DIRECT HELP SECTION SHORTCUT COMMANDS (/uistart, /welcome, etc.)
 # ============================================================
 @Client.on_message(
@@ -2476,17 +1846,16 @@ async def help_category_shortcut_cmds(client: Client, message: Message):
 
 
 # ============================================================
-# 🎯 MAIN START & HELP COMMAND HANDLERS
+# 🎯 MAIN START & HELP COMMANDS
 # ============================================================
 @Client.on_message(filters.command(["start", "help"]) & filters.incoming)
-async def start(client: Client, message: Message):
+async def start_and_help_cmd(client: Client, message: Message):
     uid = (
         message.from_user.id
         if message.from_user
         else getattr(message.sender_chat, "id", 0)
     )
     cancel_cmd_user_input(message.chat.id)
-    await _ensure_ui_synced()
 
     is_admin = await is_global_admin(uid)
 
@@ -2499,6 +1868,8 @@ async def start(client: Client, message: Message):
 
     if message.from_user and await is_user_banned(uid):
         return
+
+    await _ensure_ui_synced()
 
     if not getattr(temp, "U_NAME", None) or not getattr(temp, "B_NAME", None):
         try:
@@ -2643,7 +2014,13 @@ async def start(client: Client, message: Message):
 
     cmd_data = message.command[1]
 
-    # Delegate deep-link payloads (?start=subscribe, ?start=search_..., ?start=file_...)
+    # Delegate file delivery & ForceSub checks to plugins/commands.py
+    from plugins.commands import run_force_sub, send_requested_file
+
+    if cmd_data == "subscribe":
+        return await run_force_sub(client, message)
+
+    # 1. HANDLE DIRECT SEARCH LINKS
     if cmd_data.startswith("search_"):
         query_str = re.sub(r"[_+\-]+", " ", cmd_data.replace("search_", "", 1)).strip()
         try:
@@ -2656,19 +2033,12 @@ async def start(client: Client, message: Message):
             logger.error(f"Search interceptor failed: {e}")
             await safe_reply_text(
                 message,
-                f"🔍 <b>Search Query:</b> <code>{html.escape(query_str)}</code>\n\nSend this text in our group to search!",
+                f"🔍 <b>Search Query:</b> <code>{query_str}</code>\n\nSend this text in our group to search!",
                 parse_mode=enums.ParseMode.HTML,
             )
         return
 
-    try:
-        from plugins.commands import run_force_sub, send_requested_file
-    except ImportError:
-        from commands import run_force_sub, send_requested_file
-
-    if cmd_data == "subscribe":
-        return await run_force_sub(client, message)
-
+    # 2. HANDLE STANDARD FILE LINKS
     kk, file_id = cmd_data.split("_", 1) if "_" in cmd_data else (False, False)
     pre = ("checksubp" if kk == "filep" else "checksub") if kk else False
     target_file_id = file_id or cmd_data
@@ -2687,6 +2057,533 @@ async def start(client: Client, message: Message):
 
 
 # ============================================================
+# 🚀 UNIVERSAL COMMAND DISPATCHER FOR HELP MENU BUTTONS
+# ============================================================
+_CMD_INPUT_PROMPTS: Dict[str, Tuple[str, str]] = {
+    "setstarttext": (
+        "helps_uistart",
+        "✏️ <b>Send the new Custom Start Text (HTML/Markdown supported):</b>",
+    ),
+    "setstartimage": (
+        "helps_uistart",
+        "🖼️ <b>Send the Photo you want to set as the Start Image:</b>",
+    ),
+    "addstartbutton": (
+        "helps_uistart",
+        '➕ <b>Send the Start Button in format:</b>\n<code>"Button Text" https://t.me/link</code>',
+    ),
+    "editstartbuttons": (
+        "helps_uistart",
+        "🎨 <b>Send Start Button layout & colour:</b>\nExample: <code>1 sidebyside green</code>",
+    ),
+    "sethelptext": (
+        "helps_uihelp",
+        "✏️ <b>Send the new Custom Help Text (HTML/Markdown supported):</b>",
+    ),
+    "sethelpimage": (
+        "helps_uihelp",
+        "🖼️ <b>Send the Photo you want to set as the Help Image:</b>",
+    ),
+    "addhelpbutton": (
+        "helps_uihelp",
+        '➕ <b>Send the Help Button in format:</b>\n<code>"Button Text" https://t.me/link</code>',
+    ),
+    "edithelpbuttons": (
+        "helps_uihelp",
+        "🎨 <b>Send Help Button layout & colour:</b>\nExample: <code>1 belowside red</code>",
+    ),
+    "setabouttext": (
+        "helps_uiabout",
+        "✏️ <b>Send the new Custom About Text (HTML/Markdown supported):</b>",
+    ),
+    "setaboutimage": (
+        "helps_uiabout",
+        "🖼️ <b>Send the Photo you want to set as the About Image:</b>",
+    ),
+    "addaboutbutton": (
+        "helps_uiabout",
+        '➕ <b>Send the About Button in format:</b>\n<code>"Button Text" https://t.me/link</code>',
+    ),
+    "editaboutbuttons": (
+        "helps_uiabout",
+        "🎨 <b>Send About Button layout & colour:</b>\nExample: <code>1 sidebyside blue</code>",
+    ),
+    "setwelcomeimg": (
+        "helps_welcome",
+        "🖼️ <b>Send the Photo you want to set as the Group Welcome Image:</b>",
+    ),
+    "setwelcome": (
+        "helps_welcome",
+        "👋 <b>Send a Photo with Caption to set both Welcome Image & Text:</b>",
+    ),
+    "setautoimg": (
+        "helps_images",
+        "🖼️ <b>Send the Photo to set as the Global Auto-Filter Image:</b>",
+    ),
+    "setfilenotfoundimg": (
+        "helps_images",
+        "🖼️ <b>Send the Photo to set as the File Not Found Image:</b>",
+    ),
+    "setfsubimg": (
+        "helps_images",
+        "🖼️ <b>Send the Photo to set as the Force Subscribe Alert Image:</b>",
+    ),
+    "remstopwords": (
+        "helps_spell",
+        "🛑 <b>Send the stopword(s) you want to remove:</b>",
+    ),
+    "setnotfoundtext": (
+        "helps_spell",
+        "✏️ <b>Send the new File Not Found text (HTML supported):</b>",
+    ),
+    "editfiltercolur": (
+        "helps_filters",
+        "🎨 <b>Send filter keyword, button number & colour:</b>\nExample: <code>kantara 1 green</code>",
+    ),
+    "delfilter": (
+        "helps_filters",
+        "🗑️ <b>Send the filter keyword you want to delete:</b>",
+    ),
+    "setfsub": (
+        "helps_forcesub",
+        "📢 <b>Send the Channel ID to add to Force Subscribe:</b>\nExample: <code>-1001234567890</code>",
+    ),
+    "rmfsub": (
+        "helps_forcesub",
+        "🗑️ <b>Send the Channel ID to remove from Force Subscribe:</b>\nExample: <code>-1001234567890</code>",
+    ),
+    "setforceadd": (
+        "helps_forceadd",
+        "👥 <b>Send the required member count or Channel ID for Force Add:</b>",
+    ),
+    "ban": (
+        "helps_bans",
+        "🚫 <b>Send the User ID (or username) to Ban from the bot:</b>",
+    ),
+    "unban": (
+        "helps_bans",
+        "✅ <b>Send the User ID (or username) to Unban:</b>",
+    ),
+    "leave": (
+        "helps_bans",
+        "🚪 <b>Send the Group/Channel Chat ID for the bot to leave:</b>",
+    ),
+    "enable": (
+        "helps_bans",
+        "🟢 <b>Send the Group Chat ID to Enable / Whitelist:</b>",
+    ),
+    "disable": (
+        "helps_bans",
+        "🔴 <b>Send the Group Chat ID to Disable / Blacklist:</b>",
+    ),
+    "delete": (
+        "helps_delete",
+        "🗑️ <b>Forward the file or send the exact filename to delete from DB:</b>",
+    ),
+    "delmulti": (
+        "helps_delete",
+        "🗑️ <b>Send the keyword to delete all matching files from DB:</b>",
+    ),
+    "autodelete": (
+        "helps_delete",
+        "⏳ <b>Send the PM File Auto-Delete timer in seconds (e.g. <code>1800</code>):</b>",
+    ),
+    "buttondel": (
+        "helps_delete",
+        "⏳ <b>Send the Group Search Results Auto-Delete timer in seconds (e.g. <code>300</code>):</b>",
+    ),
+    "addpromo": (
+        "helps_promotions",
+        '📢 <b>Send the Promo Button text & URL:</b>\nExample: <code>"Join Channel" https://t.me/channel</code>',
+    ),
+    "delpromo": (
+        "helps_promotions",
+        "🗑️ <b>Send the Promo URL (or button name) to delete:</b>",
+    ),
+    "broadcast": (
+        "helps_promotions",
+        "📡 <b>Send or forward the message you want to Broadcast to all Users:</b>",
+    ),
+    "group_broadcast": (
+        "helps_promotions",
+        "📡 <b>Send or forward the message you want to Broadcast to all Groups:</b>",
+    ),
+    "index": (
+        "helps_index",
+        "📚 <b>Forward the last message from your channel or send the Channel Post Link to Index All Media:</b>",
+    ),
+    "indexdoc": (
+        "helps_index",
+        "📄 <b>Forward the last message from your channel or send the Channel Post Link to Index Documents:</b>",
+    ),
+    "indexvideo": (
+        "helps_index",
+        "🎥 <b>Forward the last message from your channel or send the Channel Post Link to Index Videos:</b>",
+    ),
+    "indexaudio": (
+        "helps_index",
+        "🎵 <b>Forward the last message from your channel or send the Channel Post Link to Index Audio:</b>",
+    ),
+    "resumeindex": (
+        "helps_index",
+        "▶️ <b>Send the Channel Chat ID to Resume Indexing:</b>\nExample: <code>-1001234567890</code>",
+    ),
+    "setskip": (
+        "helps_index",
+        "⏩ <b>Send the starting message Skip Number (e.g. <code>100</code>):</b>",
+    ),
+    "connect": (
+        "helps_connections",
+        "🔗 <b>Send the Group Chat ID to Connect to your PM:</b>\nExample: <code>-1001234567890</code>",
+    ),
+    "disconnect": (
+        "helps_connections",
+        "🔌 <b>Send the Group Chat ID to Disconnect:</b>",
+    ),
+    "leavechannel": (
+        "helps_connections",
+        "🚪 <b>Send the Channel/Group ID to Leave and Remove from DB:</b>",
+    ),
+    "infomsg": (
+        "helps_custommessages",
+        "💬 <b>Send the Info Message text (or <code>off</code> to disable):</b>",
+    ),
+    "infoimg": (
+        "helps_custommessages",
+        "🖼️ <b>Send the Photo for Info Image (or <code>off</code> to remove):</b>",
+    ),
+    "fsubmsg": (
+        "helps_custommessages",
+        "💬 <b>Send the custom Force Subscribe Message text (or <code>off</code>):</b>",
+    ),
+    "fsubimg": (
+        "helps_custommessages",
+        "🖼️ <b>Send the Photo for Force Subscribe Image (or <code>off</code>):</b>",
+    ),
+    "delmsg": (
+        "helps_custommessages",
+        "💬 <b>Send the custom Auto-Delete Warning Message (or <code>off</code>):</b>",
+    ),
+    "delimg": (
+        "helps_custommessages",
+        "🖼️ <b>Send the Photo for Auto-Delete Warning Image (or <code>off</code>):</b>",
+    ),
+    "notfoundmsg": (
+        "helps_custommessages",
+        "💬 <b>Send the custom File Not Found Message (or <code>off</code>):</b>",
+    ),
+    "notfoundimg": (
+        "helps_custommessages",
+        "🖼️ <b>Send the Photo for File Not Found Image (or <code>off</code>):</b>",
+    ),
+    "customcaption": (
+        "helps_customcaption",
+        "📝 <b>Send the Custom File Caption template (or <code>off</code>):</b>\nVariables: <code>{file_name}</code>, <code>{file_size}</code>, <code>{file_caption}</code>",
+    ),
+    "captionplus": (
+        "helps_customcaption",
+        "📝 <b>Send the extra Footer Caption (Caption Plus) text (or <code>off</code>):</b>",
+    ),
+    "dbrestore": (
+        "helps_backup",
+        "💾 <b>Send the <code>.json</code> Backup File to Restore your Database:</b>",
+    ),
+    "post": (
+        "helps_posthand",
+        "🎬 <b>Send the Movie Name to create an interactive Post:</b>\nExample: <code>Kantara</code>",
+    ),
+    "editpost": (
+        "helps_posthand",
+        "✏️ <b>Send the Telegram Channel Post Link to import and edit:</b>",
+    ),
+    "edittitle": (
+        "helps_posthand",
+        "✏️ <b>Send the new Movie Title for your active post draft:</b>",
+    ),
+    "edityear": (
+        "helps_posthand",
+        "📅 <b>Send the new Release Year for your active post draft:</b>",
+    ),
+    "editlangs": (
+        "helps_posthand",
+        "🔊 <b>Send the Languages separated by commas:</b>\nExample: <code>Kannada, Hindi, English</code>",
+    ),
+    "editresolutions": (
+        "helps_posthand",
+        "🖥️ <b>Send the Resolutions separated by commas:</b>\nExample: <code>720p, 1080p, 4K</code>",
+    ),
+    "editgenres": (
+        "helps_posthand",
+        "🎭 <b>Send the Genres separated by commas:</b>\nExample: <code>Action, Thriller</code>",
+    ),
+    "editotts": (
+        "helps_posthand",
+        "📺 <b>Send the OTT Platforms separated by commas:</b>\nExample: <code>Netflix, AmazonPrime</code>",
+    ),
+    "editbutton": (
+        "helps_posthand",
+        "🔘 <b>Send Row Number, Button Text & URL:</b>\nExample: <code>1 Download Now | https://t.me/link</code>",
+    ),
+    "editbuttoncolour": (
+        "helps_posthand",
+        "🎨 <b>Send Row Number & Colour (green, red, blue):</b>\nExample: <code>1 green</code>",
+    ),
+    "editdirect": (
+        "helps_posthand",
+        "🔗 <b>Send new Direct Search button text (and optional link with <code>|</code>):</b>",
+    ),
+    "setpoststicker": (
+        "helps_posthand",
+        "🀄 <b>Send the Sticker you want to set after every Channel Post:</b>",
+    ),
+    "setpmimage": (
+        "helps_pmautoreply",
+        "🖼️ <b>Send the Photo you want to set as the PM Auto-Reply Image:</b>",
+    ),
+}
+
+
+async def _dispatch_synthetic_command(
+    client: Client,
+    base_msg: Message,
+    user,
+    cmd_name: str,
+    arg_text: str = "",
+    reply_msg: Optional[Message] = None,
+) -> bool:
+    full_text = f"/{cmd_name}" + (f" {arg_text.strip()}" if arg_text.strip() else "")
+    cmd_parts = [cmd_name] + (arg_text.strip().split() if arg_text.strip() else [])
+
+    try:
+        synth_msg = copy.copy(base_msg)
+        synth_msg.text = full_text
+        synth_msg.caption = None
+        synth_msg.photo = None
+        synth_msg.video = None
+        synth_msg.document = None
+        synth_msg.sticker = None
+        synth_msg.animation = None
+        synth_msg.audio = None
+        synth_msg.command = cmd_parts
+        synth_msg.from_user = user
+        synth_msg.outgoing = False
+        if reply_msg is not None:
+            synth_msg.reply_to_message = reply_msg
+    except Exception as e:
+        logger.error(f"Failed building synthetic message for /{cmd_name}: {e}")
+        return False
+
+    dispatcher = getattr(client, "dispatcher", None)
+    if not dispatcher or not getattr(dispatcher, "groups", None):
+        return False
+
+    skip_names = {
+        "start_and_help_cmd",
+        "help_category_shortcut_cmds",
+        "_cmd_interactive_listener",
+        "pm_auto_reply",
+    }
+
+    for grp_id in sorted(dispatcher.groups.keys()):
+        for handler in dispatcher.groups[grp_id]:
+            cb = getattr(handler, "callback", None)
+            if not cb or getattr(cb, "__name__", "") in skip_names:
+                continue
+            try:
+                if await handler.check(client, synth_msg):
+                    await cb(client, synth_msg)
+                    return True
+            except StopPropagation:
+                return True
+            except ContinuePropagation:
+                continue
+            except Exception as e:
+                logger.error(f"Error executing dispatched command /{cmd_name}: {e}")
+                return True
+
+    return False
+
+
+async def _handle_help_cmd_button(client: Client, query: CallbackQuery, cmd_name: str):
+    uid = query.from_user.id if query.from_user else 0
+    user_mention = query.from_user.mention if query.from_user else "Admin"
+    chat_id = query.message.chat.id
+    cmd_clean = cmd_name.strip().lower()
+
+    if cmd_clean == "deleteskip":
+        temp.CURRENT = 0
+        return await safe_answer(query, "✅ Skip number reset to 0!", show_alert=True)
+
+    if cmd_clean == "currentskip":
+        cur = getattr(temp, "CURRENT", 0)
+        return await safe_answer(
+            query, f"⏩ Current Skip Number: {cur}", show_alert=True
+        )
+
+    if cmd_clean in ["enablereaction", "disablereaction"]:
+        new_react = cmd_clean == "enablereaction"
+        info.ENABLE_REACTION = new_react
+        try:
+            from plugins.auto_reaction import save_reaction_state
+
+            await save_reaction_state(new_react)
+        except Exception:
+            pass
+        await safe_answer(
+            query,
+            f"❤️ Auto-Reactions: {'ENABLED ✅' if info.ENABLE_REACTION else 'DISABLED ❌'}",
+        )
+        text, markup = await build_interactive_help_section(
+            client, "helps_settings", uid, user_mention, query.message
+        )
+        return await transition_ui_message(client, query.message, text, markup)
+
+    if cmd_clean in ["stats", "total"]:
+        await safe_answer(query, "📊 Loading database stats...")
+        status_text = await build_status_text()
+        return await transition_ui_message(
+            client,
+            query.message,
+            status_text,
+            get_back_close_keyboard("helps_utilities"),
+        )
+
+    if cmd_clean in ["filter", "addfilter", "filterimage"]:
+        await safe_answer(query)
+        usage_map = {
+            "filter": "Reply to any text or media message with:\n<code>/filter keyword</code>",
+            "addfilter": "Reply to a message with inline buttons with:\n<code>/addfilter keyword</code>",
+            "filterimage": "Reply to a photo/video with:\n<code>/filterimage keyword</code>",
+        }
+        return await safe_send_message(
+            client,
+            chat_id=chat_id,
+            text=f"📝 <b>How to use <code>/{cmd_clean}</code>:</b>\n\n{usage_map[cmd_clean]}",
+            reply_markup=get_close_keyboard(),
+            parse_mode=enums.ParseMode.HTML,
+        )
+
+    if cmd_clean in _CMD_INPUT_PROMPTS:
+        back_sec, prompt_html = _CMD_INPUT_PROMPTS[cmd_clean]
+        await safe_answer(query)
+        prompt_msg = await safe_reply_text(
+            query.message,
+            prompt_html,
+            reply_markup=get_cancel_input_keyboard(back_sec),
+            parse_mode=enums.ParseMode.HTML,
+        )
+        resp = await wait_cmd_user_input(
+            chat_id, uid, prompt_msg=prompt_msg, timeout=90
+        )
+        if not resp:
+            return
+        if resp.text and resp.text.strip().lower() == "/cancel":
+            try:
+                await resp.delete()
+            except Exception:
+                pass
+            return
+
+        if cmd_clean == "setpmimage" and resp.photo:
+            status = await safe_reply_text(
+                resp, "⏳ <b>Uploading to Cloud...</b>", parse_mode=enums.ParseMode.HTML
+            )
+            url = await upload_image_safely(client, resp)
+            await save_pm_settings("image", url or resp.photo.file_id)
+            if status:
+                await safe_edit_text(
+                    status,
+                    "✅ <b>PM Auto-Reply Image updated!</b>",
+                    parse_mode=enums.ParseMode.HTML,
+                )
+            text, markup = await build_interactive_help_section(
+                client, "helps_pmautoreply", uid, user_mention, query.message
+            )
+            return await transition_ui_message(client, query.message, text, markup)
+
+        has_media_or_fwd = bool(
+            resp.photo
+            or resp.video
+            or resp.document
+            or resp.sticker
+            or resp.audio
+            or resp.animation
+            or resp.forward_from_chat
+            or getattr(resp, "forward_origin", None)
+        )
+        arg_str = (resp.text or resp.caption or "").strip()
+
+        if has_media_or_fwd and arg_str.lower() != "off":
+            handled = await _dispatch_synthetic_command(
+                client,
+                resp,
+                query.from_user,
+                cmd_clean,
+                arg_text=arg_str,
+                reply_msg=resp,
+            )
+        else:
+            handled = await _dispatch_synthetic_command(
+                client,
+                resp,
+                query.from_user,
+                cmd_clean,
+                arg_text=arg_str,
+                reply_msg=None,
+            )
+
+        if back_sec in ["helps_uistart", "helps_uihelp", "helps_uiabout"]:
+            text, markup = await build_interactive_help_section(
+                client, back_sec, uid, user_mention, query.message
+            )
+            await transition_ui_message(client, query.message, text, markup)
+
+        if not handled:
+            await safe_reply_text(
+                resp,
+                f"ℹ️ <b>Command:</b> <code>/{cmd_clean} {html.escape(arg_str)}</code>",
+                reply_markup=get_close_keyboard(),
+                parse_mode=enums.ParseMode.HTML,
+            )
+        return
+
+    await safe_answer(query, f"⚡ Executing /{cmd_clean}...")
+    handled = await _dispatch_synthetic_command(
+        client, query.message, query.from_user, cmd_clean
+    )
+
+    if cmd_clean in [
+        "defaultstarttext",
+        "remstartimage",
+        "remstartbutton",
+        "defaulthelptext",
+        "remhelpimage",
+        "remhelpbutton",
+        "defaultabouttext",
+        "remaboutimage",
+        "remaboutbutton",
+    ]:
+        sec = (
+            "helps_uistart"
+            if "start" in cmd_clean
+            else ("helps_uihelp" if "help" in cmd_clean else "helps_uiabout")
+        )
+        text, markup = await build_interactive_help_section(
+            client, sec, uid, user_mention, query.message
+        )
+        return await transition_ui_message(client, query.message, text, markup)
+
+    if not handled:
+        await safe_send_message(
+            client,
+            chat_id=chat_id,
+            text=f"⚙️ <b>Command:</b> <code>/{cmd_clean}</code>\n\n<i>Tap the command above to copy and run it.</i>",
+            reply_markup=get_close_keyboard(),
+            parse_mode=enums.ParseMode.HTML,
+        )
+
+
+# ============================================================
 # 🎛️ INTERACTIVE HELP ACTION CALLBACKS (hact#...) - ADMIN ONLY
 # ============================================================
 @Client.on_callback_query(filters.regex(r"^hact#"), group=-2)
@@ -2701,7 +2598,6 @@ async def interactive_help_actions_cb(client: Client, query: CallbackQuery):
     chat_id = query.message.chat.id
     action_raw = query.data.split("#", 1)[1]
 
-    # Handle inline cancel button on interactive prompts
     if action_raw.startswith("cancel_input"):
         cancel_cmd_user_input(chat_id)
         await safe_answer(query, "❌ Cancelled.")
@@ -2711,16 +2607,13 @@ async def interactive_help_actions_cb(client: Client, query: CallbackQuery):
             pass
         return
 
-    # Always cancel any stale waiting prompt when clicking another button
     cancel_cmd_user_input(chat_id)
     action = action_raw
 
-    # --- HANDLE GENERIC COMMAND BUTTONS (hact#cmd#<command>) ---
     if action.startswith("cmd#"):
         cmd_name = action.split("#", 1)[1]
         return await _handle_help_cmd_button(client, query, cmd_name)
 
-    # --- CLEAN FILENAME WORDS ACTIONS ---
     if action in ["cw_default", "cw_clear"]:
         if cw_db is not None:
             if action == "cw_default":
@@ -2777,7 +2670,6 @@ async def interactive_help_actions_cb(client: Client, query: CallbackQuery):
         text, markup = await build_cleanwords_panel_ui()
         return await transition_ui_message(client, query.message, text, markup)
 
-    # --- AUTO-TRANSLATE & MULTI-CHOICE 1-CLICK TOGGLES ---
     if action in ["at_toggle", "at_on", "at_off", "mc_toggle", "mc_on", "mc_off"]:
         try:
             from plugins.pm_filter import get_feature_flags, set_feature_flag
@@ -2809,7 +2701,6 @@ async def interactive_help_actions_cb(client: Client, query: CallbackQuery):
         )
         return await transition_ui_message(client, query.message, text, markup)
 
-    # --- GROUP SPELL CHECK 1-CLICK TOGGLE ---
     if action in ["spell_toggle", "spell_on", "spell_off"]:
         conn_gid = await get_active_connected_group(uid, query.message)
         if not conn_gid:
@@ -2839,7 +2730,6 @@ async def interactive_help_actions_cb(client: Client, query: CallbackQuery):
         )
         return await transition_ui_message(client, query.message, text, markup)
 
-    # --- STOPWORDS ACTIONS ---
     if action in ["sw_list", "sw_def", "sw_clear", "sw_add"]:
         try:
             import plugins.custom_settings as _cs
@@ -2904,7 +2794,6 @@ async def interactive_help_actions_cb(client: Client, query: CallbackQuery):
         )
         return await transition_ui_message(client, query.message, text, markup)
 
-    # --- PM AUTO-REPLY ACTIONS ---
     if action in [
         "pm_toggle",
         "pm_on",
@@ -3000,7 +2889,6 @@ async def interactive_help_actions_cb(client: Client, query: CallbackQuery):
         )
         return await transition_ui_message(client, query.message, text, markup)
 
-    # --- FORCE SUBSCRIBE ACTIONS ---
     if action in ["fsub_toggle", "fsub_on", "fsub_off", "fsub_rot", "fsub_list"]:
         try:
             from plugins.fsub import (
@@ -3045,7 +2933,6 @@ async def interactive_help_actions_cb(client: Client, query: CallbackQuery):
         )
         return await transition_ui_message(client, query.message, text, markup)
 
-    # --- FORCE ADD 1-CLICK TOGGLE ---
     if action == "fa_toggle":
         conn_gid = await get_active_connected_group(uid, query.message)
         if not conn_gid:
@@ -3055,19 +2942,26 @@ async def interactive_help_actions_cb(client: Client, query: CallbackQuery):
                 show_alert=True,
             )
         new_fa = True
-        if _BOT_DB is not None:
-            try:
-                col = _BOT_DB["force_add_settings"]
-                doc = await col.find_one({"chat_id": int(conn_gid)})
-                cur_fa = bool(doc.get("enabled", False)) if doc else False
-                new_fa = not cur_fa
-                await col.update_one(
-                    {"chat_id": int(conn_gid)},
-                    {"$set": {"enabled": new_fa, "is_enabled": new_fa}},
-                    upsert=True,
-                )
-            except Exception:
-                pass
+        try:
+            from plugins.force_add import get_fa_config, set_fa_config
+
+            cur_cfg = await get_fa_config(conn_gid, force_refresh=True)
+            new_fa = not bool(cur_cfg.get("enabled", False))
+            await set_fa_config(conn_gid, enabled=new_fa)
+        except Exception:
+            if _BOT_DB is not None:
+                try:
+                    col = _BOT_DB["force_add_settings"]
+                    doc = await col.find_one({"chat_id": int(conn_gid)})
+                    cur_fa = bool(doc.get("enabled", False)) if doc else False
+                    new_fa = not cur_fa
+                    await col.update_one(
+                        {"chat_id": int(conn_gid)},
+                        {"$set": {"enabled": new_fa, "is_enabled": new_fa}},
+                        upsert=True,
+                    )
+                except Exception:
+                    pass
         await safe_answer(
             query,
             f"👥 Force Add: {'ON ✅' if new_fa else 'OFF ❌'} for {conn_gid}!",
@@ -3077,7 +2971,6 @@ async def interactive_help_actions_cb(client: Client, query: CallbackQuery):
         )
         return await transition_ui_message(client, query.message, text, markup)
 
-    # --- WELCOME ACTIONS ---
     if action in ["welc_toggle", "welc_on", "welc_off", "welc_settxt", "welc_del"]:
         conn_gid = await get_active_connected_group(uid, query.message)
         if not conn_gid:
@@ -3127,7 +3020,6 @@ async def interactive_help_actions_cb(client: Client, query: CallbackQuery):
         )
         return await transition_ui_message(client, query.message, text, markup)
 
-    # --- 📋 VIEW GROUP FILTERS (SENT AS EASY-TO-COPY TEXT MESSAGE) ---
     if action == "flt_list":
         conn_gid = await get_active_connected_group(uid, query.message)
         if not conn_gid:
@@ -3197,7 +3089,6 @@ async def interactive_help_actions_cb(client: Client, query: CallbackQuery):
         except Exception as e:
             return await safe_answer(query, f"Error: {e}", show_alert=True)
 
-    # --- REPAIR MODE 1-CLICK TOGGLE ---
     if action == "repair_toggle":
         info.REPAIR_MODE = not bool(getattr(info, "REPAIR_MODE", False))
         await safe_answer(
@@ -3211,15 +3102,14 @@ async def interactive_help_actions_cb(client: Client, query: CallbackQuery):
 
 
 # ============================================================
-# 🎛️ START, HELP, ABOUT, STATS & CHANNELS CALLBACK HANDLER
+# 🎛️ UI NAVIGATION CALLBACK HANDLER (start, help, about, stats)
 # ============================================================
 @Client.on_callback_query(
     filters.regex(
         r"^(close_data|channels_page#.*|alertmessage.*|pages|start|help|about|helps_.*|stats|rfrsh)$"
-    ),
-    group=-2,
+    )
 )
-async def ui_menus_cb_handler(client: Client, query: CallbackQuery):
+async def ui_cb_handler(client: Client, query: CallbackQuery):
     uid = (
         query.from_user.id
         if query.from_user
@@ -3230,7 +3120,6 @@ async def ui_menus_cb_handler(client: Client, query: CallbackQuery):
     b_name = getattr(temp, "B_NAME", None) or "MovieBot"
 
     cancel_cmd_user_input(query.message.chat.id)
-    await _ensure_ui_synced()
     is_admin = await is_global_admin(uid)
 
     if (
@@ -3240,7 +3129,6 @@ async def ui_menus_cb_handler(client: Client, query: CallbackQuery):
     ):
         return await safe_answer(query, "🛠️ Bot is under maintenance!", show_alert=True)
 
-    # Restrict Help, About, Stats, and Channels callbacks strictly to Bot Admins
     if (
         query.data in ["help", "about", "stats", "rfrsh"]
         or query.data.startswith("helps_")
@@ -3286,6 +3174,7 @@ async def ui_menus_cb_handler(client: Client, query: CallbackQuery):
 
         elif query.data == "start":
             await safe_answer(query)
+            await _ensure_ui_synced()
             raw_text = format_script_text(
                 getattr(script, "START_TXT", "Hello {mention}!"),
                 mention=user_mention,
@@ -3305,6 +3194,7 @@ async def ui_menus_cb_handler(client: Client, query: CallbackQuery):
 
         elif query.data == "help":
             await safe_answer(query)
+            await _ensure_ui_synced()
             raw_text = format_script_text(
                 getattr(script, "HELP_TXT", "<b>Help Menu</b>"),
                 mention=user_mention,
@@ -3324,6 +3214,7 @@ async def ui_menus_cb_handler(client: Client, query: CallbackQuery):
 
         elif query.data == "about":
             await safe_answer(query)
+            await _ensure_ui_synced()
             raw_text = format_script_text(
                 getattr(script, "ABOUT_TXT", "<b>About {bname}</b>"),
                 mention=user_mention,
@@ -3363,4 +3254,4 @@ async def ui_menus_cb_handler(client: Client, query: CallbackQuery):
             await transition_ui_message(client, query.message, text, buttons)
 
     except Exception as e:
-        logger.error(f"UI Menus Callback Handler Error: {e}")
+        logger.error(f"UI Callback Handler Error: {e}")
