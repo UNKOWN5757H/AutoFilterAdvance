@@ -10,10 +10,14 @@ from typing import Any, Dict, List, Optional, Tuple
 from motor.motor_asyncio import AsyncIOMotorClient
 from pyrogram import Client, enums, filters
 from pyrogram.errors import (
+    ChatWriteForbidden,
     FloodWait,
+    Forbidden,
     MessageIdInvalid,
     MessageNotModified,
+    PeerIdInvalid,
     QueryIdInvalid,
+    UserIsBlocked,
 )
 from pyrogram.types import (
     CallbackQuery,
@@ -30,7 +34,6 @@ logger.setLevel(ERROR)
 
 # ============================================================
 # 🛡️ PYROGRAM v2.2.26 (LAYER 230) COMPATIBILITY ENGINE
-# (Fixes silent TypeError crashes on disable_web_page_preview)
 # ============================================================
 try:
     from pyrogram.types import LinkPreviewOptions
@@ -82,7 +85,7 @@ def _prepare_compat_kwargs(
 
 async def safe_reply_text(
     message: Message, text: str, disable_web_page_preview: bool = True, **kwargs
-) -> Message:
+) -> Optional[Message]:
     compat_kw = _prepare_compat_kwargs(
         kwargs, _REPLY_PARAMS, disable_preview=disable_web_page_preview
     )
@@ -94,6 +97,8 @@ async def safe_reply_text(
         compat_kw.pop("reply_parameters", None)
         compat_kw.pop("reply_to_message_id", None)
         return await message.reply_text(text, **compat_kw)
+    except (ChatWriteForbidden, Forbidden, UserIsBlocked, PeerIdInvalid):
+        return None
 
 
 async def safe_edit_text(
@@ -104,14 +109,14 @@ async def safe_edit_text(
     )
     try:
         return await message.edit_text(text, **compat_kw)
-    except (MessageNotModified, MessageIdInvalid):
+    except (MessageNotModified, MessageIdInvalid, ChatWriteForbidden, Forbidden):
         return None
     except TypeError:
         compat_kw.pop("disable_web_page_preview", None)
         compat_kw.pop("link_preview_options", None)
         try:
             return await message.edit_text(text, **compat_kw)
-        except (MessageNotModified, MessageIdInvalid):
+        except (MessageNotModified, MessageIdInvalid, ChatWriteForbidden, Forbidden):
             return None
 
 
@@ -489,20 +494,22 @@ async def channels_dashboard_cmd(client: Client, message: Message):
     )
     try:
         text, markup = await build_channels_dashboard(client, page=1)
-        await safe_edit_text(
-            status,
-            text,
-            reply_markup=markup,
-            disable_web_page_preview=True,
-            parse_mode=enums.ParseMode.HTML,
-        )
+        if status:
+            await safe_edit_text(
+                status,
+                text,
+                reply_markup=markup,
+                disable_web_page_preview=True,
+                parse_mode=enums.ParseMode.HTML,
+            )
     except Exception as e:
         logger.error(f"channels_dashboard_cmd error: {e}")
-        await safe_edit_text(
-            status,
-            f"❌ <b>Error loading channels dashboard:</b>\n<code>{html.escape(str(e))}</code>",
-            parse_mode=enums.ParseMode.HTML,
-        )
+        if status:
+            await safe_edit_text(
+                status,
+                f"❌ <b>Error loading channels dashboard:</b>\n<code>{html.escape(str(e))}</code>",
+                parse_mode=enums.ParseMode.HTML,
+            )
 
 
 @Client.on_callback_query(filters.regex(r"^chan_page:(\d+)$"), group=-2)
@@ -614,7 +621,7 @@ async def channels_close_cb(client: Client, query: CallbackQuery):
 
 
 # ============================================================
-# 🚪 LEAVE CHANNEL / GROUP BY ID COMMAND (/leavechannel)
+# 🚪 LEAVE CHANNEL / GROUP BY ID COMMAND (/leavechannel, /leave)
 # ============================================================
 @Client.on_message(
     filters.command(["leavechannel", "leave"]) & filters.incoming,
@@ -698,7 +705,7 @@ async def leave_channel_cmd(client: Client, message: Message):
 # 📄 EXPORT COMMANDS (/exportusers, /exportgroups, /exportchannels)
 # ============================================================
 async def _send_export_document(
-    message: Message, status_msg: Message, content: str, filename: str, caption: str
+    message: Message, status_msg: Optional[Message], content: str, filename: str, caption: str
 ):
     bio = io.BytesIO(content.encode("utf-8", errors="replace"))
     bio.name = filename
@@ -724,10 +731,11 @@ async def _send_export_document(
             caption=caption,
             parse_mode=enums.ParseMode.HTML,
         )
-    try:
-        await status_msg.delete()
-    except Exception:
-        pass
+    if status_msg:
+        try:
+            await status_msg.delete()
+        except Exception:
+            pass
 
 
 @Client.on_message(
@@ -750,11 +758,13 @@ async def export_users_cmd(bot: Client, message: Message):
     try:
         users = await fetch_all_users_safely()
         if not users:
-            return await safe_edit_text(
-                status,
-                "⚠️ <b>No users found in the database.</b>",
-                parse_mode=enums.ParseMode.HTML,
-            )
+            if status:
+                return await safe_edit_text(
+                    status,
+                    "⚠️ <b>No users found in the database.</b>",
+                    parse_mode=enums.ParseMode.HTML,
+                )
+            return
 
         lines: List[str] = []
         for u in users:
@@ -763,11 +773,13 @@ async def export_users_cmd(bot: Client, message: Message):
                 lines.append(f"{uid} - {name}")
 
         if not lines:
-            return await safe_edit_text(
-                status,
-                "⚠️ <b>No valid user records found in the database.</b>",
-                parse_mode=enums.ParseMode.HTML,
-            )
+            if status:
+                return await safe_edit_text(
+                    status,
+                    "⚠️ <b>No valid user records found in the database.</b>",
+                    parse_mode=enums.ParseMode.HTML,
+                )
+            return
 
         time_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
         caption = (
@@ -780,11 +792,12 @@ async def export_users_cmd(bot: Client, message: Message):
         )
     except Exception as e:
         logger.error(f"export_users_cmd error: {e}")
-        await safe_edit_text(
-            status,
-            f"❌ <b>Failed to export users:</b>\n<code>{html.escape(str(e))}</code>",
-            parse_mode=enums.ParseMode.HTML,
-        )
+        if status:
+            await safe_edit_text(
+                status,
+                f"❌ <b>Failed to export users:</b>\n<code>{html.escape(str(e))}</code>",
+                parse_mode=enums.ParseMode.HTML,
+            )
 
 
 @Client.on_message(
@@ -807,11 +820,13 @@ async def export_groups_cmd(bot: Client, message: Message):
     try:
         chats = await fetch_all_chats_safely()
         if not chats:
-            return await safe_edit_text(
-                status,
-                "⚠️ <b>No groups found in the database.</b>",
-                parse_mode=enums.ParseMode.HTML,
-            )
+            if status:
+                return await safe_edit_text(
+                    status,
+                    "⚠️ <b>No groups found in the database.</b>",
+                    parse_mode=enums.ParseMode.HTML,
+                )
+            return
 
         normal_groups = 0
         supergroups = 0
@@ -828,11 +843,13 @@ async def export_groups_cmd(bot: Client, message: Message):
             lines.append(f"{cid} - {title}")
 
         if not lines:
-            return await safe_edit_text(
-                status,
-                "⚠️ <b>No valid group records found in the database.</b>",
-                parse_mode=enums.ParseMode.HTML,
-            )
+            if status:
+                return await safe_edit_text(
+                    status,
+                    "⚠️ <b>No valid group records found in the database.</b>",
+                    parse_mode=enums.ParseMode.HTML,
+                )
+            return
 
         time_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
         caption = (
@@ -846,11 +863,12 @@ async def export_groups_cmd(bot: Client, message: Message):
         )
     except Exception as e:
         logger.error(f"export_groups_cmd error: {e}")
-        await safe_edit_text(
-            status,
-            f"❌ <b>Failed to export groups:</b>\n<code>{html.escape(str(e))}</code>",
-            parse_mode=enums.ParseMode.HTML,
-        )
+        if status:
+            await safe_edit_text(
+                status,
+                f"❌ <b>Failed to export groups:</b>\n<code>{html.escape(str(e))}</code>",
+                parse_mode=enums.ParseMode.HTML,
+            )
 
 
 @Client.on_message(
@@ -879,11 +897,13 @@ async def export_channels_cmd(bot: Client, message: Message):
                 lines.append(f"{cid} - {title}")
 
         if not lines:
-            return await safe_edit_text(
-                status,
-                "⚠️ <b>No channels/supergroups found in the database.</b>",
-                parse_mode=enums.ParseMode.HTML,
-            )
+            if status:
+                return await safe_edit_text(
+                    status,
+                    "⚠️ <b>No channels/supergroups found in the database.</b>",
+                    parse_mode=enums.ParseMode.HTML,
+                )
+            return
 
         time_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
         caption = (
@@ -896,8 +916,9 @@ async def export_channels_cmd(bot: Client, message: Message):
         )
     except Exception as e:
         logger.error(f"export_channels_cmd error: {e}")
-        await safe_edit_text(
-            status,
-            f"❌ <b>Failed to export channels:</b>\n<code>{html.escape(str(e))}</code>",
-            parse_mode=enums.ParseMode.HTML,
-        )
+        if status:
+            await safe_edit_text(
+                status,
+                f"❌ <b>Failed to export channels:</b>\n<code>{html.escape(str(e))}</code>",
+                parse_mode=enums.ParseMode.HTML,
+            )
