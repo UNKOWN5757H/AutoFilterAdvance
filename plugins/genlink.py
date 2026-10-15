@@ -1,20 +1,26 @@
 import asyncio
 import base64
+import html
+import inspect
 import json
 import os
 import re
 import time
 from logging import ERROR, INFO, getLogger
-from typing import Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from motor.motor_asyncio import AsyncIOMotorClient
 from pyrogram import Client, enums, filters
 from pyrogram.errors import (
     ChannelInvalid,
     ChannelPrivate,
+    ChatWriteForbidden,
     FloodWait,
+    Forbidden,
+    MessageIdInvalid,
     MessageNotModified,
     PeerIdInvalid,
+    QueryIdInvalid,
     UserIsBlocked,
     UsernameInvalid,
     UsernameNotModified,
@@ -36,31 +42,174 @@ try:
 except ImportError:
     save_file = None
 
+try:
+    from plugins.uibuttons import (
+        get_default_file_keyboard as _get_default_file_keyboard,
+        get_deleted_file_notify_keyboard as _get_deleted_file_notify_keyboard,
+    )
+except Exception:
+    _get_default_file_keyboard = None
+    _get_deleted_file_notify_keyboard = None
+
 logger = getLogger(__name__)
 logger.setLevel(INFO)
+
+# ============================================================
+# 🛡️ PYROGRAM v2.2.26 (LAYER 230) COMPATIBILITY ENGINE
+# ============================================================
+try:
+    from pyrogram.types import LinkPreviewOptions
+except ImportError:
+    LinkPreviewOptions = None
+
+try:
+    from pyrogram.types import ReplyParameters
+except ImportError:
+    ReplyParameters = None
+
+_SEND_MSG_PARAMS = set(inspect.signature(Client.send_message).parameters.keys())
+_REPLY_PARAMS = set(inspect.signature(Message.reply_text).parameters.keys())
+_EDIT_PARAMS = set(inspect.signature(Message.edit_text).parameters.keys())
+
+
+def _prepare_compat_kwargs(
+    kwargs: dict, supported_params: set, disable_preview: Optional[bool] = None
+) -> dict:
+    clean_kw = dict(kwargs)
+    explicit_disable = clean_kw.pop("disable_web_page_preview", disable_preview)
+
+    if explicit_disable is not None:
+        if "disable_web_page_preview" in supported_params:
+            clean_kw["disable_web_page_preview"] = bool(explicit_disable)
+        elif (
+            "link_preview_options" in supported_params
+            and LinkPreviewOptions is not None
+        ):
+            try:
+                clean_kw["link_preview_options"] = LinkPreviewOptions(
+                    is_disabled=bool(explicit_disable)
+                )
+            except Exception:
+                pass
+
+    if "reply_to_message_id" in clean_kw:
+        rep_id = clean_kw.pop("reply_to_message_id")
+        if rep_id:
+            if "reply_to_message_id" in supported_params:
+                clean_kw["reply_to_message_id"] = rep_id
+            elif "reply_parameters" in supported_params and ReplyParameters is not None:
+                try:
+                    clean_kw["reply_parameters"] = ReplyParameters(message_id=rep_id)
+                except Exception:
+                    pass
+
+    return clean_kw
+
+
+async def safe_reply_text(
+    message: Message, text: str, disable_web_page_preview: bool = True, **kwargs
+) -> Optional[Message]:
+    compat_kw = _prepare_compat_kwargs(
+        kwargs, _REPLY_PARAMS, disable_preview=disable_web_page_preview
+    )
+    try:
+        return await message.reply_text(text, **compat_kw)
+    except TypeError:
+        compat_kw.pop("disable_web_page_preview", None)
+        compat_kw.pop("link_preview_options", None)
+        compat_kw.pop("reply_parameters", None)
+        compat_kw.pop("reply_to_message_id", None)
+        return await message.reply_text(text, **compat_kw)
+    except (ChatWriteForbidden, Forbidden, UserIsBlocked, PeerIdInvalid):
+        return None
+
+
+async def safe_edit_text(
+    message: Message, text: str, disable_web_page_preview: bool = True, **kwargs
+) -> Optional[Message]:
+    compat_kw = _prepare_compat_kwargs(
+        kwargs, _EDIT_PARAMS, disable_preview=disable_web_page_preview
+    )
+    try:
+        return await message.edit_text(text, **compat_kw)
+    except TypeError:
+        compat_kw.pop("disable_web_page_preview", None)
+        compat_kw.pop("link_preview_options", None)
+        return await message.edit_text(text, **compat_kw)
+    except (MessageNotModified, MessageIdInvalid, ChatWriteForbidden, Forbidden):
+        return None
+
+
+async def safe_send_message(
+    client: Client,
+    chat_id: int,
+    text: str,
+    disable_web_page_preview: Optional[bool] = True,
+    **kwargs,
+) -> Optional[Message]:
+    compat_kw = _prepare_compat_kwargs(
+        kwargs, _SEND_MSG_PARAMS, disable_preview=disable_web_page_preview
+    )
+    try:
+        return await client.send_message(chat_id=chat_id, text=text, **compat_kw)
+    except TypeError:
+        compat_kw.pop("disable_web_page_preview", None)
+        compat_kw.pop("link_preview_options", None)
+        compat_kw.pop("reply_parameters", None)
+        compat_kw.pop("reply_to_message_id", None)
+        return await client.send_message(chat_id=chat_id, text=text, **compat_kw)
+    except (ChatWriteForbidden, Forbidden, UserIsBlocked, PeerIdInvalid):
+        return None
+
+
+async def safe_answer(
+    query: CallbackQuery, text: Optional[str] = None, show_alert: bool = False
+):
+    if not query:
+        return
+    try:
+        if text is not None:
+            await query.answer(str(text)[:200], show_alert=show_alert)
+        else:
+            await query.answer(show_alert=show_alert)
+    except (QueryIdInvalid, Exception):
+        pass
+
+
+# ============================================================
+# 🎨 SAFE TELEGRAM BUTTON STYLE DETECTION
+# ============================================================
+BTN_PRIMARY = None
+BTN_SECONDARY = None
+BTN_SUCCESS = None
+BTN_DANGER = None
+_SUPPORTS_BTN_STYLE = False
 
 try:
     from pyrogram.enums import ButtonStyle
 
-    BTN_PRIMARY = getattr(ButtonStyle, "PRIMARY", 1)
-    BTN_SECONDARY = getattr(ButtonStyle, "SECONDARY", 2)
-    BTN_SUCCESS = getattr(ButtonStyle, "SUCCESS", 3)
-    BTN_DANGER = getattr(ButtonStyle, "DANGER", 4)
-except ImportError:
-    BTN_PRIMARY, BTN_SECONDARY, BTN_SUCCESS, BTN_DANGER = 1, 2, 3, 4
+    if "style" in inspect.signature(InlineKeyboardButton.__init__).parameters:
+        BTN_PRIMARY = getattr(ButtonStyle, "PRIMARY", None)
+        BTN_SECONDARY = getattr(ButtonStyle, "SECONDARY", None)
+        BTN_SUCCESS = getattr(ButtonStyle, "SUCCESS", None)
+        BTN_DANGER = getattr(ButtonStyle, "DANGER", None)
+        _SUPPORTS_BTN_STYLE = True
+except (ImportError, ValueError, TypeError):
+    BTN_PRIMARY = BTN_SECONDARY = BTN_SUCCESS = BTN_DANGER = None
+    _SUPPORTS_BTN_STYLE = False
 
 
 def create_btn(text, url=None, callback_data=None, style=None):
-    kwargs = {"text": str(text)}
+    kwargs: Dict[str, Any] = {"text": str(text)}
     if url:
-        kwargs["url"] = str(url)
+        kwargs["url"] = str(url).strip()
     elif callback_data:
-        kwargs["callback_data"] = str(callback_data)
-    if style is not None:
+        kwargs["callback_data"] = str(callback_data)[:64]
+    if _SUPPORTS_BTN_STYLE and style is not None:
         kwargs["style"] = style
     try:
         return InlineKeyboardButton(**kwargs)
-    except TypeError:
+    except Exception:
         kwargs.pop("style", None)
         return InlineKeyboardButton(**kwargs)
 
@@ -90,18 +239,24 @@ _WAITING_INPUT = {}
 # ============================================================
 # 👑 SMART AUTHORIZATION ENGINE (GLOBAL + CHAT + ANONYMOUS)
 # ============================================================
-def get_admin_list():
+def get_admin_list() -> List[int]:
     raw_admins = getattr(info, "ADMINS", [])
     if isinstance(raw_admins, (str, int)):
         raw_admins = str(raw_admins).replace(",", " ").split()
+    elif isinstance(raw_admins, (list, tuple, set)):
+        raw_admins = list(raw_admins)
+    else:
+        raw_admins = []
     return [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
 
 
 async def is_global_admin(user_id: int) -> bool:
-    return int(user_id) in get_admin_list()
+    return int(user_id) in get_admin_list() if user_id else False
 
 
 async def is_user_admin(client: Client, message: Message) -> bool:
+    if not message:
+        return False
     admin_list = get_admin_list()
 
     if message.from_user and message.from_user.id in admin_list:
@@ -289,21 +444,27 @@ async def _auto_delete_worker(
 
     if is_pm:
         notify_text = (
-            "<b>Successfully deleted your file, if you want request again in group.</b>"
+            getattr(info, "DEL_MSG", None)
+            or "<b>Successfully deleted your file, if you want request again in group.</b>"
         )
-        markup = InlineKeyboardMarkup(
-            [
+        markup = (
+            _get_deleted_file_notify_keyboard()
+            if callable(_get_deleted_file_notify_keyboard)
+            else InlineKeyboardMarkup(
                 [
-                    create_btn(
-                        "Movie Request 📝",
-                        url="https://t.me/Sandalwood_Kannada_Group",
-                        style=BTN_SUCCESS,
-                    )
+                    [
+                        create_btn(
+                            "Movie Request 📝",
+                            url="https://t.me/Sandalwood_Kannada_Group",
+                            style=BTN_SUCCESS,
+                        )
+                    ]
                 ]
-            ]
+            )
         )
         try:
-            await client.send_message(
+            await safe_send_message(
+                client,
                 chat_id,
                 text=notify_text,
                 reply_markup=markup,
@@ -350,16 +511,20 @@ def format_media_caption(
     if getattr(info, "CAPTION_PLUS", None):
         f_caption += f"\n\n{info.CAPTION_PLUS}"
 
-    default_kb = InlineKeyboardMarkup(
-        [
+    default_kb = (
+        _get_default_file_keyboard()
+        if callable(_get_default_file_keyboard)
+        else InlineKeyboardMarkup(
             [
-                create_btn(
-                    text="🎥 ಕನ್ನಡ ಹೊಸ ಮೂವೀಗಳು 🎥",
-                    url="https://t.me/sandalwood_kannada_moviesz",
-                    style=BTN_SUCCESS,
-                )
+                [
+                    create_btn(
+                        text="🎥 ಕನ್ನಡ ಹೊಸ ಮೂವೀಗಳು 🎥",
+                        url="https://t.me/sandalwood_kannada_moviesz",
+                        style=BTN_SUCCESS,
+                    )
+                ]
             ]
-        ]
+        )
     )
     return parse_text_and_markup(f_caption, default_kb)
 
@@ -424,13 +589,19 @@ async def _create_single_link_from_msg(
         enums.MessageMediaType.PHOTO,
         enums.MessageMediaType.ANIMATION,
     ]:
-        return await command_msg.reply_text(
-            "⚠️ **Invalid Media:** Please reply to or send a Video, Document, Audio, Photo, or GIF."
+        return await safe_reply_text(
+            command_msg,
+            "⚠️ <b>Invalid Media:</b> Please reply to or send a Video, Document, Audio, Photo, or GIF.",
+            parse_mode=enums.ParseMode.HTML,
         )
 
     media_obj = getattr(target_msg, file_type.value, None)
     if not media_obj:
-        return await command_msg.reply_text("❌ Could not extract media information.")
+        return await safe_reply_text(
+            command_msg,
+            "❌ <b>Could not extract media information.</b>",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
     raw_file_id = getattr(media_obj, "file_id", "")
     try:
@@ -498,21 +669,27 @@ async def _create_single_link_from_msg(
         ]
     ]
 
-    await command_msg.reply_text(
-        f"✅ **Shareable Link Generated!**\n\n"
-        f"📄 **File:** `{file_name}`\n"
-        f"📦 **Size:** `{get_size(file_size)}`\n"
-        f"🔒 **Protected:** `{'Yes' if is_protect else 'No'}`\n\n"
-        f"🔗 **Link:**\n{share_link}",
+    await safe_reply_text(
+        command_msg,
+        f"✅ <b>Shareable Link Generated!</b>\n\n"
+        f"📄 <b>File:</b> <code>{html.escape(str(file_name))}</code>\n"
+        f"📦 <b>Size:</b> <code>{get_size(file_size)}</code>\n"
+        f"🔒 <b>Protected:</b> <code>{'Yes' if is_protect else 'No'}</code>\n\n"
+        f"🔗 <b>Link:</b>\n{share_link}",
         reply_markup=InlineKeyboardMarkup(buttons),
         disable_web_page_preview=True,
+        parse_mode=enums.ParseMode.HTML,
     )
 
 
-@Client.on_message(filters.command(["link", "plink"]), group=-3)
+@Client.on_message(filters.command(["link", "plink"]) & filters.incoming, group=-3)
 async def gen_link_s(bot: Client, message: Message):
     if not await is_user_admin(bot, message):
-        return await message.reply_text("❌ **Unauthorized:** Admin only.")
+        return await safe_reply_text(
+            message,
+            "❌ <b>Unauthorized:</b> Admin only.",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
     is_protect = message.command[0].lower() == "plink"
     if message.reply_to_message and message.reply_to_message.media:
@@ -534,16 +711,19 @@ async def gen_link_s(bot: Client, message: Message):
             )
         ]
     ]
-    ask_msg = await message.reply_text(
-        "📂 **Please send or forward the media file** you want to generate a link for:\n\n*(Or reply to any file with `/link`)*",
+    ask_msg = await safe_reply_text(
+        message,
+        "📂 <b>Please send or forward the media file</b> you want to generate a link for:\n\n<i>(Or reply to any file with <code>/link</code>)</i>",
         reply_markup=InlineKeyboardMarkup(btn),
+        parse_mode=enums.ParseMode.HTML,
     )
 
     resp = await wait_for_input(message.chat.id, uid, timeout=120)
-    try:
-        await ask_msg.delete()
-    except Exception:
-        pass
+    if ask_msg:
+        try:
+            await ask_msg.delete()
+        except Exception:
+            pass
 
     if not resp or (resp.text and resp.text.strip().lower() == "/cancel"):
         return
@@ -559,7 +739,9 @@ LINK_REGEX = re.compile(
 )
 
 
-def extract_chat_and_msg_id(msg_or_text) -> Tuple[Optional[int | str], Optional[int]]:
+def extract_chat_and_msg_id(
+    msg_or_text,
+) -> Tuple[Optional[Union[int, str]], Optional[int]]:
     """Extracts (chat_id, message_id) from either a Telegram link or a forwarded channel message."""
     if isinstance(msg_or_text, Message):
         if (
@@ -587,10 +769,14 @@ def extract_chat_and_msg_id(msg_or_text) -> Tuple[Optional[int | str], Optional[
     return chat_id, msg_id
 
 
-@Client.on_message(filters.command(["batch", "pbatch"]), group=-3)
+@Client.on_message(filters.command(["batch", "pbatch"]) & filters.incoming, group=-3)
 async def gen_link_batch(bot: Client, message: Message):
     if not await is_user_admin(bot, message):
-        return await message.reply_text("❌ **Unauthorized:** Admin only.")
+        return await safe_reply_text(
+            message,
+            "❌ <b>Unauthorized:</b> Admin only.",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
     cmd = message.command[0].lower().strip()
     is_protect = cmd == "pbatch"
@@ -616,59 +802,77 @@ async def gen_link_batch(bot: Client, message: Message):
                 ]
             ]
         )
-        ask1 = await message.reply_text(
-            "📦 **Step 1/2:** Send the **First Message Link** from the channel *(or forward the first message)*:\n\n"
-            "💡 *Tip: You can also use `/batch <first_link> <last_link>` directly.*",
+        ask1 = await safe_reply_text(
+            message,
+            "📦 <b>Step 1/2:</b> Send the <b>First Message Link</b> from the channel <i>(or forward the first message)</i>:\n\n"
+            "💡 <i>Tip: You can also use <code>/batch &lt;first_link&gt; &lt;last_link&gt;</code> directly.</i>",
             reply_markup=cancel_kb,
+            parse_mode=enums.ParseMode.HTML,
         )
         resp1 = await wait_for_input(message.chat.id, uid, timeout=120)
-        try:
-            await ask1.delete()
-        except Exception:
-            pass
+        if ask1:
+            try:
+                await ask1.delete()
+            except Exception:
+                pass
         if not resp1 or (resp1.text and resp1.text.strip().lower() == "/cancel"):
             return
         f_chat_id, f_msg_id = extract_chat_and_msg_id(resp1)
         if not f_chat_id or not f_msg_id:
-            return await message.reply_text(
-                "❌ **Invalid First Message!** Please provide a valid channel post link or forwarded channel message."
+            return await safe_reply_text(
+                message,
+                "❌ <b>Invalid First Message!</b> Please provide a valid channel post link or forwarded channel message.",
+                parse_mode=enums.ParseMode.HTML,
             )
 
-        ask2 = await message.reply_text(
-            "📦 **Step 2/2:** Now send the **Last Message Link** from the same channel *(or forward the last message)*:",
+        ask2 = await safe_reply_text(
+            message,
+            "📦 <b>Step 2/2:</b> Now send the <b>Last Message Link</b> from the same channel <i>(or forward the last message)</i>:",
             reply_markup=cancel_kb,
+            parse_mode=enums.ParseMode.HTML,
         )
         resp2 = await wait_for_input(message.chat.id, uid, timeout=120)
-        try:
-            await ask2.delete()
-        except Exception:
-            pass
+        if ask2:
+            try:
+                await ask2.delete()
+            except Exception:
+                pass
         if not resp2 or (resp2.text and resp2.text.strip().lower() == "/cancel"):
             return
         l_chat_id, l_msg_id = extract_chat_and_msg_id(resp2)
 
     if not (f_chat_id and f_msg_id and l_chat_id and l_msg_id):
-        return await message.reply_text(
-            "⚙️ **Usage Format:**\n"
-            f"`/{cmd} <first_link> <last_link>`\n\n"
-            "**Example:**\n"
-            f"`/{cmd} https://t.me/c/1234567/10 https://t.me/c/1234567/20`"
+        return await safe_reply_text(
+            message,
+            f"⚙️ <b>Usage Format:</b>\n"
+            f"<code>/{cmd} &lt;first_link&gt; &lt;last_link&gt;</code>\n\n"
+            f"<b>Example:</b>\n"
+            f"<code>/{cmd} https://t.me/c/1234567/10 https://t.me/c/1234567/20</code>",
+            parse_mode=enums.ParseMode.HTML,
         )
 
     if str(f_chat_id) != str(l_chat_id):
-        return await message.reply_text(
-            "❌ **Mismatch:** Both links must belong to the exact same channel."
+        return await safe_reply_text(
+            message,
+            "❌ <b>Mismatch:</b> Both links must belong to the exact same channel.",
+            parse_mode=enums.ParseMode.HTML,
         )
 
     try:
         chat = await bot.get_chat(f_chat_id)
         chat_id = chat.id
     except (ChannelInvalid, ChannelPrivate, UsernameInvalid, UsernameNotModified):
-        return await message.reply_text(
-            "❌ **Access Denied:** Please make sure the bot is an **Admin** in that channel."
+        return await safe_reply_text(
+            message,
+            "❌ <b>Access Denied:</b> Please make sure the bot is an <b>Admin</b> in that channel.",
+            parse_mode=enums.ParseMode.HTML,
         )
     except Exception as e:
-        return await message.reply_text(f"❌ **Error accessing channel:** `{e}`")
+        return await safe_reply_text(
+            message,
+            f"❌ <b>Error accessing channel:</b> <code>{html.escape(str(e))}</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
     bot_username = temp.U_NAME or (await bot.get_me()).username
     start_id, end_id = min(f_msg_id, l_msg_id), max(f_msg_id, l_msg_id)
@@ -688,13 +892,15 @@ async def gen_link_batch(bot: Client, message: Message):
                 ),
             ]
         ]
-        return await message.reply_text(
-            f"✅ **Batch File Store Link Generated!**\n\n"
-            f"📢 **Channel:** `{chat.title}`\n"
-            f"🔢 **Range:** `{start_id}` to `{end_id}`\n\n"
-            f"🔗 **Link:**\n{dstore_link}",
+        return await safe_reply_text(
+            message,
+            f"✅ <b>Batch File Store Link Generated!</b>\n\n"
+            f"📢 <b>Channel:</b> <code>{html.escape(chat.title or str(chat_id))}</code>\n"
+            f"🔢 <b>Range:</b> <code>{start_id}</code> to <code>{end_id}</code>\n\n"
+            f"🔗 <b>Link:</b>\n{dstore_link}",
             reply_markup=InlineKeyboardMarkup(buttons),
             disable_web_page_preview=True,
+            parse_mode=enums.ParseMode.HTML,
         )
 
     BATCH_CANCEL[message.chat.id] = False
@@ -709,8 +915,11 @@ async def gen_link_batch(bot: Client, message: Message):
             ]
         ]
     )
-    sts = await message.reply_text(
-        "⏳ **Initiating Batch Generation...**", reply_markup=cancel_btn
+    sts = await safe_reply_text(
+        message,
+        "⏳ <b>Initiating Batch Generation...</b>",
+        reply_markup=cancel_btn,
+        parse_mode=enums.ParseMode.HTML,
     )
 
     outlist = []
@@ -721,7 +930,13 @@ async def gen_link_batch(bot: Client, message: Message):
     for i in range(0, total_count, 200):
         if BATCH_CANCEL.get(message.chat.id):
             BATCH_CANCEL.pop(message.chat.id, None)
-            return await sts.edit_text("⛔ **Batch generation cancelled.**")
+            if sts:
+                return await safe_edit_text(
+                    sts,
+                    "⛔ <b>Batch generation cancelled.</b>",
+                    parse_mode=enums.ParseMode.HTML,
+                )
+            return
 
         chunk_ids = total_range[i : i + 200]
         try:
@@ -762,21 +977,25 @@ async def gen_link_batch(bot: Client, message: Message):
             except Exception:
                 pass
 
-        try:
-            await sts.edit_text(
-                f"⏳ **Batch Link Progress:**\n"
-                f"├ Processed: `{min(i + 200, total_count)}/{total_count}` messages\n"
-                f"└ Files Found: `{og_msg}`",
+        if sts:
+            await safe_edit_text(
+                sts,
+                f"⏳ <b>Batch Link Progress:</b>\n"
+                f"├ Processed: <code>{min(i + 200, total_count)}/{total_count}</code> messages\n"
+                f"└ Files Found: <code>{og_msg}</code>",
                 reply_markup=cancel_btn,
+                parse_mode=enums.ParseMode.HTML,
             )
-        except Exception:
-            pass
 
     BATCH_CANCEL.pop(message.chat.id, None)
     if not outlist:
-        return await sts.edit_text(
-            "❌ **No downloadable media found** within the provided message range."
-        )
+        if sts:
+            return await safe_edit_text(
+                sts,
+                "❌ <b>No downloadable media found</b> within the provided message range.",
+                parse_mode=enums.ParseMode.HTML,
+            )
+        return
 
     req_id = (
         message.from_user.id
@@ -803,6 +1022,7 @@ async def gen_link_batch(bot: Client, message: Message):
                 batch_file_path,
                 file_name="Batch.json",
                 caption=f"⚠️ Batch generated for {uploader_name} ({og_msg} files).",
+                parse_mode=enums.ParseMode.HTML,
             )
         except Exception:
             post = None
@@ -831,7 +1051,7 @@ async def gen_link_batch(bot: Client, message: Message):
             batch_id = post.document.file_id
         raw_doc_id = post.document.file_id
     else:
-        batch_id = f"{ abs(int(chat_id)) }_{start_id}_{end_id}"
+        batch_id = f"{abs(int(chat_id))}_{start_id}_{end_id}"
         raw_doc_id = None
 
     # Save batch list in MongoDB so it works instantaneously and never expires
@@ -867,24 +1087,29 @@ async def gen_link_batch(bot: Client, message: Message):
         ]
     ]
 
-    await sts.edit_text(
-        f"✅ **Batch Link Complete!**\n\n"
-        f"📢 **Channel:** `{chat.title}`\n"
-        f"📂 **Files Included:** `{og_msg}`\n"
-        f"🔒 **Protected:** `{'Yes' if is_protect else 'No'}`\n\n"
-        f"🔗 **Link:**\n{batch_link}",
-        reply_markup=InlineKeyboardMarkup(buttons),
-        disable_web_page_preview=True,
-    )
+    if sts:
+        await safe_edit_text(
+            sts,
+            f"✅ <b>Batch Link Complete!</b>\n\n"
+            f"📢 <b>Channel:</b> <code>{html.escape(chat.title or str(chat_id))}</code>\n"
+            f"📂 <b>Files Included:</b> <code>{og_msg}</code>\n"
+            f"🔒 <b>Protected:</b> <code>{'Yes' if is_protect else 'No'}</code>\n\n"
+            f"🔗 <b>Link:</b>\n{batch_link}",
+            reply_markup=InlineKeyboardMarkup(buttons),
+            disable_web_page_preview=True,
+            parse_mode=enums.ParseMode.HTML,
+        )
 
 
 # ============================================================
 # 🎛️ CANCEL & ABORT CALLBACKS
 # ============================================================
-@Client.on_callback_query(filters.regex(r"^(genlink_cancel#|genlink_abort#)"), group=-3)
+@Client.on_callback_query(
+    filters.regex(r"^(genlink_cancel#|genlink_abort#)"), group=-3
+)
 async def genlink_callbacks(bot: Client, query: CallbackQuery):
     if not await is_cb_admin(bot, query):
-        return await query.answer("❌ Unauthorized: Admin only.", show_alert=True)
+        return await safe_answer(query, "❌ Unauthorized: Admin only.", show_alert=True)
 
     action, chat_id_str = query.data.split("#", 1)
     chat_id = int(chat_id_str)
@@ -895,16 +1120,18 @@ async def genlink_callbacks(bot: Client, query: CallbackQuery):
             if fut and not fut.done():
                 fut.cancel()
             _WAITING_INPUT.pop(chat_id, None)
-        await query.answer("Cancelled.")
-        try:
-            await query.message.edit_text("❌ **Operation cancelled.**")
-        except Exception:
-            pass
+        await safe_answer(query, "Cancelled.")
+        if query.message:
+            await safe_edit_text(
+                query.message,
+                "❌ <b>Operation cancelled.</b>",
+                parse_mode=enums.ParseMode.HTML,
+            )
         return
 
     if action == "genlink_cancel":
         BATCH_CANCEL[chat_id] = True
-        await query.answer("Stopping batch process...", show_alert=True)
+        await safe_answer(query, "Stopping batch process...", show_alert=True)
 
 
 # ============================================================
@@ -961,14 +1188,16 @@ async def deliver_genlink_payload(
                 logger.error(f"Batch download fallback error: {e}")
 
         if not files_list:
-            await bot.send_message(
+            await safe_send_message(
+                bot,
                 chat_id,
                 "⚠️ <b>Batch link expired or no longer exists!</b>",
                 parse_mode=enums.ParseMode.HTML,
             )
             return True
 
-        sts = await bot.send_message(
+        sts = await safe_send_message(
+            bot,
             chat_id,
             f"⏳ <b>Sending {len(files_list)} files from batch... Please wait.</b>",
             parse_mode=enums.ParseMode.HTML,
@@ -990,10 +1219,11 @@ async def deliver_genlink_payload(
                 sent_messages.append(sent)
             await asyncio.sleep(0.8)
 
-        try:
-            await sts.delete()
-        except Exception:
-            pass
+        if sts:
+            try:
+                await sts.delete()
+            except Exception:
+                pass
 
         if sent_messages:
             delete_timer = get_auto_delete_timer("FILE_AUTO_DELETE", 1800)
@@ -1005,7 +1235,8 @@ async def deliver_genlink_payload(
                     f"✅ Please forward these files to your saved messages and start downloading from there.\n\n"
                     f"Tᴇᴀᴍ: @KR_Picture</b>"
                 )
-                warn_msg = await bot.send_message(
+                warn_msg = await safe_send_message(
+                    bot,
                     chat_id=user_id,
                     text=warn_text,
                     reply_to_message_id=sent_messages[-1].id,
@@ -1031,14 +1262,16 @@ async def deliver_genlink_payload(
             src_chat_id = int(f_chat_id)
             protect = "pbatch" in cmd_type.lower()
         except Exception:
-            await bot.send_message(
+            await safe_send_message(
+                bot,
                 chat_id,
                 "⚠️ <b>Invalid Batch Store Link!</b>",
                 parse_mode=enums.ParseMode.HTML,
             )
             return True
 
-        sts = await bot.send_message(
+        sts = await safe_send_message(
+            bot,
             chat_id,
             "⏳ <b>Fetching files from File Store... Please wait.</b>",
             parse_mode=enums.ParseMode.HTML,
@@ -1080,10 +1313,11 @@ async def deliver_genlink_payload(
                     sent_messages.append(sent)
                 await asyncio.sleep(0.8)
 
-        try:
-            await sts.delete()
-        except Exception:
-            pass
+        if sts:
+            try:
+                await sts.delete()
+            except Exception:
+                pass
 
         if sent_messages:
             delete_timer = get_auto_delete_timer("FILE_AUTO_DELETE", 1800)
@@ -1095,7 +1329,8 @@ async def deliver_genlink_payload(
                     f"✅ Please forward these files to your saved messages and start downloading from there.\n\n"
                     f"Tᴇᴀᴍ: @KR_Picture</b>"
                 )
-                warn_msg = await bot.send_message(
+                warn_msg = await safe_send_message(
+                    bot,
                     chat_id=user_id,
                     text=warn_text,
                     reply_to_message_id=sent_messages[-1].id,
@@ -1111,7 +1346,6 @@ async def deliver_genlink_payload(
         prefix, fid = payload.split("_", 1)
         protect = prefix == "filep"
 
-        # If it's already in ia_filterdb and wasn't a base64 link, let commands.py or our handler deliver it
         db_files = await get_file_details(fid)
         gen_doc = None
         if not db_files and _genlink_db is not None:
@@ -1168,7 +1402,8 @@ async def deliver_genlink_payload(
                         f"✅ Please forward this file to your saved messages and start downloading from there.\n\n"
                         f"Tᴇᴀᴍ: @KR_Picture</b>"
                     )
-                    warn_msg = await bot.send_message(
+                    warn_msg = await safe_send_message(
+                        bot,
                         chat_id=user_id,
                         text=warn_text,
                         reply_to_message_id=sent.id,
