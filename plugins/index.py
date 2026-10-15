@@ -1,15 +1,24 @@
 import asyncio
+import html
+import inspect
 import re
 import time
 from logging import INFO, getLogger
+from typing import Optional
 
 from motor.motor_asyncio import AsyncIOMotorClient
 from pyrogram import Client, enums, filters
 from pyrogram.errors import (
     ChannelInvalid,
     ChannelPrivate,
+    ChatWriteForbidden,
     FloodWait,
+    Forbidden,
+    MessageIdInvalid,
     MessageNotModified,
+    PeerIdInvalid,
+    QueryIdInvalid,
+    UserIsBlocked,
     UsernameInvalid,
     UsernameNotModified,
 )
@@ -40,6 +49,46 @@ logger = getLogger(__name__)
 logger.setLevel(INFO)
 
 # ============================================================
+# 🛡️ PYROGRAM v2.2.26 (LAYER 230) SAFE SEND HELPERS
+# ============================================================
+_REPLY_PARAMS = set(inspect.signature(Message.reply_text).parameters.keys())
+_EDIT_PARAMS = set(inspect.signature(Message.edit_text).parameters.keys())
+
+
+async def safe_reply_text(message: Message, text: str, **kwargs):
+    try:
+        return await message.reply_text(text, **kwargs)
+    except (ChatWriteForbidden, Forbidden, UserIsBlocked, PeerIdInvalid):
+        return None
+    except Exception as e:
+        logger.error(f"safe_reply_text error in index.py: {e}")
+        return None
+
+
+async def safe_edit_text(message: Message, text: str, **kwargs):
+    try:
+        return await message.edit_text(text, **kwargs)
+    except (MessageNotModified, MessageIdInvalid, ChatWriteForbidden, Forbidden):
+        return None
+    except Exception:
+        return None
+
+
+async def safe_answer(
+    query: CallbackQuery, text: Optional[str] = None, show_alert: bool = False
+):
+    if not query:
+        return
+    try:
+        if text is not None:
+            await query.answer(str(text)[:200], show_alert=show_alert)
+        else:
+            await query.answer(show_alert=show_alert)
+    except (QueryIdInvalid, Exception):
+        pass
+
+
+# ============================================================
 # ⚙️ MONGODB SETUP FOR RESUME, CLEAN WORDS & INDEX SETTINGS
 # ============================================================
 resume_db = cw_db = idx_db = None
@@ -60,6 +109,10 @@ def get_admin_list():
     raw_admins = getattr(info, "ADMINS", [])
     if isinstance(raw_admins, (str, int)):
         raw_admins = str(raw_admins).replace(",", " ").split()
+    elif isinstance(raw_admins, (list, tuple, set)):
+        raw_admins = list(raw_admins)
+    else:
+        raw_admins = []
     return [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
 
 
@@ -343,6 +396,15 @@ async def pm_media_handler(bot: Client, message: Message):
     if not await is_user_admin(bot, message):
         return
 
+    # Do not intercept if admin is answering an interactive Help button prompt
+    try:
+        from plugins.uibuttons import is_waiting_for_cmd_input
+
+        if is_waiting_for_cmd_input(message.chat.id):
+            return
+    except Exception:
+        pass
+
     fwd_chat_id, fwd_msg_id = extract_forward_info(message)
     if fwd_chat_id and fwd_msg_id:
         uid = message.from_user.id if message.from_user else 0
@@ -360,9 +422,11 @@ async def pm_media_handler(bot: Client, message: Message):
             ],
             [InlineKeyboardButton("Cancel", callback_data="idx_close")],
         ]
-        await message.reply_text(
-            "📂 **File received from a channel.**\n\nWhat would you like to do?",
+        await safe_reply_text(
+            message,
+            "📂 <b>File received from a channel.</b>\n\nWhat would you like to do?",
             reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode=enums.ParseMode.HTML,
         )
     else:
         await save_single_file(bot, message)
@@ -371,7 +435,7 @@ async def pm_media_handler(bot: Client, message: Message):
 @Client.on_callback_query(filters.regex(r"^save_single#"), group=-5)
 async def save_single_callback(bot: Client, query: CallbackQuery):
     if not await is_cb_admin(bot, query):
-        return await query.answer("❌ Unauthorized: Admin only.", show_alert=True)
+        return await safe_answer(query, "❌ Unauthorized: Admin only.", show_alert=True)
 
     msg_id = int(query.data.split("#")[1])
     try:
@@ -380,7 +444,7 @@ async def save_single_callback(bot: Client, query: CallbackQuery):
         if original_message:
             await save_single_file(bot, original_message)
     except Exception:
-        await query.answer("Failed to process file.", show_alert=True)
+        await safe_answer(query, "Failed to process file.", show_alert=True)
 
 
 async def save_single_file(bot: Client, message: Message):
@@ -390,8 +454,10 @@ async def save_single_file(bot: Client, message: Message):
 
     idx_settings = await get_idx_settings()
     if getattr(media_obj, "file_size", 0) < idx_settings.get("min_size", 0):
-        return await message.reply_text(
-            "⚠️ Ignored: File size is smaller than minimum limit."
+        return await safe_reply_text(
+            message,
+            "⚠️ <b>Ignored:</b> File size is smaller than minimum limit.",
+            parse_mode=enums.ParseMode.HTML,
         )
 
     raw_name, raw_caption = (
@@ -406,13 +472,19 @@ async def save_single_file(bot: Client, message: Message):
         b.lower() in raw_name.lower() or b.lower() in raw_caption.lower()
         for b in blacklist
     ):
-        return await message.reply_text("⚠️ Ignored: File contains blacklisted words.")
+        return await safe_reply_text(
+            message,
+            "⚠️ <b>Ignored:</b> File contains blacklisted words.",
+            parse_mode=enums.ParseMode.HTML,
+        )
     if whitelist and not any(
         w.lower() in raw_name.lower() or w.lower() in raw_caption.lower()
         for w in whitelist
     ):
-        return await message.reply_text(
-            "⚠️ Ignored: File does not contain whitelisted words."
+        return await safe_reply_text(
+            message,
+            "⚠️ <b>Ignored:</b> File does not contain whitelisted words.",
+            parse_mode=enums.ParseMode.HTML,
         )
 
     target_media, target_caption = media_obj, message.caption
@@ -434,44 +506,259 @@ async def save_single_file(bot: Client, message: Message):
 
     try:
         await safe_save_batch([safe_media])
-        await message.reply_text(
-            f"✅ **Successfully Saved to Database!**\n\n`{cleaned_name}`"
+        await safe_reply_text(
+            message,
+            f"✅ <b>Successfully Saved to Database!</b>\n\n<code>{html.escape(cleaned_name)}</code>",
+            parse_mode=enums.ParseMode.HTML,
         )
     except Exception as e:
         logger.error(f"PM Auto-index failed: {e}")
-        await message.reply_text(f"❌ **Failed to index:** `{e}`")
+        await safe_reply_text(
+            message,
+            f"❌ <b>Failed to index:</b> <code>{html.escape(str(e))}</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
 
 # ============================================================
-# 🎛️ ADVANCED COMMAND CONTROLS
+# 🎛️ ADVANCED COMMAND CONTROLS (SKIP, SPEED, FILTERS, BACKUP)
 # ============================================================
 @Client.on_message(filters.command("setskip"), group=-5)
 async def set_skip_number(bot: Client, message: Message):
     if not await is_user_admin(bot, message):
-        return await message.reply_text("❌ **Unauthorized:** Admin only.")
+        return await safe_reply_text(
+            message,
+            "❌ <b>Unauthorized:</b> Admin only.",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
     if len(message.command) > 1:
         try:
             skip = int(message.command[1])
             if skip < 0:
-                return await message.reply_text("⚠️ Skip number must be 0 or greater.")
+                return await safe_reply_text(
+                    message,
+                    "⚠️ Skip number must be 0 or greater.",
+                    parse_mode=enums.ParseMode.HTML,
+                )
             temp.CURRENT = skip
-            await message.reply_text(
-                f"✅ Successfully set default SKIP number to `{skip}`."
+            await safe_reply_text(
+                message,
+                f"✅ Successfully set default SKIP number to <code>{skip}</code>.",
+                parse_mode=enums.ParseMode.HTML,
             )
         except ValueError:
-            await message.reply_text("⚠️ Skip number must be an integer.")
+            await safe_reply_text(
+                message,
+                "⚠️ Skip number must be an integer.",
+                parse_mode=enums.ParseMode.HTML,
+            )
     else:
-        await message.reply_text("⚠️ Usage: `/setskip 100`")
+        await safe_reply_text(
+            message,
+            "⚠️ <b>Usage:</b> <code>/setskip 100</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
+
+
+@Client.on_message(filters.command("deleteskip"), group=-5)
+async def delete_skip_number(bot: Client, message: Message):
+    if not await is_user_admin(bot, message):
+        return await safe_reply_text(
+            message,
+            "❌ <b>Unauthorized:</b> Admin only.",
+            parse_mode=enums.ParseMode.HTML,
+        )
+    temp.CURRENT = 0
+    await safe_reply_text(
+        message,
+        "✅ Successfully reset SKIP number to <code>0</code>.",
+        parse_mode=enums.ParseMode.HTML,
+    )
 
 
 @Client.on_message(filters.command("currentskip"), group=-5)
 async def current_skip_number(bot: Client, message: Message):
     if not await is_user_admin(bot, message):
-        return await message.reply_text("❌ **Unauthorized:** Admin only.")
+        return await safe_reply_text(
+            message,
+            "❌ <b>Unauthorized:</b> Admin only.",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
     current = getattr(temp, "CURRENT", 0)
-    await message.reply_text(f"ℹ️ The current default SKIP number is: `{current}`")
+    await safe_reply_text(
+        message,
+        f"ℹ️ The current default SKIP number is: <code>{current}</code>",
+        parse_mode=enums.ParseMode.HTML,
+    )
+
+
+@Client.on_message(filters.command("setindexspeed"), group=-5)
+async def set_index_speed_cmd(bot: Client, message: Message):
+    if not await is_user_admin(bot, message):
+        return await safe_reply_text(
+            message,
+            "❌ <b>Unauthorized:</b> Admin only.",
+            parse_mode=enums.ParseMode.HTML,
+        )
+    if len(message.command) < 2:
+        cur = getattr(temp, "INDEX_SPEED", 0)
+        return await safe_reply_text(
+            message,
+            f"⚙️ <b>Usage:</b> <code>/setindexspeed &lt;seconds&gt;</code>\n⏱️ <b>Current Delay:</b> <code>{cur}s</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
+    try:
+        delay = max(0.0, float(message.command[1]))
+        temp.INDEX_SPEED = delay
+        await safe_reply_text(
+            message,
+            f"✅ <b>Indexing batch delay set to:</b> <code>{delay}s</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
+    except ValueError:
+        await safe_reply_text(
+            message,
+            "⚠️ Delay must be a valid number.",
+            parse_mode=enums.ParseMode.HTML,
+        )
+
+
+@Client.on_message(filters.command("setminsize"), group=-5)
+async def set_min_size_cmd(bot: Client, message: Message):
+    if not await is_user_admin(bot, message):
+        return await safe_reply_text(
+            message,
+            "❌ <b>Unauthorized:</b> Admin only.",
+            parse_mode=enums.ParseMode.HTML,
+        )
+    if len(message.command) < 2 or not message.command[1].isdigit():
+        return await safe_reply_text(
+            message,
+            "⚙️ <b>Usage:</b> <code>/setminsize &lt;size_in_MB&gt;</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
+    mb_val = int(message.command[1])
+    await save_idx_settings("min_size", mb_val * 1024 * 1024)
+    await safe_reply_text(
+        message,
+        f"✅ <b>Minimum file size filter set to:</b> <code>{mb_val} MB</code>",
+        parse_mode=enums.ParseMode.HTML,
+    )
+
+
+@Client.on_message(
+    filters.command(
+        [
+            "setblacklist",
+            "remblacklist",
+            "allblacklist",
+            "setwhitelist",
+            "remwhitelist",
+            "allwhitelist",
+        ]
+    ),
+    group=-5,
+)
+async def manage_index_word_lists(bot: Client, message: Message):
+    if not await is_user_admin(bot, message):
+        return await safe_reply_text(
+            message,
+            "❌ <b>Unauthorized:</b> Admin only.",
+            parse_mode=enums.ParseMode.HTML,
+        )
+
+    cmd = message.command[0].lower()
+    is_black = "black" in cmd
+    key = "blacklist" if is_black else "whitelist"
+    label = "Blacklist" if is_black else "Whitelist"
+
+    idx_settings = await get_idx_settings()
+    cur_list = list(idx_settings.get(key, []))
+
+    if cmd.startswith("all"):
+        words_str = (
+            ", ".join(f"<code>{html.escape(w)}</code>" for w in cur_list)
+            if cur_list
+            else "<i>None</i>"
+        )
+        return await safe_reply_text(
+            message,
+            f"📋 <b>Active Index {label} Words ({len(cur_list)}):</b>\n\n{words_str}",
+            parse_mode=enums.ParseMode.HTML,
+        )
+
+    if len(message.command) < 2:
+        return await safe_reply_text(
+            message,
+            f"⚙️ <b>Usage:</b> <code>/{cmd} word1, word2</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
+
+    input_words = [
+        w.strip() for w in message.text.split(None, 1)[1].split(",") if w.strip()
+    ]
+    if cmd.startswith("set"):
+        merged = list(dict.fromkeys(cur_list + input_words))
+        await save_idx_settings(key, merged)
+        return await safe_reply_text(
+            message,
+            f"✅ <b>Updated Index {label} ({len(merged)} words)!</b>",
+            parse_mode=enums.ParseMode.HTML,
+        )
+    else:
+        lower_rm = {w.lower() for w in input_words}
+        remaining = [w for w in cur_list if w.lower() not in lower_rm]
+        await save_idx_settings(key, remaining)
+        return await safe_reply_text(
+            message,
+            f"🗑️ <b>Removed from Index {label}. Remaining:</b> <code>{len(remaining)}</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
+
+
+@Client.on_message(filters.command(["setbackupchannel", "autobackup"]), group=-5)
+async def manage_index_backup_cmd(bot: Client, message: Message):
+    if not await is_user_admin(bot, message):
+        return await safe_reply_text(
+            message,
+            "❌ <b>Unauthorized:</b> Admin only.",
+            parse_mode=enums.ParseMode.HTML,
+        )
+
+    cmd = message.command[0].lower()
+    idx_settings = await get_idx_settings()
+
+    if cmd == "setbackupchannel":
+        if len(message.command) < 2:
+            return await safe_reply_text(
+                message,
+                "⚙️ <b>Usage:</b> <code>/setbackupchannel -1001234567890</code>",
+                parse_mode=enums.ParseMode.HTML,
+            )
+        try:
+            cid = int(message.command[1].strip())
+            await save_idx_settings("backup_channel", cid)
+            return await safe_reply_text(
+                message,
+                f"✅ <b>Backup Channel ID set to:</b> <code>{cid}</code>",
+                parse_mode=enums.ParseMode.HTML,
+            )
+        except ValueError:
+            return await safe_reply_text(
+                message,
+                "❌ Invalid Channel ID.",
+                parse_mode=enums.ParseMode.HTML,
+            )
+
+    new_state = not bool(idx_settings.get("auto_backup", False))
+    await save_idx_settings("auto_backup", new_state)
+    await safe_reply_text(
+        message,
+        f"🛡️ <b>Auto-Backup Shield:</b> <code>{'ENABLED ✅' if new_state else 'DISABLED ❌'}</code>",
+        parse_mode=enums.ParseMode.HTML,
+    )
 
 
 # ============================================================
@@ -480,11 +767,14 @@ async def current_skip_number(bot: Client, message: Message):
 @Client.on_callback_query(filters.regex(r"^(idx#|idx_cancel#|idx_close)"), group=-5)
 async def index_files(bot: Client, query: CallbackQuery):
     if not await is_cb_admin(bot, query):
-        return await query.answer("❌ Unauthorized: Admin only.", show_alert=True)
+        return await safe_answer(query, "❌ Unauthorized: Admin only.", show_alert=True)
 
     if query.data == "idx_close":
-        await query.message.delete()
-        return await query.answer()
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+        return await safe_answer(query)
 
     if query.data.startswith("idx_cancel#"):
         try:
@@ -495,41 +785,44 @@ async def index_files(bot: Client, query: CallbackQuery):
             if not hasattr(temp, "INDEX_CANCEL"):
                 temp.INDEX_CANCEL = {}
             temp.INDEX_CANCEL[chat_id] = True
-            await query.answer("Cancelling Indexing...", show_alert=True)
-            try:
-                await query.message.edit_text("⏳ **Stopping index process...**")
-            except Exception:
-                pass
+            await safe_answer(query, "Cancelling Indexing...", show_alert=True)
+            await safe_edit_text(
+                query.message,
+                "⏳ <b>Stopping index process...</b>",
+                parse_mode=enums.ParseMode.HTML,
+            )
             return
         except Exception:
-            return await query.answer("Cancel signal sent.", show_alert=True)
+            return await safe_answer(query, "Cancel signal sent.", show_alert=True)
 
     data_parts = query.data.split("#")
     if len(data_parts) == 6:
         _, action, chat, lst_msg_id, from_user, filter_type = data_parts
     else:
-        return await query.answer("Invalid callback data structure.", show_alert=True)
+        return await safe_answer(
+            query, "Invalid callback data structure.", show_alert=True
+        )
 
     if lock.locked():
-        return await query.answer(
+        return await safe_answer(
+            query,
             "⚠️ Another index process is currently running. Please wait.",
             show_alert=True,
         )
 
     msg = query.message
-    await query.answer("Starting Indexing...⏳", show_alert=False)
+    await safe_answer(query, "Starting Indexing...⏳", show_alert=False)
 
     chat = int(chat) if str(chat).lstrip("-").isdigit() else chat
 
-    try:
-        await msg.edit_text(
-            "⚡ **Starting Indexing Engine...**",
-            reply_markup=InlineKeyboardMarkup(
-                [[InlineKeyboardButton("Cancel", callback_data=f"idx_cancel#{chat}")]]
-            ),
-        )
-    except MessageNotModified:
-        pass
+    await safe_edit_text(
+        msg,
+        "⚡ <b>Starting Indexing Engine...</b>",
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton("Cancel", callback_data=f"idx_cancel#{chat}")]]
+        ),
+        parse_mode=enums.ParseMode.HTML,
+    )
 
     skip_val = getattr(temp, "CURRENT", 0)
     asyncio.create_task(
@@ -543,13 +836,19 @@ async def process_index_request(
     try:
         chat_obj = await bot.get_chat(chat_id)
         chat_id = chat_obj.id
-        chat_title = chat_obj.title or str(chat_id)
+        chat_title = html.escape(chat_obj.title or str(chat_id))
     except (ChannelInvalid, ChannelPrivate, UsernameInvalid, UsernameNotModified):
-        return await message.reply_text(
-            "⚠️ Invalid Link/Channel or Bot is not an Admin in that channel."
+        return await safe_reply_text(
+            message,
+            "⚠️ Invalid Link/Channel or Bot is not an Admin in that channel.",
+            parse_mode=enums.ParseMode.HTML,
         )
     except Exception as e:
-        return await message.reply_text(f"⚠️ Error accessing channel: `{e}`")
+        return await safe_reply_text(
+            message,
+            f"⚠️ Error accessing channel: <code>{html.escape(str(e))}</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
     skip_count = getattr(temp, "CURRENT", 0)
     uid = message.from_user.id if message.from_user else 0
@@ -562,13 +861,15 @@ async def process_index_request(
         ],
         [InlineKeyboardButton("❌ Close", callback_data="idx_close")],
     ]
-    return await message.reply_text(
-        f"📂 **Ready to Index ({filter_type.title()})**\n\n"
-        f"**Channel:** `{chat_title}`\n"
-        f"**Chat ID:** <code>{chat_id}</code>\n"
-        f"**Last Message ID:** <code>{last_msg_id}</code>\n"
-        f"**Skip Count:** <code>{skip_count}</code>",
+    return await safe_reply_text(
+        message,
+        f"📂 <b>Ready to Index ({filter_type.title()})</b>\n\n"
+        f"<b>Channel:</b> <code>{chat_title}</code>\n"
+        f"<b>Chat ID:</b> <code>{chat_id}</code>\n"
+        f"<b>Last Message ID:</b> <code>{last_msg_id}</code>\n"
+        f"<b>Skip Count:</b> <code>{skip_count}</code>",
         reply_markup=InlineKeyboardMarkup(buttons),
+        parse_mode=enums.ParseMode.HTML,
     )
 
 
@@ -578,7 +879,11 @@ async def process_index_request(
 )
 async def index_command(bot: Client, message: Message):
     if not await is_user_admin(bot, message):
-        return await message.reply_text("❌ **Unauthorized:** Admin only.")
+        return await safe_reply_text(
+            message,
+            "❌ <b>Unauthorized:</b> Admin only.",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
     cmd = message.command[0].lower()
     filter_type = (
@@ -603,11 +908,11 @@ async def index_command(bot: Client, message: Message):
             )
 
     if len(message.command) == 2 and re.match(
-        r"(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$",
+        r"(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9_]+)/(\d+)$",
         message.command[1],
     ):
         match = re.match(
-            r"(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$",
+            r"(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9_]+)/(\d+)$",
             message.command[1],
         )
         chat_id = (
@@ -620,10 +925,12 @@ async def index_command(bot: Client, message: Message):
         )
 
     if len(message.command) != 3:
-        return await message.reply_text(
-            f"**Usage:**\n`/{cmd} <chat_id> <last_message_id>`\n"
-            f"Or `/{cmd} <channel_message_link>`\n"
-            f"Or reply to a forwarded channel message with `/{cmd}`"
+        return await safe_reply_text(
+            message,
+            f"<b>Usage:</b>\n<code>/{cmd} &lt;chat_id&gt; &lt;last_message_id&gt;</code>\n"
+            f"Or <code>/{cmd} &lt;channel_message_link&gt;</code>\n"
+            f"Or reply to a forwarded channel message with <code>/{cmd}</code>",
+            parse_mode=enums.ParseMode.HTML,
         )
 
     chat_id = (
@@ -634,7 +941,11 @@ async def index_command(bot: Client, message: Message):
     try:
         last_msg_id = int(message.command[2])
     except ValueError:
-        return await message.reply_text("⚠️ Last message ID must be an integer.")
+        return await safe_reply_text(
+            message,
+            "⚠️ Last message ID must be an integer.",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
     await process_index_request(bot, message, chat_id, last_msg_id, filter_type)
 
@@ -642,10 +953,18 @@ async def index_command(bot: Client, message: Message):
 @Client.on_message(filters.command("resumeindex"), group=-5)
 async def resume_index_command(bot: Client, message: Message):
     if not await is_user_admin(bot, message):
-        return await message.reply_text("❌ **Unauthorized:** Admin only.")
+        return await safe_reply_text(
+            message,
+            "❌ <b>Unauthorized:</b> Admin only.",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
     if len(message.command) != 2:
-        return await message.reply_text("**Usage:** `/resumeindex <chat_id>`")
+        return await safe_reply_text(
+            message,
+            "<b>Usage:</b> <code>/resumeindex &lt;chat_id&gt;</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
     chat_id = (
         int(message.command[1])
@@ -654,25 +973,39 @@ async def resume_index_command(bot: Client, message: Message):
     )
     last_processed = await get_resume_state(chat_id)
     if last_processed <= 0:
-        return await message.reply_text("⚠️ No crash-resume state found for that chat.")
+        return await safe_reply_text(
+            message,
+            "⚠️ No crash-resume state found for that chat.",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
-    status = await message.reply_text("⏳ Fetching highest message ID...")
+    status = await safe_reply_text(
+        message,
+        "⏳ Fetching highest message ID...",
+        parse_mode=enums.ParseMode.HTML,
+    )
     try:
         last_msg_id = last_processed + 1000
         async for m in bot.get_chat_history(chat_id, limit=1):
             last_msg_id = m.id
             break
-        await status.delete()
+        if status:
+            await status.delete()
         temp.CURRENT = last_processed
         await process_index_request(bot, message, chat_id, last_msg_id, "all")
     except Exception as e:
-        await status.edit_text(f"❌ Failed to resume: `{e}`")
+        if status:
+            await safe_edit_text(
+                status,
+                f"❌ Failed to resume: <code>{html.escape(str(e))}</code>",
+                parse_mode=enums.ParseMode.HTML,
+            )
 
 
 @Client.on_message(
     filters.text
     & filters.regex(
-        r"^(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$"
+        r"^(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9_]+)/(\d+)$"
     ),
     group=-5,
 )
@@ -680,8 +1013,16 @@ async def send_for_index(bot: Client, message: Message):
     if not await is_user_admin(bot, message):
         return
 
+    try:
+        from plugins.uibuttons import is_waiting_for_cmd_input
+
+        if is_waiting_for_cmd_input(message.chat.id):
+            return
+    except Exception:
+        pass
+
     match = re.match(
-        r"^(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$",
+        r"^(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9_]+)/(\d+)$",
         message.text.strip(),
     )
     if match:
@@ -697,6 +1038,14 @@ async def send_for_index(bot: Client, message: Message):
 async def pm_forward_text_indexer(bot: Client, message: Message):
     if not await is_user_admin(bot, message):
         return
+
+    try:
+        from plugins.uibuttons import is_waiting_for_cmd_input
+
+        if is_waiting_for_cmd_input(message.chat.id):
+            return
+    except Exception:
+        pass
 
     fwd_chat_id, fwd_msg_id = extract_forward_info(message)
     if fwd_chat_id and fwd_msg_id:
@@ -743,16 +1092,15 @@ async def index_files_to_db(
 
             for i in range(0, len(message_ids), 200):
                 if temp.INDEX_CANCEL.get(chat):
-                    try:
-                        await msg.edit_text(
-                            f"**⛔ Indexing Cancelled!**\n\n"
-                            f"✅ Saved: `{total_files}`\n"
-                            f"♻️ Duplicates: `{duplicate}`\n"
-                            f"🗑️ Deleted/Empty: `{deleted}`\n"
-                            f"⚠️ Skipped/Unsupported: `{no_media + unsupported}`"
-                        )
-                    except Exception:
-                        pass
+                    await safe_edit_text(
+                        msg,
+                        f"<b>⛔ Indexing Cancelled!</b>\n\n"
+                        f"✅ Saved: <code>{total_files}</code>\n"
+                        f"♻️ Duplicates: <code>{duplicate}</code>\n"
+                        f"🗑️ Deleted/Empty: <code>{deleted}</code>\n"
+                        f"⚠️ Skipped/Unsupported: <code>{no_media + unsupported}</code>",
+                        parse_mode=enums.ParseMode.HTML,
+                    )
                     temp.INDEX_CANCEL[chat] = False
                     return
 
@@ -783,28 +1131,27 @@ async def index_files_to_db(
                     last_processed = getattr(message, "id", last_processed)
 
                     if time.time() - last_update_time > 8:
-                        try:
-                            await msg.edit_text(
-                                text=(
-                                    f"⚡ **Indexing ({filter_type.title()})...**\n\n"
-                                    f"📥 Fetched: `{fetched_count}/{len(message_ids)}`\n"
-                                    f"✅ Saved: `{total_files}`\n"
-                                    f"♻️ Duplicates: `{duplicate}`\n"
-                                    f"🗑️ Deleted: `{deleted}`"
-                                ),
-                                reply_markup=InlineKeyboardMarkup(
+                        await safe_edit_text(
+                            msg,
+                            text=(
+                                f"⚡ <b>Indexing ({filter_type.title()})...</b>\n\n"
+                                f"📥 Fetched: <code>{fetched_count}/{len(message_ids)}</code>\n"
+                                f"✅ Saved: <code>{total_files}</code>\n"
+                                f"♻️ Duplicates: <code>{duplicate}</code>\n"
+                                f"🗑️ Deleted: <code>{deleted}</code>"
+                            ),
+                            reply_markup=InlineKeyboardMarkup(
+                                [
                                     [
-                                        [
-                                            InlineKeyboardButton(
-                                                "❌ Cancel",
-                                                callback_data=f"idx_cancel#{chat}",
-                                            )
-                                        ]
+                                        InlineKeyboardButton(
+                                            "❌ Cancel",
+                                            callback_data=f"idx_cancel#{chat}",
+                                        )
                                     ]
-                                ),
-                            )
-                        except Exception:
-                            pass
+                                ]
+                            ),
+                            parse_mode=enums.ParseMode.HTML,
+                        )
                         last_update_time = time.time()
 
                     if getattr(message, "empty", False):
@@ -904,20 +1251,20 @@ async def index_files_to_db(
                     await asyncio.sleep(delay_speed)
 
         except Exception as e:
-            try:
-                await msg.edit_text(f"⚠️ **Indexing Error:** `{e}`")
-            except Exception:
-                pass
+            await safe_edit_text(
+                msg,
+                f"⚠️ <b>Indexing Error:</b> <code>{html.escape(str(e))}</code>",
+                parse_mode=enums.ParseMode.HTML,
+            )
         else:
             if not temp.INDEX_CANCEL.get(chat):
-                try:
-                    await msg.edit_text(
-                        f"🎉 **Indexing Complete!**\n\n"
-                        f"✅ **Saved:** `{total_files}`\n"
-                        f"♻️ **Duplicates:** `{duplicate}`\n"
-                        f"🗑️ **Deleted:** `{deleted}`\n"
-                        f"⚠️ **Skipped/Non-Media:** `{no_media + unsupported}`\n"
-                        f"❌ **Errors:** `{errors}`"
-                    )
-                except Exception:
-                    pass
+                await safe_edit_text(
+                    msg,
+                    f"🎉 <b>Indexing Complete!</b>\n\n"
+                    f"✅ <b>Saved:</b> <code>{total_files}</code>\n"
+                    f"♻️ <b>Duplicates:</b> <code>{duplicate}</code>\n"
+                    f"🗑️ <b>Deleted:</b> <code>{deleted}</code>\n"
+                    f"⚠️ <b>Skipped/Non-Media:</b> <code>{no_media + unsupported}</code>\n"
+                    f"❌ <b>Errors:</b> <code>{errors}</code>",
+                    parse_mode=enums.ParseMode.HTML,
+                )
