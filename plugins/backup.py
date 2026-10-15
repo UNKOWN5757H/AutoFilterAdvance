@@ -1,15 +1,25 @@
 import asyncio
 import gzip
 import html
+import inspect
 import os
 import time
 from datetime import datetime
 from logging import ERROR, getLogger
+from typing import List, Optional, Tuple
 
 from bson.json_util import dumps, loads
 from motor.motor_asyncio import AsyncIOMotorClient
 from pyrogram import Client, enums, filters
-from pyrogram.errors import MessageNotModified, QueryIdInvalid
+from pyrogram.errors import (
+    ChatWriteForbidden,
+    Forbidden,
+    MessageIdInvalid,
+    MessageNotModified,
+    PeerIdInvalid,
+    QueryIdInvalid,
+    UserIsBlocked,
+)
 from pyrogram.types import (
     CallbackQuery,
     InlineKeyboardButton,
@@ -22,6 +32,49 @@ import info
 logger = getLogger(__name__)
 logger.setLevel(ERROR)
 
+# ============================================================
+# 🛡️ PYROGRAM v2.2.26 (LAYER 230) COMPATIBILITY ENGINE
+# ============================================================
+_REPLY_PARAMS = set(inspect.signature(Message.reply_text).parameters.keys())
+_EDIT_PARAMS = set(inspect.signature(Message.edit_text).parameters.keys())
+
+
+async def safe_reply_text(message: Message, text: str, **kwargs):
+    try:
+        return await message.reply_text(text, **kwargs)
+    except (ChatWriteForbidden, Forbidden, UserIsBlocked, PeerIdInvalid):
+        return None
+    except Exception as e:
+        logger.error(f"safe_reply_text error in backup.py: {e}")
+        return None
+
+
+async def safe_edit_text(message: Message, text: str, **kwargs):
+    try:
+        return await message.edit_text(text, **kwargs)
+    except (MessageNotModified, MessageIdInvalid, ChatWriteForbidden, Forbidden):
+        return None
+    except Exception:
+        return None
+
+
+async def safe_answer(
+    query: CallbackQuery, text: Optional[str] = None, show_alert: bool = False
+):
+    if not query:
+        return
+    try:
+        if text is not None:
+            await query.answer(str(text)[:200], show_alert=show_alert)
+        else:
+            await query.answer(show_alert=show_alert)
+    except (QueryIdInvalid, Exception):
+        pass
+
+
+# ============================================================
+# ⚙️ MONGODB CONNECTION & SCHEDULER STATE
+# ============================================================
 _DB_CLIENT = None
 _BOT_DB = None
 try:
@@ -34,7 +87,7 @@ BACKUP_INTERVAL = 86400  # 24 hours
 last_backup_time = None
 next_backup_time = None
 scheduler_running = False
-_scheduler_task: asyncio.Task | None = None
+_scheduler_task: Optional[asyncio.Task] = None
 
 # Telegram Bot API upload limit safety threshold (48 MB)
 MAX_RAW_JSON_BYTES = 48 * 1024 * 1024
@@ -43,7 +96,7 @@ MAX_RAW_JSON_BYTES = 48 * 1024 * 1024
 # ============================================================
 # 👑 SMART AUTHORIZATION ENGINE
 # ============================================================
-def get_admin_list():
+def get_admin_list() -> List[int]:
     raw_admins = getattr(info, "ADMINS", [])
     if isinstance(raw_admins, (str, int)):
         raw_admins = str(raw_admins).replace(",", " ").split()
@@ -144,7 +197,7 @@ def _read_backup_file_sync(file_path: str) -> dict:
         return loads(f.read())
 
 
-async def generate_backup_file(exclude_media: bool = False) -> tuple[str, int, int]:
+async def generate_backup_file(exclude_media: bool = False) -> Tuple[str, int, int]:
     """Generates a backup file and returns (file_path, total_collections, total_docs)."""
     if _BOT_DB is None:
         raise RuntimeError("Database connection is not initialized.")
@@ -232,7 +285,7 @@ async def auto_backup_task(bot: Client):
 # ============================================================
 # 🎛️ INTERACTIVE BACKUP DASHBOARD BUILDER
 # ============================================================
-async def _build_backup_dashboard() -> tuple[str, InlineKeyboardMarkup]:
+async def _build_backup_dashboard() -> Tuple[str, InlineKeyboardMarkup]:
     db_name = html.escape(str(getattr(info, "DATABASE_NAME", "Unknown")))
     colls_count = 0
     total_docs = 0
@@ -293,21 +346,28 @@ async def _build_backup_dashboard() -> tuple[str, InlineKeyboardMarkup]:
 # ============================================================
 # 🛠️ DATABASE MANAGEMENT COMMANDS & CALLBACKS
 # ============================================================
-@Client.on_message(filters.command(["backup", "dbpanel"]) & filters.incoming)
+@Client.on_message(
+    filters.command(["backup", "dbpanel"]) & filters.incoming,
+    group=-2,
+)
 async def backup_dashboard_cmd(bot: Client, message: Message):
     if not await quick_admin_check(bot, message):
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "❌ <b>Unauthorized:</b> Global Bot Admin only.",
             parse_mode=enums.ParseMode.HTML,
         )
     text, markup = await _build_backup_dashboard()
-    await message.reply_text(text, reply_markup=markup, parse_mode=enums.ParseMode.HTML)
+    await safe_reply_text(
+        message, text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
+    )
 
 
-@Client.on_message(filters.command("dbbackup") & filters.incoming)
+@Client.on_message(filters.command("dbbackup") & filters.incoming, group=-2)
 async def db_backup_cmd(bot: Client, message: Message):
     if not await quick_admin_check(bot, message):
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "❌ <b>Unauthorized:</b> Global Bot Admin only.",
             parse_mode=enums.ParseMode.HTML,
         )
@@ -317,7 +377,8 @@ async def db_backup_cmd(bot: Client, message: Message):
         "settings",
         "config",
     ]
-    status_msg = await message.reply_text(
+    status_msg = await safe_reply_text(
+        message,
         "⏳ <b>Generating database backup...</b>",
         parse_mode=enums.ParseMode.HTML,
     )
@@ -345,12 +406,18 @@ async def db_backup_cmd(bot: Client, message: Message):
         await message.reply_document(
             document=file_path, caption=caption, parse_mode=enums.ParseMode.HTML
         )
-        await status_msg.delete()
+        if status_msg:
+            try:
+                await status_msg.delete()
+            except Exception:
+                pass
     except Exception as e:
-        await status_msg.edit_text(
-            f"⚠️ <b>Backup Failed!</b>\n\n<b>Error:</b> <code>{html.escape(str(e))}</code>",
-            parse_mode=enums.ParseMode.HTML,
-        )
+        if status_msg:
+            await safe_edit_text(
+                status_msg,
+                f"⚠️ <b>Backup Failed!</b>\n\n<b>Error:</b> <code>{html.escape(str(e))}</code>",
+                parse_mode=enums.ParseMode.HTML,
+            )
     finally:
         if file_path and os.path.exists(file_path):
             try:
@@ -359,35 +426,45 @@ async def db_backup_cmd(bot: Client, message: Message):
                 pass
 
 
-@Client.on_message(filters.command("dbrestore") & filters.incoming)
+@Client.on_message(filters.command("dbrestore") & filters.incoming, group=-2)
 async def db_restore_cmd(bot: Client, message: Message):
     if not await quick_admin_check(bot, message):
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "❌ <b>Unauthorized:</b> Global Bot Admin only.",
             parse_mode=enums.ParseMode.HTML,
         )
 
-    if not message.reply_to_message or not message.reply_to_message.document:
-        return await message.reply_text(
+    target_msg = (
+        message.reply_to_message
+        if (message.reply_to_message and message.reply_to_message.document)
+        else (message if message.document else None)
+    )
+
+    if not target_msg or not target_msg.document:
+        return await safe_reply_text(
+            message,
             "⚙️ <b>Usage:</b>\nReply to a previously generated backup <code>.json</code> or <code>.json.gz</code> file with <code>/dbrestore</code>.",
             parse_mode=enums.ParseMode.HTML,
         )
 
-    doc = message.reply_to_message.document
+    doc = target_msg.document
     fname = (doc.file_name or "").lower()
     if not (fname.endswith(".json") or fname.endswith(".json.gz")):
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "❌ <b>Invalid File Format!</b> Please reply to a <code>.json</code> or <code>.json.gz</code> backup file.",
             parse_mode=enums.ParseMode.HTML,
         )
 
-    status_msg = await message.reply_text(
+    status_msg = await safe_reply_text(
+        message,
         "⏳ <b>Downloading and restoring database...</b>",
         parse_mode=enums.ParseMode.HTML,
     )
     file_path = None
     try:
-        file_path = await message.reply_to_message.download()
+        file_path = await target_msg.download()
         backup_data = await asyncio.to_thread(_read_backup_file_sync, file_path)
 
         if not isinstance(backup_data, dict):
@@ -401,24 +478,27 @@ async def db_restore_cmd(bot: Client, message: Message):
                 continue
             await _BOT_DB[coll_name].delete_many({})
             if docs:
-                # Insert in safe chunks of 1000 to avoid MongoDB 16MB batch size limit
                 for i in range(0, len(docs), 1000):
                     batch = docs[i : i + 1000]
                     await _BOT_DB[coll_name].insert_many(batch, ordered=False)
                 restored_docs += len(docs)
             restored_colls += 1
 
-        await status_msg.edit_text(
-            f"✅ <b>Database Restored Successfully!</b>\n\n"
-            f"📁 <b>Collections Restored:</b> <code>{restored_colls}</code>\n"
-            f"📄 <b>Documents Restored:</b> <code>{restored_docs}</code>",
-            parse_mode=enums.ParseMode.HTML,
-        )
+        if status_msg:
+            await safe_edit_text(
+                status_msg,
+                f"✅ <b>Database Restored Successfully!</b>\n\n"
+                f"📁 <b>Collections Restored:</b> <code>{restored_colls}</code>\n"
+                f"📄 <b>Documents Restored:</b> <code>{restored_docs}</code>",
+                parse_mode=enums.ParseMode.HTML,
+            )
     except Exception as e:
-        await status_msg.edit_text(
-            f"⚠️ <b>Restore Failed!</b>\n\n<b>Error:</b> <code>{html.escape(str(e))}</code>",
-            parse_mode=enums.ParseMode.HTML,
-        )
+        if status_msg:
+            await safe_edit_text(
+                status_msg,
+                f"⚠️ <b>Restore Failed!</b>\n\n<b>Error:</b> <code>{html.escape(str(e))}</code>",
+                parse_mode=enums.ParseMode.HTML,
+            )
     finally:
         if file_path and os.path.exists(file_path):
             try:
@@ -449,10 +529,11 @@ async def _build_detailed_dbstats_text() -> str:
     return text
 
 
-@Client.on_message(filters.command("dbstats") & filters.incoming)
+@Client.on_message(filters.command("dbstats") & filters.incoming, group=-2)
 async def db_stats_cmd(bot: Client, message: Message):
     if not await quick_admin_check(bot, message):
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "❌ <b>Unauthorized:</b> Global Bot Admin only.",
             parse_mode=enums.ParseMode.HTML,
         )
@@ -469,21 +550,23 @@ async def db_stats_cmd(bot: Client, message: Message):
                 ]
             ]
         )
-        await message.reply_text(
-            text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
+        await safe_reply_text(
+            message, text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
         )
     except Exception as e:
-        await message.reply_text(
+        await safe_reply_text(
+            message,
             f"⚠️ <b>Failed to fetch stats:</b>\n<code>{html.escape(str(e))}</code>",
             parse_mode=enums.ParseMode.HTML,
         )
 
 
-@Client.on_message(filters.command("dbschedule") & filters.incoming)
+@Client.on_message(filters.command("dbschedule") & filters.incoming, group=-2)
 async def db_schedule_cmd(bot: Client, message: Message):
     global _scheduler_task, scheduler_running
     if not await quick_admin_check(bot, message):
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "❌ <b>Unauthorized:</b> Global Bot Admin only.",
             parse_mode=enums.ParseMode.HTML,
         )
@@ -496,14 +579,16 @@ async def db_schedule_cmd(bot: Client, message: Message):
         scheduler_running = False
         if _scheduler_task and not _scheduler_task.done():
             _scheduler_task.cancel()
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "🛑 <b>Auto-backup scheduler has been stopped.</b>",
             parse_mode=enums.ParseMode.HTML,
         )
 
     if not scheduler_running:
         _scheduler_task = asyncio.create_task(auto_backup_task(bot))
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "✅ <b>Auto-backup scheduler initiated!</b>\nThe automated backup will run every 24 hours.",
             parse_mode=enums.ParseMode.HTML,
         )
@@ -512,37 +597,49 @@ async def db_schedule_cmd(bot: Client, message: Message):
         time_left = max(0, int(next_backup_time - time.time()))
         hours, remainder = divmod(time_left, 3600)
         minutes, seconds = divmod(remainder, 60)
-        await message.reply_text(
+        await safe_reply_text(
+            message,
             f"⏰ <b>Scheduled Backup Status</b>\n\n"
             f"🟢 <b>Status:</b> <code>Active</code>\n"
             f"⏳ <b>Next Backup In:</b> <code>{hours}h {minutes}m {seconds}s</code>",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "🛑 Stop Auto-Backup", callback_data="db_bk:sched"
+                        )
+                    ]
+                ]
+            ),
             parse_mode=enums.ParseMode.HTML,
         )
     else:
-        await message.reply_text(
+        await safe_reply_text(
+            message,
             "⏰ <b>Scheduler is active and calculating next run time...</b>",
             parse_mode=enums.ParseMode.HTML,
         )
 
 
 @Client.on_callback_query(
-    filters.regex(r"^db_bk:(full|light|stats|sched|refresh|close)$")
+    filters.regex(r"^db_bk:(full|light|stats|sched|refresh|close)$"),
+    group=-2,
 )
 async def backup_panel_callbacks(bot: Client, query: CallbackQuery):
     global _scheduler_task, scheduler_running
     if not await is_callback_admin(bot, query):
-        return await query.answer("❌ Unauthorized: Admin only!", show_alert=True)
+        return await safe_answer(query, "❌ Unauthorized: Admin only!", show_alert=True)
 
     action = query.matches[0].group(1)
     try:
         if action == "close":
-            await query.answer("Closed!")
+            await safe_answer(query, "Closed!")
             return await query.message.delete()
 
         if action in ("full", "light"):
             exclude_media = action == "light"
-            await query.answer(
-                "⏳ Generating backup file, please wait...", show_alert=False
+            await safe_answer(
+                query, "⏳ Generating backup file, please wait...", show_alert=False
             )
             file_path = None
             try:
@@ -563,7 +660,8 @@ async def backup_panel_callbacks(bot: Client, query: CallbackQuery):
                     parse_mode=enums.ParseMode.HTML,
                 )
             except Exception as e:
-                await query.message.reply_text(
+                await safe_reply_text(
+                    query.message,
                     f"⚠️ <b>Backup Failed:</b> <code>{html.escape(str(e))}</code>",
                     parse_mode=enums.ParseMode.HTML,
                 )
@@ -576,7 +674,7 @@ async def backup_panel_callbacks(bot: Client, query: CallbackQuery):
             return
 
         if action == "stats":
-            await query.answer("Loading collection breakdown...")
+            await safe_answer(query, "Loading collection breakdown...")
             stats_text = await _build_detailed_dbstats_text()
             buttons = InlineKeyboardMarkup(
                 [
@@ -588,8 +686,11 @@ async def backup_panel_callbacks(bot: Client, query: CallbackQuery):
                     ]
                 ]
             )
-            return await query.message.edit_text(
-                stats_text, reply_markup=buttons, parse_mode=enums.ParseMode.HTML
+            return await safe_edit_text(
+                query.message,
+                stats_text,
+                reply_markup=buttons,
+                parse_mode=enums.ParseMode.HTML,
             )
 
         if action == "sched":
@@ -597,21 +698,17 @@ async def backup_panel_callbacks(bot: Client, query: CallbackQuery):
                 scheduler_running = False
                 if _scheduler_task and not _scheduler_task.done():
                     _scheduler_task.cancel()
-                await query.answer("🛑 24h Auto-Backup Disabled!", show_alert=True)
+                await safe_answer(query, "🛑 24h Auto-Backup Disabled!", show_alert=True)
             else:
                 _scheduler_task = asyncio.create_task(auto_backup_task(bot))
-                await query.answer("✅ 24h Auto-Backup Enabled!", show_alert=True)
+                await safe_answer(query, "✅ 24h Auto-Backup Enabled!", show_alert=True)
 
         else:
-            await query.answer("Refreshed!")
+            await safe_answer(query, "Refreshed!")
 
         text, markup = await _build_backup_dashboard()
-        await query.message.edit_text(
-            text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
+        await safe_edit_text(
+            query.message, text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
         )
-    except MessageNotModified:
-        pass
-    except QueryIdInvalid:
-        pass
     except Exception as e:
         logger.error(f"Backup callback error: {e}")
