@@ -489,7 +489,6 @@ SUGGESTIONS_CACHE = TTLCache(maxsize=2000, ttl=1800)
 DYM_QUERY_CACHE = TTLCache(maxsize=2000, ttl=1800)
 USER_LAST_REQ = TTLCache(maxsize=5000, ttl=60)
 FUZZY_TITLES_CACHE = TTLCache(maxsize=10, ttl=600)
-# Caches chats where the bot lacks write permission so it doesn't waste DB queries or log 403 errors
 RESTRICTED_WRITE_CHATS = TTLCache(maxsize=500, ttl=300)
 
 
@@ -566,7 +565,6 @@ async def safe_reply_photo_or_text(
             if e.value <= 15:
                 await asyncio.sleep(e.value + 1)
         except Exception:
-            # Photo sending might be forbidden while text is allowed, or photo file_id is invalid
             pass
     return await safe_reply_text(
         msg, text=caption, reply_markup=reply_markup, parse_mode=parse_mode
@@ -758,8 +756,8 @@ async def resolve_auto_delete_timer(
                 parsed = int(str(val).strip())
                 if parsed >= 0:
                     return parsed
-        except Exception:
-            pass
+    except Exception:
+        pass
 
     if _plugin_db is not None:
         for attr_name in ("get_buttondel", "get_autodelete"):
