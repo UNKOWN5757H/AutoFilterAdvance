@@ -14,11 +14,15 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from pyrogram import Client, enums, filters
 from pyrogram.errors import (
     ButtonUrlInvalid,
+    ChatAdminRequired,
+    ChatWriteForbidden,
     FloodWait,
+    Forbidden,
     MessageIdInvalid,
     MessageNotModified,
     PeerIdInvalid,
     QueryIdInvalid,
+    SlowmodeWait,
     UserIsBlocked,
 )
 from pyrogram.types import (
@@ -378,7 +382,7 @@ def generate_phonetic_variants(translit_str: str) -> List[str]:
 
 
 # ============================================================
-# 🎨 PYROGRAM v2.2.26 COMPATIBILITY & BUTTON STYLING
+# 🛡️ PYROGRAM v2.2.26 COMPATIBILITY & SAFE SEND HELPERS
 # ============================================================
 try:
     from pyrogram.types import LinkPreviewOptions
@@ -391,6 +395,8 @@ except ImportError:
     ReplyParameters = None
 
 _SEND_MSG_PARAMS = set(inspect.signature(Client.send_message).parameters.keys())
+_REPLY_PARAMS = set(inspect.signature(Message.reply_text).parameters.keys())
+_EDIT_PARAMS = set(inspect.signature(Message.edit_text).parameters.keys())
 
 BTN_PRIMARY = None
 BTN_SUCCESS = None
@@ -445,6 +451,142 @@ def create_btn(
     except Exception:
         kwargs.pop("style", None)
         return InlineKeyboardButton(**kwargs)
+
+
+# ============================================================
+# ⚡ ULTRA-FAST IN-MEMORY CACHE SYSTEM
+# ============================================================
+class TTLCache:
+    def __init__(self, maxsize: int = 2000, ttl: int = 1800):
+        self._data: Dict[str, Tuple[float, Any]] = {}
+        self._maxsize, self._ttl = maxsize, ttl
+
+    def set(self, key: str, value: Any):
+        self._cleanup()
+        if len(self._data) >= self._maxsize:
+            oldest_key = min(self._data, key=lambda k: self._data[k][0])
+            self._data.pop(oldest_key, None)
+        self._data[key] = (time.time() + self._ttl, value)
+
+    def get(self, key: str) -> Optional[Any]:
+        if not (item := self._data.get(key)):
+            return None
+        if time.time() > item[0]:
+            self._data.pop(key, None)
+            return None
+        return item[1]
+
+    def _cleanup(self):
+        now = time.time()
+        for k in [k for k, (exp, _) in self._data.items() if now > exp]:
+            self._data.pop(k, None)
+
+
+GLOBAL_SEARCH_CACHE = TTLCache(maxsize=3000, ttl=600)
+BUTTONS_CACHE = TTLCache(maxsize=3000, ttl=1800)
+FILTER_STATE_CACHE = TTLCache(maxsize=3000, ttl=1800)
+SUGGESTIONS_CACHE = TTLCache(maxsize=2000, ttl=1800)
+DYM_QUERY_CACHE = TTLCache(maxsize=2000, ttl=1800)
+USER_LAST_REQ = TTLCache(maxsize=5000, ttl=60)
+FUZZY_TITLES_CACHE = TTLCache(maxsize=10, ttl=600)
+# Caches chats where the bot lacks write permission so it doesn't waste DB queries or log 403 errors
+RESTRICTED_WRITE_CHATS = TTLCache(maxsize=500, ttl=300)
+
+
+async def safe_reply_text(
+    msg: Message,
+    text: str,
+    reply_markup: Optional[InlineKeyboardMarkup] = None,
+    parse_mode: enums.ParseMode = enums.ParseMode.HTML,
+) -> Optional[Message]:
+    """Replies safely without ever crashing or logging errors on 403 CHAT_WRITE_FORBIDDEN."""
+    if not msg:
+        return None
+    try:
+        return await msg.reply_text(
+            text=text,
+            reply_markup=reply_markup,
+            parse_mode=parse_mode,
+        )
+    except FloodWait as e:
+        if e.value <= 15:
+            await asyncio.sleep(e.value + 1)
+            try:
+                return await msg.reply_text(
+                    text=text,
+                    reply_markup=reply_markup,
+                    parse_mode=parse_mode,
+                )
+            except Exception:
+                return None
+        return None
+    except (
+        ChatWriteForbidden,
+        Forbidden,
+        ChatAdminRequired,
+        UserIsBlocked,
+        PeerIdInvalid,
+        SlowmodeWait,
+    ):
+        if msg.chat:
+            RESTRICTED_WRITE_CHATS.set(str(msg.chat.id), True)
+        return None
+    except Exception as e:
+        if "CHAT_WRITE_FORBIDDEN" in str(e) or "403" in str(e):
+            if msg.chat:
+                RESTRICTED_WRITE_CHATS.set(str(msg.chat.id), True)
+            return None
+        logger.error(f"safe_reply_text error: {e}")
+        return None
+
+
+async def safe_reply_photo_or_text(
+    msg: Message,
+    photo: Optional[str],
+    caption: str,
+    reply_markup: Optional[InlineKeyboardMarkup] = None,
+    parse_mode: enums.ParseMode = enums.ParseMode.HTML,
+) -> Optional[Message]:
+    """Tries sending a photo reply, and falls back to text if media is restricted."""
+    if not msg:
+        return None
+    if photo and str(photo).lower() != "none":
+        try:
+            return await msg.reply_photo(
+                photo=photo,
+                caption=caption,
+                reply_markup=reply_markup,
+                parse_mode=parse_mode,
+            )
+        except (ChatWriteForbidden, UserIsBlocked, PeerIdInvalid):
+            if msg.chat:
+                RESTRICTED_WRITE_CHATS.set(str(msg.chat.id), True)
+            return None
+        except FloodWait as e:
+            if e.value <= 15:
+                await asyncio.sleep(e.value + 1)
+        except Exception:
+            # Photo sending might be forbidden while text is allowed, or photo file_id is invalid
+            pass
+    return await safe_reply_text(
+        msg, text=caption, reply_markup=reply_markup, parse_mode=parse_mode
+    )
+
+
+async def safe_answer(
+    query: CallbackQuery,
+    text: Optional[str] = None,
+    show_alert: bool = False,
+):
+    if not query:
+        return
+    try:
+        if text is not None:
+            await query.answer(str(text)[:200], show_alert=show_alert)
+        else:
+            await query.answer(show_alert=show_alert)
+    except (QueryIdInvalid, Exception):
+        pass
 
 
 # ============================================================
@@ -616,8 +758,8 @@ async def resolve_auto_delete_timer(
                 parsed = int(str(val).strip())
                 if parsed >= 0:
                     return parsed
-    except Exception:
-        pass
+        except Exception:
+            pass
 
     if _plugin_db is not None:
         for attr_name in ("get_buttondel", "get_autodelete"):
@@ -784,44 +926,6 @@ async def safe_save_filter(group_id, keyword, reply_text, btn, fileid, alert="[]
             await add_filter(group_id, keyword, reply_text, btn, fileid, alert)
     except Exception:
         await add_filter(group_id, keyword, reply_text, btn, fileid, alert)
-
-
-# ============================================================
-# ⚡ ULTRA-FAST IN-MEMORY CACHE SYSTEM
-# ============================================================
-class TTLCache:
-    def __init__(self, maxsize: int = 2000, ttl: int = 1800):
-        self._data: Dict[str, Tuple[float, Any]] = {}
-        self._maxsize, self._ttl = maxsize, ttl
-
-    def set(self, key: str, value: Any):
-        self._cleanup()
-        if len(self._data) >= self._maxsize:
-            oldest_key = min(self._data, key=lambda k: self._data[k][0])
-            self._data.pop(oldest_key, None)
-        self._data[key] = (time.time() + self._ttl, value)
-
-    def get(self, key: str) -> Optional[Any]:
-        if not (item := self._data.get(key)):
-            return None
-        if time.time() > item[0]:
-            self._data.pop(key, None)
-            return None
-        return item[1]
-
-    def _cleanup(self):
-        now = time.time()
-        for k in [k for k, (exp, _) in self._data.items() if now > exp]:
-            self._data.pop(k, None)
-
-
-GLOBAL_SEARCH_CACHE = TTLCache(maxsize=3000, ttl=600)
-BUTTONS_CACHE = TTLCache(maxsize=3000, ttl=1800)
-FILTER_STATE_CACHE = TTLCache(maxsize=3000, ttl=1800)
-SUGGESTIONS_CACHE = TTLCache(maxsize=2000, ttl=1800)
-DYM_QUERY_CACHE = TTLCache(maxsize=2000, ttl=1800)
-USER_LAST_REQ = TTLCache(maxsize=5000, ttl=60)
-FUZZY_TITLES_CACHE = TTLCache(maxsize=10, ttl=600)
 
 
 def get_filter_state(key: str) -> dict:
@@ -1019,7 +1123,6 @@ def _extract_clean_movie_title(raw_filename: str) -> str:
         s,
     )[0]
     s = re.sub(r"[^a-zA-Z0-9\s]", " ", s)
-    # Remove trailing isolated 1-2 digit audio numbers (like 40, 70, 5 1) while keeping 4-digit years
     s = re.sub(r"\b(?!(?:19|20)\d{2}\b)\d{1,3}\b$", "", s.strip())
     s = re.sub(r"\s+", " ", s).strip()
     if len(s) < 2:
@@ -1124,7 +1227,6 @@ async def get_did_you_mean_suggestions(
     for _, cand in scored_candidates:
         if len(unique_suggestions) >= max_suggestions:
             break
-        # Deduplicate by clean movie base name (without year/codec numbers) so "Bheema 2024" only appears once
         root_key = re.sub(r"\b\d+\b", "", cand).strip()
         root_key = re.sub(r"\s+", " ", root_key)
         if not root_key or root_key in seen_roots:
@@ -1399,7 +1501,6 @@ async def build_result_buttons(
         )
 
     if from_dym and off_set is not None:
-        # When on Page 2+ of a Multi-Choice result, keep the no-colour Back to Choices button beside the row
         nav_row.append(
             create_btn(
                 "🔙 Choices",
@@ -1502,6 +1603,9 @@ async def _send_not_found(
     multichoice_on: bool = True,
     autotranslate_on: bool = True,
 ):
+    if RESTRICTED_WRITE_CHATS.get(str(msg.chat.id)):
+        return
+
     k_msg = None
     req = msg.from_user.id if msg.from_user else 0
     key = f"{msg.chat.id}-{msg.id}"
@@ -1522,40 +1626,25 @@ async def _send_not_found(
         dym_text, dym_markup = _build_dym_view(
             mention, raw_search, req, key, suggestions
         )
-        try:
-            k_msg = await msg.reply_text(
-                text=dym_text,
-                reply_markup=dym_markup,
-                parse_mode=enums.ParseMode.HTML,
-            )
-        except Exception:
-            pass
+        k_msg = await safe_reply_text(
+            msg,
+            text=dym_text,
+            reply_markup=dym_markup,
+            parse_mode=enums.ParseMode.HTML,
+        )
     else:
         try:
             final_text, final_markup = parse_text_and_markup(text)
-            final_text = final_text or "<b>🚫 File not found.</b>"
-            if img:
-                try:
-                    k_msg = await msg.reply_photo(
-                        photo=img,
-                        caption=final_text,
-                        reply_markup=final_markup,
-                        parse_mode=enums.ParseMode.HTML,
-                    )
-                except Exception:
-                    k_msg = await msg.reply_text(
-                        text=final_text,
-                        reply_markup=final_markup,
-                        parse_mode=enums.ParseMode.HTML,
-                    )
-            else:
-                k_msg = await msg.reply_text(
-                    text=final_text,
-                    reply_markup=final_markup,
-                    parse_mode=enums.ParseMode.HTML,
-                )
         except Exception:
-            pass
+            final_text, final_markup = text, None
+        final_text = final_text or "<b>🚫 File not found.</b>"
+        k_msg = await safe_reply_photo_or_text(
+            msg,
+            photo=img,
+            caption=final_text,
+            reply_markup=final_markup,
+            parse_mode=enums.ParseMode.HTML,
+        )
 
     delete_timer = await resolve_auto_delete_timer(msg.chat.id, default_time=300)
     if delete_timer > 0 and k_msg:
@@ -1572,6 +1661,10 @@ async def auto_filter(client: Client, msg: Message):
             or not msg.text
             or msg.text.startswith(("/", "!", "#", ".", ",", "?", "@"))
         ):
+            return
+
+        # Skip immediately if this group has restricted the bot from sending messages
+        if msg.chat and RESTRICTED_WRITE_CHATS.get(str(msg.chat.id)):
             return
 
         search = re.sub(r"https?://\S+|t\.me/\S+|@\w+", "", msg.text).strip()
@@ -1742,46 +1835,19 @@ async def auto_filter(client: Client, msg: Message):
         except Exception:
             final_caption, final_markup = cap, default_markup
 
-        m = None
         auto_img = b_set.get("auto_img", getattr(info, "AUTO_IMG", None))
-
-        try:
-            if auto_img and str(auto_img).lower() != "none":
-                try:
-                    m = await msg.reply_photo(
-                        photo=auto_img,
-                        caption=final_caption,
-                        reply_markup=final_markup,
-                        parse_mode=enums.ParseMode.HTML,
-                    )
-                except Exception:
-                    m = await msg.reply_text(
-                        final_caption,
-                        reply_markup=final_markup,
-                        parse_mode=enums.ParseMode.HTML,
-                    )
-            else:
-                m = await msg.reply_text(
-                    final_caption,
-                    reply_markup=final_markup,
-                    parse_mode=enums.ParseMode.HTML,
-                )
-        except FloodWait as e:
-            await asyncio.sleep(e.value + 1)
-            try:
-                m = await msg.reply_text(
-                    final_caption,
-                    reply_markup=final_markup,
-                    parse_mode=enums.ParseMode.HTML,
-                )
-            except Exception:
-                return
-        except Exception as e:
-            logger.error(f"Failed sending auto_filter message: {e}")
+        m = await safe_reply_photo_or_text(
+            msg,
+            photo=auto_img,
+            caption=final_caption,
+            reply_markup=final_markup,
+            parse_mode=enums.ParseMode.HTML,
+        )
+        if not m:
             return
 
         delete_timer = await resolve_auto_delete_timer(msg.chat.id, default_time=300)
-        if delete_timer > 0 and m:
+        if delete_timer > 0:
             schedule_auto_delete(client, msg.chat.id, False, delete_timer, m, msg)
 
     except Exception as e:
@@ -1794,6 +1860,10 @@ async def auto_filter(client: Client, msg: Message):
 @Client.on_message(filters.group & filters.text & filters.incoming)
 async def give_filter(client: Client, message: Message):
     if not message.text or message.text.startswith(("/", "!", "#", ".", ",", "?", "@")):
+        return
+
+    # Skip immediately if this group has restricted the bot from sending messages
+    if message.chat and RESTRICTED_WRITE_CHATS.get(str(message.chat.id)):
         return
 
     if getattr(info, "REPAIR_MODE", False) and not await verify_admin(
@@ -1851,7 +1921,8 @@ def _build_feature_toggle_markup(
 async def autotranslate_cmd_handler(client: Client, message: Message):
     target_chat_id = await get_target_chat(client, message)
     if not await verify_admin(client, message, target_chat_id):
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "❌ <b>Unauthorized:</b> Admin access required.",
             parse_mode=enums.ParseMode.HTML,
         )
@@ -1877,7 +1948,8 @@ async def autotranslate_cmd_handler(client: Client, message: Message):
 
     await set_feature_flag("autotranslate", new_state)
     status_badge = "🟢 ENABLED" if new_state else "🔴 DISABLED"
-    out_msg = await message.reply_text(
+    out_msg = await safe_reply_text(
+        message,
         f"🔤 <b>Auto-Translate (Indic Script ➔ English):</b> <code>{status_badge}</code>\n\n"
         f"<i>When enabled, movie names typed in Kannada, Hindi, Telugu, Tamil, or Malayalam script are automatically transliterated to English!</i>",
         reply_markup=_build_feature_toggle_markup("autotranslate", new_state),
@@ -1895,7 +1967,8 @@ async def autotranslate_cmd_handler(client: Client, message: Message):
 async def multichoice_cmd_handler(client: Client, message: Message):
     target_chat_id = await get_target_chat(client, message)
     if not await verify_admin(client, message, target_chat_id):
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "❌ <b>Unauthorized:</b> Admin access required.",
             parse_mode=enums.ParseMode.HTML,
         )
@@ -1921,7 +1994,8 @@ async def multichoice_cmd_handler(client: Client, message: Message):
 
     await set_feature_flag("multichoice", new_state)
     status_badge = "🟢 ENABLED" if new_state else "🔴 DISABLED"
-    out_msg = await message.reply_text(
+    out_msg = await safe_reply_text(
+        message,
         f"💡 <b>Multi-Choice ('Did You Mean?' Suggestions):</b> <code>{status_badge}</code>\n\n"
         f"<i>When enabled, misspelled movie queries display up to 5 clickable movie title suggestions instead of File Not Found!</i>",
         reply_markup=_build_feature_toggle_markup("multichoice", new_state),
@@ -1945,16 +2019,16 @@ async def pm_feature_toggle_callback(bot: Client, query: CallbackQuery):
                     enums.ChatMemberStatus.ADMINISTRATOR,
                     enums.ChatMemberStatus.OWNER,
                 ]:
-                    return await query.answer("❌ Admin only!", show_alert=True)
+                    return await safe_answer(query, "❌ Admin only!", show_alert=True)
             except Exception:
-                return await query.answer("❌ Admin only!", show_alert=True)
+                return await safe_answer(query, "❌ Admin only!", show_alert=True)
         else:
-            return await query.answer("❌ Admin only!", show_alert=True)
+            return await safe_answer(query, "❌ Admin only!", show_alert=True)
 
     try:
         _, feat_key, state_str = query.data.split("#", 2)
     except ValueError:
-        return await query.answer("Invalid data!", show_alert=True)
+        return await safe_answer(query, "Invalid data!", show_alert=True)
 
     new_state = state_str == "on"
     await set_feature_flag(feat_key, new_state)
@@ -1977,9 +2051,9 @@ async def pm_feature_toggle_callback(bot: Client, query: CallbackQuery):
             reply_markup=_build_feature_toggle_markup(feat_key, new_state),
             parse_mode=enums.ParseMode.HTML,
         )
-    except (MessageNotModified, MessageIdInvalid):
+    except (MessageNotModified, MessageIdInvalid, ChatWriteForbidden, Forbidden):
         pass
-    await query.answer(f"Updated: {status_badge}")
+    await safe_answer(query, f"Updated: {status_badge}")
 
 
 # ============================================================
@@ -1998,11 +2072,12 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
         req = int(parts[1])
         key = parts[2]
     except (IndexError, ValueError):
-        return await query.answer("Invalid button data!", show_alert=True)
+        return await safe_answer(query, "Invalid button data!", show_alert=True)
 
     uid = query.from_user.id if query.from_user else 0
     if req not in [uid, 0] and not await is_global_admin(uid):
-        return await query.answer(
+        return await safe_answer(
+            query,
             "⚠️ That's not for you! Request your own movie in the group.",
             show_alert=True,
         )
@@ -2011,7 +2086,8 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
     if action == "dymback":
         suggestions = SUGGESTIONS_CACHE.get(key)
         if not suggestions:
-            return await query.answer(
+            return await safe_answer(
+                query,
                 "⌛ Suggestions expired. Please type the movie name again!",
                 show_alert=True,
             )
@@ -2033,20 +2109,21 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
                     reply_markup=dym_markup,
                     parse_mode=enums.ParseMode.HTML,
                 )
-        except (MessageNotModified, MessageIdInvalid):
+        except (MessageNotModified, MessageIdInvalid, ChatWriteForbidden, Forbidden):
             pass
-        return await query.answer("⬅️ Back to Multi-Choice suggestions!")
+        return await safe_answer(query, "⬅️ Back to Multi-Choice suggestions!")
 
     # 💡 User clicked a "Did You Mean?" movie suggestion button
     if action == "dym":
         try:
             sug_idx = int(parts[3])
         except (IndexError, ValueError):
-            return await query.answer("Invalid selection!", show_alert=True)
+            return await safe_answer(query, "Invalid selection!", show_alert=True)
 
         suggestions = SUGGESTIONS_CACHE.get(key)
         if not suggestions or sug_idx >= len(suggestions):
-            return await query.answer(
+            return await safe_answer(
+                query,
                 "⌛ This suggestion expired. Please type the movie name again!",
                 show_alert=True,
             )
@@ -2056,13 +2133,12 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
             chosen_title, max_results=10, offset=0
         )
         if not files:
-            return await query.answer(
-                "❌ No files found for that suggestion!", show_alert=True
+            return await safe_answer(
+                query, "❌ No files found for that suggestion!", show_alert=True
             )
 
         files.sort(key=lambda x: _score_file_relevance(x, chosen_title), reverse=True)
         BUTTONS_CACHE.set(key, chosen_title)
-        # Mark from_dym=True so the bottom "⬅️ Back" button appears beside pagination
         set_filter_state(key, lang=None, qual=None, from_dym=True)
 
         settings = await get_settings(query.message.chat.id) or {}
@@ -2105,14 +2181,21 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
                     reply_markup=InlineKeyboardMarkup(btn),
                     parse_mode=enums.ParseMode.HTML,
                 )
-        except (MessageNotModified, MessageIdInvalid, ButtonUrlInvalid):
+        except (
+            MessageNotModified,
+            MessageIdInvalid,
+            ButtonUrlInvalid,
+            ChatWriteForbidden,
+            Forbidden,
+        ):
             pass
 
-        return await query.answer(f"🎬 Loaded: {chosen_title.title()}")
+        return await safe_answer(query, f"🎬 Loaded: {chosen_title.title()}")
 
     base_search = BUTTONS_CACHE.get(key)
     if not base_search:
-        return await query.answer(
+        return await safe_answer(
+            query,
             "⌛ This search expired. Please type the movie name again!",
             show_alert=True,
         )
@@ -2151,9 +2234,9 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
             await query.edit_message_reply_markup(
                 reply_markup=InlineKeyboardMarkup(btn_rows)
             )
-        except (MessageNotModified, MessageIdInvalid):
+        except (MessageNotModified, MessageIdInvalid, ChatWriteForbidden, Forbidden):
             pass
-        return await query.answer("🔊 Select your preferred language:")
+        return await safe_answer(query, "🔊 Select your preferred language:")
 
     # 2. Open Quality Selection Menu (No button colours)
     if action == "fqual":
@@ -2187,9 +2270,9 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
             await query.edit_message_reply_markup(
                 reply_markup=InlineKeyboardMarkup(btn_rows)
             )
-        except (MessageNotModified, MessageIdInvalid):
+        except (MessageNotModified, MessageIdInvalid, ChatWriteForbidden, Forbidden):
             pass
-        return await query.answer("🎥 Select your preferred quality:")
+        return await safe_answer(query, "🎥 Select your preferred quality:")
 
     # 3. Apply Selected Language / Quality, Reset to Normal Filter, or Return to Results
     new_lang = state.get("lang")
@@ -2220,7 +2303,8 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
             missing_label = LANG_MAP.get(new_lang, new_lang)
         elif action == "setqual" and new_qual:
             missing_label = new_qual
-        return await query.answer(
+        return await safe_answer(
+            query,
             f"❌ No {missing_label} files found for this movie!".strip(),
             show_alert=True,
         )
@@ -2250,11 +2334,17 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
 
     try:
         await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(btn))
-    except (MessageNotModified, MessageIdInvalid, ButtonUrlInvalid):
+    except (
+        MessageNotModified,
+        MessageIdInvalid,
+        ButtonUrlInvalid,
+        ChatWriteForbidden,
+        Forbidden,
+    ):
         pass
 
     if action in ["freset", "fback"]:
-        return await query.answer("⬅️ Restored normal filter results!")
+        return await safe_answer(query, "⬅️ Restored normal filter results!")
 
     active_filters = []
     if new_lang and new_lang in LANG_MAP:
@@ -2263,9 +2353,9 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
         active_filters.append(new_qual)
 
     if active_filters:
-        await query.answer(f"✅ Filtered by: {' + '.join(active_filters)}")
+        await safe_answer(query, f"✅ Filtered by: {' + '.join(active_filters)}")
     else:
-        await query.answer("⬅️ Restored normal filter results!")
+        await safe_answer(query, "⬅️ Restored normal filter results!")
 
 
 # ============================================================
@@ -2282,14 +2372,15 @@ async def pagination_handler(bot: Client, query: CallbackQuery):
         parts = data.split("#")
         if len(parts) == 4:
             _, cur_p, tot_p, tot_f = parts
-            return await query.answer(
+            return await safe_answer(
+                query,
                 f"📄 Page {cur_p} of {tot_p} • Total Files: {tot_f}",
                 show_alert=False,
             )
-        return await query.answer("📄 Current Page Indicator", show_alert=False)
+        return await safe_answer(query, "📄 Current Page Indicator", show_alert=False)
 
     if data == "delallcancel":
-        await query.answer("Cancelled.")
+        await safe_answer(query, "Cancelled.")
         try:
             await query.message.delete()
         except Exception:
@@ -2306,35 +2397,40 @@ async def pagination_handler(bot: Client, query: CallbackQuery):
                     enums.ChatMemberStatus.ADMINISTRATOR,
                     enums.ChatMemberStatus.OWNER,
                 ]:
-                    return await query.answer("❌ Unauthorized!", show_alert=True)
+                    return await safe_answer(query, "❌ Unauthorized!", show_alert=True)
             except Exception:
-                return await query.answer("❌ Unauthorized!", show_alert=True)
+                return await safe_answer(query, "❌ Unauthorized!", show_alert=True)
 
         keywords = await get_filters(target_chat_id)
         for kw in keywords:
             await delete_filter(query.message, kw, target_chat_id)
-        await query.answer("✅ All filters deleted!", show_alert=True)
-        return await query.message.edit_text(
-            f"🗑️ <b>Deleted all filters for chat:</b> <code>{target_chat_id}</code>",
-            parse_mode=enums.ParseMode.HTML,
-        )
+        await safe_answer(query, "✅ All filters deleted!", show_alert=True)
+        try:
+            return await query.message.edit_text(
+                f"🗑️ <b>Deleted all filters for chat:</b> <code>{target_chat_id}</code>",
+                parse_mode=enums.ParseMode.HTML,
+            )
+        except Exception:
+            return
 
     try:
         _, req, key, offset_str = data.split("_", 3)
     except ValueError:
-        return await query.answer("Invalid button data!", show_alert=True)
+        return await safe_answer(query, "Invalid button data!", show_alert=True)
 
     if int(req) not in [query.from_user.id, 0] and not await is_global_admin(
         query.from_user.id
     ):
-        return await query.answer(
+        return await safe_answer(
+            query,
             "⚠️ That's not for you! Request your own movie in the group.",
             show_alert=True,
         )
 
     offset = int(offset_str) if offset_str.isdigit() else 0
     if not (base_search := BUTTONS_CACHE.get(key)):
-        return await query.answer(
+        return await safe_answer(
+            query,
             "⌛ This search expired. Please type the movie name again!",
             show_alert=True,
         )
@@ -2344,7 +2440,7 @@ async def pagination_handler(bot: Client, query: CallbackQuery):
         base_search, state, max_results=10, offset=offset
     )
     if not files:
-        return await query.answer("No more files found.", show_alert=True)
+        return await safe_answer(query, "No more files found.", show_alert=True)
 
     settings = await get_settings(query.message.chat.id) or {}
     if not getattr(temp, "U_NAME", None):
@@ -2367,7 +2463,13 @@ async def pagination_handler(bot: Client, query: CallbackQuery):
 
     try:
         await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(btn))
-    except (MessageNotModified, MessageIdInvalid, ButtonUrlInvalid):
+    except (
+        MessageNotModified,
+        MessageIdInvalid,
+        ButtonUrlInvalid,
+        ChatWriteForbidden,
+        Forbidden,
+    ):
         pass
     except FloodWait as e:
         await asyncio.sleep(e.value + 1)
@@ -2377,10 +2479,7 @@ async def pagination_handler(bot: Client, query: CallbackQuery):
             )
         except Exception:
             pass
-    try:
-        await query.answer()
-    except QueryIdInvalid:
-        pass
+    await safe_answer(query)
 
 
 # ============================================================
@@ -2450,24 +2549,28 @@ def parse_markdown_buttons(text: str):
 async def add_filter_cmd(client: Client, message: Message):
     target_chat_id = await get_target_chat(client, message)
     if not target_chat_id:
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "⚠️ <b>No active connection!</b>\nPlease run <code>/connect &lt;group_id&gt;</code> first.",
             parse_mode=enums.ParseMode.HTML,
         )
     if not await verify_admin(client, message, target_chat_id):
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             f"❌ <b>You are not authorized for chat:</b> <code>{target_chat_id}</code>",
             parse_mode=enums.ParseMode.HTML,
         )
 
     if not message.reply_to_message:
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "⚠️ <b>Reply to a message (text or media) to set it as a filter.</b>\n"
             "⚙️ <b>Usage:</b> <code>/filter &lt;keyword&gt;</code>",
             parse_mode=enums.ParseMode.HTML,
         )
     if len(message.command) < 2:
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "⚙️ <b>Usage:</b> <code>/filter &lt;keyword&gt;</code>",
             parse_mode=enums.ParseMode.HTML,
         )
@@ -2511,7 +2614,8 @@ async def add_filter_cmd(client: Client, message: Message):
             break
 
     await safe_save_filter(target_chat_id, keyword, text, btn, fileid, "[]")
-    out_msg = await message.reply_text(
+    out_msg = await safe_reply_text(
+        message,
         f"✅ <b>Filter successfully added!</b>\n\n"
         f"🔑 <b>Keyword:</b> <code>{html.escape(keyword)}</code>\n"
         f"🆔 <b>Chat ID:</b> <code>{target_chat_id}</code>",
@@ -2525,23 +2629,27 @@ async def add_filter_cmd(client: Client, message: Message):
 async def add_premade_filter_cmd(client: Client, message: Message):
     target_chat_id = await get_target_chat(client, message)
     if not target_chat_id:
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "⚠️ <b>No active connection!</b>\nPlease run <code>/connect &lt;group_id&gt;</code> first.",
             parse_mode=enums.ParseMode.HTML,
         )
     if not await verify_admin(client, message, target_chat_id):
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             f"❌ <b>You are not authorized for chat:</b> <code>{target_chat_id}</code>",
             parse_mode=enums.ParseMode.HTML,
         )
 
     if not message.reply_to_message:
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "⚠️ <b>Reply to a message containing inline buttons.</b>",
             parse_mode=enums.ParseMode.HTML,
         )
     if len(message.command) < 2:
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "⚙️ <b>Usage:</b> <code>/addfilter &lt;keyword&gt;</code>",
             parse_mode=enums.ParseMode.HTML,
         )
@@ -2590,7 +2698,8 @@ async def add_premade_filter_cmd(client: Client, message: Message):
         fileid,
         "[]",
     )
-    out_msg = await message.reply_text(
+    out_msg = await safe_reply_text(
+        message,
         f"✅ <b>Filter with buttons added!</b>\n\n<b>Keyword:</b> <code>{html.escape(keyword)}</code>",
         parse_mode=enums.ParseMode.HTML,
     )
@@ -2602,23 +2711,27 @@ async def add_premade_filter_cmd(client: Client, message: Message):
 async def edit_filter_image_cmd(client: Client, message: Message):
     target_chat_id = await get_target_chat(client, message)
     if not target_chat_id:
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "⚠️ <b>No active connection!</b>\nPlease run <code>/connect &lt;group_id&gt;</code> first.",
             parse_mode=enums.ParseMode.HTML,
         )
     if not await verify_admin(client, message, target_chat_id):
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             f"❌ <b>You are not authorized for chat:</b> <code>{target_chat_id}</code>",
             parse_mode=enums.ParseMode.HTML,
         )
 
     if not message.reply_to_message or not message.reply_to_message.media:
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "⚠️ <b>Reply to a photo, video, or document to set the new image.</b>",
             parse_mode=enums.ParseMode.HTML,
         )
     if len(message.command) < 2:
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "⚙️ <b>Usage:</b> <code>/filterimage &lt;keyword&gt;</code>",
             parse_mode=enums.ParseMode.HTML,
         )
@@ -2627,7 +2740,8 @@ async def edit_filter_image_cmd(client: Client, message: Message):
     reply_text, btn, alert, old_fileid = await find_filter(target_chat_id, keyword)
 
     if not reply_text and (not old_fileid or old_fileid == "None"):
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             f"❌ <b>Filter <code>{html.escape(keyword)}</code> not found.</b>",
             parse_mode=enums.ParseMode.HTML,
         )
@@ -2639,12 +2753,15 @@ async def edit_filter_image_cmd(client: Client, message: Message):
             break
 
     if fileid == "None":
-        return await message.reply_text(
-            "❌ <b>Could not extract valid media.</b>", parse_mode=enums.ParseMode.HTML
+        return await safe_reply_text(
+            message,
+            "❌ <b>Could not extract valid media.</b>",
+            parse_mode=enums.ParseMode.HTML,
         )
 
     await safe_save_filter(target_chat_id, keyword, reply_text, btn, fileid, alert)
-    out_msg = await message.reply_text(
+    out_msg = await safe_reply_text(
+        message,
         f"✅ <b>Filter image updated!</b>\n\n<b>Keyword:</b> <code>{html.escape(keyword)}</code>",
         parse_mode=enums.ParseMode.HTML,
     )
@@ -2659,19 +2776,22 @@ async def edit_filter_image_cmd(client: Client, message: Message):
 async def edit_filter_colour_cmd(client: Client, message: Message):
     target_chat_id = await get_target_chat(client, message)
     if not target_chat_id:
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "⚠️ <b>No active connection!</b>\nPlease run <code>/connect &lt;group_id&gt;</code> first.",
             parse_mode=enums.ParseMode.HTML,
         )
     if not await verify_admin(client, message, target_chat_id):
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             f"❌ <b>You are not authorized for chat:</b> <code>{target_chat_id}</code>",
             parse_mode=enums.ParseMode.HTML,
         )
 
     args = message.command
     if len(args) < 4:
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "❌ <b>Usage:</b> <code>/editfiltercolour &lt;keyword&gt; &lt;button_number&gt; &lt;colour&gt;</code>\n\n<b>Colours:</b> <code>green</code>, <code>red</code>, <code>blue</code>",
             parse_mode=enums.ParseMode.HTML,
         )
@@ -2683,26 +2803,30 @@ async def edit_filter_colour_cmd(client: Client, message: Message):
             " ".join(args[1:-2]).lower().strip(),
         )
     except ValueError:
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "❌ <b>Button number must be an integer.</b>",
             parse_mode=enums.ParseMode.HTML,
         )
 
     color_map = {"green": 3, "red": 4, "blue": 1}
     if color_str not in color_map:
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "❌ <b>Invalid colour.</b> Choose from: <code>green</code>, <code>red</code>, <code>blue</code>.",
             parse_mode=enums.ParseMode.HTML,
         )
 
     reply_text, btn, alert, fileid = await find_filter(target_chat_id, keyword)
     if not reply_text and (not fileid or fileid == "None"):
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             f"❌ <b>Filter <code>{html.escape(keyword)}</code> not found.</b>",
             parse_mode=enums.ParseMode.HTML,
         )
     if not btn or btn in ["[]", "None", "False", ""]:
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             f"❌ <b>Filter <code>{html.escape(keyword)}</code> has no buttons.</b>",
             parse_mode=enums.ParseMode.HTML,
         )
@@ -2710,8 +2834,10 @@ async def edit_filter_colour_cmd(client: Client, message: Message):
     try:
         button_data = ast.literal_eval(btn)
     except Exception:
-        return await message.reply_text(
-            "❌ <b>Corrupted button format.</b>", parse_mode=enums.ParseMode.HTML
+        return await safe_reply_text(
+            message,
+            "❌ <b>Corrupted button format.</b>",
+            parse_mode=enums.ParseMode.HTML,
         )
 
     count, found = 0, False
@@ -2726,7 +2852,8 @@ async def edit_filter_colour_cmd(client: Client, message: Message):
             break
 
     if not found:
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             f"❌ <b>Button {btn_num} not found.</b> Filter has {count} buttons.",
             parse_mode=enums.ParseMode.HTML,
         )
@@ -2734,7 +2861,8 @@ async def edit_filter_colour_cmd(client: Client, message: Message):
     await safe_save_filter(
         target_chat_id, keyword, reply_text, str(button_data), fileid, alert
     )
-    out_msg = await message.reply_text(
+    out_msg = await safe_reply_text(
+        message,
         f"✅ <b>Filter <code>{html.escape(keyword)}</code> Button {btn_num} colour changed to {color_str.title()}!</b>",
         parse_mode=enums.ParseMode.HTML,
     )
@@ -2746,24 +2874,28 @@ async def edit_filter_colour_cmd(client: Client, message: Message):
 async def del_filter_cmd(client: Client, message: Message):
     target_chat_id = await get_target_chat(client, message)
     if not target_chat_id:
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "⚠️ <b>No active connection!</b>\nPlease run <code>/connect &lt;group_id&gt;</code> first.",
             parse_mode=enums.ParseMode.HTML,
         )
     if not await verify_admin(client, message, target_chat_id):
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             f"❌ <b>You are not authorized for chat:</b> <code>{target_chat_id}</code>",
             parse_mode=enums.ParseMode.HTML,
         )
 
     if len(message.command) < 2:
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "⚙️ <b>Usage:</b> <code>/delfilter &lt;keyword&gt;</code>",
             parse_mode=enums.ParseMode.HTML,
         )
     keyword = message.text.split(None, 1)[1].lower().strip()
     await delete_filter(message, keyword, target_chat_id)
-    out_msg = await message.reply_text(
+    out_msg = await safe_reply_text(
+        message,
         f"🗑️ <b>Filter <code>{html.escape(keyword)}</code> deleted.</b>",
         parse_mode=enums.ParseMode.HTML,
     )
@@ -2777,12 +2909,14 @@ async def del_filter_cmd(client: Client, message: Message):
 async def del_all_filters_cmd(client: Client, message: Message):
     target_chat_id = await get_target_chat(client, message)
     if not target_chat_id:
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "⚠️ <b>No active connection!</b>\nPlease run <code>/connect &lt;group_id&gt;</code> first.",
             parse_mode=enums.ParseMode.HTML,
         )
     if not await verify_admin(client, message, target_chat_id):
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             f"❌ <b>You are not authorized for chat:</b> <code>{target_chat_id}</code>",
             parse_mode=enums.ParseMode.HTML,
         )
@@ -2796,7 +2930,8 @@ async def del_all_filters_cmd(client: Client, message: Message):
         ],
         [create_btn("❌ Cancel", callback_data="delallcancel")],
     ]
-    await message.reply_text(
+    await safe_reply_text(
+        message,
         f"⚠️ <b>Are you sure you want to delete ALL filters in <code>{target_chat_id}</code>?</b>",
         reply_markup=InlineKeyboardMarkup(buttons),
         parse_mode=enums.ParseMode.HTML,
@@ -2810,24 +2945,28 @@ async def del_all_filters_cmd(client: Client, message: Message):
 async def list_filters_cmd(client: Client, message: Message):
     target_chat_id = await get_target_chat(client, message)
     if not target_chat_id:
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             "⚠️ <b>No active connection!</b>\nPlease run <code>/connect &lt;group_id&gt;</code> first.",
             parse_mode=enums.ParseMode.HTML,
         )
     if not await verify_admin(client, message, target_chat_id):
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             f"❌ <b>You are not authorized for chat:</b> <code>{target_chat_id}</code>",
             parse_mode=enums.ParseMode.HTML,
         )
 
     keywords = await get_filters(target_chat_id)
     if not keywords:
-        return await message.reply_text(
+        return await safe_reply_text(
+            message,
             f"⚠️ <b>No active filters found in <code>{target_chat_id}</code>.</b>",
             parse_mode=enums.ParseMode.HTML,
         )
 
-    out_msg = await message.reply_text(
+    out_msg = await safe_reply_text(
+        message,
         f"📋 <b>Current Filters ({len(keywords)}):</b>\n\n"
         + "\n".join([f"• <code>{html.escape(str(kw))}</code>" for kw in keywords]),
         parse_mode=enums.ParseMode.HTML,
@@ -2847,6 +2986,8 @@ async def send_filter_media(
     reply_markup,
     reply_id: int,
 ):
+    if RESTRICTED_WRITE_CHATS.get(str(chat_id)):
+        return None
     try:
         return await client.send_cached_media(
             chat_id,
@@ -2861,7 +3002,14 @@ async def send_filter_media(
         return await send_filter_media(
             client, chat_id, fileid, reply_text, reply_markup, reply_id
         )
-    except (UserIsBlocked, PeerIdInvalid):
+    except (
+        ChatWriteForbidden,
+        Forbidden,
+        ChatAdminRequired,
+        UserIsBlocked,
+        PeerIdInvalid,
+    ):
+        RESTRICTED_WRITE_CHATS.set(str(chat_id), True)
         return None
     except Exception:
         pass
@@ -2874,6 +3022,9 @@ async def send_filter_media(
             reply_markup=reply_markup,
             parse_mode=enums.ParseMode.HTML,
         )
+    except (ChatWriteForbidden, Forbidden, UserIsBlocked, PeerIdInvalid):
+        RESTRICTED_WRITE_CHATS.set(str(chat_id), True)
+        return None
     except Exception:
         pass
 
@@ -2893,6 +3044,9 @@ async def send_filter_media(
                     "parse_mode": enums.ParseMode.HTML,
                 }
             )
+        except (ChatWriteForbidden, Forbidden, UserIsBlocked, PeerIdInvalid):
+            RESTRICTED_WRITE_CHATS.set(str(chat_id), True)
+            return None
         except Exception:
             continue
 
@@ -2903,6 +3057,9 @@ async def send_filter_media(
             reply_markup=reply_markup,
             parse_mode=enums.ParseMode.HTML,
         )
+    except (ChatWriteForbidden, Forbidden, UserIsBlocked, PeerIdInvalid):
+        RESTRICTED_WRITE_CHATS.set(str(chat_id), True)
+        return None
     except Exception as err:
         logger.error(f"Media filter failed all 4 layers: {err}")
         return None
@@ -2911,6 +3068,9 @@ async def send_filter_media(
 async def safe_send_text_filter(
     client: Client, chat_id: int, text: str, reply_markup, reply_id: int
 ):
+    if RESTRICTED_WRITE_CHATS.get(str(chat_id)):
+        return None
+
     kw = {
         "chat_id": chat_id,
         "text": text,
@@ -2930,9 +3090,15 @@ async def safe_send_text_filter(
                 **kw, reply_parameters=ReplyParameters(message_id=reply_id)
             )
         return await client.send_message(**kw)
+    except (ChatWriteForbidden, Forbidden, UserIsBlocked, PeerIdInvalid, SlowmodeWait):
+        RESTRICTED_WRITE_CHATS.set(str(chat_id), True)
+        return None
     except Exception:
         try:
             return await client.send_message(**kw)
+        except (ChatWriteForbidden, Forbidden, UserIsBlocked, PeerIdInvalid):
+            RESTRICTED_WRITE_CHATS.set(str(chat_id), True)
+            return None
         except Exception as e:
             logger.error(f"Text filter failed: {e}")
             return None
