@@ -866,9 +866,7 @@ async def build_interactive_help_section(
                     {"chat_id": int(conn_gid)}
                 ) or await _BOT_DB["force_add"].find_one({"_id": int(conn_gid)})
                 if fa_doc:
-                    fa_on = bool(
-                        fa_doc.get("enabled", fa_doc.get("is_enabled", True))
-                    )
+                    fa_on = bool(fa_doc.get("enabled", fa_doc.get("is_enabled", True)))
             except Exception:
                 pass
         state = {"fa_on": fa_on}
@@ -2307,9 +2305,7 @@ async def _dispatch_synthetic_command(
     return False
 
 
-async def _handle_help_cmd_button(
-    client: Client, query: CallbackQuery, cmd_name: str
-):
+async def _handle_help_cmd_button(client: Client, query: CallbackQuery, cmd_name: str):
     """Executes or interactively prompts for any command button clicked inside the Help menu."""
     uid = query.from_user.id if query.from_user else 0
     user_mention = query.from_user.mention if query.from_user else "Admin"
