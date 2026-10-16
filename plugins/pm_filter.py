@@ -2660,7 +2660,9 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
                 row = []
         if row:
             btn_rows.append(row)
-        btn_rows.append([create_btn(text="⬅️ Back", callback_data=f"fback#{req}#{key}")])
+        btn_rows.append(
+            [create_btn(text="⬅️ Back", callback_data=f"fback#{req}#{key}")]
+        )
         try:
             await query.edit_message_reply_markup(
                 reply_markup=InlineKeyboardMarkup(btn_rows)
@@ -2694,7 +2696,9 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
         if row:
             btn_rows.append(row)
 
-        btn_rows.append([create_btn(text="⬅️ Back", callback_data=f"fback#{req}#{key}")])
+        btn_rows.append(
+            [create_btn(text="⬅️ Back", callback_data=f"fback#{req}#{key}")]
+        )
         try:
             await query.edit_message_reply_markup(
                 reply_markup=InlineKeyboardMarkup(btn_rows)
@@ -2724,7 +2728,9 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
         if row:
             btn_rows.append(row)
 
-        btn_rows.append([create_btn(text="⬅️ Back", callback_data=f"fback#{req}#{key}")])
+        btn_rows.append(
+            [create_btn(text="⬅️ Back", callback_data=f"fback#{req}#{key}")]
+        )
         try:
             await query.edit_message_reply_markup(
                 reply_markup=InlineKeyboardMarkup(btn_rows)
@@ -2756,7 +2762,9 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
         if row:
             btn_rows.append(row)
 
-        btn_rows.append([create_btn(text="⬅️ Back", callback_data=f"fback#{req}#{key}")])
+        btn_rows.append(
+            [create_btn(text="⬅️ Back", callback_data=f"fback#{req}#{key}")]
+        )
         try:
             await query.edit_message_reply_markup(
                 reply_markup=InlineKeyboardMarkup(btn_rows)
@@ -2788,7 +2796,9 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
         if row:
             btn_rows.append(row)
 
-        btn_rows.append([create_btn(text="⬅️ Back", callback_data=f"fback#{req}#{key}")])
+        btn_rows.append(
+            [create_btn(text="⬅️ Back", callback_data=f"fback#{req}#{key}")]
+        )
         try:
             await query.edit_message_reply_markup(
                 reply_markup=InlineKeyboardMarkup(btn_rows)
@@ -2818,7 +2828,9 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
         if row:
             btn_rows.append(row)
 
-        btn_rows.append([create_btn(text="⬅️ Back", callback_data=f"fback#{req}#{key}")])
+        btn_rows.append(
+            [create_btn(text="⬅️ Back", callback_data=f"fback#{req}#{key}")]
+        )
         try:
             await query.edit_message_reply_markup(
                 reply_markup=InlineKeyboardMarkup(btn_rows)
