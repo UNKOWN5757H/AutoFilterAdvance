@@ -4,7 +4,7 @@ import os
 import re
 import urllib.parse
 from logging import INFO, getLogger
-from typing import List, Union
+from typing import Dict, List, Optional, Union
 
 import aiohttp
 import requests
@@ -47,7 +47,7 @@ logger = getLogger(__name__)
 logger.setLevel(INFO)
 
 BTN_URL_REGEX = re.compile(
-    r"(\[([^\[]+?)\]\((buttonurl\vert{}buttonalert):(?:/{0,2})(.+?)(:same)?\))"
+    r"(\[([^\[]+?)\]\((buttonurl|buttonalert):(?:/{0,2})(.+?)(:same)?\))"
 )
 SMART_OPEN, SMART_CLOSE, START_CHAR = "“", "”", ("'", '"', "“")
 
@@ -82,6 +82,8 @@ class temp(object):
     U_NAME = None
     B_NAME = None
     SETTINGS = {}
+    INDEX_CANCEL = {}
+    INDEX_SPEED = 0
 
 
 class TMDBWrapper(dict):
@@ -95,7 +97,7 @@ _TMDB_BEARER_FALLBACK = (
     "Im5iZiI6MTc0NTMyMjQ2Mi41MzMsInN1YiI6IjY4MDc4MWRlYzVjODAzNWZiMDhhNjExNCIsInNjb3"
     "BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.rMMJ2-PBIv8Y7ybxPIEpIlzTEXzuwrm9ruKxAUCAsbw"
 )
-_http_session: aiohttp.ClientSession | None = None
+_http_session: Optional[aiohttp.ClientSession] = None
 
 
 async def _get_http_session() -> aiohttp.ClientSession:
@@ -108,7 +110,7 @@ async def _get_http_session() -> aiohttp.ClientSession:
 # ============================================================
 # 👑 FULL POWER ADMIN CHECKER (GLOBAL + CHAT + ANONYMOUS)
 # ============================================================
-def get_admin_list() -> list[int]:
+def get_admin_list() -> List[int]:
     raw_admins = getattr(info, "ADMINS", [])
     if isinstance(raw_admins, (str, int)):
         raw_admins = str(raw_admins).replace(",", " ").split()
@@ -124,15 +126,12 @@ async def is_user_admin(client: Client, message: Message) -> bool:
         return False
     admin_list = get_admin_list()
 
-    # 1. Global Admin Check (Direct User)
     if message.from_user and message.from_user.id in admin_list:
         return True
 
-    # 2. Global Admin Check (Anonymous/Channel sending as Chat)
     if message.sender_chat and message.sender_chat.id in admin_list:
         return True
 
-    # 3. Group Admin Check (Normal & Anonymous Admins)
     if message.chat and message.chat.type in [
         enums.ChatType.GROUP,
         enums.ChatType.SUPERGROUP,
@@ -156,7 +155,6 @@ async def is_user_admin(client: Client, message: Message) -> bool:
 async def cb_user_admin(client: Client, query: CallbackQuery) -> bool:
     if not query:
         return False
-    # If a Message object was accidentally passed instead of a CallbackQuery
     if isinstance(query, Message):
         return await is_user_admin(client, query)
 
@@ -196,7 +194,6 @@ async def _cb_admin_check_async(_, client: Client, query: CallbackQuery) -> bool
     return await cb_user_admin(client, query)
 
 
-# Native async Pyrogram filters (Fixes RuntimeError: asyncio.run() cannot be called from a running event loop)
 admin_filter = filters.create(_admin_check_async)
 cb_admin_filter = filters.create(_cb_admin_check_async)
 
@@ -287,6 +284,17 @@ async def is_subscribed(bot: Client, query: Union[CallbackQuery, Message]) -> bo
     if not user_id:
         return True
 
+    # 1. Check dynamic ForceSub channels configured via /setfsub in plugins/fsub.py
+    try:
+        from plugins.fsub import _get_missing_channel_buttons, get_fsub_config
+
+        f_cfg = await get_fsub_config()
+        if f_cfg.get("is_enabled", True) and f_cfg.get("channels"):
+            missing = await _get_missing_channel_buttons(bot, user_id, f_cfg)
+            return len(missing) == 0
+    except Exception:
+        pass
+
     auth_ch = getattr(info, "AUTH_CHANNEL", AUTH_CHANNEL)
     req_ch = getattr(info, "REQ_CHANNEL", REQ_CHANNEL)
 
@@ -317,7 +325,14 @@ async def is_subscribed(bot: Client, query: Union[CallbackQuery, Message]) -> bo
 
 
 async def get_poster(query, bulk=False, id=False, file=None):
-    """Fetches movie/TV metadata from TMDB with support for `movie:id`, `tv:id`, `tt...`, and bearer fallback."""
+    """Fetches movie/TV metadata from TMDB (delegates to plugins.Imdbposter if loaded)."""
+    try:
+        from plugins.Imdbposter import get_poster as _imdb_get_poster
+
+        return await _imdb_get_poster(query, bulk=bulk, id=id, file=file)
+    except Exception:
+        pass
+
     api_key = getattr(info, "TMDB_API_KEY", TMDB_API_KEY)
     headers = {}
     if not api_key:
@@ -361,7 +376,6 @@ async def get_poster(query, bulk=False, id=False, file=None):
             detail_url = f"https://api.themoviedb.org/3/{media_type}/{query_str}?{key_param}append_to_response=credits,external_ids"
             movie = await _tmdb_fetch_json(detail_url)
 
-            # If numeric ID wasn't found under 'movie', try 'tv'
             if not movie and media_type == "movie" and query_str.isdigit():
                 media_type = "tv"
                 detail_url = f"https://api.themoviedb.org/3/tv/{query_str}?{key_param}append_to_response=credits,external_ids"
@@ -489,7 +503,6 @@ async def get_poster(query, bulk=False, id=False, file=None):
             search_data = await _tmdb_fetch_json(url)
             results = (search_data or {}).get("results", [])
 
-            # If year filter was too strict and returned nothing, retry without year
             if not results and year:
                 retry_url = f"https://api.themoviedb.org/3/search/multi?{key_param}query={urllib.parse.quote(clean_query)}&include_adult=false"
                 retry_data = await _tmdb_fetch_json(retry_url)
@@ -539,7 +552,7 @@ async def broadcast_messages(user_id: int, message: Message):
         return False, "Error"
 
 
-def _fetch_gagala(text: str) -> list[str]:
+def _fetch_gagala(text: str) -> List[str]:
     try:
         response = requests.get(
             f"https://www.google.com/search?q={urllib.parse.quote_plus(text)}",
@@ -557,7 +570,7 @@ def _fetch_gagala(text: str) -> list[str]:
         return []
 
 
-async def search_gagala(text: str) -> list[str]:
+async def search_gagala(text: str) -> List[str]:
     return await asyncio.to_thread(_fetch_gagala, text)
 
 
