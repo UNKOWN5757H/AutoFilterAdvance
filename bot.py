@@ -84,7 +84,7 @@ logger = getLogger(__name__)
 # ============================================================
 # 👑 FULL POWER ADMIN CHECKER (GLOBAL + CHAT + ANONYMOUS)
 # ============================================================
-def get_admin_list() -> list[int]:
+def get_admin_list() -> List[int]:
     raw_admins = getattr(info, "ADMINS", [])
     if isinstance(raw_admins, (str, int)):
         raw_admins = str(raw_admins).replace(",", " ").split()
@@ -100,15 +100,12 @@ async def is_user_admin(client: Client, message: Message) -> bool:
         return False
     admin_list = get_admin_list()
 
-    # 1. Global Admin Check (Direct User)
     if message.from_user and message.from_user.id in admin_list:
         return True
 
-    # 2. Global Admin Check (Anonymous/Channel sending as Chat)
     if message.sender_chat and message.sender_chat.id in admin_list:
         return True
 
-    # 3. Group Admin Check (Normal & Anonymous Admins)
     if message.chat and message.chat.type in [
         enums.ChatType.GROUP,
         enums.ChatType.SUPERGROUP,
@@ -132,7 +129,7 @@ async def is_user_admin(client: Client, message: Message) -> bool:
 
 
 async def _restore_persistent_settings():
-    """Restores saved custom captions, timers, and global images into `info` on bot startup."""
+    """Restores saved custom captions, UI settings, timers, and global images into `info` on bot startup."""
     try:
         db_client = motor.motor_asyncio.AsyncIOMotorClient(info.DATABASE_URI)
         bot_db = db_client[info.DATABASE_NAME]
@@ -149,21 +146,50 @@ async def _restore_persistent_settings():
         if global_doc:
             attr_map = {
                 "fsub_img": "FSUB_IMG",
+                "fsub_msg": "FSUB_MSG",
                 "auto_img": "AUTO_IMG",
                 "not_found_img": "NOT_FOUND_IMG",
                 "not_found_text": "NOT_FOUND_MSG",
+                "info_msg": "INFO_MSG",
+                "info_img": "INFO_IMG",
+                "del_msg": "DEL_MSG",
+                "del_img": "DEL_IMG",
             }
             for gk, attr in attr_map.items():
                 if gk in global_doc and global_doc[gk] is not None:
                     setattr(info, attr, global_doc[gk])
 
-        # 3. Restore deletion_settings timer
+        # 3. Restore deletion_settings timers (Both PM & Group Button Auto-Delete)
         del_doc = await bot_db["deletion_settings"].find_one({"_id": "timers"})
-        if del_doc and "FILE_AUTO_DELETE" in del_doc:
-            val = int(del_doc["FILE_AUTO_DELETE"])
-            setattr(info, "FILE_AUTO_DELETE", val)
-            setattr(info, "AUTO_DELETE_TIME", val)
-            setattr(info, "AUTO_DELETE", val > 0)
+        if del_doc:
+            if "FILE_AUTO_DELETE" in del_doc and del_doc["FILE_AUTO_DELETE"] is not None:
+                val = int(del_doc["FILE_AUTO_DELETE"])
+                setattr(info, "FILE_AUTO_DELETE", val)
+                setattr(info, "AUTO_DELETE_TIME", val)
+                setattr(info, "AUTO_DELETE", val > 0)
+                setattr(temp, "FILE_AUTO_DELETE", val)
+            if (
+                "BUTTON_AUTO_DELETE" in del_doc
+                and del_doc["BUTTON_AUTO_DELETE"] is not None
+            ):
+                b_val = int(del_doc["BUTTON_AUTO_DELETE"])
+                setattr(info, "BUTTON_AUTO_DELETE", b_val)
+                setattr(info, "BUTTON_DEL", b_val)
+                setattr(temp, "BUTTON_AUTO_DELETE", b_val)
+                setattr(temp, "BUTTON_DEL", b_val)
+
+        # 4. Restore reaction_settings
+        react_doc = await bot_db["reaction_settings"].find_one({"_id": "config"})
+        if react_doc and "enabled" in react_doc:
+            setattr(info, "ENABLE_REACTION", bool(react_doc["enabled"]))
+
+        # 5. Restore UI customizations from editable.py
+        try:
+            from plugins.editable import get_ui
+
+            await get_ui(force_refresh=True)
+        except Exception:
+            pass
     except Exception as e:
         logger.error(f"Failed to restore persistent settings on boot: {e}")
 
@@ -338,22 +364,30 @@ async def auto_delete_user_media_pm(client: Client, message: Message):
 
 
 # ============================================================
-# 🌐 HEALTH CHECKS & STARTUP
+# 🌐 HEALTH CHECKS & STARTUP (SUPPORTS / AND /health)
 # ============================================================
 async def health_check(request):
-    return web.Response(text="Bot is running and healthy!")
+    return web.Response(text="Bot is running and healthy!", status=200)
 
 
 async def start_services():
     web_app = web.Application()
     web_app.router.add_get("/", health_check)
+    web_app.router.add_get("/health", health_check)
     runner = web.AppRunner(web_app)
     await runner.setup()
 
     bind_port = int(PORT) if PORT else 8080
-    site = web.TCPSite(runner, "0.0.0.0", bind_port)
-    await site.start()
-    logger.info(f"🌐 Web server listening on port {bind_port} for health checks.")
+    try:
+        site = web.TCPSite(runner, "0.0.0.0", bind_port)
+        await site.start()
+        logger.info(
+            f"🌐 Web server listening on port {bind_port} (/ and /health) for health checks."
+        )
+    except OSError as e:
+        logger.warning(
+            f"Port {bind_port} is already in use (external web server active): {e}"
+        )
 
     await app.start()
     await idle()
