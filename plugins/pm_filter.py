@@ -7,8 +7,9 @@ import math
 import re
 import time
 import unicodedata
+import urllib.parse
 from logging import ERROR, getLogger
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from motor.motor_asyncio import AsyncIOMotorClient
 from pyrogram import Client, enums, filters
@@ -70,7 +71,7 @@ logger = getLogger(__name__)
 logger.setLevel(ERROR)
 
 # Strong reference set so Python's garbage collector never cancels sleeping auto-delete tasks
-AUTO_DELETE_TASKS = set()
+AUTO_DELETE_TASKS: Set[asyncio.Task] = set()
 
 # ============================================================
 # 🔗 CUSTOM EXTRA BUTTON LINKS (EDIT YOUR LINKS HERE)
@@ -83,7 +84,7 @@ EXTRA_BTN_2_URL = getattr(
 )  # Link for [🔞] button
 
 # ============================================================
-# 🌐 LANGUAGES & 🎞️ QUALITIES CONFIGURATION
+# 🌐 LANGUAGES, 🎞️ QUALITIES, 📺 SEASONS & 📅 YEARS CONFIG
 # ============================================================
 LANGUAGES_LIST: List[Tuple[str, str]] = [
     ("Kannada", "kan"),
@@ -143,6 +144,70 @@ QUAL_PATTERNS: Dict[str, re.Pattern] = {
     "4320p": re.compile(r"(?i)\b(4320p|8k)\b"),
 }
 
+SEASONS_LIST: List[Tuple[str, str]] = [
+    (f"Season {i}", f"s{i:02d}") for i in range(1, 13)
+]
+SEASON_MAP: Dict[str, str] = {code: name for name, code in SEASONS_LIST}
+SEASON_PATTERNS: Dict[str, re.Pattern] = {
+    f"s{i:02d}": re.compile(rf"(?i)\b(s0?{i}(?:e\d+|\b|\s)|season\s*0?{i}\b)")
+    for i in range(1, 13)
+}
+
+EPISODES_LIST: List[Tuple[str, str]] = [
+    (f"Ep {i:02d}", f"e{i:02d}") for i in range(1, 37)
+]
+EPISODE_PATTERNS: Dict[str, re.Pattern] = {
+    f"e{i:02d}": re.compile(rf"(?i)\b(s\d+e0?{i}\b|e0?{i}\b|ep(?:isode)?\s*0?{i}\b)")
+    for i in range(1, 37)
+}
+
+YEARS_LIST: List[str] = [str(y) for y in range(2026, 1999, -1)]
+YEAR_REGEX_EXTRACT = re.compile(r"\b(19[7-9]\d|20[0-2]\d)\b")
+
+# Pre-compiled regexes for ultra-fast execution
+_URL_MENTION_RE = re.compile(r"https?://\S+|t\.me/\S+|@\w+")
+_NON_ALNUM_RE = re.compile(r"[^a-zA-Z0-9]")
+_MULTI_SPACE_RE = re.compile(r"\s+")
+_STRIP_NOISE_RE = re.compile(
+    r"(?i)\b(4320p|2160p|1440p|1080p|720p|540p|480p|360p|240p|144p|4k|2k|8k|mkv|mp4|avi|webm|hdrip|web-?dl|webrip|bluray|brrip|dvdrip|camrip|hdts|predvd|x264|x265|hevc|avc|aac\d*|ddp?\d*|dd\d*|ac3|eac3|atmos|\d+ch|10bit|8bit|hdr|sdr|dual\s*audio|multi\s*audio|hindi|kannada|tulu|telugu|tamil|malayalam|marathi|gujarati|bengali|punjabi|nepali|english|subtitles|subs|esub|esubs|episodes?|season\s*\d+|s\d+e\d+|s\d+|e\d+|ep\s*\d+|complete|movie|full|hd|send|me|please|plz|bro|link|give|new)\b"
+)
+_TITLE_SPLIT_RE = re.compile(
+    r"(?i)\b(4320p|2160p|1440p|1080p|720p|540p|480p|360p|240p|144p|4k|2k|8k|hdrip|web-?dl|webrip|bluray|brrip|dvdrip|camrip|hdts|predvd|x264|x265|hevc|avc|aac\d*|ddp?\d*|dd\d*|ac3|eac3|atmos|10bit|8bit|hdr|sdr|dual\s*audio|multi\s*audio|kannada|tulu|telugu|tamil|malayalam|hindi|english|marathi|gujarati|bengali|punjabi|nepali|esub|subtitles|mkv|mp4|avi|s\d+e\d+|s\d+|season\s*\d+)\b"
+)
+_SUBTITLE_DETECT_RE = re.compile(r"(?i)\b(esubs?|subtitles?|softmux|subs?)\b")
+_HEVC_DETECT_RE = re.compile(r"(?i)\b(hevc|x265|10bit)\b")
+
+IGNORE_WORDS_SET = {
+    "hello",
+    "hey",
+    "hii",
+    "hlo",
+    "hlw",
+    "mam",
+    "ok",
+    "okay",
+    "kk",
+    "k",
+    "tq",
+    "ty",
+    "yes",
+    "no",
+    "yo",
+    "hmm",
+    "hm",
+    "gm",
+    "gn",
+    "admin",
+    "owner",
+    "help",
+    "start",
+    "ping",
+    "status",
+    "nice",
+    "super",
+    "wow",
+}
+
 # ============================================================
 # 🔤 INDIAN SCRIPT-TO-ENGLISH TRANSLITERATION ENGINE
 # ============================================================
@@ -160,6 +225,9 @@ _INDIC_ACRONYM_MAP: Dict[str, str] = {
     "ಆರ್ ಆರ್ ಆರ್": "rrr",
     "ಆರ್.ಆರ್.ಆರ್": "rrr",
     "ಎನ್ ಟಿ ಆರ್": "ntr",
+    "ಪುಷ್ಪ": "pushpa",
+    "ಸಲಾರ್": "salaar",
+    "ಕಲ್ಕಿ": "kalki",
     "केजीएफ": "kgf",
     "के.जी.एफ": "kgf",
     "कांतारा": "kantara",
@@ -372,20 +440,36 @@ def transliterate_indic_to_english(text: str) -> str:
             i += 1
 
     result = "".join(out)
-    return re.sub(r"\s+", " ", result).strip().lower()
+    return _MULTI_SPACE_RE.sub(" ", result).strip().lower()
 
 
 def generate_phonetic_variants(translit_str: str) -> List[str]:
     if not translit_str:
         return []
     variants = [translit_str]
-    v1 = translit_str.replace("aa", "a").replace("ee", "i").replace("oo", "u")
+    v1 = (
+        translit_str.replace("aa", "a")
+        .replace("ee", "i")
+        .replace("oo", "u")
+        .replace("bh", "b")
+        .replace("dh", "d")
+        .replace("th", "t")
+        .replace("kh", "k")
+        .replace("gh", "g")
+        .replace("ph", "p")
+    )
     if v1 not in variants:
         variants.append(v1)
-    v2_words = [(w[:-1] if len(w) > 4 and w.endswith("a") else w) for w in v1.split()]
+    v2_words = [(w[:-1] if len(w) > 3 and w.endswith("a") else w) for w in v1.split()]
     v2 = " ".join(v2_words)
     if v2 and v2 not in variants:
         variants.append(v2)
+    v3_words = [
+        (w[:-1] if len(w) > 3 and w.endswith("a") else w) for w in translit_str.split()
+    ]
+    v3 = " ".join(v3_words)
+    if v3 and v3 not in variants:
+        variants.append(v3)
     return variants
 
 
@@ -462,7 +546,7 @@ def create_btn(
 
 
 # ============================================================
-# ⚡ ULTRA-FAST IN-MEMORY CACHE SYSTEM
+# ⚡ ULTRA-FAST O(1) IN-MEMORY CACHE SYSTEM
 # ============================================================
 class TTLCache:
     def __init__(self, maxsize: int = 2000, ttl: int = 1800):
@@ -470,33 +554,40 @@ class TTLCache:
         self._maxsize, self._ttl = maxsize, ttl
 
     def set(self, key: str, value: Any):
-        self._cleanup()
-        if len(self._data) >= self._maxsize:
-            oldest_key = min(self._data, key=lambda k: self._data[k][0])
-            self._data.pop(oldest_key, None)
-        self._data[key] = (time.time() + self._ttl, value)
+        now = time.time()
+        if key in self._data:
+            self._data.pop(key, None)
+        elif len(self._data) >= self._maxsize:
+            self._cleanup(now)
+            if len(self._data) >= self._maxsize:
+                oldest_key = next(iter(self._data))
+                self._data.pop(oldest_key, None)
+        self._data[key] = (now + self._ttl, value)
 
     def get(self, key: str) -> Optional[Any]:
-        if not (item := self._data.get(key)):
+        item = self._data.get(key)
+        if not item:
             return None
         if time.time() > item[0]:
             self._data.pop(key, None)
             return None
         return item[1]
 
-    def _cleanup(self):
-        now = time.time()
-        for k in [k for k, (exp, _) in self._data.items() if now > exp]:
+    def _cleanup(self, now: Optional[float] = None):
+        now = now or time.time()
+        expired = [k for k, (exp, _) in self._data.items() if now > exp]
+        for k in expired:
             self._data.pop(k, None)
 
 
-GLOBAL_SEARCH_CACHE = TTLCache(maxsize=3000, ttl=600)
-BUTTONS_CACHE = TTLCache(maxsize=3000, ttl=1800)
-FILTER_STATE_CACHE = TTLCache(maxsize=3000, ttl=1800)
+GLOBAL_SEARCH_CACHE = TTLCache(maxsize=3500, ttl=600)
+POOL_SEARCH_CACHE = TTLCache(maxsize=800, ttl=600)
+BUTTONS_CACHE = TTLCache(maxsize=3500, ttl=1800)
+FILTER_STATE_CACHE = TTLCache(maxsize=3500, ttl=1800)
 SUGGESTIONS_CACHE = TTLCache(maxsize=2000, ttl=1800)
 DYM_QUERY_CACHE = TTLCache(maxsize=2000, ttl=1800)
 USER_LAST_REQ = TTLCache(maxsize=5000, ttl=60)
-FUZZY_TITLES_CACHE = TTLCache(maxsize=10, ttl=600)
+FUZZY_TITLES_CACHE = TTLCache(maxsize=10, ttl=900)
 RESTRICTED_WRITE_CHATS = TTLCache(maxsize=500, ttl=300)
 
 
@@ -722,7 +813,7 @@ def clean_filename(name: str, clean_words: list) -> str:
         if word.lower() in ["mkv", "sandalwood", "mp4", "avi", "webm", "zip", "rar"]:
             continue
         name = re.sub(rf"(?i){re.escape(word)}", "", name)
-    name = re.sub(r"\s+", " ", name).strip()
+    name = _MULTI_SPACE_RE.sub(" ", name).strip()
     return (name[:42] + "..") if len(name) > 45 else (name or "File")
 
 
@@ -972,25 +1063,44 @@ async def safe_save_filter(group_id, keyword, reply_text, btn, fileid, alert="[]
         await add_filter(group_id, keyword, reply_text, btn, fileid, alert)
 
 
+# ============================================================
+# 🧠 ADVANCED FILTER STATE MANAGEMENT
+# ============================================================
 def get_filter_state(key: str) -> dict:
     state = FILTER_STATE_CACHE.get(key)
     if not state or not isinstance(state, dict):
-        return {"lang": None, "qual": None, "from_dym": False}
+        return {
+            "lang": None,
+            "qual": None,
+            "year": None,
+            "season": None,
+            "ep": None,
+            "sort": "rel",
+            "from_dym": False,
+        }
     return state
 
 
 def set_filter_state(
     key: str,
-    lang: Optional[str] = None,
-    qual: Optional[str] = None,
+    lang: Optional[str] = "__keep__",
+    qual: Optional[str] = "__keep__",
+    year: Optional[str] = "__keep__",
+    season: Optional[str] = "__keep__",
+    ep: Optional[str] = "__keep__",
+    sort: Optional[str] = "__keep__",
     from_dym: Optional[bool] = None,
 ):
     prev = get_filter_state(key)
     FILTER_STATE_CACHE.set(
         key,
         {
-            "lang": lang,
-            "qual": qual,
+            "lang": prev.get("lang") if lang == "__keep__" else lang,
+            "qual": prev.get("qual") if qual == "__keep__" else qual,
+            "year": prev.get("year") if year == "__keep__" else year,
+            "season": prev.get("season") if season == "__keep__" else season,
+            "ep": prev.get("ep") if ep == "__keep__" else ep,
+            "sort": prev.get("sort", "rel") if sort == "__keep__" else sort,
             "from_dym": prev.get("from_dym", False) if from_dym is None else from_dym,
         },
     )
@@ -1000,10 +1110,20 @@ def build_effective_search_query(base_query: str, state: dict) -> str:
     parts = [base_query]
     lang_code = state.get("lang")
     qual_val = state.get("qual")
+    year_val = state.get("year")
+    season_val = state.get("season")
+    ep_val = state.get("ep")
+
     if lang_code and lang_code in LANG_MAP:
         parts.append(LANG_MAP[lang_code].lower())
     if qual_val:
         parts.append(qual_val.lower())
+    if year_val:
+        parts.append(str(year_val))
+    if season_val:
+        parts.append(season_val.lower())
+    if ep_val:
+        parts.append(ep_val.lower())
     return " ".join(p for p in parts if p).strip()
 
 
@@ -1016,16 +1136,11 @@ def sanitize_search_query(text: str, allow_translit: bool = True) -> str:
     if allow_translit and has_indic_script(text):
         text = transliterate_indic_to_english(text)
 
-    raw_q = re.sub(r"https?://\S+|t\.me/\S+|@\w+", "", text.strip().lower())
-    basic_q = re.sub(r"[^a-zA-Z0-9]", " ", raw_q)
-    basic_q = re.sub(r"\s+", " ", basic_q).strip()
+    raw_q = _URL_MENTION_RE.sub("", text.strip().lower())
+    basic_q = _MULTI_SPACE_RE.sub(" ", _NON_ALNUM_RE.sub(" ", raw_q)).strip()
 
-    q = re.sub(
-        r"(?i)\b(4320p|2160p|1440p|1080p|720p|540p|480p|360p|240p|144p|4k|2k|8k|mkv|mp4|avi|hdrip|web-?dl|webrip|bluray|brrip|dvdrip|x264|x265|hevc|aac\d*|ddp?\d*|\d+ch|10bit|8bit|hdr|sdr|dual audio|multi audio|hindi|kannada|tulu|telugu|tamil|malayalam|marathi|gujarati|bengali|punjabi|nepali|english|subtitles|subs|esub|episodes|season\s*\d+|s\d+e\d+|complete)\b",
-        "",
-        raw_q,
-    )
-    q = re.sub(r"[^a-zA-Z0-9]", " ", q)
+    q = _STRIP_NOISE_RE.sub("", raw_q)
+    q = _NON_ALNUM_RE.sub(" ", q)
     try:
         active_stops = get_stopwords()
         if active_stops:
@@ -1039,13 +1154,19 @@ def sanitize_search_query(text: str, allow_translit: bool = True) -> str:
             )
     except Exception:
         pass
-    cleaned = re.sub(r"\s+", " ", q).strip()
+    cleaned = _MULTI_SPACE_RE.sub(" ", q).strip()
     return cleaned if cleaned else basic_q
 
 
-def extract_inline_lang_and_qual(raw_text: str) -> Tuple[Optional[str], Optional[str]]:
+def extract_inline_filters(
+    raw_text: str,
+) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str], Optional[str]]:
     detected_lang = None
     detected_qual = None
+    detected_year = None
+    detected_season = None
+    detected_ep = None
+
     for code, pattern in LANG_PATTERNS.items():
         if pattern.search(raw_text):
             detected_lang = code
@@ -1054,7 +1175,17 @@ def extract_inline_lang_and_qual(raw_text: str) -> Tuple[Optional[str], Optional
         if pattern.search(raw_text):
             detected_qual = qual
             break
-    return detected_lang, detected_qual
+    if yr_match := YEAR_REGEX_EXTRACT.search(raw_text):
+        detected_year = yr_match.group(1)
+    for scode, pattern in SEASON_PATTERNS.items():
+        if pattern.search(raw_text):
+            detected_season = scode
+            break
+    for ecode, pattern in EPISODE_PATTERNS.items():
+        if pattern.search(raw_text):
+            detected_ep = ecode
+            break
+    return detected_lang, detected_qual, detected_year, detected_season, detected_ep
 
 
 async def safe_search_db(query: str, max_results: int = 10, offset: int = 0):
@@ -1094,18 +1225,96 @@ def _score_file_relevance(file_obj, query_str: str) -> Tuple[int, int]:
         if isinstance(file_obj, dict)
         else getattr(file_obj, "file_size", 0)
     )
-    clean_fname = re.sub(r"[^a-zA-Z0-9]", " ", fname)
-    clean_fname = re.sub(r"\s+", " ", clean_fname).strip()
+    clean_fname = _MULTI_SPACE_RE.sub(" ", _NON_ALNUM_RE.sub(" ", fname)).strip()
 
-    tokens = [t for t in query_str.lower().split() if t]
+    q_lower = query_str.lower().strip()
+    tokens = [t for t in q_lower.split() if t]
     score = 0
-    if clean_fname.startswith(query_str.lower()):
-        score += 100
-    elif query_str.lower() in clean_fname:
+
+    if clean_fname.startswith(q_lower):
+        score += 120
+    elif re.search(rf"\b{re.escape(q_lower)}\b", clean_fname):
+        score += 90
+    elif q_lower in clean_fname:
         score += 60
-    if tokens and all(re.search(rf"\b{re.escape(t)}\b", clean_fname) for t in tokens):
-        score += 40
+
+    if tokens:
+        matched_tokens = sum(
+            1 for t in tokens if re.search(rf"\b{re.escape(t)}\b", clean_fname)
+        )
+        if matched_tokens == len(tokens):
+            score += 50
+        else:
+            score += matched_tokens * 15
+
     return (score, fsize)
+
+
+def _sort_files(files: list, base_query: str, sort_mode: str) -> None:
+    if sort_mode == "asc":
+        files.sort(
+            key=lambda x: int(
+                x.get("file_size", 0)
+                if isinstance(x, dict)
+                else getattr(x, "file_size", 0)
+            )
+        )
+    elif sort_mode == "desc":
+        files.sort(
+            key=lambda x: int(
+                x.get("file_size", 0)
+                if isinstance(x, dict)
+                else getattr(x, "file_size", 0)
+            ),
+            reverse=True,
+        )
+    else:
+        files.sort(key=lambda x: _score_file_relevance(x, base_query), reverse=True)
+
+
+async def get_movie_pool(base_query: str) -> list:
+    """Fetches and caches up to 250 files for a movie so filtering & dynamic menus are instant."""
+    ck = base_query.lower().strip()
+    cached = POOL_SEARCH_CACHE.get(ck)
+    if cached is not None:
+        return cached
+    pool, _, _ = await safe_search_db(base_query, max_results=250, offset=0)
+    if pool:
+        POOL_SEARCH_CACHE.set(ck, pool)
+    return pool or []
+
+
+async def get_available_attributes(base_query: str) -> Dict[str, Set[str]]:
+    """Scans the movie pool to discover which languages, qualities, years, seasons, and episodes exist."""
+    pool = await get_movie_pool(base_query)
+    avail: Dict[str, Set[str]] = {
+        "langs": set(),
+        "quals": set(),
+        "years": set(),
+        "seasons": set(),
+        "eps": set(),
+    }
+    if not pool:
+        return avail
+
+    for f in pool:
+        txt = _file_text(f)
+        for code, pat in LANG_PATTERNS.items():
+            if pat.search(txt):
+                avail["langs"].add(code)
+        for qual, pat in QUAL_PATTERNS.items():
+            if pat.search(txt):
+                avail["quals"].add(qual)
+        for yr in YEAR_REGEX_EXTRACT.findall(txt):
+            avail["years"].add(yr)
+        for scode, pat in SEASON_PATTERNS.items():
+            if pat.search(txt):
+                avail["seasons"].add(scode)
+        for ecode, pat in EPISODE_PATTERNS.items():
+            if pat.search(txt):
+                avail["eps"].add(ecode)
+
+    return avail
 
 
 async def smart_filtered_search(
@@ -1113,30 +1322,38 @@ async def smart_filtered_search(
 ) -> Tuple[list, int, int]:
     lang_code = state.get("lang")
     qual_val = state.get("qual")
+    year_val = state.get("year")
+    season_val = state.get("season")
+    ep_val = state.get("ep")
+    sort_mode = state.get("sort", "rel")
 
-    if not lang_code and not qual_val:
+    has_filters = any([lang_code, qual_val, year_val, season_val, ep_val])
+
+    if not has_filters and sort_mode == "rel":
         files, next_offset, total = await safe_search_db(
             base_query, max_results=max_results, offset=offset
         )
-        files.sort(key=lambda x: _score_file_relevance(x, base_query), reverse=True)
+        _sort_files(files, base_query, sort_mode)
         return files, next_offset, total
 
-    effective_query = build_effective_search_query(base_query, state)
-    direct_files, next_offset, total = await safe_search_db(
-        effective_query, max_results=max_results, offset=offset
-    )
-    if direct_files:
-        direct_files.sort(
-            key=lambda x: _score_file_relevance(x, base_query), reverse=True
+    if has_filters and sort_mode == "rel":
+        effective_query = build_effective_search_query(base_query, state)
+        direct_files, next_offset, total = await safe_search_db(
+            effective_query, max_results=max_results, offset=offset
         )
-        return direct_files, next_offset, total
+        if direct_files:
+            _sort_files(direct_files, base_query, sort_mode)
+            return direct_files, next_offset, total
 
-    pool, _, _ = await safe_search_db(base_query, max_results=250, offset=0)
+    pool = await get_movie_pool(base_query)
     if not pool:
         return [], 0, 0
 
     lang_regex = LANG_PATTERNS.get(lang_code) if lang_code else None
     qual_regex = QUAL_PATTERNS.get(qual_val) if qual_val else None
+    season_regex = SEASON_PATTERNS.get(season_val) if season_val else None
+    ep_regex = EPISODE_PATTERNS.get(ep_val) if ep_val else None
+    year_regex = re.compile(rf"\b{re.escape(str(year_val))}\b") if year_val else None
 
     matched = []
     for f in pool:
@@ -1145,9 +1362,15 @@ async def smart_filtered_search(
             continue
         if qual_regex and not qual_regex.search(combined_txt):
             continue
+        if year_regex and not year_regex.search(combined_txt):
+            continue
+        if season_regex and not season_regex.search(combined_txt):
+            continue
+        if ep_regex and not ep_regex.search(combined_txt):
+            continue
         matched.append(f)
 
-    matched.sort(key=lambda x: _score_file_relevance(x, base_query), reverse=True)
+    _sort_files(matched, base_query, sort_mode)
     total_matched = len(matched)
     sliced = matched[offset : offset + max_results]
     new_next_offset = (
@@ -1162,13 +1385,10 @@ def _extract_clean_movie_title(raw_filename: str) -> str:
         return ""
     s = re.sub(r"https?://\S+|t\.me/\S+|@\w+|\[[^\]]*\]|\([^)]*\)", " ", raw_filename)
     s = re.sub(r"[_.-]", " ", s)
-    s = re.split(
-        r"(?i)\b(4320p|2160p|1440p|1080p|720p|540p|480p|360p|240p|144p|4k|2k|8k|hdrip|web-?dl|webrip|bluray|brrip|dvdrip|camrip|hdts|predvd|x264|x265|hevc|avc|aac\d*|ddp?\d*|dd\d*|ac3|eac3|atmos|10bit|8bit|hdr|sdr|dual\s*audio|multi\s*audio|kannada|tulu|telugu|tamil|malayalam|hindi|english|marathi|gujarati|bengali|punjabi|nepali|esub|subtitles|mkv|mp4|avi)\b",
-        s,
-    )[0]
-    s = re.sub(r"[^a-zA-Z0-9\s]", " ", s)
+    s = _TITLE_SPLIT_RE.split(s)[0]
+    s = _NON_ALNUM_RE.sub(" ", s)
     s = re.sub(r"\b(?!(?:19|20)\d{2}\b)\d{1,3}\b$", "", s.strip())
-    s = re.sub(r"\s+", " ", s).strip()
+    s = _MULTI_SPACE_RE.sub(" ", s).strip()
     if len(s) < 2:
         return sanitize_search_query(raw_filename)
     words = s.split()
@@ -1183,7 +1403,10 @@ async def get_cached_db_titles() -> List[str]:
     try:
         media_col = getattr(_Media, "collection", _Media)
         sample_docs = (
-            await media_col.find({}, {"file_name": 1}).limit(3500).to_list(length=3500)
+            await media_col.find({}, {"file_name": 1})
+            .sort("_id", -1)
+            .limit(4500)
+            .to_list(length=4500)
         )
         title_set = set()
         for d in sample_docs:
@@ -1193,6 +1416,10 @@ async def get_cached_db_titles() -> List[str]:
             clean_t = _extract_clean_movie_title(fn)
             if clean_t and len(clean_t) >= 2:
                 title_set.add(clean_t)
+                no_yr = YEAR_REGEX_EXTRACT.sub("", clean_t).strip()
+                no_yr = _MULTI_SPACE_RE.sub(" ", no_yr)
+                if no_yr and len(no_yr) >= 2:
+                    title_set.add(no_yr)
 
         db_titles = sorted(title_set)
         FUZZY_TITLES_CACHE.set("titles", db_titles)
@@ -1260,7 +1487,7 @@ async def get_did_you_mean_suggestions(
         best_score = (
             max(ratio, first_word_ratio * 0.95, skel_ratio * 0.92) + prefix_bonus
         )
-        if best_score >= 0.48:
+        if best_score >= 0.46:
             scored_candidates.append((best_score, t_lower))
 
     scored_candidates.sort(key=lambda x: x[0], reverse=True)
@@ -1272,7 +1499,7 @@ async def get_did_you_mean_suggestions(
         if len(unique_suggestions) >= max_suggestions:
             break
         root_key = re.sub(r"\b\d+\b", "", cand).strip()
-        root_key = re.sub(r"\s+", " ", root_key)
+        root_key = _MULTI_SPACE_RE.sub(" ", root_key)
         if not root_key or root_key in seen_roots:
             continue
 
@@ -1312,12 +1539,37 @@ def _build_dym_view(
             row = []
     if row:
         dym_btns.append(row)
+
+    google_q = urllib.parse.quote_plus(f"{raw_search.strip()} movie")
+    dym_btns.append(
+        [
+            create_btn(
+                text="🔎 Check Spelling on Google",
+                url=f"https://www.google.com/search?q={google_q}",
+            ),
+            create_btn(
+                text="❌ Close",
+                callback_data=f"fclose#{req}",
+                style=BTN_DANGER,
+            ),
+        ]
+    )
     return dym_text, InlineKeyboardMarkup(dym_btns)
 
 
 async def god_tier_search(
     query: str, allow_translit: bool = True, allow_fuzzy: bool = True
 ) -> Tuple[list, int, int, str, bool]:
+    """
+    7-Stage Deep Search Engine:
+    1. Indic Phonetic Variants
+    2. Exact Sanitized Query
+    3. Raw Alphanumeric Query
+    4. Year-Stripped Query
+    5. Token-Subset Progressive Fallback (handles extra words / actor names)
+    6. Prefix / First-Keyword Anchor Match
+    7. Fuzzy SequenceMatcher & Consonant Skeleton Match
+    """
     was_transliterated = bool(allow_translit and has_indic_script(query))
     translit_variants = (
         generate_phonetic_variants(transliterate_indic_to_english(query))
@@ -1329,6 +1581,7 @@ async def god_tier_search(
     if not clean_query and not translit_variants:
         return [], 0, 0, query, False
 
+    # Stage 1: Indic Script Phonetic Variants
     if translit_variants:
         for variant in translit_variants:
             v_clean = sanitize_search_query(variant, allow_translit=False)
@@ -1345,21 +1598,23 @@ async def god_tier_search(
 
     is_short_query = len(clean_query) <= 2
 
+    # Stage 2: Direct Sanitized Query
     files, offset, total = await safe_search_db(clean_query, max_results=10, offset=0)
     if files:
         files.sort(key=lambda x: _score_file_relevance(x, clean_query), reverse=True)
         return files, offset, total, clean_query, was_transliterated
 
-    raw_alnum = re.sub(r"[^a-zA-Z0-9]", " ", query.lower())
-    raw_alnum = re.sub(r"\s+", " ", raw_alnum).strip()
+    # Stage 3: Raw Alphanumeric Query
+    raw_alnum = _MULTI_SPACE_RE.sub(" ", _NON_ALNUM_RE.sub(" ", query.lower())).strip()
     if raw_alnum and raw_alnum != clean_query:
         files, offset, total = await safe_search_db(raw_alnum, max_results=10, offset=0)
         if files:
             files.sort(key=lambda x: _score_file_relevance(x, raw_alnum), reverse=True)
             return files, offset, total, raw_alnum, was_transliterated
 
-    no_year_query = re.sub(r"\b(19\d{2}|20\d{2})\b", "", clean_query).strip()
-    no_year_query = re.sub(r"\s+", " ", no_year_query)
+    # Stage 4: Year-Stripped Query
+    no_year_query = YEAR_REGEX_EXTRACT.sub("", clean_query).strip()
+    no_year_query = _MULTI_SPACE_RE.sub(" ", no_year_query)
     if no_year_query and no_year_query != clean_query and len(no_year_query) > 2:
         files, offset, total = await safe_search_db(
             no_year_query, max_results=10, offset=0
@@ -1370,24 +1625,39 @@ async def god_tier_search(
             )
             return files, offset, total, no_year_query, was_transliterated
 
+    # Stage 5: Progressive Multi-Word Token Reduction (e.g. "kantara chapter 1 trailer" -> "kantara chapter 1")
+    tokens = [t for t in no_year_query.split() if len(t) >= 2]
+    if len(tokens) >= 2:
+        for length in range(len(tokens) - 1, 0, -1):
+            sub_q = " ".join(tokens[:length])
+            if len(sub_q) < 3:
+                continue
+            files, offset, total = await safe_search_db(sub_q, max_results=10, offset=0)
+            if files:
+                files.sort(
+                    key=lambda x: _score_file_relevance(x, clean_query), reverse=True
+                )
+                return files, offset, total, sub_q, True
+
     if is_short_query or not allow_fuzzy:
         return [], 0, 0, query, False
 
+    # Stage 6 & 7: Fuzzy Title + Consonant Skeleton Correction
     try:
         db_titles = await get_cached_db_titles()
         if matches := difflib.get_close_matches(
-            clean_query, db_titles, n=1, cutoff=0.72
+            no_year_query or clean_query, db_titles, n=2, cutoff=0.70
         ):
-            corrected_query = matches[0]
-            c_files, c_offset, c_total = await safe_search_db(
-                corrected_query, max_results=10, offset=0
-            )
-            if c_files:
-                c_files.sort(
-                    key=lambda x: _score_file_relevance(x, corrected_query),
-                    reverse=True,
+            for corrected_query in matches:
+                c_files, c_offset, c_total = await safe_search_db(
+                    corrected_query, max_results=10, offset=0
                 )
-                return c_files, c_offset, c_total, corrected_query, True
+                if c_files:
+                    c_files.sort(
+                        key=lambda x: _score_file_relevance(x, corrected_query),
+                        reverse=True,
+                    )
+                    return c_files, c_offset, c_total, corrected_query, True
     except Exception as e:
         logger.error(f"Fuzzy search fallback error: {e}")
 
@@ -1410,16 +1680,30 @@ async def build_result_buttons(
     pre = "filep" if settings.get("file_secure", False) else "file"
     clean_words = await get_clean_words()
     state = get_filter_state(key)
+
     active_lang = LANG_MAP.get(state.get("lang") or "")
     active_qual = state.get("qual")
-    has_active_filter = bool(active_lang or active_qual)
+    active_year = state.get("year")
+    active_season = state.get("season")
+    active_ep = state.get("ep")
+    sort_mode = state.get("sort", "rel")
+
+    has_active_filter = any(
+        [active_lang, active_qual, active_year, active_season, active_ep]
+    ) or (sort_mode != "rel")
     from_dym = bool(state.get("from_dym") and SUGGESTIONS_CACHE.get(key))
 
-    lang_btn_text = f"🔊 {active_lang}" if active_lang else "🔊 Language"
-    qual_btn_text = f"🎥 {active_qual}" if active_qual else "🎥 Quality"
+    lang_btn_text = f"🔊 {active_lang}" if active_lang else "🔊"
+    qual_btn_text = f"🎥 {active_qual}" if active_qual else "🎥"
+    seas_btn_text = f"📺 {active_season.upper()}" if active_season else "📺"
+    ep_btn_text = f"🎞️ {active_ep.upper()}" if active_ep else "🎞️"
+    year_btn_text = f"📅 {active_year}" if active_year else "📅"
+    sort_btn_text = {"rel": "🔃 Sort", "asc": "⬆️ Size", "desc": "⬇️ Size"}.get(
+        sort_mode, "🔃 Sort"
+    )
 
     btn = [
-        # 1. Blue button: 🎖️Lᴀᴛᴇsᴛ Mᴏᴠɪᴇ Uᴘᴅᴀᴛᴇs🎖️
+        # Row 1: Blue button: 🎖️Lᴀᴛᴇsᴛ Mᴏᴠɪᴇ Uᴘᴅᴀᴛᴇs🎖️
         [
             create_btn(
                 text="🎖️Lᴀᴛᴇsᴛ Mᴏᴠɪᴇ Uᴘᴅᴀᴛᴇs🎖️",
@@ -1427,7 +1711,7 @@ async def build_result_buttons(
                 style=BTN_PRIMARY,
             )
         ],
-        # No colour on Language, Quality, 🎞, 🔞 buttons
+        # Row 2: Language, Quality, Season, Year, Extra Links (No colour)
         [
             create_btn(
                 text=lang_btn_text,
@@ -1436,6 +1720,25 @@ async def build_result_buttons(
             create_btn(
                 text=qual_btn_text,
                 callback_data=f"fqual#{req}#{key}",
+            ),
+            create_btn(
+                text=seas_btn_text,
+                callback_data=f"fseas#{req}#{key}",
+            ),
+            create_btn(
+                text=year_btn_text,
+                callback_data=f"fyear#{req}#{key}",
+            ),
+        ],
+        # Row 3: Episode Filter, Sort Toggle & Extra Channel Buttons
+        [
+            create_btn(
+                text=ep_btn_text,
+                callback_data=f"feps#{req}#{key}",
+            ),
+            create_btn(
+                text=sort_btn_text,
+                callback_data=f"fsort#{req}#{key}",
             ),
             create_btn(
                 text="🎞",
@@ -1480,18 +1783,34 @@ async def build_result_buttons(
             else getattr(file, "file_size", 0)
         )
 
+        # Smart compact badges for Subtitles & HEVC
+        badges = []
+        if _HEVC_DETECT_RE.search(raw_name):
+            badges.append("HEVC")
+        if _SUBTITLE_DETECT_RE.search(raw_name):
+            badges.append("ESub")
+        badge_prefix = f"[{'/'.join(badges)}] " if badges else ""
+
         display_name = clean_filename(raw_name, clean_words)
         size_str = get_size(file_size)
         url_payload = f"https://t.me/{bot_username}?start={pre}_{file_id}"
 
         if settings.get("button", False):
             btn.append(
-                [create_btn(text=f"{size_str} | {display_name}", url=url_payload)]
+                [
+                    create_btn(
+                        text=f"{size_str} | {badge_prefix}{display_name}",
+                        url=url_payload,
+                    )
+                ]
             )
         else:
             btn.append(
                 [
-                    create_btn(text=f"{display_name}", url=url_payload),
+                    create_btn(
+                        text=f"{badge_prefix}{display_name}",
+                        url=url_payload,
+                    ),
                     create_btn(text=f"{size_str}", url=url_payload),
                 ]
             )
@@ -1508,11 +1827,13 @@ async def build_result_buttons(
         if 0 < current_offset <= 10
         else None if current_offset == 0 else current_offset - 10
     )
-    page_cb = f"pages#{current_page}#{total_pages}#{total_results}"
+    # Clicking the page button opens the interactive Page Jump Picker if total_pages > 1
+    page_cb = (
+        f"fpages#{req}#{key}#{current_page}#{total_pages}"
+        if total_pages > 1
+        else f"pages#{current_page}#{total_pages}#{total_results}"
+    )
 
-    # Bottom navigation row:
-    # If the user came from Multi-Choice ("Did You Mean?"), place a no-colour "⬅️ Back"
-    # button at the very bottom beside the pagination buttons!
     nav_row: List[InlineKeyboardButton] = []
 
     if off_set is not None:
@@ -1528,7 +1849,7 @@ async def build_result_buttons(
             create_btn(
                 "⬅️ Back",
                 callback_data=f"dymback#{req}#{key}",
-                style=None,  # No colour as requested
+                style=None,
             )
         )
 
@@ -1555,6 +1876,14 @@ async def build_result_buttons(
                 "🔙 Choices",
                 callback_data=f"dymback#{req}#{key}",
                 style=None,
+            )
+        )
+    else:
+        nav_row.append(
+            create_btn(
+                "❌",
+                callback_data=f"fclose#{req}",
+                style=BTN_DANGER,
             )
         )
 
@@ -1672,7 +2001,6 @@ async def _send_not_found(
     )
 
     if suggestions:
-        # Save suggestions & raw search query, and send as TEXT ONLY (No image on Multi-Choice!)
         SUGGESTIONS_CACHE.set(key, suggestions)
         DYM_QUERY_CACHE.set(key, raw_search.strip())
         mention = msg.from_user.mention if msg.from_user else "User"
@@ -1691,6 +2019,18 @@ async def _send_not_found(
         except Exception:
             final_text, final_markup = text, None
         final_text = final_text or "<b>🚫 File not found.</b>"
+        if final_markup is None and raw_search:
+            google_q = urllib.parse.quote_plus(f"{raw_search.strip()} movie")
+            final_markup = InlineKeyboardMarkup(
+                [
+                    [
+                        create_btn(
+                            text="🔎 Check Spelling on Google",
+                            url=f"https://www.google.com/search?q={google_q}",
+                        )
+                    ]
+                ]
+            )
         k_msg = await safe_reply_photo_or_text(
             msg,
             photo=img,
@@ -1716,36 +2056,14 @@ async def auto_filter(client: Client, msg: Message):
         ):
             return
 
-        # Skip immediately if this group has restricted the bot from sending messages
         if msg.chat and RESTRICTED_WRITE_CHATS.get(str(msg.chat.id)):
             return
 
-        search = re.sub(r"https?://\S+|t\.me/\S+|@\w+", "", msg.text).strip()
-        if not search:
+        search = _URL_MENTION_RE.sub("", msg.text).strip()
+        if not search or len(search) < 2:
             return
 
-        if search.lower() in [
-            "hello",
-            "hey",
-            "hlo",
-            "hlw",
-            "bro",
-            "sir",
-            "ok",
-            "okay",
-            "k",
-            "thank you",
-            "thanks",
-            "tq",
-            "yes",
-            "no",
-            "yo",
-            "hmm",
-            "hm",
-            "gm",
-            "gn",
-            "good morning",
-        ]:
+        if search.lower() in IGNORE_WORDS_SET:
             return
 
         autotranslate_on, multichoice_on = await get_feature_flags()
@@ -1778,7 +2096,13 @@ async def auto_filter(client: Client, msg: Message):
                 autotranslate_on=False,
             )
 
-        inline_lang, inline_qual = extract_inline_lang_and_qual(search)
+        (
+            inline_lang,
+            inline_qual,
+            inline_year,
+            inline_season,
+            inline_ep,
+        ) = extract_inline_filters(search)
 
         cache_key = (
             f"{search.lower()}|at:{int(autotranslate_on)}|sp:{int(spell_check_on)}"
@@ -1820,20 +2144,53 @@ async def auto_filter(client: Client, msg: Message):
         key = f"{msg.chat.id}-{msg.id}"
         BUTTONS_CACHE.set(key, search_query)
 
-        if inline_lang or inline_qual:
-            inline_state = {"lang": inline_lang, "qual": inline_qual, "from_dym": False}
+        if any([inline_lang, inline_qual, inline_year, inline_season, inline_ep]):
+            inline_state = {
+                "lang": inline_lang,
+                "qual": inline_qual,
+                "year": inline_year,
+                "season": inline_season,
+                "ep": inline_ep,
+                "sort": "rel",
+                "from_dym": False,
+            }
             f_files, f_offset, f_total = await smart_filtered_search(
                 search_query, inline_state, max_results=10, offset=0
             )
             if f_files:
                 files, offset, total_results = f_files, f_offset, f_total
                 set_filter_state(
-                    key, lang=inline_lang, qual=inline_qual, from_dym=False
+                    key,
+                    lang=inline_lang,
+                    qual=inline_qual,
+                    year=inline_year,
+                    season=inline_season,
+                    ep=inline_ep,
+                    sort="rel",
+                    from_dym=False,
                 )
             else:
-                set_filter_state(key, lang=None, qual=None, from_dym=False)
+                set_filter_state(
+                    key,
+                    lang=None,
+                    qual=None,
+                    year=None,
+                    season=None,
+                    ep=None,
+                    sort="rel",
+                    from_dym=False,
+                )
         else:
-            set_filter_state(key, lang=None, qual=None, from_dym=False)
+            set_filter_state(
+                key,
+                lang=None,
+                qual=None,
+                year=None,
+                season=None,
+                ep=None,
+                sort="rel",
+                from_dym=False,
+            )
 
         try:
             total_results = int(total_results)
@@ -1919,7 +2276,6 @@ async def give_filter(client: Client, message: Message):
     if not message.text or message.text.startswith(("/", "!", "#", ".", ",", "?", "@")):
         return
 
-    # Skip immediately if this group has restricted the bot from sending messages
     if message.chat and RESTRICTED_WRITE_CHATS.get(str(message.chat.id)):
         return
 
@@ -2114,16 +2470,32 @@ async def pm_feature_toggle_callback(bot: Client, query: CallbackQuery):
 
 
 # ============================================================
-# 🌐 LANGUAGE, 🎞️ QUALITY & 💡 "DID YOU MEAN?" CALLBACK HANDLERS
+# 🌐 DYNAMIC FILTER MENUS, SORT, PAGE JUMP & DYM CALLBACKS
 # ============================================================
 @Client.on_callback_query(
-    filters.regex(r"^(flang#|fqual#|setlang#|setqual#|fback#|freset#|dym#|dymback#)"),
+    filters.regex(
+        r"^(flang#|fqual#|fyear#|fseas#|feps#|fsort#|fpages#|fclose#|setlang#|setqual#|setyear#|setseas#|setep#|fback#|freset#|dym#|dymback#)"
+    ),
     group=-2,
 )
 async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
     data = query.data
     parts = data.split("#")
     action = parts[0]
+
+    # ❌ Instant Close Handler
+    if action == "fclose":
+        req_id = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+        uid = query.from_user.id if query.from_user else 0
+        if req_id not in [uid, 0] and not await is_global_admin(uid):
+            return await safe_answer(
+                query,
+                "⚠️ Only the requester or an Admin can close this!",
+                show_alert=True,
+            )
+        await safe_answer(query, "🗑️ Closed!")
+        await _delete_single_message(bot, query.message.chat.id, query.message)
+        return
 
     try:
         req = int(parts[1])
@@ -2139,7 +2511,7 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
             show_alert=True,
         )
 
-    # 🔙 User clicked the bottom "⬅️ Back" button to return to the Multi-Choice ("Did You Mean?") list
+    # 🔙 User clicked "⬅️ Back" to return to Multi-Choice ("Did You Mean?")
     if action == "dymback":
         suggestions = SUGGESTIONS_CACHE.get(key)
         if not suggestions:
@@ -2196,7 +2568,16 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
 
         files.sort(key=lambda x: _score_file_relevance(x, chosen_title), reverse=True)
         BUTTONS_CACHE.set(key, chosen_title)
-        set_filter_state(key, lang=None, qual=None, from_dym=True)
+        set_filter_state(
+            key,
+            lang=None,
+            qual=None,
+            year=None,
+            season=None,
+            ep=None,
+            sort="rel",
+            from_dym=True,
+        )
 
         settings = await get_settings(query.message.chat.id) or {}
         if not getattr(temp, "U_NAME", None):
@@ -2259,12 +2640,47 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
 
     state = get_filter_state(key)
 
-    # 1. Open Language Selection Menu (No button colours)
+    # 📄 Interactive Page Jump Grid
+    if action == "fpages":
+        cur_p = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else 1
+        tot_p = int(parts[4]) if len(parts) > 4 and parts[4].isdigit() else 1
+        btn_rows, row = [], []
+        max_show = min(tot_p, 20)
+        for p in range(1, max_show + 1):
+            label = f"📍 {p}" if p == cur_p else str(p)
+            target_off = (p - 1) * 10
+            row.append(
+                create_btn(
+                    text=label,
+                    callback_data=f"next_{req}_{key}_{target_off}",
+                )
+            )
+            if len(row) == 4:
+                btn_rows.append(row)
+                row = []
+        if row:
+            btn_rows.append(row)
+        btn_rows.append([create_btn(text="⬅️ Back", callback_data=f"fback#{req}#{key}")])
+        try:
+            await query.edit_message_reply_markup(
+                reply_markup=InlineKeyboardMarkup(btn_rows)
+            )
+        except Exception:
+            pass
+        return await safe_answer(query, f"📄 Select a page (1 - {max_show}):")
+
+    avail = await get_available_attributes(base_search)
+
+    # 1. Open Smart Language Selection Menu
     if action == "flang":
         cur_lang = state.get("lang")
-        btn_rows = []
-        row = []
-        for lang_name, lang_code in LANGUAGES_LIST:
+        avail_langs = [
+            (name, code)
+            for name, code in LANGUAGES_LIST
+            if not avail["langs"] or code in avail["langs"]
+        ] or LANGUAGES_LIST
+        btn_rows, row = [], []
+        for lang_name, lang_code in avail_langs:
             label = f"✅ {lang_name}" if cur_lang == lang_code else lang_name
             row.append(
                 create_btn(
@@ -2278,15 +2694,7 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
         if row:
             btn_rows.append(row)
 
-        btn_rows.append(
-            [
-                create_btn(
-                    text="⬅️ Back",
-                    callback_data=f"freset#{req}#{key}",
-                )
-            ]
-        )
-
+        btn_rows.append([create_btn(text="⬅️ Back", callback_data=f"fback#{req}#{key}")])
         try:
             await query.edit_message_reply_markup(
                 reply_markup=InlineKeyboardMarkup(btn_rows)
@@ -2295,12 +2703,14 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
             pass
         return await safe_answer(query, "🔊 Select your preferred language:")
 
-    # 2. Open Quality Selection Menu (No button colours)
+    # 2. Open Smart Quality Selection Menu
     if action == "fqual":
         cur_qual = state.get("qual")
-        btn_rows = []
-        row = []
-        for qual_val in QUALITIES_LIST:
+        avail_quals = [
+            q for q in QUALITIES_LIST if not avail["quals"] or q in avail["quals"]
+        ] or QUALITIES_LIST
+        btn_rows, row = [], []
+        for qual_val in avail_quals:
             label = f"✅ {qual_val}" if cur_qual == qual_val else qual_val
             row.append(
                 create_btn(
@@ -2314,15 +2724,7 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
         if row:
             btn_rows.append(row)
 
-        btn_rows.append(
-            [
-                create_btn(
-                    text="⬅️ Back",
-                    callback_data=f"freset#{req}#{key}",
-                )
-            ]
-        )
-
+        btn_rows.append([create_btn(text="⬅️ Back", callback_data=f"fback#{req}#{key}")])
         try:
             await query.edit_message_reply_markup(
                 reply_markup=InlineKeyboardMarkup(btn_rows)
@@ -2331,23 +2733,136 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
             pass
         return await safe_answer(query, "🎥 Select your preferred quality:")
 
-    # 3. Apply Selected Language / Quality, Reset to Normal Filter, or Return to Results
+    # 3. Open Smart Season Selection Menu
+    if action == "fseas":
+        cur_seas = state.get("season")
+        avail_seasons = [
+            (s_name, s_code)
+            for s_name, s_code in SEASONS_LIST
+            if not avail["seasons"] or s_code in avail["seasons"]
+        ] or SEASONS_LIST[:8]
+        btn_rows, row = [], []
+        for s_name, s_code in avail_seasons:
+            label = f"✅ {s_name}" if cur_seas == s_code else s_name
+            row.append(
+                create_btn(
+                    text=label,
+                    callback_data=f"setseas#{req}#{key}#{s_code}",
+                )
+            )
+            if len(row) == 2:
+                btn_rows.append(row)
+                row = []
+        if row:
+            btn_rows.append(row)
+
+        btn_rows.append([create_btn(text="⬅️ Back", callback_data=f"fback#{req}#{key}")])
+        try:
+            await query.edit_message_reply_markup(
+                reply_markup=InlineKeyboardMarkup(btn_rows)
+            )
+        except (MessageNotModified, MessageIdInvalid, ChatWriteForbidden, Forbidden):
+            pass
+        return await safe_answer(query, "📺 Select Season:")
+
+    # 4. Open Smart Episode Selection Menu
+    if action == "feps":
+        cur_ep = state.get("ep")
+        avail_eps = [
+            (e_name, e_code)
+            for e_name, e_code in EPISODES_LIST
+            if not avail["eps"] or e_code in avail["eps"]
+        ] or EPISODES_LIST[:16]
+        btn_rows, row = [], []
+        for e_name, e_code in avail_eps[:24]:
+            label = f"✅ {e_name}" if cur_ep == e_code else e_name
+            row.append(
+                create_btn(
+                    text=label,
+                    callback_data=f"setep#{req}#{key}#{e_code}",
+                )
+            )
+            if len(row) == 3:
+                btn_rows.append(row)
+                row = []
+        if row:
+            btn_rows.append(row)
+
+        btn_rows.append([create_btn(text="⬅️ Back", callback_data=f"fback#{req}#{key}")])
+        try:
+            await query.edit_message_reply_markup(
+                reply_markup=InlineKeyboardMarkup(btn_rows)
+            )
+        except (MessageNotModified, MessageIdInvalid, ChatWriteForbidden, Forbidden):
+            pass
+        return await safe_answer(query, "🎞️ Select Episode:")
+
+    # 5. Open Smart Year Selection Menu
+    if action == "fyear":
+        cur_yr = state.get("year")
+        avail_years = (
+            sorted(avail["years"], reverse=True) if avail["years"] else YEARS_LIST[:15]
+        )
+        btn_rows, row = [], []
+        for yr in avail_years[:18]:
+            label = f"✅ {yr}" if cur_yr == yr else yr
+            row.append(
+                create_btn(
+                    text=label,
+                    callback_data=f"setyear#{req}#{key}#{yr}",
+                )
+            )
+            if len(row) == 3:
+                btn_rows.append(row)
+                row = []
+        if row:
+            btn_rows.append(row)
+
+        btn_rows.append([create_btn(text="⬅️ Back", callback_data=f"fback#{req}#{key}")])
+        try:
+            await query.edit_message_reply_markup(
+                reply_markup=InlineKeyboardMarkup(btn_rows)
+            )
+        except (MessageNotModified, MessageIdInvalid, ChatWriteForbidden, Forbidden):
+            pass
+        return await safe_answer(query, "📅 Select Release Year:")
+
+    # 6. Apply Selected Filter, Sort Order, Back or Reset
     new_lang = state.get("lang")
     new_qual = state.get("qual")
+    new_year = state.get("year")
+    new_seas = state.get("season")
+    new_ep = state.get("ep")
+    new_sort = state.get("sort", "rel")
 
-    if action in ["freset", "fback"]:
-        new_lang = None
-        new_qual = None
+    if action == "freset":
+        new_lang = new_qual = new_year = new_seas = new_ep = None
+        new_sort = "rel"
+    elif action == "fsort":
+        new_sort = {"rel": "asc", "asc": "desc", "desc": "rel"}.get(new_sort, "rel")
     elif action == "setlang":
         chosen = parts[3] if len(parts) > 3 else "all"
-        new_lang = None if chosen == "all" or chosen == new_lang else chosen
+        new_lang = None if chosen in ("all", new_lang) else chosen
     elif action == "setqual":
         chosen = parts[3] if len(parts) > 3 else "all"
-        new_qual = None if chosen == "all" or chosen == new_qual else chosen
+        new_qual = None if chosen in ("all", new_qual) else chosen
+    elif action == "setseas":
+        chosen = parts[3] if len(parts) > 3 else "all"
+        new_seas = None if chosen in ("all", new_seas) else chosen
+    elif action == "setep":
+        chosen = parts[3] if len(parts) > 3 else "all"
+        new_ep = None if chosen in ("all", new_ep) else chosen
+    elif action == "setyear":
+        chosen = parts[3] if len(parts) > 3 else "all"
+        new_year = None if chosen in ("all", new_year) else chosen
 
     candidate_state = {
         "lang": new_lang,
         "qual": new_qual,
+        "year": new_year,
+        "season": new_seas,
+        "ep": new_ep,
+        "sort": new_sort,
         "from_dym": state.get("from_dym", False),
     }
     files, n_offset, total = await smart_filtered_search(
@@ -2360,6 +2875,12 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
             missing_label = LANG_MAP.get(new_lang, new_lang)
         elif action == "setqual" and new_qual:
             missing_label = new_qual
+        elif action == "setseas" and new_seas:
+            missing_label = SEASON_MAP.get(new_seas, new_seas.upper())
+        elif action == "setep" and new_ep:
+            missing_label = new_ep.upper()
+        elif action == "setyear" and new_year:
+            missing_label = str(new_year)
         return await safe_answer(
             query,
             f"❌ No {missing_label} files found for this movie!".strip(),
@@ -2367,7 +2888,14 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
         )
 
     set_filter_state(
-        key, lang=new_lang, qual=new_qual, from_dym=state.get("from_dym", False)
+        key,
+        lang=new_lang,
+        qual=new_qual,
+        year=new_year,
+        season=new_seas,
+        ep=new_ep,
+        sort=new_sort,
+        from_dym=state.get("from_dym", False),
     )
 
     settings = await get_settings(query.message.chat.id) or {}
@@ -2400,14 +2928,29 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
     ):
         pass
 
-    if action in ["freset", "fback"]:
+    if action == "freset":
         return await safe_answer(query, "⬅️ Restored normal filter results!")
+    if action == "fback":
+        return await safe_answer(query, "⬅️ Returned to current results!")
+    if action == "fsort":
+        sort_toast = {
+            "rel": "🎯 Sorted by: Best Relevance",
+            "asc": "⬆️ Sorted by: File Size (Smallest First)",
+            "desc": "⬇️ Sorted by: File Size (Largest First)",
+        }.get(new_sort, "Sorted!")
+        return await safe_answer(query, sort_toast)
 
     active_filters = []
     if new_lang and new_lang in LANG_MAP:
         active_filters.append(LANG_MAP[new_lang])
     if new_qual:
         active_filters.append(new_qual)
+    if new_seas:
+        active_filters.append(new_seas.upper())
+    if new_ep:
+        active_filters.append(new_ep.upper())
+    if new_year:
+        active_filters.append(str(new_year))
 
     if active_filters:
         await safe_answer(query, f"✅ Filtered by: {' + '.join(active_filters)}")
