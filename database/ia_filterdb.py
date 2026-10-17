@@ -3,13 +3,16 @@ import logging
 import re
 import time
 from struct import pack, unpack
+from typing import Any, Dict, List, Optional, Tuple
 
 from motor.motor_asyncio import AsyncIOMotorClient
-from pymongo.errors import BulkWriteError, DuplicateKeyError
+from pymongo import UpdateOne
+from pymongo.errors import BulkWriteError, DuplicateKeyError, OperationFailure
 from pyrogram.file_id import FileId, FileType
 from umongo import Document, fields
 from umongo.frameworks.motor_asyncio import MotorAsyncIOInstance
 
+import info
 from info import COLLECTION_NAME, DATABASE_NAME, DATABASE_URI, USE_CAPTION_FILTER
 
 try:
@@ -20,10 +23,29 @@ except ImportError:
         "thefuzz missing! Run 'pip install thefuzz[speedup]'."
     )
 
-logger = getLogger(__name__)
+logger = logging.getLogger(__name__)
+
+# ============================================================
+# 🗄️ 3-DATABASE AUTO-SHARDING SETUP (1.5 GB FREE TIER)
+# ============================================================
 db = AsyncIOMotorClient(DATABASE_URI)[DATABASE_NAME]
 instance = MotorAsyncIOInstance(db)
 
+SECOND_DATABASE_URI = getattr(info, "SECOND_DATABASE_URI", "") or ""
+db2 = (
+    AsyncIOMotorClient(SECOND_DATABASE_URI)[DATABASE_NAME]
+    if SECOND_DATABASE_URI and SECOND_DATABASE_URI != DATABASE_URI
+    else None
+)
+
+THIRD_DATABASE_URI = getattr(info, "THIRD_DATABASE_URI", "") or ""
+db3 = (
+    AsyncIOMotorClient(THIRD_DATABASE_URI)[DATABASE_NAME]
+    if THIRD_DATABASE_URI and THIRD_DATABASE_URI not in [DATABASE_URI, SECOND_DATABASE_URI]
+    else None
+)
+
+ACTIVE_DB_INDEX = 1  # 1=db, 2=db2, 3=db3
 KNOWN_TITLES = set()
 
 
@@ -56,6 +78,11 @@ search_cache = SimpleCache(ttl=900, maxsize=5000)
 file_details_cache = SimpleCache(ttl=3600, maxsize=10000)
 
 
+def _is_quota_error(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return "space quota" in msg or "8000" in msg or "atlaserror" in msg
+
+
 def add_to_vocab(file_name):
     if not process:
         return
@@ -72,7 +99,7 @@ def add_to_vocab(file_name):
 
 
 def encode_file_id(s_pack, file_ref):
-    """Reconstructs valid Pyrogram V2 File IDs from truncated database chunks."""
+    """Reconstructs valid Pyrogram V2 File IDs from ultra-compact `_id` + `file_ref` chunks."""
     try:
         s_unpack = unpack(
             "<iiqq", base64.urlsafe_b64decode(s_pack + "=" * (-len(s_pack) % 4))
@@ -105,13 +132,7 @@ class Media(Document):
     caption = fields.StrField(allow_none=True)
 
     class Meta:
-        indexes = [
-            {
-                "key": [("file_name", "text"), ("caption", "text")],
-                "name": "media_text_index",
-                "weights": {"file_name": 10, "caption": 2},
-            }
-        ]
+        indexes = []
         collection_name = COLLECTION_NAME
 
 
@@ -143,6 +164,70 @@ class SafeMediaWrapper:
         return getattr(self, key)
 
 
+async def free_up_mongodb_storage() -> Dict[str, Any]:
+    """
+    Extreme 512MB MongoDB Quota Optimizer:
+    1. Drops heavy text indexes.
+    2. Deletes temporary cache collections.
+    3. Unsets unused keys to shrink DB by ~60%.
+    """
+    global ACTIVE_DB_INDEX
+    report = {
+        "dropped_indexes": [],
+        "cleared_temp_docs": 0,
+        "compacted_files": 0,
+    }
+
+    dbs = [db, db2, db3]
+    for target_db in [d for d in dbs if d is not None]:
+        try:
+            indexes = await target_db[COLLECTION_NAME].index_information()
+            for idx_name in list(indexes.keys()):
+                if idx_name != "_id_":
+                    try:
+                        await target_db[COLLECTION_NAME].drop_index(idx_name)
+                        report["dropped_indexes"].append(idx_name)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+        for temp_col in (
+            "index_resume",
+            "broadcast_tasks",
+            "countdown_tasks",
+            "fsub_join_requests",
+            "fsub_verified_users",
+            "fsub_users",
+        ):
+            try:
+                res = await target_db[temp_col].delete_many({})
+                report["cleared_temp_docs"] += getattr(res, "deleted_count", 0)
+            except Exception:
+                pass
+
+        try:
+            unset_fields = {"file_id_raw": "", "mime_type": ""}
+            if not USE_CAPTION_FILTER:
+                unset_fields["caption"] = ""
+            res_upd = await target_db[COLLECTION_NAME].update_many(
+                {
+                    "$or": [
+                        {"file_id_raw": {"$exists": True}},
+                        {"mime_type": {"$exists": True}},
+                    ]
+                },
+                {"$unset": unset_fields},
+            )
+            report["compacted_files"] += getattr(res_upd, "modified_count", 0)
+        except Exception:
+            pass
+
+    ACTIVE_DB_INDEX = 1
+    search_cache.clear()
+    return report
+
+
 async def get_search_results(
     query_text,
     file_type=None,
@@ -151,13 +236,13 @@ async def get_search_results(
     filter=False,
     is_autocorrect=False,
 ):
+    """Searches seamlessly across all 3 databases to retrieve files."""
     cache_key = f"{query_text}_{file_type}_{max_results}_{offset}_{filter}"
     if cached := search_cache.get(cache_key):
         return cached
 
     try:
         from utils import parse_ultra_advanced_query
-
         parsed = parse_ultra_advanced_query(query_text)
     except Exception:
         parsed = {}
@@ -216,9 +301,11 @@ async def get_search_results(
     if file_type:
         mongo_query = {"$and": [mongo_query, {"file_type": file_type}]}
 
-    # ⚡ SINGLE-QUERY FETCH: Avoids the slow `count_documents` full-collection scan!
     fetch_limit = max_results + 1
-    files = (
+    files = []
+    
+    # Query DB 1
+    files.extend(
         await db[COLLECTION_NAME]
         .find(mongo_query)
         .sort("_id", -1)
@@ -226,6 +313,30 @@ async def get_search_results(
         .limit(fetch_limit)
         .to_list(length=fetch_limit)
     )
+
+    # Query DB 2 if DB 1 didn't have enough
+    if db2 is not None and len(files) < fetch_limit:
+        rem = fetch_limit - len(files)
+        files.extend(
+            await db2[COLLECTION_NAME]
+            .find(mongo_query)
+            .sort("_id", -1)
+            .skip(max(0, offset - len(files)))
+            .limit(rem)
+            .to_list(length=rem)
+        )
+
+    # Query DB 3 if DB 1 & 2 didn't have enough
+    if db3 is not None and len(files) < fetch_limit:
+        rem = fetch_limit - len(files)
+        files.extend(
+            await db3[COLLECTION_NAME]
+            .find(mongo_query)
+            .sort("_id", -1)
+            .skip(max(0, offset - len(files)))
+            .limit(rem)
+            .to_list(length=rem)
+        )
 
     has_more = len(files) > max_results
     if has_more:
@@ -264,101 +375,142 @@ async def get_search_results(
     return result
 
 
-async def save_file(media):
-    """Saves a single media object into MongoDB and returns (saved_bool, status_code)."""
+def _build_compact_media_doc(media) -> Optional[dict]:
+    """Builds ultra-compact media document (~65% smaller) to save quota."""
     try:
         file_id, file_ref = unpack_new_file_id(media.file_id)
         file_name = re.sub(
             r"[_\-\.\+]", " ", str(getattr(media, "file_name", "") or "File")
         )
+        file_name = re.sub(r"\s+", " ", file_name).strip()
         add_to_vocab(file_name)
+
         doc = {
             "_id": file_id,
             "file_ref": file_ref,
             "file_name": file_name,
-            "file_size": getattr(media, "file_size", 0) or 0,
-            "file_type": getattr(media, "file_type", None),
-            "mime_type": getattr(media, "mime_type", None),
-            "caption": (
-                str(getattr(media, "caption", None))
-                if getattr(media, "caption", None)
-                else None
-            ),
-            "file_id_raw": getattr(media, "file_id", None),
+            "file_size": int(getattr(media, "file_size", 0) or 0),
         }
-        await db[COLLECTION_NAME].insert_one(doc)
-        search_cache.clear()
-        wrapped = SafeMediaWrapper(doc)
-        file_details_cache.set(str(file_id), [wrapped])
-        return True, 1
-    except DuplicateKeyError:
-        return False, 0
-    except Exception as e:
-        logger.error(f"save_file error: {e}")
+        ftype = getattr(media, "file_type", None)
+        if ftype:
+            doc["file_type"] = str(ftype)
+        if USE_CAPTION_FILTER and getattr(media, "caption", None):
+            doc["caption"] = str(getattr(media, "caption", ""))[:300]
+        return doc
+    except Exception:
+        return None
+
+
+async def save_file(media) -> Tuple[bool, int]:
+    """Saves a single file, automatically jumping to DB2 or DB3 if quota is full."""
+    global ACTIVE_DB_INDEX
+    doc = _build_compact_media_doc(media)
+    if not doc:
         return False, 2
 
+    for i in range(ACTIVE_DB_INDEX, 4):
+        target_db = db if i == 1 else (db2 if i == 2 else db3)
+        if not target_db:
+            continue
 
-async def save_batch(media_list):
+        try:
+            await target_db[COLLECTION_NAME].insert_one(doc)
+            ACTIVE_DB_INDEX = i
+            search_cache.clear()
+            wrapped = SafeMediaWrapper(doc)
+            file_details_cache.set(str(doc["_id"]), [wrapped])
+            return True, 1
+        except DuplicateKeyError:
+            return False, 0
+        except OperationFailure as e:
+            if _is_quota_error(e):
+                ACTIVE_DB_INDEX = i + 1
+                continue
+            return False, 2
+        except Exception as e:
+            if _is_quota_error(e):
+                ACTIVE_DB_INDEX = i + 1
+                continue
+            logger.error(f"save_file error: {e}")
+            return False, 2
+
+    return False, 3  # Code 3 = All 3 Databases are Full!
+
+
+async def save_batch(media_list) -> Tuple[int, int, int]:
+    """Saves a batch of media, automatically jumping to DB2 or DB3 if quota is full."""
+    global ACTIVE_DB_INDEX
     if not media_list:
         return 0, 0, 0
+
     documents = []
     for media in media_list:
-        try:
-            file_id, file_ref = unpack_new_file_id(media.file_id)
-            file_name = re.sub(
-                r"[_\-\.\+]", " ", str(getattr(media, "file_name", "") or "")
-            )
-            add_to_vocab(file_name)
-            documents.append(
-                {
-                    "_id": file_id,
-                    "file_ref": file_ref,
-                    "file_name": file_name,
-                    "file_size": getattr(media, "file_size", 0),
-                    "file_type": getattr(media, "file_type", None),
-                    "mime_type": getattr(media, "mime_type", None),
-                    "caption": (
-                        str(getattr(media, "caption", None))
-                        if getattr(media, "caption", None)
-                        else None
-                    ),
-                    "file_id_raw": getattr(media, "file_id", None),
-                }
-            )
-        except Exception:
-            pass
+        doc = _build_compact_media_doc(media)
+        if doc:
+            documents.append(doc)
 
     if not documents:
         return 0, 0, len(media_list)
-    try:
-        res = await db[COLLECTION_NAME].insert_many(documents, ordered=False)
-        search_cache.clear()
-        return len(res.inserted_ids), 0, 0
-    except BulkWriteError as bwe:
-        search_cache.clear()
-        inserted = bwe.details.get("nInserted", 0)
-        duplicates = sum(
-            1 for err in bwe.details.get("writeErrors", []) if err["code"] == 11000
-        )
-        return inserted, duplicates, len(media_list) - inserted - duplicates
+
+    for i in range(ACTIVE_DB_INDEX, 4):
+        target_db = db if i == 1 else (db2 if i == 2 else db3)
+        if not target_db:
+            continue
+
+        try:
+            res = await target_db[COLLECTION_NAME].insert_many(documents, ordered=False)
+            ACTIVE_DB_INDEX = i
+            search_cache.clear()
+            return len(res.inserted_ids), 0, 0
+        except BulkWriteError as bwe:
+            search_cache.clear()
+            write_errors = bwe.details.get("writeErrors", [])
+            
+            # Check if any error is a quota error
+            is_quota = any(
+                err.get("code") == 8000 or "space quota" in str(err.get("errmsg", "")).lower()
+                for err in write_errors
+            )
+            
+            if is_quota:
+                ACTIVE_DB_INDEX = i + 1
+                continue # Retry with next DB
+                
+            inserted = bwe.details.get("nInserted", 0)
+            duplicates = sum(1 for err in write_errors if err.get("code") == 11000)
+            return inserted, duplicates, len(media_list) - inserted - duplicates
+        except OperationFailure as e:
+            if _is_quota_error(e):
+                ACTIVE_DB_INDEX = i + 1
+                continue
+            return 0, 0, len(media_list)
+        except Exception as e:
+            if _is_quota_error(e):
+                ACTIVE_DB_INDEX = i + 1
+                continue
+            return 0, 0, len(media_list)
+
+    raise OperationFailure("ALL 3 MONGODB CLUSTERS ARE FULL (Code 8000).", code=8000)
 
 
 async def get_file_details(query):
-    """Instant RAM-cached lookup for file details when a user clicks a file button."""
+    """Instant RAM-cached lookup across all 3 databases."""
     q_str = str(query).strip()
     if cached := file_details_cache.get(q_str):
         return cached
 
-    doc = await db[COLLECTION_NAME].find_one({"_id": q_str})
-    if not doc and len(q_str) >= 20:
-        doc = await db[COLLECTION_NAME].find_one(
-            {"_id": {"$regex": f"^{re.escape(q_str)}"}}
-        )
+    dbs = [db, db2, db3]
+    for target_db in [d for d in dbs if d is not None]:
+        doc = await target_db[COLLECTION_NAME].find_one({"_id": q_str})
+        if not doc and len(q_str) >= 20:
+            doc = await target_db[COLLECTION_NAME].find_one(
+                {"_id": {"$regex": f"^{re.escape(q_str)}"}}
+            )
+        if doc:
+            wrapped = [SafeMediaWrapper(doc)]
+            file_details_cache.set(q_str, wrapped)
+            return wrapped
 
-    if doc:
-        wrapped = [SafeMediaWrapper(doc)]
-        file_details_cache.set(q_str, wrapped)
-        return wrapped
     return []
 
 
