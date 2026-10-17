@@ -384,8 +384,16 @@ async def build_main_bots_panel() -> Tuple[str, InlineKeyboardMarkup]:
         ]
     )
 
-    status_badge = "🟢 ON (Ultra-Fast Distributed Indexing)" if enabled else "🔴 OFF (Main Bot Only)"
-    speed_multiplier = f"{count + 1}x Speed (Main + {count} Workers)" if (enabled and count > 0) else "1x Speed (Main Bot)"
+    status_badge = (
+        "🟢 ON (Ultra-Fast Distributed Indexing)"
+        if enabled
+        else "🔴 OFF (Main Bot Only)"
+    )
+    speed_multiplier = (
+        f"{count + 1}x Speed (Main + {count} Workers)"
+        if (enabled and count > 0)
+        else "1x Speed (Main Bot)"
+    )
 
     text = (
         "🤖 <b>Multi-Bot Master-Worker Manager</b>\n"
@@ -475,9 +483,8 @@ async def build_bot_list_panel() -> Tuple[str, InlineKeyboardMarkup]:
         b_id = int(b.get("bot_id", 0))
         b_name = html.escape(str(b.get("name", f"Bot {idx}")))
         b_uname = html.escape(str(b.get("username", "unknown")))
-        is_online = (
-            b_id in ACTIVE_WORKER_CLIENTS
-            and getattr(ACTIVE_WORKER_CLIENTS[b_id], "is_connected", False)
+        is_online = b_id in ACTIVE_WORKER_CLIENTS and getattr(
+            ACTIVE_WORKER_CLIENTS[b_id], "is_connected", False
         )
         dot = "🟢" if is_online else "⚪"
         lines.append(f"{idx}. {dot} <b>{b_name}</b> (@{b_uname}) — <code>{b_id}</code>")
@@ -487,7 +494,11 @@ async def build_bot_list_panel() -> Tuple[str, InlineKeyboardMarkup]:
             [
                 create_btn(
                     f"🤖 {b.get('name', f'Bot {idx}')[:20]}",
-                    url=f"https://t.me/{b.get('username', '')}" if b.get("username") else None,
+                    url=(
+                        f"https://t.me/{b.get('username', '')}"
+                        if b.get("username")
+                        else None
+                    ),
                     callback_data=f"mb#info#{b_id}" if not b.get("username") else None,
                 ),
                 create_btn(
@@ -499,7 +510,9 @@ async def build_bot_list_panel() -> Tuple[str, InlineKeyboardMarkup]:
         )
 
     lines.append("━━━━━━━━━━━━━━━━━━━━━")
-    lines.append("⚠️ <i>Remember to make all worker bots Admin in your indexing channel!</i>")
+    lines.append(
+        "⚠️ <i>Remember to make all worker bots Admin in your indexing channel!</i>"
+    )
 
     # Bottom row: Remove all bots + Back
     buttons.append(
@@ -524,7 +537,9 @@ async def build_bot_list_panel() -> Tuple[str, InlineKeyboardMarkup]:
 # ============================================================
 # 🎯 /bots COMMAND & CALLBACK HANDLERS
 # ============================================================
-@Client.on_message(filters.command(["bots", "multibot", "workerbots"]) & filters.incoming, group=-2)
+@Client.on_message(
+    filters.command(["bots", "multibot", "workerbots"]) & filters.incoming, group=-2
+)
 async def bots_command_handler(client: Client, message: Message):
     uid = (
         message.from_user.id
@@ -634,7 +649,9 @@ async def multibot_callback_handler(client: Client, query: CallbackQuery):
     if action == "remall_ask":
         cfg = await load_multibot_config()
         if not cfg.get("bots"):
-            return await safe_answer(query, "⚠️ No worker bots to remove!", show_alert=True)
+            return await safe_answer(
+                query, "⚠️ No worker bots to remove!", show_alert=True
+            )
 
         await safe_answer(query)
         confirm_kb = InlineKeyboardMarkup(
@@ -774,7 +791,9 @@ async def multibot_callback_handler(client: Client, query: CallbackQuery):
                 else:
                     await temp_client.stop()
 
-                added_names.append(f"<b>{html.escape(bot_entry['name'])}</b> (@{html.escape(bot_entry['username'])})")
+                added_names.append(
+                    f"<b>{html.escape(bot_entry['name'])}</b> (@{html.escape(bot_entry['username'])})"
+                )
             except Exception as e:
                 failed_reasons.append(str(e)[:60])
 
