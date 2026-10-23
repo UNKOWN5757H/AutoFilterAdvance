@@ -209,10 +209,7 @@ except Exception as e:
 def _is_quota_exceeded(exc: Exception) -> bool:
     s = str(exc).lower()
     return (
-        "space quota" in s
-        or "over your space" in s
-        or "8000" in s
-        or "atlaserror" in s
+        "space quota" in s or "over your space" in s or "8000" in s or "atlaserror" in s
     )
 
 
@@ -275,7 +272,11 @@ async def _hourly_draft_cleanup_worker(client: Client):
                     continue
                 if now - float(sess.get("updated_at", now)) >= DRAFT_TTL_SECONDS:
                     expired = post_sessions.pop(uid, None)
-                    if expired and expired.get("last_preview_message_id") and expired.get("original_chat_id"):
+                    if (
+                        expired
+                        and expired.get("last_preview_message_id")
+                        and expired.get("original_chat_id")
+                    ):
                         try:
                             await client.delete_messages(
                                 expired["original_chat_id"],
