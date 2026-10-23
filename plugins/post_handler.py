@@ -4,6 +4,7 @@ import inspect
 import math
 import random
 import re
+import time
 import urllib.parse
 from logging import ERROR, getLogger
 from typing import Any, Dict, List, Optional
@@ -30,6 +31,17 @@ from pyrogram.types import (
 
 import info
 from utils import temp
+
+try:
+    from database.ia_filterdb import (
+        get_all_healthy_read_dbs,
+        get_writable_System_db,
+        mark_db_error,
+    )
+except ImportError:
+    get_all_healthy_read_dbs = None
+    get_writable_System_db = None
+    mark_db_error = None
 
 try:
     from plugins.Imdbposter import get_movie_detailsx
@@ -170,11 +182,21 @@ async def safe_edit_message_text(
 
 
 # ============================================================
-# ⚙️ MONGODB DRAFTS & SETTINGS CONFIG
+# ⚙️ QUOTA-SAFE MONGODB DRAFTS & 1-HOUR AUTO-EXPIRY ENGINE
 # ============================================================
+DRAFT_TTL_SECONDS = 3600  # 1 Hour (3600 seconds)
+_DRAFT_CLEANER_STARTED = False
+_QUOTA_MUTE_UNTIL: float = 0.0
+_GLOBAL_SETTINGS_CACHE: Dict[str, Any] = {}
+
 drafts_db = global_post_db = _active_db = _std_conn_db = None
 try:
-    _DB_CLIENT = AsyncIOMotorClient(info.DATABASE_URI)
+    _DB_CLIENT = AsyncIOMotorClient(
+        info.DATABASE_URI,
+        serverSelectionTimeoutMS=4000,
+        connectTimeoutMS=4000,
+        socketTimeoutMS=8000,
+    )
     _BOT_DB = _DB_CLIENT[info.DATABASE_NAME]
     drafts_db = _BOT_DB["post_drafts"]
     global_post_db = _BOT_DB["global_post_settings"]
@@ -184,23 +206,146 @@ except Exception as e:
     logger.error(f"Failed to init DBs: {e}")
 
 
+def _is_quota_exceeded(exc: Exception) -> bool:
+    s = str(exc).lower()
+    return (
+        "space quota" in s
+        or "over your space" in s
+        or "8000" in s
+        or "atlaserror" in s
+    )
+
+
+def _get_writable_col(col_name: str, fallback_col: Any):
+    if callable(get_writable_System_db):
+        try:
+            target_db = get_writable_System_db()
+            if target_db is not None:
+                return target_db[col_name]
+        except Exception:
+            pass
+    return fallback_col
+
+
+async def purge_expired_post_drafts(max_age: int = DRAFT_TTL_SECONDS):
+    """Deletes all post_drafts older than 1 hour across all databases (frees space even when DB is 512MB full!)."""
+    cutoff = time.time() - max_age
+    query = {
+        "$or": [
+            {"updated_at": {"$lte": cutoff}},
+            {"updated_at": {"$exists": False}},
+        ]
+    }
+    if callable(get_all_healthy_read_dbs):
+        for _, target_db in get_all_healthy_read_dbs():
+            try:
+                await target_db["post_drafts"].delete_many(query)
+            except Exception:
+                pass
+    elif drafts_db is not None:
+        try:
+            await drafts_db.delete_many(query)
+        except Exception:
+            pass
+
+
+async def _delete_draft_from_all_dbs(user_id: int):
+    if callable(get_all_healthy_read_dbs):
+        for _, target_db in get_all_healthy_read_dbs():
+            try:
+                await target_db["post_drafts"].delete_one({"_id": user_id})
+            except Exception:
+                pass
+    elif drafts_db is not None:
+        try:
+            await drafts_db.delete_one({"_id": user_id})
+        except Exception:
+            pass
+
+
+async def _hourly_draft_cleanup_worker(client: Client):
+    """Background task that purges expired post drafts from RAM & MongoDB every 15 minutes."""
+    while True:
+        try:
+            now = time.time()
+            # 1. Clean expired RAM sessions older than 1 hour
+            for uid in list(post_sessions.keys()):
+                sess = post_sessions.get(uid)
+                if not sess:
+                    continue
+                if now - float(sess.get("updated_at", now)) >= DRAFT_TTL_SECONDS:
+                    expired = post_sessions.pop(uid, None)
+                    if expired and expired.get("last_preview_message_id") and expired.get("original_chat_id"):
+                        try:
+                            await client.delete_messages(
+                                expired["original_chat_id"],
+                                expired["last_preview_message_id"],
+                            )
+                        except Exception:
+                            pass
+            # 2. Clean expired MongoDB drafts older than 1 hour across all DBs
+            await purge_expired_post_drafts(DRAFT_TTL_SECONDS)
+        except Exception:
+            pass
+        await asyncio.sleep(900)
+
+
+@Client.on_message(filters.all, group=-95)
+async def _ensure_draft_cleaner_started(client: Client, message: Message):
+    global _DRAFT_CLEANER_STARTED
+    if not _DRAFT_CLEANER_STARTED:
+        _DRAFT_CLEANER_STARTED = True
+        asyncio.create_task(_hourly_draft_cleanup_worker(client))
+
+
 async def get_global_post_settings() -> dict:
+    if _GLOBAL_SETTINGS_CACHE:
+        return _GLOBAL_SETTINGS_CACHE
+
+    if callable(get_all_healthy_read_dbs):
+        for idx, target_db in get_all_healthy_read_dbs():
+            try:
+                doc = await target_db["global_post_settings"].find_one(
+                    {"_id": "settings"}
+                )
+                if doc:
+                    _GLOBAL_SETTINGS_CACHE.update(doc)
+                    return doc
+            except Exception as e:
+                if callable(mark_db_error):
+                    mark_db_error(idx, e)
+                continue
+
     if global_post_db is not None:
-        doc = await global_post_db.find_one({"_id": "settings"})
-        return doc or {}
-    return {}
+        try:
+            doc = await global_post_db.find_one({"_id": "settings"})
+            if doc:
+                _GLOBAL_SETTINGS_CACHE.update(doc)
+                return doc
+        except Exception:
+            pass
+    return _GLOBAL_SETTINGS_CACHE
 
 
 async def save_global_post_settings(key: str, value: Any):
-    if global_post_db is not None:
-        if value is None:
-            await global_post_db.update_one(
-                {"_id": "settings"}, {"$unset": {key: ""}}, upsert=True
-            )
-        else:
-            await global_post_db.update_one(
-                {"_id": "settings"}, {"$set": {key: value}}, upsert=True
-            )
+    if value is None:
+        _GLOBAL_SETTINGS_CACHE.pop(key, None)
+    else:
+        _GLOBAL_SETTINGS_CACHE[key] = value
+
+    target_col = _get_writable_col("global_post_settings", global_post_db)
+    if target_col is not None:
+        try:
+            if value is None:
+                await target_col.update_one(
+                    {"_id": "settings"}, {"$unset": {key: ""}}, upsert=True
+                )
+            else:
+                await target_col.update_one(
+                    {"_id": "settings"}, {"$set": {key: value}}, upsert=True
+                )
+        except Exception:
+            pass
 
 
 post_sessions: Dict[int, dict] = {}
@@ -623,38 +768,84 @@ async def native_listen(
 
 
 async def save_session_to_db(user_id: int, session: dict):
-    if drafts_db is not None:
+    """
+    Saves active post draft to a healthy/writable DB (or keeps in RAM if all 512MB DBs are full)
+    and stamps `updated_at` so drafts older than 1 hour are automatically purged!
+    """
+    global _QUOTA_MUTE_UNTIL
+    now = time.time()
+    session["updated_at"] = now
+    post_sessions[user_id] = session
+
+    if now < _QUOTA_MUTE_UNTIL:
+        return
+
+    target_col = _get_writable_col("post_drafts", drafts_db)
+    if target_col is not None:
         try:
             draft = session.copy()
             draft["buttons"] = [
                 [btn_to_dict(b) for b in row] for row in session.get("buttons", [])
             ]
-            await drafts_db.update_one({"_id": user_id}, {"$set": draft}, upsert=True)
+            draft["updated_at"] = now
+            await target_col.update_one({"_id": user_id}, {"$set": draft}, upsert=True)
         except Exception as e:
-            logger.error(f"Draft Save Error: {e}")
+            if _is_quota_exceeded(e):
+                # Purge old drafts across all DBs (deletes are allowed even at 512MB!)
+                asyncio.create_task(purge_expired_post_drafts(0))
+                _QUOTA_MUTE_UNTIL = now + 900
+            else:
+                logger.error(f"Draft Save Error: {e}")
 
 
 async def get_or_load_session(user_id: int):
+    now = time.time()
     if user_id in post_sessions:
-        return post_sessions[user_id]
-    if drafts_db is not None:
+        sess = post_sessions[user_id]
+        if now - float(sess.get("updated_at", now)) > DRAFT_TTL_SECONDS:
+            post_sessions.pop(user_id, None)
+            asyncio.create_task(_delete_draft_from_all_dbs(user_id))
+            return None
+        return sess
+
+    doc = None
+    if callable(get_all_healthy_read_dbs):
+        for idx, target_db in get_all_healthy_read_dbs():
+            try:
+                doc = await target_db["post_drafts"].find_one({"_id": user_id})
+                if doc:
+                    break
+            except Exception as e:
+                if callable(mark_db_error):
+                    mark_db_error(idx, e)
+                continue
+    elif drafts_db is not None:
         try:
             doc = await drafts_db.find_one({"_id": user_id})
-            if doc:
-                doc.pop("_id", None)
-                doc["buttons"] = [
-                    [dict_to_btn(b) for b in row] for row in doc.get("buttons", [])
-                ]
-                post_sessions[user_id] = doc
-                return doc
-        except Exception as e:
-            logger.error(f"Draft Load Error: {e}")
+        except Exception:
+            pass
+
+    if doc:
+        if now - float(doc.get("updated_at", now)) > DRAFT_TTL_SECONDS:
+            asyncio.create_task(_delete_draft_from_all_dbs(user_id))
+            return None
+        doc.pop("_id", None)
+        doc["buttons"] = [
+            [dict_to_btn(b) for b in row] for row in doc.get("buttons", [])
+        ]
+        post_sessions[user_id] = doc
+        return doc
     return None
 
 
-async def expire_post_session(client: Client, user_id: int, delay: int = 1800):
+async def expire_post_session(
+    client: Client, user_id: int, delay: int = DRAFT_TTL_SECONDS
+):
+    """Automatically deletes the post draft from both RAM and MongoDB after 1 hour (3600s)."""
     await asyncio.sleep(delay)
-    if session := post_sessions.pop(user_id, None):
+    session = post_sessions.pop(user_id, None)
+    await _delete_draft_from_all_dbs(user_id)
+    if session:
         if session.get("last_preview_message_id") and session.get("original_chat_id"):
             try:
                 await client.delete_messages(
@@ -1151,8 +1342,9 @@ async def start_post_session(
             "active_template": "clean_grid",
             "movie_details": movie_details,
             "custom_direct_btn_text": "Direct Search 🔎",
+            "updated_at": time.time(),
         }
-        asyncio.create_task(expire_post_session(client, user_id, 1800))
+        asyncio.create_task(expire_post_session(client, user_id, DRAFT_TTL_SECONDS))
         if USE_GETFILE_BUTTON_BY_DEFAULT:
             await handle_add_get_files(client, post_sessions[user_id])
         await save_session_to_db(user_id, post_sessions[user_id])
@@ -1245,9 +1437,10 @@ async def edit_post_cmd(client: Client, message: Message):
             "movie_details": {"title": search_name, "year": ""},
             "edit_target": {"chat_id": chat_id, "message_id": msg_id},
             "custom_direct_btn_text": "Direct Search 🔎",
+            "updated_at": time.time(),
         }
         await save_session_to_db(user_id, post_sessions[user_id])
-        asyncio.create_task(expire_post_session(client, user_id, 1800))
+        asyncio.create_task(expire_post_session(client, user_id, DRAFT_TTL_SECONDS))
         await update_post_preview(client, user_id, message.chat.id, force_resend=True)
     except Exception as e:
         await safe_reply_text(
@@ -1717,7 +1910,7 @@ async def post_callbacks(client: Client, query: CallbackQuery):
         session = await get_or_load_session(session_id)
         if not session:
             return await query.answer(
-                "⌛ Session expired. Run /post again.", show_alert=True
+                "⌛ Session expired (1 hour limit). Run /post again.", show_alert=True
             )
         force_resend = False
         if action == "back":
@@ -2051,8 +2244,7 @@ async def post_callbacks(client: Client, query: CallbackQuery):
                         )
                     except Exception:
                         pass
-            if drafts_db is not None:
-                await drafts_db.delete_one({"_id": session_id})
+            await _delete_draft_from_all_dbs(session_id)
             await safe_reply_text(
                 query.message,
                 "❌ <b>Post creation cancelled.</b>",
@@ -2459,8 +2651,7 @@ async def execute_post(
         session_id
     )
     post_sessions.pop(session_id, None)
-    if drafts_db is not None:
-        await drafts_db.delete_one({"_id": session_id})
+    await _delete_draft_from_all_dbs(session_id)
     if not session:
         return
     try:
@@ -2509,8 +2700,7 @@ async def execute_post_all(client: Client, query: CallbackQuery, session_id: int
         session_id
     )
     post_sessions.pop(session_id, None)
-    if drafts_db is not None:
-        await drafts_db.delete_one({"_id": session_id})
+    await _delete_draft_from_all_dbs(session_id)
     if not session:
         return
     try:
