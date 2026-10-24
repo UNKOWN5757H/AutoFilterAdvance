@@ -73,8 +73,6 @@ except Exception:
 try:
     from plugins.uibuttons import (
         get_default_file_keyboard as _get_default_file_keyboard,
-    )
-    from plugins.uibuttons import (
         get_deleted_file_notify_keyboard as _get_deleted_file_notify_keyboard,
     )
 except Exception:
@@ -374,17 +372,13 @@ _fsub_reqs_db = None
 _fsub_users_db = None
 _BOT_DB = None
 
-# Circuit breaker so a full 512MB DB never logs errors on join requests
 _FSUB_DB_QUOTA_FULL_UNTIL: float = 0.0
 
-# Ultra-fast in-memory caches so ForceSub checks don't wait on DB or Telegram API round-trips
 _FSUB_CONFIG_CACHE: Optional[dict] = None
 _FSUB_CACHE_TS: float = 0.0
 _INVITE_LINK_CACHE: Dict[str, str] = {}
 
-# Cache verified (channel_id, user_id) -> expiry_timestamp for 10 minutes (0ms file delivery!)
 _VERIFIED_MEMBER_CACHE: Dict[Tuple[int, int], float] = {}
-# RAM set of users who sent a join request: {(channel_id, user_id)}
 _JOIN_REQ_RAM_CACHE: set = set()
 
 try:
@@ -495,7 +489,6 @@ async def update_fsub_config(key: str, value: Any):
                 {"_id": "config"}, {"$set": {key: value}}, upsert=True
             )
         except Exception:
-            # RAM cache is already updated if MongoDB is 512MB full
             pass
 
 
@@ -589,10 +582,6 @@ async def record_join_request(
     username: str = "None",
     date=None,
 ):
-    """
-    Saves join requests in RAM cache (0ms) and attempts a quota-safe DB write.
-    Never logs errors when the 512MB MongoDB cluster is full!
-    """
     global _FSUB_DB_QUOTA_FULL_UNTIL
     uid, cid = int(user_id), int(chat_id)
     if len(_JOIN_REQ_RAM_CACHE) > 50000:
@@ -620,7 +609,6 @@ async def record_join_request(
             )
         except Exception as e:
             if _is_quota_or_auth_err(e):
-                # Mute DB writes for 30 minutes when 512MB quota is full; RAM cache handles verification
                 _FSUB_DB_QUOTA_FULL_UNTIL = now + 1800
                 return
 
@@ -638,7 +626,6 @@ async def record_join_request(
 
 
 async def has_join_request(user_id: int, chat_id: Optional[int] = None) -> bool:
-    """Checks RAM cache first (0ms), then healthy MongoDB if needed."""
     uid = int(user_id)
     if chat_id is not None and (int(chat_id), uid) in _JOIN_REQ_RAM_CACHE:
         return True
@@ -823,7 +810,10 @@ async def verify_cb_admin(client: Client, query: CallbackQuery) -> bool:
     if await is_global_admin(uid):
         return True
     if query.message and query.message.chat:
-        if query.message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
+        if query.message.chat.type in [
+            enums.ChatType.GROUP,
+            enums.ChatType.SUPERGROUP,
+        ]:
             try:
                 member = await client.get_chat_member(query.message.chat.id, uid)
                 return member.status in [
@@ -950,7 +940,6 @@ async def check_user_in_channel(
     cache_key = (cid, uid)
     now = time.time()
 
-    # ⚡ 0ms RAM Cache Check: If verified within the last 10 minutes, skip Telegram API call!
     exp = _VERIFIED_MEMBER_CACHE.get(cache_key)
     if exp and now < exp:
         return True
@@ -990,7 +979,6 @@ async def check_user_in_channel(
 async def _get_missing_channel_buttons(
     bot: Client, user_id: int, config: dict
 ) -> List[List[InlineKeyboardButton]]:
-    """Checks all eligible FSub channels concurrently for maximum speed."""
     channels_dict = config.get("channels", {})
     if not channels_dict:
         return []
@@ -1129,11 +1117,14 @@ async def ForceSub(
 async def _deliver_verified_file(
     bot: Client, user_id: int, chat_id: int, file_id: str, mode: str = "checksub"
 ):
-    """Fetches full file details (or batch/genlink payloads) and sends with auto-delete."""
+    """
+    Delegates verified file delivery directly to `send_requested_file` in `plugins/commands.py`
+    so both `CUSTOM_FILE_CAPTION` and 4-layer Multi-Bot Self-Healing work identically!
+    """
     if not file_id or file_id == "0":
         return
 
-    # 1. Check if this is a BATCH-, DSTORE-, or genlink payload
+    # 1. Check if this is a BATCH- or DSTORE- payload
     if file_id.startswith(("BATCH-", "DSTORE-")):
         try:
             from plugins.genlink import deliver_genlink_payload
@@ -1143,182 +1134,31 @@ async def _deliver_verified_file(
         except Exception as e:
             logger.error(f"Genlink FSub delivery error: {e}")
 
-    protect = mode in ["filep", "checksubp"]
-    files_ = await get_file_details(file_id)
-
-    default_file_kb = (
-        _get_default_file_keyboard()
-        if callable(_get_default_file_keyboard)
-        else InlineKeyboardMarkup(
-            [
-                [
-                    create_btn(
-                        text="🎥 ಕನ್ನಡ ಹೊಸ ಮೂವೀಗಳು 🎥",
-                        url="https://t.me/sandalwood_kannada_moviesz",
-                        style=BTN_SUCCESS,
-                    )
-                ]
-            ]
-        )
-    )
-
-    if files_:
-        files = files_[0]
-        title = str(
-            files.get("file_name", "Unknown")
-            if isinstance(files, dict)
-            else getattr(files, "file_name", "Unknown")
-        )
-        size = get_size(
-            int(
-                files.get("file_size", 0)
-                if isinstance(files, dict)
-                else getattr(files, "file_size", 0)
-            )
-        )
-        f_caption = str(
-            files.get("caption", "")
-            if isinstance(files, dict)
-            else getattr(files, "caption", "")
-        )
-        db_file_id = (
-            files.get("full_file_id", files.get("file_id", file_id))
-            if isinstance(files, dict)
-            else getattr(files, "full_file_id", getattr(files, "file_id", file_id))
-        )
-
-        custom_cap = getattr(info, "CUSTOM_FILE_CAPTION", None)
-        if custom_cap:
-            try:
-                f_caption = custom_cap.format(
-                    file_name="" if title == "Unknown" else title,
-                    file_size="" if size == "0B" else size,
-                    file_caption="" if not f_caption else f_caption,
-                )
-            except Exception:
-                pass
-
-        if not f_caption or not str(f_caption).strip():
-            f_caption = f"<b>{title}</b>"
-        elif not f_caption.strip().startswith("<b>"):
-            f_caption = f"<b>{f_caption}</b>"
-
-        if getattr(info, "CAPTION_PLUS", None):
-            f_caption += f"\n\n{info.CAPTION_PLUS}"
-
-        final_caption, final_keyboard = parse_text_and_markup(
-            f_caption, default_file_kb
-        )
-        final_caption = _ensure_non_empty_text(final_caption, f"<b>{title}</b>")
-    else:
-        # Check if stored in genlink_files DB
-        try:
-            from plugins.genlink import deliver_genlink_payload
-
-            prefix = "filep" if protect else "file"
-            if await deliver_genlink_payload(
-                bot, user_id, chat_id, f"{prefix}_{file_id}"
-            ):
-                return
-        except Exception:
-            pass
-
-        db_file_id = file_id
-        final_caption = "<b>🎉 Thank you for joining! Here is your file:</b>"
-        final_keyboard = default_file_kb
-
-    # Send optional Info Message / Info Image before delivering the file if configured
-    info_msg_txt = getattr(info, "INFO_MSG", None)
-    info_img_val = getattr(info, "INFO_IMG", None)
-    pre_info_msg = None
-    if info_msg_txt or info_img_val:
-        try:
-            if info_img_val and str(info_img_val).strip().lower() not in [
-                "none",
-                "null",
-                "",
-            ]:
-                pre_info_msg = await bot.send_photo(
-                    chat_id=user_id,
-                    photo=info_img_val,
-                    caption=str(info_msg_txt or ""),
-                    parse_mode=enums.ParseMode.HTML,
-                )
-            elif info_msg_txt and str(info_msg_txt).strip():
-                pre_info_msg = await safe_send_message(
-                    bot,
-                    chat_id=user_id,
-                    text=str(info_msg_txt),
-                    parse_mode=enums.ParseMode.HTML,
-                )
-        except Exception:
-            pre_info_msg = None
-
-    sent_msg = None
+    # 2. Delegate standard indexed files to `send_requested_file` in commands.py
     try:
-        sent_msg = await bot.send_cached_media(
-            chat_id=user_id,
-            file_id=db_file_id,
-            caption=final_caption,
-            reply_markup=final_keyboard,
-            protect_content=protect,
-            parse_mode=enums.ParseMode.HTML,
-        )
-    except FloodWait as e:
-        await asyncio.sleep(e.value + 1)
-        try:
-            sent_msg = await bot.send_cached_media(
-                chat_id=user_id,
-                file_id=db_file_id,
-                caption=final_caption,
-                reply_markup=final_keyboard,
-                protect_content=protect,
-                parse_mode=enums.ParseMode.HTML,
-            )
-        except Exception:
-            pass
-    except Exception:
-        try:
-            sent_msg = await bot.send_document(
-                chat_id=user_id,
-                document=db_file_id,
-                caption=final_caption,
-                reply_markup=final_keyboard,
-                protect_content=protect,
-                parse_mode=enums.ParseMode.HTML,
-            )
-        except Exception:
-            await safe_send_message(
-                bot,
-                chat_id=user_id,
-                text="✅ <b>Verification complete!</b>\n\n⚠️ <i>Please click the file link again to receive your movie.</i>",
-                parse_mode=enums.ParseMode.HTML,
+        from plugins.commands import send_requested_file
+
+        files_ = await get_file_details(file_id)
+        if files_:
+            await send_requested_file(
+                client=bot,
+                user_id=user_id,
+                file_id=file_id,
+                ident=mode or "file",
             )
             return
+    except Exception as e:
+        logger.error(f"Delegate send_requested_file error in fsub: {e}")
 
-    if sent_msg:
-        try:
-            delete_timer = get_auto_delete_timer("FILE_AUTO_DELETE", 1800)
-            if delete_timer > 0:
-                time_str = format_duration(delete_timer)
-                warn_text = (
-                    f"<b>📢 Please Note\n\n"
-                    f"✅ The above file will be autodeleted in {time_str} to avoid copyright issues.\n\n"
-                    f"✅ Please forward this file to your saved messages and start downloading from there.\n\n"
-                    f"Tᴇᴀᴍ: @KR_Picture</b>"
-                )
-                warn_msg = await safe_send_message(
-                    bot,
-                    chat_id=user_id,
-                    text=warn_text,
-                    reply_to_message_id=sent_msg.id,
-                    parse_mode=enums.ParseMode.HTML,
-                )
-                schedule_auto_delete(
-                    bot, chat_id, True, delete_timer, pre_info_msg, sent_msg, warn_msg
-                )
-        except Exception as e:
-            logger.error(f"FSub auto-delete schedule error: {e}")
+    # 3. Fallback for unindexed genlink single files
+    try:
+        from plugins.genlink import deliver_genlink_payload
+
+        prefix = "filep" if mode in ["filep", "checksubp"] else "file"
+        if await deliver_genlink_payload(bot, user_id, chat_id, f"{prefix}_{file_id}"):
+            return
+    except Exception:
+        pass
 
 
 @Client.on_callback_query(filters.regex(r"^refresh_fsub"), group=-3)
@@ -1542,7 +1382,6 @@ async def add_dynamic_fsub(bot: Client, message: Message):
             parse_mode=enums.ParseMode.HTML,
         )
 
-    # If user passed y/n or req/normal directly: /setfsub -10012345 y
     if len(message.command) >= 3:
         arg2 = message.command[2].strip().lower()
         is_req = arg2 in ["y", "yes", "req", "request", "true"]
