@@ -245,7 +245,12 @@ def build_formatted_file_caption(
     custom_cap = getattr(info, "CUSTOM_FILE_CAPTION", None)
     f_caption = ""
 
-    if custom_cap and str(custom_cap).strip().lower() not in ["none", "off", "false", ""]:
+    if custom_cap and str(custom_cap).strip().lower() not in [
+        "none",
+        "off",
+        "false",
+        "",
+    ]:
         tpl = str(custom_cap)
         mapping = _SafeCaptionMap(
             file_name="" if clean_title == "Unknown" else clean_title,
@@ -272,9 +277,7 @@ def build_formatted_file_caption(
                 .strip()
             )
 
-        has_name_tag = any(
-            t in tpl for t in ("{file_name}", "{filename}", "{title}")
-        )
+        has_name_tag = any(t in tpl for t in ("{file_name}", "{filename}", "{title}"))
         if not has_name_tag and clean_title not in f_caption:
             header = (
                 f"<b>📁 {clean_title} [{clean_size}]</b>"

@@ -353,9 +353,7 @@ def extract_html_payload(message: Message) -> Optional[str]:
             return getattr(content, "html", str(content))
     if message.text and len(message.command) > 1:
         html_text = getattr(message.text, "html", str(message.text))
-        cleaned = re.sub(
-            r"^/\w+(?:@[a-zA-Z0-9_]+)?\s+", "", html_text, count=1
-        ).strip()
+        cleaned = re.sub(r"^/\w+(?:@[a-zA-Z0-9_]+)?\s+", "", html_text, count=1).strip()
         return cleaned or None
     return None
 
