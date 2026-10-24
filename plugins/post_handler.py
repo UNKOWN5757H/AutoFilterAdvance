@@ -27,6 +27,7 @@ from pyrogram.types import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     Message,
+    InputMediaPhoto,
 )
 
 import info
@@ -668,38 +669,145 @@ async def _admin_filter_func(_, client: Client, message: Message) -> bool:
 admin_filter = filters.create(_admin_filter_func)
 
 
-def _upload_sync(file_bytes):
-    headers = {"User-Agent": "Mozilla/5.0"}
-    for url, files_dict, data_dict in [
-        (
+# ============================================================
+# ☁️ CLOUD-BYPASS MULTI-HOST IMAGE UPLOADER FOR PREVIEW MODE
+# ============================================================
+def _upload_sync(file_bytes: bytes) -> Optional[str]:
+    """
+    Tries 11+ cloud-friendly image hosts so VPS/datacenter IPs (AWS, Hetzner, DigitalOcean, Koyeb, Render)
+    never fail to generate a direct HTTP link for Telegram's 'Preview Image' mode.
+    """
+    ua = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    )
+    headers = {"User-Agent": ua, "Accept": "*/*"}
+
+    # 1. Litterbox (Catbox temporary 72h host - rarely blocks VPS IPs & Telegram caches preview permanently)
+    try:
+        res = requests.post(
+            "https://litterbox.catbox.moe/resources/internals/api.php",
+            data={"reqtype": "fileupload", "time": "72h"},
+            files={"fileToUpload": ("poster.jpg", file_bytes, "image/jpeg")},
+            headers=headers,
+            timeout=10,
+        )
+        if res.status_code == 200 and res.text.strip().startswith("http"):
+            return res.text.strip()
+    except Exception:
+        pass
+
+    # 2. Catbox (Permanent host)
+    try:
+        res = requests.post(
             "https://catbox.moe/user/api.php",
-            {"fileToUpload": ("img.jpg", file_bytes, "image/jpeg")},
-            {"reqtype": "fileupload"},
-        ),
-        (
-            "https://graph.org/upload",
-            {"file": ("img.jpg", file_bytes, "image/jpeg")},
-            None,
-        ),
-        ("https://envs.sh", {"file": ("img.jpg", file_bytes, "image/jpeg")}, None),
-        ("https://0x0.st", {"file": ("img.jpg", file_bytes, "image/jpeg")}, None),
-        (
-            "https://telegra.ph/upload",
-            {"file": ("img.jpg", file_bytes, "image/jpeg")},
-            None,
-        ),
+            data={"reqtype": "fileupload"},
+            files={"fileToUpload": ("poster.jpg", file_bytes, "image/jpeg")},
+            headers=headers,
+            timeout=10,
+        )
+        if res.status_code == 200 and res.text.strip().startswith("http"):
+            return res.text.strip()
+    except Exception:
+        pass
+
+    # 3. Freeimage.host (Public API key - works on all cloud servers)
+    try:
+        res = requests.post(
+            "https://freeimage.host/api/1/upload",
+            data={"key": "6d207e02198a847aa98d0a2a901485a5", "format": "json"},
+            files={"source": ("poster.jpg", file_bytes, "image/jpeg")},
+            headers=headers,
+            timeout=12,
+        )
+        if res.status_code == 200:
+            j = res.json()
+            url = j.get("image", {}).get("url")
+            if url and url.startswith("http"):
+                return url
+    except Exception:
+        pass
+
+    # 4. Sdrive.app (Cloud friendly)
+    try:
+        res = requests.post(
+            "https://sdrive.app/api/v3/upload",
+            files={"file": ("poster.jpg", file_bytes, "image/jpeg")},
+            headers=headers,
+            timeout=12,
+        )
+        if res.status_code in [200, 201]:
+            j = res.json()
+            url = j.get("data", {}).get("url") or j.get("url")
+            if url and url.startswith("http"):
+                return url
+    except Exception:
+        pass
+
+    # 5. Telegraph / Graph.org mirrors
+    for tg_host in ["https://graph.org", "https://telegra.ph", "https://te.legra.ph"]:
+        try:
+            res = requests.post(
+                f"{tg_host}/upload",
+                files={"file": ("poster.jpg", file_bytes, "image/jpeg")},
+                headers=headers,
+                timeout=8,
+            )
+            if res.status_code in [200, 201]:
+                data = res.json()
+                if isinstance(data, list) and data and "src" in data[0]:
+                    return f"{tg_host}{data[0]['src']}"
+        except Exception:
+            continue
+
+    # 6. Pomf /Lain / Uguu / 0x0 / Envs / X0 direct CDN hosts
+    for url, field_name in [
+        ("https://pomf.lain.la/upload.php", "files[]"),
+        ("https://uguu.se/upload", "files[]"),
+        ("https://envs.sh", "file"),
+        ("https://0x0.st", "file"),
+        ("https://x0.at", "file"),
     ]:
         try:
             res = requests.post(
-                url, data=data_dict, files=files_dict, headers=headers, timeout=8
+                url,
+                files={field_name: ("poster.jpg", file_bytes, "image/jpeg")},
+                headers=headers,
+                timeout=10,
             )
             if res.status_code in [200, 201]:
-                if url in ["https://graph.org/upload", "https://telegra.ph/upload"]:
-                    return url.rsplit("/", 1)[0] + res.json()[0]["src"]
-                elif res.text.strip().startswith("http"):
-                    return res.text.strip()
+                text = res.text.strip()
+                if text.startswith("http") and " " not in text:
+                    return text
+                j = res.json()
+                if "files" in j and j["files"]:
+                    u = j["files"][0].get("url")
+                    if u and u.startswith("http"):
+                        return u
         except Exception:
             continue
+
+    # 7. Pixhost.to (Returns direct img URL in JSON/HTML)
+    try:
+        res = requests.post(
+            "https://api.pixhost.to/images",
+            data={"content_type": "0"},
+            files={"img": ("poster.jpg", file_bytes, "image/jpeg")},
+            headers={"User-Agent": ua, "Accept": "application/json"},
+            timeout=10,
+        )
+        if res.status_code == 200:
+            j = res.json()
+            th_url = j.get("th_url", "")
+            if th_url:
+                # Convert pixhost thumbnail URL to direct full-size image URL
+                direct_url = th_url.replace("//t", "//img").replace("/thumbs/", "/images/")
+                if direct_url.startswith("http"):
+                    return direct_url
+    except Exception:
+        pass
+
     return None
 
 
@@ -1335,6 +1443,7 @@ async def start_post_session(
             ),
             "original_chat_id": message.chat.id,
             "custom_poster": None,
+            "custom_photo_id": None,
             "watermark": DEFAULT_WATERMARK,
             "lang_format": LANGUAGES_FORMAT,
             "ott_format": OTT_FORMAT,
@@ -1429,6 +1538,7 @@ async def edit_post_cmd(client: Client, message: Message):
             "original_message_id": message.id,
             "original_chat_id": message.chat.id,
             "custom_poster": poster_url,
+            "custom_photo_id": poster_url if is_photo_mode else None,
             "watermark": "",
             "lang_format": LANGUAGES_FORMAT,
             "ott_format": OTT_FORMAT,
@@ -1456,17 +1566,42 @@ class SafeDict(dict):
         return "{" + key + "}"
 
 
+def _resolve_poster_for_mode(session: dict) -> Optional[str]:
+    """
+    Returns the right poster for the current mode:
+    - In Preview Image mode (`photo_mode=False`), an `https://` URL is required for `<a href='...'>&#8205;</a>`.
+      If `custom_poster` is a Telegram `file_id`, it falls back to the TMDB URL so Preview Mode isn't broken.
+    - In Normal Image mode (`photo_mode=True`), prefers `custom_photo_id` (Telegram file_id) or `custom_poster`.
+    """
+    custom_p = session.get("custom_poster")
+    if custom_p == "BLANK":
+        return None
+
+    movie_details = session.get("movie_details", {})
+    tmdb_poster = (
+        movie_details.get("backdrop_url")
+        if session.get("use_landscape")
+        else movie_details.get("poster_url")
+    ) or movie_details.get("poster_url")
+
+    if session.get("photo_mode"):
+        # Normal Image mode can use Telegram file_id OR HTTP URL
+        return session.get("custom_photo_id") or custom_p or tmdb_poster
+    else:
+        # Preview Image mode MUST have an HTTP/HTTPS URL to generate a web page preview
+        if custom_p and str(custom_p).startswith(("http://", "https://")):
+            return custom_p
+        return tmdb_poster
+
+
 async def _build_final_post_content(session: dict, session_id: int):
     movie_details = session.get("movie_details", {})
+    poster_to_use = _resolve_poster_for_mode(session)
     if session.get("is_manual_caption") and session.get("caption"):
         return (
             session["caption"],
             build_keyboard(session, session_id),
-            (
-                None
-                if session.get("custom_poster") == "BLANK"
-                else session.get("custom_poster")
-            ),
+            poster_to_use,
         )
     template_str = TEMPLATES.get(
         session.get("active_template"), TEMPLATES["clean_grid"]
@@ -1552,18 +1687,6 @@ async def _build_final_post_content(session: dict, session_id: int):
             if len(plot_str) > excess + 10
             else final_text[:1024]
         )
-    poster_to_use = (
-        None
-        if session.get("custom_poster") == "BLANK"
-        else (
-            session.get("custom_poster")
-            or (
-                movie_details.get("backdrop_url")
-                if session.get("use_landscape")
-                else movie_details.get("poster_url")
-            )
-        )
-    )
     return final_text, build_keyboard(session, session_id), poster_to_use
 
 
@@ -2015,21 +2138,27 @@ async def post_callbacks(client: Client, query: CallbackQuery):
             )
             if response:
                 if response.photo:
+                    session["custom_photo_id"] = response.photo.file_id
                     status_msg = await safe_reply_text(
                         query.message,
-                        "⏳ <b>Uploading image...</b>",
+                        "⏳ <b>Uploading image for Preview Mode...</b>",
                         parse_mode=enums.ParseMode.HTML,
                     )
                     url, _ = await upload_image_safely(client, response)
                     if url:
                         session["custom_poster"] = url
-                        if not session.get("edit_target"):
-                            session["photo_mode"] = False
+                        # Note: We keep the user's current photo_mode unless they are in Preview Mode,
+                        # so both Preview Mode (via URL) and Normal Image Mode (via file_id/URL) work!
                         if status_msg:
                             try:
                                 await status_msg.edit_text(
-                                    "✅ <b>Poster updated successfully!</b>",
+                                    "✅ <b>Poster updated for both Preview & Normal Mode!</b>",
                                     parse_mode=enums.ParseMode.HTML,
+                                )
+                                asyncio.create_task(
+                                    delete_after_delay(
+                                        client, status_msg.chat.id, status_msg.id, 4
+                                    )
                                 )
                             except Exception:
                                 pass
@@ -2039,8 +2168,14 @@ async def post_callbacks(client: Client, query: CallbackQuery):
                         if status_msg:
                             try:
                                 await status_msg.edit_text(
-                                    "⚠️ Cloud blocked. Switched to 'Normal Image' Mode!",
+                                    "⚠️ <b>All image hosts blocked by server IP. Switched to 'Normal Image' Mode!</b>\n"
+                                    "<i>Tip: Send a direct image URL (https://...) if you want 'Preview Img' mode.</i>",
                                     parse_mode=enums.ParseMode.HTML,
+                                )
+                                asyncio.create_task(
+                                    delete_after_delay(
+                                        client, status_msg.chat.id, status_msg.id, 7
+                                    )
                                 )
                             except Exception:
                                 pass
@@ -2048,12 +2183,16 @@ async def post_callbacks(client: Client, query: CallbackQuery):
                     text_input = response.text.strip().lower()
                     if text_input == "/reset":
                         session["custom_poster"] = None
+                        session["custom_photo_id"] = None
                         if not session.get("edit_target"):
                             session["photo_mode"] = False
                     elif text_input == "blank":
                         session["custom_poster"] = "BLANK"
-                    elif response.text.startswith("http"):
-                        session["custom_poster"] = response.text.strip()
+                        session["custom_photo_id"] = None
+                    elif response.text.strip().startswith(("http://", "https://")):
+                        clean_url = response.text.strip()
+                        session["custom_poster"] = clean_url
+                        session["custom_photo_id"] = clean_url
                         if not session.get("edit_target"):
                             session["photo_mode"] = False
             force_resend = True
@@ -2227,13 +2366,24 @@ async def post_callbacks(client: Client, query: CallbackQuery):
             session["use_landscape"] = not session.get("use_landscape", False)
             force_resend = True
         elif action == "toggle_mode":
-            if not session.get("edit_target"):
-                await query.answer()
-                session["photo_mode"] = not session.get("photo_mode", False)
-            else:
+            if session.get("edit_target"):
                 return await query.answer(
                     "Cannot switch image modes on imported post!", show_alert=True
                 )
+            new_mode = not session.get("photo_mode", False)
+            if not new_mode:
+                # Switching from Normal Image -> Preview Image mode
+                custom_p = session.get("custom_poster")
+                if custom_p and not str(custom_p).startswith(("http://", "https://")) and custom_p != "BLANK":
+                    await query.answer(
+                        "ℹ️ Uploaded photo has no public URL (Cloud blocked). Using TMDB/URL poster for Preview Mode!",
+                        show_alert=True,
+                    )
+                else:
+                    await query.answer("Switched to Preview Image Mode!")
+            else:
+                await query.answer("Switched to Normal Image Mode!")
+            session["photo_mode"] = new_mode
             force_resend = True
         elif action == "cancel":
             await query.answer("❌ Cancelled.")
@@ -2584,13 +2734,25 @@ async def delayed_post_worker(
         try:
             if edit_target:
                 if is_normal_photo:
-                    await client.edit_message_caption(
-                        edit_target["chat_id"],
-                        edit_target["message_id"],
-                        caption=final_caption,
-                        reply_markup=keyboard,
-                        parse_mode=enums.ParseMode.HTML,
-                    )
+                    try:
+                        await client.edit_message_media(
+                            edit_target["chat_id"],
+                            edit_target["message_id"],
+                            media=InputMediaPhoto(
+                                media=poster_to_use,
+                                caption=final_caption,
+                                parse_mode=enums.ParseMode.HTML,
+                            ),
+                            reply_markup=keyboard,
+                        )
+                    except Exception:
+                        await client.edit_message_caption(
+                            edit_target["chat_id"],
+                            edit_target["message_id"],
+                            caption=final_caption,
+                            reply_markup=keyboard,
+                            parse_mode=enums.ParseMode.HTML,
+                        )
                 else:
                     text_content = (
                         f"{final_caption}\n<a href='{poster_to_use}'>&#8205;</a>"
