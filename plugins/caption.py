@@ -3,9 +3,8 @@ import html
 import inspect
 import re
 from logging import ERROR, getLogger
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 
-import requests
 from motor.motor_asyncio import AsyncIOMotorClient
 from pyrogram import Client, enums, filters
 from pyrogram.errors import (
@@ -26,8 +25,22 @@ from pyrogram.types import (
 
 import info
 
+try:
+    from database.ia_filterdb import (
+        get_all_configured_dbs,
+        get_all_healthy_read_dbs,
+        mark_db_error,
+    )
+except ImportError:
+    get_all_configured_dbs = None
+    get_all_healthy_read_dbs = None
+    mark_db_error = None
+
 logger = getLogger(__name__)
 logger.setLevel(ERROR)
+
+# Keep a permanent copy of the original default caption from info.py
+_DEFAULT_CUSTOM_FILE_CAPTION = getattr(info, "CUSTOM_FILE_CAPTION", None)
 
 # ============================================================
 # 🛡️ PYROGRAM v2.2.26 (LAYER 230) COMPATIBILITY ENGINE
@@ -129,14 +142,19 @@ async def safe_answer(
 
 
 # ============================================================
-# ⚙️ MONGODB PERMANENT STORAGE ENGINE
+# ⚙️ QUOTA-SAFE MULTI-DB PERMANENT STORAGE ENGINE
 # ============================================================
 _caption_db = None
 _global_settings_db = None
 _CAPTION_BOOT_LOADED = False
 
 try:
-    _DB_CLIENT = AsyncIOMotorClient(info.DATABASE_URI)
+    _DB_CLIENT = AsyncIOMotorClient(
+        info.DATABASE_URI,
+        serverSelectionTimeoutMS=4000,
+        connectTimeoutMS=4000,
+        socketTimeoutMS=8000,
+    )
     _BOT_DB = _DB_CLIENT[info.DATABASE_NAME]
     _caption_db = _BOT_DB["custom_captions"]
     _global_settings_db = _BOT_DB["global_bot_settings"]
@@ -156,21 +174,58 @@ _REVERSE_GLOBAL_MAP = {
 }
 
 
-async def save_custom_data(key: str, value):
-    setattr(info, key, value)
-    if _caption_db is not None:
+def _get_all_dbs_list():
+    if callable(get_all_configured_dbs):
+        dbs = [
+            (idx, handle)
+            for idx, handle, _ in get_all_configured_dbs(include_when_disabled=True)
+            if handle is not None
+        ]
+        if dbs:
+            return dbs
+    if callable(get_all_healthy_read_dbs):
+        dbs = get_all_healthy_read_dbs()
+        if dbs:
+            return dbs
+    return [(1, _BOT_DB)] if _BOT_DB is not None else []
+
+
+async def save_custom_data(key: str, value: Any):
+    """
+    Saves custom caption / message settings to `info` in RAM immediately AND
+    writes across all configured databases (Primary DB + /datadb URLs) so
+    even if DB 1 is 512 MB full, your custom caption is permanently saved!
+    """
+    if key == "CUSTOM_FILE_CAPTION":
+        effective_val = _DEFAULT_CUSTOM_FILE_CAPTION if value == "DEFAULT" else value
+        setattr(info, "CUSTOM_FILE_CAPTION", effective_val)
+        setattr(info, "BATCH_FILE_CAPTION", effective_val)
+    else:
+        setattr(info, key, value)
+
+    # Also update commands.CUSTOM_FILE_CAPTION if imported directly
+    if key == "CUSTOM_FILE_CAPTION":
         try:
-            await _caption_db.update_one(
+            import plugins.commands as _cmds
+
+            _cmds.CUSTOM_FILE_CAPTION = getattr(info, "CUSTOM_FILE_CAPTION", None)
+        except Exception:
+            pass
+
+    for idx, target_db in _get_all_dbs_list():
+        try:
+            await target_db["custom_captions"].update_one(
                 {"_id": "settings"}, {"$set": {key: value}}, upsert=True
             )
         except Exception as e:
-            logger.error(f"Error saving {key} to custom_captions: {e}")
+            if callable(mark_db_error):
+                mark_db_error(idx, e)
 
     global_key = _REVERSE_GLOBAL_MAP.get(key)
     if global_key:
-        if _global_settings_db is not None:
+        for idx, target_db in _get_all_dbs_list():
             try:
-                await _global_settings_db.update_one(
+                await target_db["global_bot_settings"].update_one(
                     {"_id": "bot_config"}, {"$set": {global_key: value}}, upsert=True
                 )
             except Exception:
@@ -185,21 +240,34 @@ async def save_custom_data(key: str, value):
 
 @Client.on_message(filters.all, group=-997)
 async def load_captions_on_boot(client: Client, message: Message):
-    """Restores saved custom captions, messages, and images into `info` on bot startup."""
+    """Restores saved custom captions, messages, and images into `info` on bot startup across all DBs."""
     global _CAPTION_BOOT_LOADED
     if _CAPTION_BOOT_LOADED:
         return
     _CAPTION_BOOT_LOADED = True
-    if _caption_db is None:
-        return
-    try:
-        doc = await _caption_db.find_one({"_id": "settings"})
-        if doc:
-            for k, v in doc.items():
-                if k != "_id" and v is not None:
-                    setattr(info, k, v)
-    except Exception as e:
-        logger.error(f"Failed to load custom captions on boot: {e}")
+
+    for idx, target_db in _get_all_dbs_list():
+        try:
+            doc = await target_db["custom_captions"].find_one({"_id": "settings"})
+            if doc:
+                for k, v in doc.items():
+                    if k == "_id":
+                        continue
+                    if k == "CUSTOM_FILE_CAPTION":
+                        if v == "DEFAULT":
+                            setattr(
+                                info,
+                                "CUSTOM_FILE_CAPTION",
+                                _DEFAULT_CUSTOM_FILE_CAPTION,
+                            )
+                        else:
+                            setattr(info, "CUSTOM_FILE_CAPTION", v)
+                    elif v is not None:
+                        setattr(info, k, v)
+                break
+        except Exception as e:
+            if callable(mark_db_error):
+                mark_db_error(idx, e)
 
 
 # ============================================================
@@ -285,7 +353,9 @@ def extract_html_payload(message: Message) -> Optional[str]:
             return getattr(content, "html", str(content))
     if message.text and len(message.command) > 1:
         html_text = getattr(message.text, "html", str(message.text))
-        cleaned = re.sub(r"^/\w+(?:@[a-zA-Z0-9_]+)?\s+", "", html_text, count=1).strip()
+        cleaned = re.sub(
+            r"^/\w+(?:@[a-zA-Z0-9_]+)?\s+", "", html_text, count=1
+        ).strip()
         return cleaned or None
     return None
 
@@ -303,28 +373,43 @@ async def process_text_setting(
             parse_mode=enums.ParseMode.HTML,
         )
 
-    if len(message.command) > 1 and message.command[1].strip().lower() in (
-        "off",
-        "reset",
-        "clear",
-        "default",
-        "none",
-    ):
-        await save_custom_data(var_name, None)
-        return await safe_reply_text(
-            message,
-            f"✅ <b>{setting_name} has been REMOVED.</b>\nSystem will now use the default message.",
-            parse_mode=enums.ParseMode.HTML,
-        )
+    if len(message.command) > 1:
+        arg1 = message.command[1].strip().lower()
+        if arg1 in ("off", "clear", "none", "disable"):
+            await save_custom_data(var_name, None)
+            return await safe_reply_text(
+                message,
+                f"🗑️ <b>{setting_name} has been DISABLED (Only filename will be shown).</b>",
+                parse_mode=enums.ParseMode.HTML,
+            )
+        if arg1 in ("reset", "default"):
+            await save_custom_data(
+                var_name,
+                "DEFAULT" if var_name == "CUSTOM_FILE_CAPTION" else None,
+            )
+            return await safe_reply_text(
+                message,
+                f"✅ <b>{setting_name} has been restored to the default template!</b>",
+                parse_mode=enums.ParseMode.HTML,
+            )
 
     raw_text = extract_html_payload(message)
     if not raw_text:
+        cur_val = getattr(info, var_name, None)
+        cur_preview = (
+            f"\n\n<b>Current {setting_name}:</b>\n<code>{html.escape(str(cur_val))}</code>"
+            if cur_val
+            else "\n\n<b>Current Status:</b> <code>Disabled / None</code>"
+        )
         return await safe_reply_text(
             message,
             f"⚙️ <b>Usage:</b>\n"
             f"• Reply to a text message with <code>/{message.command[0]}</code>\n"
             f"• Or send <code>/{message.command[0]} Your Text Here</code>\n"
-            f"• Or use <code>/{message.command[0]} off</code> to reset to default.",
+            f"• Send <code>/{message.command[0]} default</code> to restore default\n"
+            f"• Send <code>/{message.command[0]} off</code> to disable\n\n"
+            f"💡 <b>Supported Variables:</b> <code>{{file_name}}</code>, <code>{{file_size}}</code>, <code>{{file_caption}}</code>"
+            f"{cur_preview}",
             parse_mode=enums.ParseMode.HTML,
         )
 
@@ -347,20 +432,20 @@ def _build_caption_dashboard() -> Tuple[str, InlineKeyboardMarkup]:
     fsub_msg = getattr(info, "FSUB_MSG", None)
     nf_msg = getattr(info, "NOT_FOUND_MSG", None)
 
-    cap_status = "🟢 Custom Set" if cap else "⚪️ Default"
+    cap_status = "🟢 Active" if cap else "🔴 Disabled (Filename Only)"
     plus_status = "🟢 Active" if cap_plus else "🔴 None"
     fsub_status = "🟢 Custom Set" if fsub_msg else "⚪️ Default"
     nf_status = "🟢 Custom Set" if nf_msg else "⚪️ Default"
 
     preview_cap = (
-        html.escape(str(cap)[:180] + ("..." if cap and len(str(cap)) > 180 else ""))
+        html.escape(str(cap)[:300] + ("..." if cap and len(str(cap)) > 300 else ""))
         if cap
-        else "<i>Default</i>"
+        else "<i>None (Only {file_name} is sent)</i>"
     )
     preview_plus = (
         html.escape(
-            str(cap_plus)[:120]
-            + ("..." if cap_plus and len(str(cap_plus)) > 120 else "")
+            str(cap_plus)[:150]
+            + ("..." if cap_plus and len(str(cap_plus)) > 150 else "")
         )
         if cap_plus
         else "<i>None</i>"
@@ -384,14 +469,19 @@ def _build_caption_dashboard() -> Tuple[str, InlineKeyboardMarkup]:
         [
             [
                 InlineKeyboardButton(
-                    "🗑️ Reset File Caption", callback_data="cap_ctl:reset_cap"
+                    "♻️ Restore Default Caption", callback_data="cap_ctl:default_cap"
                 ),
                 InlineKeyboardButton(
-                    "🗑️ Clear Caption Plus", callback_data="cap_ctl:reset_plus"
+                    "🗑️ Turn Off Caption", callback_data="cap_ctl:reset_cap"
                 ),
             ],
             [
+                InlineKeyboardButton(
+                    "🗑️ Clear Caption Plus", callback_data="cap_ctl:reset_plus"
+                ),
                 InlineKeyboardButton("🔄 Refresh", callback_data="cap_ctl:refresh"),
+            ],
+            [
                 InlineKeyboardButton("🔐 Close", callback_data="cap_ctl:close"),
             ],
         ]
@@ -417,7 +507,7 @@ async def caption_dashboard_cmd(bot: Client, message: Message):
 
 
 @Client.on_callback_query(
-    filters.regex(r"^cap_ctl:(reset_cap|reset_plus|refresh|close)$"),
+    filters.regex(r"^cap_ctl:(default_cap|reset_cap|reset_plus|refresh|close)$"),
     group=-2,
 )
 async def caption_dashboard_cb(client: Client, query: CallbackQuery):
@@ -431,10 +521,15 @@ async def caption_dashboard_cb(client: Client, query: CallbackQuery):
         if action == "close":
             await safe_answer(query, "Closed!")
             return await query.message.delete()
+        elif action == "default_cap":
+            await save_custom_data("CUSTOM_FILE_CAPTION", "DEFAULT")
+            await safe_answer(
+                query, "✅ Default File Caption Restored!", show_alert=True
+            )
         elif action == "reset_cap":
             await save_custom_data("CUSTOM_FILE_CAPTION", None)
             await safe_answer(
-                query, "✅ File Caption reset to default!", show_alert=True
+                query, "🗑️ Custom File Caption Disabled!", show_alert=True
             )
         elif action == "reset_plus":
             await save_custom_data("CAPTION_PLUS", None)
@@ -461,8 +556,26 @@ async def set_file_caption_cmd(bot: Client, message: Message):
 
 
 @Client.on_message(
-    filters.command(["delcaption", "remcaption", "resetcaption", "defaultcaption"])
-    & filters.incoming,
+    filters.command(["defaultcaption", "resetcaption"]) & filters.incoming,
+    group=-2,
+)
+async def default_file_caption_cmd(bot: Client, message: Message):
+    if not await is_user_admin(bot, message):
+        return await safe_reply_text(
+            message,
+            "❌ <b>Unauthorized:</b> Admin access required.",
+            parse_mode=enums.ParseMode.HTML,
+        )
+    await save_custom_data("CUSTOM_FILE_CAPTION", "DEFAULT")
+    await safe_reply_text(
+        message,
+        "✅ <b>Custom File Caption has been restored to default!</b>",
+        parse_mode=enums.ParseMode.HTML,
+    )
+
+
+@Client.on_message(
+    filters.command(["delcaption", "remcaption"]) & filters.incoming,
     group=-2,
 )
 async def del_file_caption_cmd(bot: Client, message: Message):
@@ -475,7 +588,7 @@ async def del_file_caption_cmd(bot: Client, message: Message):
     await save_custom_data("CUSTOM_FILE_CAPTION", None)
     await safe_reply_text(
         message,
-        "🗑️ <b>Custom File Caption has been reset to default.</b>",
+        "🗑️ <b>Custom File Caption has been disabled (only filename will be sent).</b>",
         parse_mode=enums.ParseMode.HTML,
     )
 
