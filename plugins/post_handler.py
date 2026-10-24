@@ -26,8 +26,8 @@ from pyrogram.types import (
     CallbackQuery,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
-    Message,
     InputMediaPhoto,
+    Message,
 )
 
 import info
@@ -802,7 +802,9 @@ def _upload_sync(file_bytes: bytes) -> Optional[str]:
             th_url = j.get("th_url", "")
             if th_url:
                 # Convert pixhost thumbnail URL to direct full-size image URL
-                direct_url = th_url.replace("//t", "//img").replace("/thumbs/", "/images/")
+                direct_url = th_url.replace("//t", "//img").replace(
+                    "/thumbs/", "/images/"
+                )
                 if direct_url.startswith("http"):
                     return direct_url
     except Exception:
@@ -2374,7 +2376,11 @@ async def post_callbacks(client: Client, query: CallbackQuery):
             if not new_mode:
                 # Switching from Normal Image -> Preview Image mode
                 custom_p = session.get("custom_poster")
-                if custom_p and not str(custom_p).startswith(("http://", "https://")) and custom_p != "BLANK":
+                if (
+                    custom_p
+                    and not str(custom_p).startswith(("http://", "https://"))
+                    and custom_p != "BLANK"
+                ):
                     await query.answer(
                         "ℹ️ Uploaded photo has no public URL (Cloud blocked). Using TMDB/URL poster for Preview Mode!",
                         show_alert=True,
