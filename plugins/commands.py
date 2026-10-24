@@ -1,5 +1,6 @@
 import asyncio
 import builtins
+import html
 import inspect
 import re
 from logging import ERROR, getLogger
@@ -221,6 +222,90 @@ async def safe_answer(
 
 
 # ============================================================
+# 📝 SAFE CUSTOM FILE CAPTION RENDERER (SUPPORTS ALL PLACEHOLDERS)
+# ============================================================
+class _SafeCaptionMap(dict):
+    def __missing__(self, key):
+        return "{" + key + "}"
+
+
+def build_formatted_file_caption(
+    title: str, size_str: str, raw_caption: str = ""
+) -> str:
+    """
+    Renders `info.CUSTOM_FILE_CAPTION` safely:
+    - Supports `{file_name}`, `{filename}`, `{title}`, `{file_size}`, `{size}`, `{file_caption}`, `{caption}`
+    - Never crashes if the user's custom caption contains extra `{` or `}` braces
+    - Always prepends `<b>{title} [{size_str}]</b>` if `{file_name}` wasn't included in `CUSTOM_FILE_CAPTION`!
+    """
+    clean_title = html.escape(str(title or "File").strip())
+    clean_size = html.escape(str(size_str or "").strip())
+    orig_cap = str(raw_caption or "").strip()
+
+    custom_cap = getattr(info, "CUSTOM_FILE_CAPTION", None)
+    f_caption = ""
+
+    if custom_cap and str(custom_cap).strip().lower() not in ["none", "off", "false", ""]:
+        tpl = str(custom_cap)
+        mapping = _SafeCaptionMap(
+            file_name="" if clean_title == "Unknown" else clean_title,
+            filename="" if clean_title == "Unknown" else clean_title,
+            title="" if clean_title == "Unknown" else clean_title,
+            file_size="" if clean_size in ("0B", "0 Bytes") else clean_size,
+            filesize="" if clean_size in ("0B", "0 Bytes") else clean_size,
+            size="" if clean_size in ("0B", "0 Bytes") else clean_size,
+            file_caption=orig_cap,
+            caption=orig_cap,
+        )
+        try:
+            f_caption = tpl.format_map(mapping).strip()
+        except Exception:
+            f_caption = (
+                tpl.replace("{file_name}", clean_title)
+                .replace("{filename}", clean_title)
+                .replace("{title}", clean_title)
+                .replace("{file_size}", clean_size)
+                .replace("{filesize}", clean_size)
+                .replace("{size}", clean_size)
+                .replace("{file_caption}", orig_cap)
+                .replace("{caption}", orig_cap)
+                .strip()
+            )
+
+        has_name_tag = any(
+            t in tpl for t in ("{file_name}", "{filename}", "{title}")
+        )
+        if not has_name_tag and clean_title not in f_caption:
+            header = (
+                f"<b>📁 {clean_title} [{clean_size}]</b>"
+                if clean_size and clean_size not in ("0B", "0 Bytes")
+                else f"<b>📁 {clean_title}</b>"
+            )
+            f_caption = f"{header}\n\n{f_caption}" if f_caption else header
+    else:
+        if orig_cap:
+            f_caption = orig_cap
+        else:
+            f_caption = (
+                f"<b>📁 {clean_title} [{clean_size}]</b>"
+                if clean_size and clean_size not in ("0B", "0 Bytes")
+                else f"<b>📁 {clean_title}</b>"
+            )
+
+    if not f_caption.startswith("<") and "<b>" not in f_caption:
+        f_caption = f"<b>{f_caption}</b>"
+
+    cap_plus = getattr(info, "CAPTION_PLUS", None)
+    if cap_plus and str(cap_plus).strip().lower() not in ["none", "off", "false", ""]:
+        f_caption += f"\n\n{cap_plus}"
+
+    if len(f_caption) > 1024:
+        f_caption = f_caption[:1020] + "</b>"
+
+    return f_caption
+
+
+# ============================================================
 # 🛠️ HELPER FUNCTIONS
 # ============================================================
 def get_html_text(message: Message) -> Optional[str]:
@@ -240,7 +325,7 @@ def parse_timer(var_name: str, default_time: int = 1800) -> int:
         global_switch = getattr(info, "AUTO_DELETE", True)
         if str(global_switch).strip().lower() in ["false", "off", "0", "no"]:
             return 0
-        val = getattr(info, "AUTO_DELETE_TIME", getattr(info, var_name, default_time))
+        val = getattr(info, var_name, getattr(info, "FILE_AUTO_DELETE", default_time))
         if isinstance(val, bool):
             return 1800 if val else 0
         parsed_time = int(str(val).strip())
@@ -318,7 +403,7 @@ def schedule_pm_auto_delete(
 
 
 # ============================================================
-# 🔧 SELF-HEALING MEDIA SENDER (FIXES [400 MEDIA_EMPTY] PERMANENTLY)
+# 🔧 SELF-HEALING MEDIA SENDER (FIXES [400 MEDIA_EMPTY] & PRESERVES CUSTOM CAPTION)
 # ============================================================
 async def _try_send_with_client(
     bot_client: Client,
@@ -329,11 +414,17 @@ async def _try_send_with_client(
     reply_markup: Any,
     protect: bool,
 ) -> Optional[Message]:
-    """Tries sending a file_id using send_cached_media and type-specific fallbacks."""
+    """
+    Tries sending a file_id using send_cached_media and type-specific fallbacks.
+    Also guarantees that `CUSTOM_FILE_CAPTION` and `reply_markup` are applied
+    even if Telegram's `send_cached_media` ignores caption on certain document types!
+    """
     if not fid:
         return None
+
+    sent_msg: Optional[Message] = None
     try:
-        return await bot_client.send_cached_media(
+        sent_msg = await bot_client.send_cached_media(
             chat_id=chat_id,
             file_id=fid,
             caption=caption,
@@ -344,7 +435,7 @@ async def _try_send_with_client(
     except FloodWait as e:
         await asyncio.sleep(e.value + 1)
         try:
-            return await bot_client.send_cached_media(
+            sent_msg = await bot_client.send_cached_media(
                 chat_id=chat_id,
                 file_id=fid,
                 caption=caption,
@@ -353,49 +444,62 @@ async def _try_send_with_client(
                 parse_mode=enums.ParseMode.HTML,
             )
         except Exception:
-            pass
+            sent_msg = None
     except (UserIsBlocked, PeerIdInvalid):
         raise
     except Exception:
-        pass
+        sent_msg = None
 
-    # Fallback to explicit send_video / send_document / send_audio
-    ft = str(file_type or "").lower()
-    methods = []
-    if "video" in ft:
-        methods = [
-            (bot_client.send_video, "video"),
-            (bot_client.send_document, "document"),
-        ]
-    elif "audio" in ft:
-        methods = [
-            (bot_client.send_audio, "audio"),
-            (bot_client.send_document, "document"),
-        ]
-    else:
-        methods = [
-            (bot_client.send_document, "document"),
-            (bot_client.send_video, "video"),
-            (bot_client.send_audio, "audio"),
-        ]
+    if not sent_msg:
+        ft = str(file_type or "").lower()
+        if "video" in ft:
+            methods = [
+                (bot_client.send_video, "video"),
+                (bot_client.send_document, "document"),
+            ]
+        elif "audio" in ft:
+            methods = [
+                (bot_client.send_audio, "audio"),
+                (bot_client.send_document, "document"),
+            ]
+        else:
+            methods = [
+                (bot_client.send_document, "document"),
+                (bot_client.send_video, "video"),
+                (bot_client.send_audio, "audio"),
+            ]
 
-    for fn, param_name in methods:
+        for fn, param_name in methods:
+            try:
+                sent_msg = await fn(
+                    **{
+                        "chat_id": chat_id,
+                        param_name: fid,
+                        "caption": caption,
+                        "reply_markup": reply_markup,
+                        "protect_content": protect,
+                        "parse_mode": enums.ParseMode.HTML,
+                    }
+                )
+                if sent_msg:
+                    break
+            except (UserIsBlocked, PeerIdInvalid):
+                raise
+            except Exception:
+                continue
+
+    # If HTML parsing failed or send_cached_media dropped the custom caption, force-apply it
+    if sent_msg and caption and not getattr(sent_msg, "caption", None):
         try:
-            return await fn(
-                **{
-                    "chat_id": chat_id,
-                    param_name: fid,
-                    "caption": caption,
-                    "reply_markup": reply_markup,
-                    "protect_content": protect,
-                    "parse_mode": enums.ParseMode.HTML,
-                }
+            await sent_msg.edit_caption(
+                caption=caption,
+                reply_markup=reply_markup,
+                parse_mode=enums.ParseMode.HTML,
             )
-        except (UserIsBlocked, PeerIdInvalid):
-            raise
         except Exception:
-            continue
-    return None
+            pass
+
+    return sent_msg
 
 
 async def _recover_and_send_media(
@@ -410,7 +514,7 @@ async def _recover_and_send_media(
     """
     4-Layer Self-Healing Media Delivery:
     Layer 1: Reconstruct & send using Main Bot's `full_file_id` (and without stale `file_ref`).
-    Layer 2: If `chat_id` & `msg_id` are stored, fetch the fresh message from the source channel via Main Bot.
+    Layer 2: If `chat_id` & `msg_id` are stored, copy/fetch the fresh message from the source channel via Main Bot.
     Layer 3: If the file was indexed by a Worker Bot in `/bots` (which owns the `file_id`),
              have the Worker Bot relay the file to `LOG_CHANNEL` (or `CHANNELS[0]`), grab the
              Main Bot's new `file_id`, self-heal MongoDB, and send it to the user!
@@ -436,7 +540,6 @@ async def _recover_and_send_media(
         else getattr(file_obj, "msg_id", None)
     )
 
-    # Candidate file_ids to try on Main Bot (with file_ref, and without file_ref in case file_ref expired)
     candidate_fids = [db_file_id]
     if callable(encode_file_id):
         no_ref_fid = encode_file_id(str(short_id), "")
@@ -601,32 +704,13 @@ async def send_requested_file(
             else getattr(files, "file_size", 0)
         )
     )
-    f_caption = str(
+    raw_caption = str(
         files.get("caption", "")
         if isinstance(files, dict)
         else getattr(files, "caption", "")
     )
 
-    custom_cap = getattr(info, "CUSTOM_FILE_CAPTION", CUSTOM_FILE_CAPTION)
-    if custom_cap:
-        try:
-            f_caption = custom_cap.format(
-                file_name="" if title == "Unknown" else title,
-                file_size="" if size == "0B" else size,
-                file_caption="" if not f_caption else f_caption,
-            )
-        except Exception:
-            pass
-
-    if not f_caption or not f_caption.strip():
-        f_caption = f"<b>{title}</b>"
-    elif f"{title}" not in f_caption and "{file_name}" not in str(custom_cap or ""):
-        f_caption = f"<b>{title}</b>\n\n{f_caption}"
-    elif not f_caption.strip().startswith("<b>"):
-        f_caption = f"<b>{f_caption}</b>"
-
-    if getattr(info, "CAPTION_PLUS", None):
-        f_caption += f"\n\n{info.CAPTION_PLUS}"
+    f_caption = build_formatted_file_caption(title, size, raw_caption)
 
     default_btn = get_default_file_keyboard()
     final_caption, final_keyboard = safe_parse_text_and_markup(f_caption, default_btn)
