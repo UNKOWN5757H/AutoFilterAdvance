@@ -3,10 +3,11 @@ import builtins
 import html
 import inspect
 import re
+import time
 from logging import ERROR, getLogger
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
-from pyrogram import Client, enums, filters
+from pyrogram import Client, StopPropagation, enums, filters
 from pyrogram.errors import (
     ChatWriteForbidden,
     FloodWait,
@@ -245,12 +246,7 @@ def build_formatted_file_caption(
     custom_cap = getattr(info, "CUSTOM_FILE_CAPTION", None)
     f_caption = ""
 
-    if custom_cap and str(custom_cap).strip().lower() not in [
-        "none",
-        "off",
-        "false",
-        "",
-    ]:
+    if custom_cap and str(custom_cap).strip().lower() not in ["none", "off", "false", ""]:
         tpl = str(custom_cap)
         mapping = _SafeCaptionMap(
             file_name="" if clean_title == "Unknown" else clean_title,
@@ -277,7 +273,9 @@ def build_formatted_file_caption(
                 .strip()
             )
 
-        has_name_tag = any(t in tpl for t in ("{file_name}", "{filename}", "{title}"))
+        has_name_tag = any(
+            t in tpl for t in ("{file_name}", "{filename}", "{title}")
+        )
         if not has_name_tag and clean_title not in f_caption:
             header = (
                 f"<b>📁 {clean_title} [{clean_size}]</b>"
@@ -1251,19 +1249,59 @@ async def toggle_pm_autoreply_cmd(client: Client, message: Message):
 
 
 # ============================================================
-# 📩 PM AUTO-REPLY ENGINE
+# 📩 PM AUTO-REPLY ENGINE (ANTI-DUPLICATE & DEBOUNCED)
 # ============================================================
+_PM_REPLIED_MSG_KEYS: Set[Tuple[int, int]] = set()
+_PM_USER_LAST_REPLY_TS: Dict[int, float] = {}
+
+
 @Client.on_message(
     filters.private & filters.incoming & ~filters.bot & ~filters.service,
     group=1,
 )
 async def pm_auto_reply(client: Client, message: Message):
+    if not message or not message.chat:
+        return
+
     raw_txt = (message.text or message.caption or "").strip()
     if raw_txt.startswith("/"):
         return
 
+    # Skip if any interactive prompt is waiting for user input in this chat
     if is_waiting_for_cmd_input(message.chat.id):
         return
+
+    try:
+        from plugins.multibot import _MB_WAITING_INPUT
+
+        if message.chat.id in _MB_WAITING_INPUT:
+            return
+    except Exception:
+        pass
+
+    try:
+        from plugins.datadb import _DATADB_WAITING_INPUT
+
+        if message.chat.id in _DATADB_WAITING_INPUT:
+            return
+    except Exception:
+        pass
+
+    try:
+        from plugins.post_handler import _WAITING_REQUESTS as _POST_WAIT
+
+        if message.chat.id in _POST_WAIT:
+            return
+    except Exception:
+        pass
+
+    try:
+        from plugins.fsub import _WAITING_REQUESTS as _FSUB_WAIT
+
+        if message.chat.id in _FSUB_WAIT:
+            return
+    except Exception:
+        pass
 
     uid = (
         message.from_user.id
@@ -1275,6 +1313,23 @@ async def pm_auto_reply(client: Client, message: Message):
         return
     if message.from_user and await is_user_banned(uid):
         return
+
+    # 🛡️ 1. Exact Message ID Deduplication (Prevents duplicate handler registration from replying twice)
+    msg_key = (int(message.chat.id), int(message.id))
+    if msg_key in _PM_REPLIED_MSG_KEYS:
+        raise StopPropagation
+    if len(_PM_REPLIED_MSG_KEYS) > 5000:
+        _PM_REPLIED_MSG_KEYS.clear()
+    _PM_REPLIED_MSG_KEYS.add(msg_key)
+
+    # 🛡️ 2. Per-User 2-Second Cooldown Lock (Prevents double replies on burst/media-group messages)
+    now = time.time()
+    last_ts = _PM_USER_LAST_REPLY_TS.get(int(message.chat.id), 0.0)
+    if (now - last_ts) < 2.0:
+        raise StopPropagation
+    if len(_PM_USER_LAST_REPLY_TS) > 5000:
+        _PM_USER_LAST_REPLY_TS.clear()
+    _PM_USER_LAST_REPLY_TS[int(message.chat.id)] = now
 
     settings = await get_pm_settings()
     if not settings.get("enabled", True):
@@ -1299,24 +1354,29 @@ async def pm_auto_reply(client: Client, message: Message):
     final_text, final_markup = safe_parse_text_and_markup(text, default_markup)
     final_text = final_text or text
 
+    sent = None
     try:
         if pm_img and str(pm_img).lower() != "none" and len(final_text) <= 1024:
             try:
-                await message.reply_photo(
+                sent = await message.reply_photo(
                     photo=pm_img,
                     caption=final_text,
                     reply_markup=final_markup,
                     parse_mode=enums.ParseMode.HTML,
                 )
-                return
             except Exception:
-                pass
-        await safe_reply_text(
-            message,
-            text=final_text,
-            reply_markup=final_markup,
-            parse_mode=enums.ParseMode.HTML,
-            disable_web_page_preview=True,
-        )
+                sent = None
+
+        if not sent:
+            await safe_reply_text(
+                message,
+                text=final_text,
+                reply_markup=final_markup,
+                parse_mode=enums.ParseMode.HTML,
+                disable_web_page_preview=True,
+            )
     except Exception as e:
         logger.error(f"PM Reply Error: {e}")
+
+    # Stop any other duplicate or lower-group PM handler from firing a second message
+    raise StopPropagation
