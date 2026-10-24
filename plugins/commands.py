@@ -223,7 +223,7 @@ async def safe_answer(
 
 
 # ============================================================
-# 📝 SAFE CUSTOM FILE CAPTION RENDERER (SUPPORTS ALL PLACEHOLDERS)
+# 📝 SAFE CUSTOM FILE CAPTION RENDERER (EXACT TEMPLATE, NO FORCED FILENAME)
 # ============================================================
 class _SafeCaptionMap(dict):
     def __missing__(self, key):
@@ -234,10 +234,9 @@ def build_formatted_file_caption(
     title: str, size_str: str, raw_caption: str = ""
 ) -> str:
     """
-    Renders `info.CUSTOM_FILE_CAPTION` safely:
-    - Supports `{file_name}`, `{filename}`, `{title}`, `{file_size}`, `{size}`, `{file_caption}`, `{caption}`
-    - Never crashes if the user's custom caption contains extra `{` or `}` braces
-    - Always prepends `<b>{title} [{size_str}]</b>` if `{file_name}` wasn't included in `CUSTOM_FILE_CAPTION`!
+    Renders `info.CUSTOM_FILE_CAPTION` exactly as configured:
+    - Does NOT force-prepend the filename if `{file_name}` is not in your custom caption!
+    - Supports `{file_name}`, `{filename}`, `{title}`, `{file_size}`, `{size}`, `{file_caption}`, `{caption}` if you choose to include them.
     """
     clean_title = html.escape(str(title or "File").strip())
     clean_size = html.escape(str(size_str or "").strip())
@@ -277,15 +276,6 @@ def build_formatted_file_caption(
                 .replace("{caption}", orig_cap)
                 .strip()
             )
-
-        has_name_tag = any(t in tpl for t in ("{file_name}", "{filename}", "{title}"))
-        if not has_name_tag and clean_title not in f_caption:
-            header = (
-                f"<b>📁 {clean_title} [{clean_size}]</b>"
-                if clean_size and clean_size not in ("0B", "0 Bytes")
-                else f"<b>📁 {clean_title}</b>"
-            )
-            f_caption = f"{header}\n\n{f_caption}" if f_caption else header
     else:
         if orig_cap:
             f_caption = orig_cap
@@ -296,12 +286,12 @@ def build_formatted_file_caption(
                 else f"<b>📁 {clean_title}</b>"
             )
 
-    if not f_caption.startswith("<") and "<b>" not in f_caption:
+    if f_caption and not f_caption.startswith("<") and "<b>" not in f_caption:
         f_caption = f"<b>{f_caption}</b>"
 
     cap_plus = getattr(info, "CAPTION_PLUS", None)
     if cap_plus and str(cap_plus).strip().lower() not in ["none", "off", "false", ""]:
-        f_caption += f"\n\n{cap_plus}"
+        f_caption = f"{f_caption}\n\n{cap_plus}" if f_caption else str(cap_plus)
 
     if len(f_caption) > 1024:
         f_caption = f_caption[:1020] + "</b>"
@@ -492,7 +482,6 @@ async def _try_send_with_client(
             except Exception:
                 continue
 
-    # If HTML parsing failed or send_cached_media dropped the custom caption, force-apply it
     if sent_msg and caption and not getattr(sent_msg, "caption", None):
         try:
             await sent_msg.edit_caption(
@@ -515,14 +504,6 @@ async def _recover_and_send_media(
     final_keyboard: Any,
     protect: bool,
 ) -> Optional[Message]:
-    """
-    4-Layer Self-Healing Media Delivery:
-    Layer 1: Reconstruct & send using Main Bot's `full_file_id` (and without stale `file_ref`).
-    Layer 2: If `chat_id` & `msg_id` are stored, copy/fetch the fresh message from the source channel via Main Bot.
-    Layer 3: If the file was indexed by a Worker Bot in `/bots` (which owns the `file_id`),
-             have the Worker Bot relay the file to `LOG_CHANNEL` (or `CHANNELS[0]`), grab the
-             Main Bot's new `file_id`, self-heal MongoDB, and send it to the user!
-    """
     db_file_id = (
         file_obj.get("full_file_id", file_obj.get("file_id", short_id))
         if isinstance(file_obj, dict)
@@ -1270,7 +1251,6 @@ async def pm_auto_reply(client: Client, message: Message):
     if raw_txt.startswith("/"):
         return
 
-    # Skip if any interactive prompt is waiting for user input in this chat
     if is_waiting_for_cmd_input(message.chat.id):
         return
 
@@ -1317,7 +1297,6 @@ async def pm_auto_reply(client: Client, message: Message):
     if message.from_user and await is_user_banned(uid):
         return
 
-    # 🛡️ 1. Exact Message ID Deduplication (Prevents duplicate handler registration from replying twice)
     msg_key = (int(message.chat.id), int(message.id))
     if msg_key in _PM_REPLIED_MSG_KEYS:
         raise StopPropagation
@@ -1325,7 +1304,6 @@ async def pm_auto_reply(client: Client, message: Message):
         _PM_REPLIED_MSG_KEYS.clear()
     _PM_REPLIED_MSG_KEYS.add(msg_key)
 
-    # 🛡️ 2. Per-User 2-Second Cooldown Lock (Prevents double replies on burst/media-group messages)
     now = time.time()
     last_ts = _PM_USER_LAST_REPLY_TS.get(int(message.chat.id), 0.0)
     if (now - last_ts) < 2.0:
@@ -1381,5 +1359,4 @@ async def pm_auto_reply(client: Client, message: Message):
     except Exception as e:
         logger.error(f"PM Reply Error: {e}")
 
-    # Stop any other duplicate or lower-group PM handler from firing a second message
     raise StopPropagation
