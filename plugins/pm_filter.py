@@ -33,12 +33,52 @@ from pyrogram.types import (
 )
 
 import info
-from database.filters_mdb import add_filter, delete_filter, find_filter, get_filters
-from database.ia_filterdb import Media as _Media
-from database.ia_filterdb import get_search_results
-from utils import get_settings, get_size, parse_text_and_markup, temp
 
-# Safe optional imports for multi-database health helpers
+# ============================================================
+# 🛡️ SAFE OPTIONAL IMPORTS (ZERO STARTUP OR RUNTIME CRASHES)
+# ============================================================
+try:
+    from database.filters_mdb import add_filter, delete_filter, find_filter, get_filters
+except Exception:
+
+    async def add_filter(*args, **kwargs):
+        return None
+
+    async def delete_filter(*args, **kwargs):
+        return None
+
+    async def find_filter(*args, **kwargs):
+        return "", "[]", "[]", "None"
+
+    async def get_filters(*args, **kwargs):
+        return []
+
+
+try:
+    from database.ia_filterdb import Media as _Media
+    from database.ia_filterdb import get_search_results
+except Exception:
+    _Media = None
+
+    async def get_search_results(*args, **kwargs):
+        return [], 0, 0
+
+
+try:
+    from utils import get_settings, get_size, parse_text_and_markup, temp
+except Exception:
+    from utils import temp
+
+    async def get_settings(chat_id):
+        return {}
+
+    def get_size(size):
+        return f"{size} B"
+
+    def parse_text_and_markup(text, default_markup=None):
+        return text, default_markup
+
+
 try:
     from database.ia_filterdb import (
         get_all_healthy_read_dbs,
@@ -220,7 +260,9 @@ def strip_stylish_fonts(text: str) -> str:
         cp = ord(ch)
         if 0x0900 <= cp <= 0x0D7F:
             out_chars.append(ch)
-        elif 0x0300 <= cp <= 0x036F or 0x20D0 <= cp <= 0x20FF or 0xFE00 <= cp <= 0xFE0F:
+        elif (
+            0x0300 <= cp <= 0x036F or 0x20D0 <= cp <= 0x20FF or 0xFE00 <= cp <= 0xFE0F
+        ):
             # Skip combining decorative marks & variation selectors
             continue
         elif cp > 127:
@@ -710,8 +752,15 @@ async def safe_reply_text(
             if msg.chat:
                 RESTRICTED_WRITE_CHATS.set(str(msg.chat.id), True)
             return None
-        logger.error(f"safe_reply_text error: {e}")
-        return None
+        # Plain text fallback if HTML tags are invalid
+        try:
+            return await msg.reply_text(
+                text=re.sub(r"<[^>]+>", "", text or ""),
+                reply_markup=reply_markup,
+            )
+        except Exception as err:
+            logger.error(f"safe_reply_text error: {err}")
+            return None
 
 
 async def safe_reply_photo_or_text(
@@ -809,6 +858,32 @@ def _get_writable_col(col_name: str, fallback_col: Any):
         except Exception:
             pass
     return fallback_col
+
+
+def _get_all_filter_dbs() -> List[Any]:
+    """Returns all available database instances across primary and secondary clusters."""
+    dbs = []
+    if callable(get_writable_System_db):
+        try:
+            w_db = get_writable_System_db()
+            if w_db is not None:
+                dbs.append(w_db)
+        except Exception:
+            pass
+    if callable(get_all_healthy_read_dbs):
+        try:
+            for _, r_db in get_all_healthy_read_dbs():
+                if r_db is not None and r_db not in dbs:
+                    dbs.append(r_db)
+        except Exception:
+            pass
+    if _BOT_DB is not None and _BOT_DB not in dbs:
+        dbs.append(_BOT_DB)
+    return dbs
+
+
+# In-memory backup store for manual filters so filters work 100% even if all MongoDB clusters hit 512MB quota
+_RAM_FILTERS_STORE: Dict[str, Dict[str, dict]] = {}
 
 
 async def get_feature_flags(force_refresh: bool = False) -> Tuple[bool, bool]:
@@ -1075,13 +1150,13 @@ async def is_user_banned(user_id: int) -> bool:
 async def get_active_connection(user_id: str) -> Optional[int]:
     uid_str = str(user_id)
 
-    if _BOT_DB is not None:
+    for db_inst in _get_all_filter_dbs():
         try:
-            doc = await _BOT_DB["active_connections"].find_one({"user_id": uid_str})
+            doc = await db_inst["active_connections"].find_one({"user_id": uid_str})
             if doc and doc.get("group_id"):
                 return int(doc["group_id"])
         except Exception:
-            pass
+            continue
 
     try:
         from database.connections_mdb import active_connection
@@ -1104,13 +1179,13 @@ async def get_active_connection(user_id: str) -> Optional[int]:
     except Exception:
         pass
 
-    if _BOT_DB is not None:
+    for db_inst in _get_all_filter_dbs():
         try:
-            doc = await _BOT_DB["CONNECTION"].find_one({"_id": uid_str})
+            doc = await db_inst["CONNECTION"].find_one({"_id": uid_str})
             if doc and doc.get("active_group"):
                 return int(doc["active_group"])
         except Exception:
-            pass
+            continue
 
     return None
 
@@ -1124,7 +1199,7 @@ async def get_target_chat(client: Client, message: Message) -> Optional[int]:
 
 
 async def verify_admin(
-    client: Client, message: Message, target_chat_id: Optional[int] = None
+    client: Client, message: Message, target_chat_id: Optional[Any] = None
 ) -> bool:
     uid = (
         message.from_user.id
@@ -1135,7 +1210,7 @@ async def verify_admin(
         return True
 
     if message.chat.type == enums.ChatType.PRIVATE:
-        if not target_chat_id:
+        if not target_chat_id or str(target_chat_id) == "global":
             return False
         try:
             member = await client.get_chat_member(int(target_chat_id), uid)
@@ -1161,16 +1236,225 @@ async def verify_admin(
     return False
 
 
-async def safe_save_filter(group_id, keyword, reply_text, btn, fileid, alert="[]"):
-    MANUAL_FILTERS_CACHE._data.pop(str(group_id), None)
-    try:
-        params = list(inspect.signature(add_filter).parameters.keys())
-        if len(params) >= 6 and params[4] == "alert":
-            await add_filter(group_id, keyword, reply_text, btn, alert, fileid)
-        else:
-            await add_filter(group_id, keyword, reply_text, btn, fileid, alert)
-    except Exception:
-        await add_filter(group_id, keyword, reply_text, btn, fileid, alert)
+# ============================================================
+# 🛡️ QUOTA-PROOF MULTI-DB + RAM MANUAL FILTER STORAGE ENGINE
+# ============================================================
+async def safe_save_filter(
+    group_id: Any,
+    keyword: str,
+    reply_text: str,
+    btn: str,
+    fileid: str,
+    alert: str = "[]",
+    media_type: str = "None",
+):
+    """
+    Saves a manual filter across:
+    1. In-memory RAM store (instant 0ms availability, never fails on 512MB DB quota)
+    2. All healthy writable MongoDB databases (`manual_filters_v2` collection)
+    3. Legacy `database.filters_mdb.add_filter` (wrapped in try/except so quota errors never crash commands)
+    """
+    gid_str = str(group_id)
+    kw_clean = str(keyword).lower().strip()
+    MANUAL_FILTERS_CACHE._data.pop(gid_str, None)
+    MANUAL_FILTERS_CACHE._data.pop("global", None)
+
+    doc_payload = {
+        "group_id": gid_str,
+        "text": kw_clean,
+        "reply": reply_text or "",
+        "btn": btn or "[]",
+        "file": fileid or "None",
+        "alert": alert or "[]",
+        "media_type": media_type or "None",
+        "updated_at": time.time(),
+    }
+
+    # 1. Always save to RAM store (also mirror into "global" so filters added from PM work everywhere)
+    for target_key in {gid_str, "global"}:
+        if target_key not in _RAM_FILTERS_STORE:
+            _RAM_FILTERS_STORE[target_key] = {}
+        _RAM_FILTERS_STORE[target_key][kw_clean] = dict(doc_payload, group_id=target_key)
+
+    # 2. Save to healthy writable DBs in `manual_filters_v2`
+    for db_inst in _get_all_filter_dbs():
+        try:
+            await db_inst["manual_filters_v2"].update_one(
+                {"group_id": gid_str, "text": kw_clean},
+                {"$set": doc_payload},
+                upsert=True,
+            )
+            if gid_str != "global":
+                await db_inst["manual_filters_v2"].update_one(
+                    {"group_id": "global", "text": kw_clean},
+                    {"$set": dict(doc_payload, group_id="global")},
+                    upsert=True,
+                )
+        except Exception:
+            continue
+
+    # 3. Also attempt legacy `add_filter` without ever crashing on 512MB quota
+    if gid_str != "global":
+        try:
+            params = list(inspect.signature(add_filter).parameters.keys())
+            if len(params) >= 6 and params[4] == "alert":
+                await add_filter(group_id, kw_clean, reply_text, btn, alert, fileid)
+            else:
+                await add_filter(group_id, kw_clean, reply_text, btn, fileid, alert)
+        except Exception:
+            pass
+
+
+async def safe_find_filter(
+    group_id: Any, keyword: str
+) -> Tuple[str, str, str, str, str]:
+    """
+    Returns `(reply_text, btn, alert, fileid, media_type)` from RAM, `manual_filters_v2`, or legacy `find_filter`.
+    """
+    gid_str = str(group_id)
+    kw_clean = str(keyword).lower().strip()
+
+    # 1. Check RAM store first (group-specific, then global)
+    for k_gid in (gid_str, "global"):
+        ram_doc = _RAM_FILTERS_STORE.get(k_gid, {}).get(kw_clean)
+        if ram_doc:
+            return (
+                ram_doc.get("reply", ""),
+                ram_doc.get("btn", "[]"),
+                ram_doc.get("alert", "[]"),
+                ram_doc.get("file", "None"),
+                ram_doc.get("media_type", "None"),
+            )
+
+    # 2. Check `manual_filters_v2` across all healthy DBs
+    for db_inst in _get_all_filter_dbs():
+        for k_gid in (gid_str, "global"):
+            try:
+                doc = await db_inst["manual_filters_v2"].find_one(
+                    {"group_id": k_gid, "text": kw_clean}
+                )
+                if doc:
+                    _RAM_FILTERS_STORE.setdefault(k_gid, {})[kw_clean] = doc
+                    return (
+                        doc.get("reply", ""),
+                        doc.get("btn", "[]"),
+                        doc.get("alert", "[]"),
+                        doc.get("file", "None"),
+                        doc.get("media_type", "None"),
+                    )
+            except Exception:
+                continue
+
+    # 3. Fallback to legacy `find_filter`
+    if gid_str != "global":
+        try:
+            reply_text, btn, alert, fileid = await find_filter(group_id, kw_clean)
+            if str(fileid).strip() in ["[]", "None", ""] and str(alert).strip() not in [
+                "[]",
+                "None",
+                "",
+            ]:
+                fileid, alert = alert, fileid
+            if reply_text or (fileid and str(fileid) != "None"):
+                return (
+                    reply_text or "",
+                    btn or "[]",
+                    alert or "[]",
+                    fileid or "None",
+                    "None",
+                )
+        except Exception:
+            pass
+
+    return "", "[]", "[]", "None", "None"
+
+
+async def safe_get_all_filters(group_id: Any) -> List[str]:
+    """Returns all filter keywords for the group + global store across RAM and all healthy DBs."""
+    gid_str = str(group_id)
+    kw_set = set()
+
+    for k_gid in (gid_str, "global"):
+        for k in _RAM_FILTERS_STORE.get(k_gid, {}).keys():
+            kw_set.add(k)
+
+    for db_inst in _get_all_filter_dbs():
+        try:
+            cursor = db_inst["manual_filters_v2"].find(
+                {"group_id": {"$in": [gid_str, "global"]}}, {"text": 1}
+            )
+            docs = await cursor.to_list(length=500)
+            for d in docs:
+                if d.get("text"):
+                    kw_set.add(str(d["text"]).lower().strip())
+        except Exception:
+            continue
+
+    if gid_str != "global":
+        try:
+            legacy_kws = await get_filters(group_id)
+            for k in legacy_kws or []:
+                if k:
+                    kw_set.add(str(k).lower().strip())
+        except Exception:
+            pass
+
+    return sorted(kw_set, key=len, reverse=True)
+
+
+async def safe_delete_filter(message: Message, keyword: str, group_id: Any) -> bool:
+    gid_str = str(group_id)
+    kw_clean = str(keyword).lower().strip()
+    MANUAL_FILTERS_CACHE._data.pop(gid_str, None)
+    MANUAL_FILTERS_CACHE._data.pop("global", None)
+
+    removed = False
+    for k_gid in (gid_str, "global"):
+        if kw_clean in _RAM_FILTERS_STORE.get(k_gid, {}):
+            _RAM_FILTERS_STORE[k_gid].pop(kw_clean, None)
+            removed = True
+
+    for db_inst in _get_all_filter_dbs():
+        try:
+            res = await db_inst["manual_filters_v2"].delete_many(
+                {"group_id": {"$in": [gid_str, "global"]}, "text": kw_clean}
+            )
+            if getattr(res, "deleted_count", 0) > 0:
+                removed = True
+        except Exception:
+            continue
+
+    if gid_str != "global":
+        try:
+            await delete_filter(message, kw_clean, group_id)
+        except Exception:
+            pass
+
+    return removed
+
+
+async def safe_delete_all_filters(message: Message, group_id: Any):
+    gid_str = str(group_id)
+    MANUAL_FILTERS_CACHE._data.pop(gid_str, None)
+    MANUAL_FILTERS_CACHE._data.pop("global", None)
+    _RAM_FILTERS_STORE.pop(gid_str, None)
+    _RAM_FILTERS_STORE.pop("global", None)
+
+    for db_inst in _get_all_filter_dbs():
+        try:
+            await db_inst["manual_filters_v2"].delete_many(
+                {"group_id": {"$in": [gid_str, "global"]}}
+            )
+        except Exception:
+            continue
+
+    if gid_str != "global":
+        try:
+            keywords = await get_filters(group_id)
+            for kw in keywords or []:
+                await delete_filter(message, kw, group_id)
+        except Exception:
+            pass
 
 
 def get_filter_state(key: str) -> dict:
@@ -2283,9 +2567,11 @@ async def auto_filter(client: Client, msg: Message):
 
 
 # ============================================================
-# ⚡ UNIFIED GROUP MESSAGE HANDLER (ZERO COOLDOWN BLOCKING)
+# ⚡ UNIFIED GROUP & PM MESSAGE HANDLER (ZERO COOLDOWN BLOCKING)
 # ============================================================
-@Client.on_message(filters.group & filters.text & filters.incoming)
+@Client.on_message(
+    (filters.group | filters.private) & filters.text & filters.incoming, group=1
+)
 async def give_filter(client: Client, message: Message):
     if not message.text or message.text.startswith(("/", "!", "#", ".", ",", "?", "@")):
         return
@@ -2300,6 +2586,16 @@ async def give_filter(client: Client, message: Message):
 
     user_id = message.from_user.id if message.from_user else 0
     if user_id and await is_user_banned(user_id):
+        return
+
+    # In private chat, only process manual filters so PM guard isn't bypassed for non-admins
+    if message.chat.type == enums.ChatType.PRIVATE:
+        try:
+            matched_manual = await manual_filters(client, message)
+            if matched_manual:
+                return
+        except Exception as e:
+            logger.error(f"PM manual_filters error: {e}")
         return
 
     try:
@@ -2334,9 +2630,8 @@ def _build_feature_toggle_markup(
 
 
 @Client.on_message(
-    filters.command(["autotranslate", "enautotranslate", "diautotranslate"])
-    & filters.incoming,
-    group=-2,
+    filters.command(["autotranslate", "enautotranslate", "diautotranslate"]),
+    group=-15,
 )
 async def autotranslate_cmd_handler(client: Client, message: Message):
     target_chat_id = await get_target_chat(client, message)
@@ -2380,9 +2675,8 @@ async def autotranslate_cmd_handler(client: Client, message: Message):
 
 
 @Client.on_message(
-    filters.command(["multichoice", "enmultichoice", "dimultichoice"])
-    & filters.incoming,
-    group=-2,
+    filters.command(["multichoice", "enmultichoice", "dimultichoice"]),
+    group=-15,
 )
 async def multichoice_cmd_handler(client: Client, message: Message):
     target_chat_id = await get_target_chat(client, message)
@@ -2803,23 +3097,28 @@ async def pagination_handler(bot: Client, query: CallbackQuery):
         return
 
     if data.startswith("delallconfirm#"):
-        target_chat_id = int(data.split("#")[1])
+        raw_target = data.split("#", 1)[1]
+        target_chat_id = (
+            int(raw_target) if raw_target.lstrip("-").isdigit() else raw_target
+        )
         uid = query.from_user.id if query.from_user else 0
         if not await is_global_admin(uid):
-            try:
-                member = await bot.get_chat_member(target_chat_id, uid)
-                if member.status not in [
-                    enums.ChatMemberStatus.ADMINISTRATOR,
-                    enums.ChatMemberStatus.OWNER,
-                ]:
+            if isinstance(target_chat_id, int):
+                try:
+                    member = await bot.get_chat_member(target_chat_id, uid)
+                    if member.status not in [
+                        enums.ChatMemberStatus.ADMINISTRATOR,
+                        enums.ChatMemberStatus.OWNER,
+                    ]:
+                        return await safe_answer(
+                            query, "❌ Unauthorized!", show_alert=True
+                        )
+                except Exception:
                     return await safe_answer(query, "❌ Unauthorized!", show_alert=True)
-            except Exception:
+            else:
                 return await safe_answer(query, "❌ Unauthorized!", show_alert=True)
 
-        keywords = await get_filters(target_chat_id)
-        for kw in keywords:
-            await delete_filter(query.message, kw, target_chat_id)
-        MANUAL_FILTERS_CACHE._data.pop(str(target_chat_id), None)
+        await safe_delete_all_filters(query.message, target_chat_id)
         await safe_answer(query, "✅ All filters deleted!", show_alert=True)
         try:
             return await query.message.edit_text(
@@ -2901,245 +3200,482 @@ async def pagination_handler(bot: Client, query: CallbackQuery):
 # ============================================================
 # 🎨 KEYBOARD AND BUTTON PARSERS (MANUAL FILTERS)
 # ============================================================
+def _clean_extracted_url(raw_url: str) -> str:
+    """
+    Cleans URLs even if Pyrogram `.html` wrapped them in `<a href="...">...</a>`
+    or prefixed them with `buttonurl:` / `buttonurl://` / `:same`.
+    """
+    u = str(raw_url or "").strip()
+    href_match = re.search(r"href=['\"]([^'\"]+)['\"]", u)
+    if href_match:
+        u = href_match.group(1).strip()
+    u = re.sub(r"<[^>]+>", "", u).strip()
+    u = re.sub(r"(?i)^buttonurl:(?://)?", "", u).strip()
+    u = re.sub(r"(?i):same$", "", u).strip()
+    if u and not u.startswith(("http://", "https://", "tg://", "mailto:")):
+        if "." in u or u.startswith("t.me/"):
+            u = "https://" + u.lstrip("/")
+    return u
+
+
 def build_keyboard(btn_str: str):
     if not btn_str or btn_str in ["[]", "None", "False", ""]:
         return None
     try:
+        data = ast.literal_eval(btn_str) if isinstance(btn_str, str) else btn_str
+        if not isinstance(data, list):
+            return None
         button_layout = []
-        for row in ast.literal_eval(btn_str):
+        for row in data:
+            if isinstance(row, dict):
+                row = [row]
+            if not isinstance(row, list):
+                continue
             btn_row = []
             for b in row:
                 if isinstance(b, dict):
                     b_copy = b.copy()
                     style_val = b_copy.pop("style", None)
-                    btn_row.append(
-                        create_btn(
-                            text=b_copy.get("text", "Button"),
-                            url=b_copy.get("url"),
-                            callback_data=b_copy.get("callback_data"),
-                            style=style_val,
+                    url_val = b_copy.get("url")
+                    cb_val = b_copy.get("callback_data")
+                    if url_val:
+                        clean_u = _clean_extracted_url(url_val)
+                        if not clean_u.startswith(("http://", "https://", "tg://")):
+                            continue
+                        btn_row.append(
+                            create_btn(
+                                text=b_copy.get("text", "Button"),
+                                url=clean_u,
+                                style=style_val,
+                            )
                         )
-                    )
-                else:
+                    elif cb_val:
+                        btn_row.append(
+                            create_btn(
+                                text=b_copy.get("text", "Button"),
+                                callback_data=str(cb_val),
+                                style=style_val,
+                            )
+                        )
+                elif isinstance(b, InlineKeyboardButton):
                     btn_row.append(b)
-            button_layout.append(btn_row)
-        return button_layout
+            if btn_row:
+                button_layout.append(btn_row)
+        return button_layout if button_layout else None
     except Exception as e:
         logger.error(f"Button parsing error: {e}")
         return None
 
 
 def parse_markdown_buttons(text: str):
+    """
+    Supports all button formats in manual filters:
+    1. `[Button Text](https://url.com)` or `[Button Text](buttonurl:https://url.com:same)`
+    2. `[Button Text | https://url.com]` (even when `.html` converted the URL into `<a href="...">`)
+    3. `Button 1 - https://url1.com | Button 2 - https://url2.com`
+    while leaving normal text, blockquotes (`<blockquote>...</blockquote>`), Kannada/Indic text,
+    and standalone URLs intact!
+    """
     if not text:
         return "", "[]"
+
     buttons, clean_lines = [], []
+    pat_md = re.compile(r"\[([^\[\]\n]+)\]\(\s*([^\(\)\n]+?)\s*\)")
+    pat_pipe = re.compile(r"\[([^\[\]\|\n]+)\|\s*([^\[\]\n]+?)\s*\]")
+
     for line in text.split("\n"):
         row_btns = []
-        matches = sorted(
-            list(re.finditer(r"\[([^\[\]]+)\]\(([^()]+)\)", line))
-            + list(re.finditer(r"\[([^\[\]]+)\|([^()]+)\]", line)),
-            key=lambda m: m.start(),
-        )
-        for match in matches:
-            url_val = match.group(2).strip()
-            if not url_val.startswith(("http://", "https://", "tg://")):
-                url_val = "https://" + url_val
-            row_btns.append({"text": match.group(1).strip(), "url": url_val})
-        if row_btns:
-            buttons.append(row_btns)
-        if clean_line := re.sub(
-            r"\[([^\[\]]+)\|([^()]+)\]",
-            "",
-            re.sub(r"\[([^\[\]]+)\]\(([^()]+)\)", "", line),
-        ).strip():
-            clean_lines.append(clean_line)
-        elif not matches:
-            clean_lines.append("")
+        working_line = line
+
+        matches = []
+        for m in pat_md.finditer(working_line):
+            matches.append((m.start(), m.end(), m.group(1), m.group(2), m.group(0)))
+        for m in pat_pipe.finditer(working_line):
+            matches.append((m.start(), m.end(), m.group(1), m.group(2), m.group(0)))
+        matches.sort(key=lambda x: x[0])
+
+        if matches:
+            for _, _, raw_lbl, raw_u, full_token in matches:
+                clean_lbl = re.sub(r"<[^>]+>", "", raw_lbl).strip()
+                is_same = bool(re.search(r"(?i):same\s*$", raw_u.strip()))
+                clean_u = _clean_extracted_url(raw_u)
+                if clean_lbl and clean_u.startswith(("http://", "https://", "tg://")):
+                    btn_dict = {"text": clean_lbl, "url": clean_u}
+                    if is_same and buttons:
+                        buttons[-1].append(btn_dict)
+                    else:
+                        row_btns.append(btn_dict)
+                    working_line = working_line.replace(full_token, "", 1)
+            if row_btns:
+                buttons.append(row_btns)
+            stripped_rem = working_line.strip()
+            if stripped_rem:
+                clean_lines.append(stripped_rem)
+            continue
+
+        # Also support `Button Text - https://...` lines (when not inside a blockquote)
+        if (
+            " - " in working_line
+            and (
+                "http://" in working_line
+                or "https://" in working_line
+                or "t.me/" in working_line
+            )
+            and "<blockquote" not in working_line.lower()
+        ):
+            parts_pipe = [p.strip() for p in working_line.split("|") if p.strip()]
+            dash_btns = []
+            valid_dash_line = True
+            for part in parts_pipe:
+                if " - " not in part:
+                    valid_dash_line = False
+                    break
+                b_lbl, b_url = part.split(" - ", 1)
+                clean_lbl = re.sub(r"<[^>]+>", "", b_lbl).strip()
+                clean_u = _clean_extracted_url(b_url)
+                if clean_lbl and clean_u.startswith(("http://", "https://", "tg://")):
+                    dash_btns.append({"text": clean_lbl, "url": clean_u})
+                else:
+                    valid_dash_line = False
+                    break
+            if valid_dash_line and dash_btns:
+                buttons.append(dash_btns)
+                continue
+
+        clean_lines.append(working_line)
+
     return "\n".join(clean_lines).strip(), (str(buttons) if buttons else "[]")
 
 
+def _extract_replied_media(replied: Optional[Message]) -> Tuple[str, str]:
+    """Returns `(file_id, media_type)` from any replied message."""
+    if not replied:
+        return "None", "None"
+    for media_attr in (
+        "photo",
+        "video",
+        "document",
+        "animation",
+        "audio",
+        "voice",
+        "sticker",
+        "video_note",
+    ):
+        media_obj = getattr(replied, media_attr, None)
+        if media_obj and getattr(media_obj, "file_id", None):
+            return str(media_obj.file_id), media_attr
+    return "None", "None"
+
+
+def _extract_message_html(msg: Optional[Message]) -> str:
+    """Safely extracts HTML-formatted text or caption (preserving blockquotes, bold, links, and Indic text)."""
+    if not msg:
+        return ""
+    for attr in ("text", "caption"):
+        val = getattr(msg, attr, None)
+        if val:
+            if hasattr(val, "html"):
+                try:
+                    return str(val.html)
+                except Exception:
+                    return str(val)
+            return str(val)
+    return ""
+
+
+def _extract_existing_inline_buttons(msg: Optional[Message]) -> List[List[dict]]:
+    existing_btns: List[List[dict]] = []
+    if (
+        not msg
+        or not msg.reply_markup
+        or not getattr(msg.reply_markup, "inline_keyboard", None)
+    ):
+        return existing_btns
+    for row in msg.reply_markup.inline_keyboard:
+        row_btns = []
+        for b in row:
+            b_dict: Dict[str, Any] = {"text": b.text}
+            if b.url:
+                b_dict["url"] = b.url
+            elif b.callback_data:
+                b_dict["callback_data"] = b.callback_data
+            st = getattr(b, "style", None)
+            if st is not None:
+                b_dict["style"] = st.value if hasattr(st, "value") else st
+            if b.url or b.callback_data:
+                row_btns.append(b_dict)
+        if row_btns:
+            existing_btns.append(row_btns)
+    return existing_btns
+
+
+def _parse_filter_command_input(message: Message) -> Tuple[str, str]:
+    """
+    Parses `/filter <keyword> [optional inline reply/buttons]` or `/filter "multi word" [reply]`.
+    """
+    raw_full = _extract_message_html(message)
+    parts = raw_full.split(None, 1)
+    if len(parts) < 2:
+        return "", ""
+    rest = parts[1].strip()
+    if not rest:
+        return "", ""
+
+    # Support quoted multi-word keyword: /filter "my keyword" reply text
+    q_match = re.match(r'^["“”]([^"“”]+)["“”](?:\s+(.*))?$', rest, flags=re.DOTALL)
+    if q_match:
+        return q_match.group(1).strip().lower(), (q_match.group(2) or "").strip()
+
+    # If replying to a message and there are newlines, first line/token is keyword, rest are extra buttons/text
+    if message.reply_to_message:
+        if "\n" in rest:
+            first_line, extra_lines = rest.split("\n", 1)
+            return first_line.strip().lower(), extra_lines.strip()
+        btn_split = re.split(
+            r"(\[[^\[\]]+\]\([^\(\)]+\)|\[[^\[\]]+\|[^\[\]]+\])", rest, maxsplit=1
+        )
+        if len(btn_split) > 1 and btn_split[0].strip():
+            return btn_split[0].strip().lower(), "".join(btn_split[1:]).strip()
+        return rest.strip().lower(), ""
+
+    # Not replying to a message: first word is keyword, remainder is reply text + buttons
+    kw_parts = rest.split(None, 1)
+    keyword = kw_parts[0].strip().lower()
+    inline_reply = kw_parts[1].strip() if len(kw_parts) > 1 else ""
+    return keyword, inline_reply
+
+
 # ============================================================
-# 🎯 FILTER COMMANDS (HIGH PRIORITY GROUP=-2 SO THEY NEVER FAIL)
+# 🎯 FILTER COMMANDS (HIGH PRIORITY GROUP=-15 SO THEY NEVER FAIL)
 # ============================================================
-@Client.on_message(filters.command("filter") & filters.incoming, group=-2)
+@Client.on_message(filters.command(["filter", "addfilter"]), group=-15)
 async def add_filter_cmd(client: Client, message: Message):
     target_chat_id = await get_target_chat(client, message)
     if not target_chat_id:
-        return await safe_reply_text(
-            message,
-            "⚠️ <b>No active connection!</b>\nPlease run <code>/connect &lt;group_id&gt;</code> first.",
-            parse_mode=enums.ParseMode.HTML,
-        )
-    if not await verify_admin(client, message, target_chat_id):
-        return await safe_reply_text(
-            message,
-            f"❌ <b>You are not authorized for chat:</b> <code>{target_chat_id}</code>",
-            parse_mode=enums.ParseMode.HTML,
-        )
+        if await verify_admin(client, message, None):
+            target_chat_id = "global"
+        else:
+            return await safe_reply_text(
+                message,
+                "⚠️ <b>No active connection!</b>\nPlease run <code>/connect &lt;group_id&gt;</code> first.",
+                parse_mode=enums.ParseMode.HTML,
+            )
 
-    if not message.reply_to_message:
-        return await safe_reply_text(
-            message,
-            "⚠️ <b>Reply to a message (text or media) to set it as a filter.</b>\n"
-            "⚙️ <b>Usage:</b> <code>/filter &lt;keyword&gt;</code>",
-            parse_mode=enums.ParseMode.HTML,
-        )
-    if len(message.command) < 2:
-        return await safe_reply_text(
-            message,
-            "⚙️ <b>Usage:</b> <code>/filter &lt;keyword&gt;</code>",
-            parse_mode=enums.ParseMode.HTML,
-        )
-
-    keyword = message.text.split(None, 1)[1].lower().strip()
-    replied = message.reply_to_message
-    raw_content = (
-        replied.text.html
-        if replied.text and hasattr(replied.text, "html")
-        else (
-            replied.caption.html
-            if replied.caption and hasattr(replied.caption, "html")
-            else (replied.text or replied.caption or "")
-        )
-    )
-    text, btn = parse_markdown_buttons(raw_content)
-
-    if btn == "[]" and replied.reply_markup and replied.reply_markup.inline_keyboard:
-        existing_btns = []
-        for row in replied.reply_markup.inline_keyboard:
-            row_btns = []
-            for b in row:
-                b_dict = {"text": b.text}
-                if b.url:
-                    b_dict["url"] = b.url
-                elif b.callback_data:
-                    b_dict["callback_data"] = b.callback_data
-                st = getattr(b, "style", None)
-                if st:
-                    b_dict["style"] = st.value if hasattr(st, "value") else int(st)
-                row_btns.append(b_dict)
-            if row_btns:
-                existing_btns.append(row_btns)
-        if existing_btns:
-            btn = str(existing_btns)
-
-    fileid = "None"
-    for media_attr in ["photo", "video", "document", "audio", "animation", "sticker"]:
-        if media_obj := getattr(replied, media_attr, None):
-            fileid = media_obj.file_id
-            break
-
-    await safe_save_filter(target_chat_id, keyword, text, btn, fileid, "[]")
-    out_msg = await safe_reply_text(
-        message,
-        f"✅ <b>Filter successfully added!</b>\n\n"
-        f"🔑 <b>Keyword:</b> <code>{html.escape(keyword)}</code>\n"
-        f"🆔 <b>Chat ID:</b> <code>{target_chat_id}</code>",
-        parse_mode=enums.ParseMode.HTML,
-    )
-    delete_timer = await resolve_auto_delete_timer(message.chat.id, default_time=300)
-    schedule_auto_delete(client, message.chat.id, False, delete_timer, out_msg, message)
-
-
-@Client.on_message(filters.command("addfilter") & filters.incoming, group=-2)
-async def add_premade_filter_cmd(client: Client, message: Message):
-    target_chat_id = await get_target_chat(client, message)
-    if not target_chat_id:
-        return await safe_reply_text(
-            message,
-            "⚠️ <b>No active connection!</b>\nPlease run <code>/connect &lt;group_id&gt;</code> first.",
-            parse_mode=enums.ParseMode.HTML,
-        )
-    if not await verify_admin(client, message, target_chat_id):
+    if target_chat_id != "global" and not await verify_admin(
+        client, message, target_chat_id
+    ):
         return await safe_reply_text(
             message,
             f"❌ <b>You are not authorized for chat:</b> <code>{target_chat_id}</code>",
             parse_mode=enums.ParseMode.HTML,
         )
 
-    if not message.reply_to_message:
-        return await safe_reply_text(
-            message,
-            "⚠️ <b>Reply to a message containing inline buttons.</b>",
-            parse_mode=enums.ParseMode.HTML,
-        )
-    if len(message.command) < 2:
-        return await safe_reply_text(
-            message,
-            "⚙️ <b>Usage:</b> <code>/addfilter &lt;keyword&gt;</code>",
-            parse_mode=enums.ParseMode.HTML,
-        )
-
-    keyword = message.text.split(None, 1)[1].lower().strip()
+    keyword, inline_arg_text = _parse_filter_command_input(message)
     replied = message.reply_to_message
 
-    buttons = []
-    if replied.reply_markup and replied.reply_markup.inline_keyboard:
-        for row in replied.reply_markup.inline_keyboard:
-            row_btns = []
-            for btn in row:
-                btn_dict = {"text": btn.text}
-                if btn.url:
-                    btn_dict["url"] = btn.url
-                elif btn.callback_data:
-                    btn_dict["callback_data"] = btn.callback_data
-                st = getattr(btn, "style", None)
-                if st:
-                    btn_dict["style"] = st.value if hasattr(st, "value") else int(st)
-                row_btns.append(btn_dict)
-            if row_btns:
-                buttons.append(row_btns)
-
-    fileid = "None"
-    for media_attr in ["photo", "video", "document", "audio", "animation", "sticker"]:
-        if media_obj := getattr(replied, media_attr, None):
-            fileid = media_obj.file_id
-            break
-
-    raw_content = (
-        replied.text.html
-        if replied.text and hasattr(replied.text, "html")
-        else (
-            replied.caption.html
-            if replied.caption and hasattr(replied.caption, "html")
-            else (replied.text or replied.caption or "")
+    if not keyword:
+        return await safe_reply_text(
+            message,
+            "⚠️ <b>Reply to a message (text, photo, video, or buttons) to set it as a filter!</b>\n\n"
+            "⚙️ <b>Usage:</b>\n"
+            "• <code>/filter &lt;keyword&gt;</code> (reply to any message/media)\n"
+            "• <code>/addfilter &lt;keyword&gt;</code> (reply to message with buttons)\n"
+            "• <code>/filter &lt;keyword&gt; Text [Button](https://t.me/link)</code>",
+            parse_mode=enums.ParseMode.HTML,
         )
+
+    if not replied and not inline_arg_text:
+        return await safe_reply_text(
+            message,
+            "⚠️ <b>Reply to a message (text or media) or provide filter text after the keyword.</b>\n"
+            f"⚙️ <b>Example:</b> Reply to a post with <code>/filter {html.escape(keyword)}</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
+
+    replied_html = _extract_message_html(replied) if replied else ""
+    combined_raw = (
+        f"{replied_html}\n{inline_arg_text}".strip()
+        if (replied_html and inline_arg_text)
+        else (replied_html or inline_arg_text)
     )
+
+    text, parsed_btn_str = parse_markdown_buttons(combined_raw)
+    parsed_btns = []
+    if parsed_btn_str and parsed_btn_str != "[]":
+        try:
+            parsed_btns = ast.literal_eval(parsed_btn_str)
+        except Exception:
+            parsed_btns = []
+
+    existing_btns = _extract_existing_inline_buttons(replied)
+    all_btns = existing_btns + parsed_btns
+    final_btn_str = str(all_btns) if all_btns else "[]"
+
+    fileid, media_type = _extract_replied_media(replied)
+
+    if not text and fileid == "None" and not all_btns:
+        return await safe_reply_text(
+            message,
+            "❌ <b>Cannot save an empty filter. Reply to text, photo, video, or media!</b>",
+            parse_mode=enums.ParseMode.HTML,
+        )
 
     await safe_save_filter(
         target_chat_id,
         keyword,
-        raw_content,
-        str(buttons) if buttons else "[]",
+        text,
+        final_btn_str,
         fileid,
         "[]",
+        media_type=media_type,
     )
+
+    scope_label = (
+        "All Connected Groups (Global)"
+        if str(target_chat_id) == "global"
+        else f"<code>{target_chat_id}</code>"
+    )
+    media_badge = media_type.upper() if media_type != "None" else "TEXT"
+    btn_count = sum(len(r) for r in all_btns)
+
     out_msg = await safe_reply_text(
         message,
-        f"✅ <b>Filter with buttons added!</b>\n\n<b>Keyword:</b> <code>{html.escape(keyword)}</code>",
+        f"✅ <b>Filter Successfully Saved!</b>\n\n"
+        f"🔑 <b>Keyword:</b> <code>{html.escape(keyword)}</code>\n"
+        f"📦 <b>Type:</b> <code>{media_badge}</code>\n"
+        f"🔘 <b>Buttons:</b> <code>{btn_count}</code>\n"
+        f"🎯 <b>Target:</b> {scope_label}",
         parse_mode=enums.ParseMode.HTML,
     )
     delete_timer = await resolve_auto_delete_timer(message.chat.id, default_time=300)
     schedule_auto_delete(client, message.chat.id, False, delete_timer, out_msg, message)
 
 
-@Client.on_message(filters.command("filterimage") & filters.incoming, group=-2)
-async def edit_filter_image_cmd(client: Client, message: Message):
+@Client.on_message(
+    filters.command(["addfilterbutton", "editfilterbutton", "filterbutton"]),
+    group=-15,
+)
+async def add_or_edit_filter_button_cmd(client: Client, message: Message):
+    """Allows adding or updating buttons on an existing filter easily."""
     target_chat_id = await get_target_chat(client, message)
     if not target_chat_id:
-        return await safe_reply_text(
-            message,
-            "⚠️ <b>No active connection!</b>\nPlease run <code>/connect &lt;group_id&gt;</code> first.",
-            parse_mode=enums.ParseMode.HTML,
-        )
-    if not await verify_admin(client, message, target_chat_id):
+        if await verify_admin(client, message, None):
+            target_chat_id = "global"
+        else:
+            return await safe_reply_text(
+                message,
+                "⚠️ <b>No active connection!</b>\nPlease run <code>/connect &lt;group_id&gt;</code> first.",
+                parse_mode=enums.ParseMode.HTML,
+            )
+    if target_chat_id != "global" and not await verify_admin(
+        client, message, target_chat_id
+    ):
         return await safe_reply_text(
             message,
             f"❌ <b>You are not authorized for chat:</b> <code>{target_chat_id}</code>",
             parse_mode=enums.ParseMode.HTML,
         )
 
-    if not message.reply_to_message or not message.reply_to_message.media:
+    if len(message.command) < 2 or (
+        "|" not in message.text and "-" not in message.text and "[" not in message.text
+    ):
+        return await safe_reply_text(
+            message,
+            "⚙️ <b>Usage:</b>\n"
+            "<code>/addfilterbutton &lt;keyword&gt; Button Text - https://t.me/link</code>\n"
+            "or\n"
+            "<code>/addfilterbutton &lt;keyword&gt; [Button Text](https://t.me/link)</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
+
+    parts = message.text.split(None, 2)
+    if len(parts) < 3:
+        return await safe_reply_text(
+            message,
+            "⚠️ <b>Provide both the filter keyword and button format!</b>",
+            parse_mode=enums.ParseMode.HTML,
+        )
+
+    keyword = parts[1].strip().lower()
+    raw_btn_input = parts[2].strip()
+
+    reply_text, btn, alert, fileid, media_type = await safe_find_filter(
+        target_chat_id, keyword
+    )
+    if not reply_text and (not fileid or fileid == "None"):
+        return await safe_reply_text(
+            message,
+            f"❌ <b>Filter <code>{html.escape(keyword)}</code> not found.</b>",
+            parse_mode=enums.ParseMode.HTML,
+        )
+
+    _, new_btn_str = parse_markdown_buttons(raw_btn_input)
+    new_btns = []
+    if new_btn_str and new_btn_str != "[]":
+        try:
+            new_btns = ast.literal_eval(new_btn_str)
+        except Exception:
+            new_btns = []
+
+    if not new_btns and "|" in raw_btn_input:
+        b_lbl, b_url = raw_btn_input.split("|", 1)
+        clean_u = _clean_extracted_url(b_url)
+        if b_lbl.strip() and clean_u.startswith(("http://", "https://", "tg://")):
+            new_btns = [[{"text": b_lbl.strip(), "url": clean_u}]]
+
+    if not new_btns:
+        return await safe_reply_text(
+            message,
+            "❌ <b>Invalid button URL format.</b>\nExample: <code>/addfilterbutton 418 Download Now - https://t.me/link</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
+
+    existing_btns = []
+    if btn and btn not in ["[]", "None", "False", ""]:
+        try:
+            existing_btns = ast.literal_eval(btn)
+        except Exception:
+            existing_btns = []
+
+    combined = existing_btns + new_btns
+    await safe_save_filter(
+        target_chat_id,
+        keyword,
+        reply_text,
+        str(combined),
+        fileid,
+        alert,
+        media_type=media_type,
+    )
+    await safe_reply_text(
+        message,
+        f"✅ <b>Added button(s) to filter <code>{html.escape(keyword)}</code>!</b>",
+        parse_mode=enums.ParseMode.HTML,
+    )
+
+
+@Client.on_message(filters.command("filterimage"), group=-15)
+async def edit_filter_image_cmd(client: Client, message: Message):
+    target_chat_id = await get_target_chat(client, message)
+    if not target_chat_id:
+        if await verify_admin(client, message, None):
+            target_chat_id = "global"
+        else:
+            return await safe_reply_text(
+                message,
+                "⚠️ <b>No active connection!</b>\nPlease run <code>/connect &lt;group_id&gt;</code> first.",
+                parse_mode=enums.ParseMode.HTML,
+            )
+    if target_chat_id != "global" and not await verify_admin(
+        client, message, target_chat_id
+    ):
+        return await safe_reply_text(
+            message,
+            f"❌ <b>You are not authorized for chat:</b> <code>{target_chat_id}</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
+
+    if not message.reply_to_message:
         return await safe_reply_text(
             message,
             "⚠️ <b>Reply to a photo, video, or document to set the new image.</b>",
@@ -3153,7 +3689,9 @@ async def edit_filter_image_cmd(client: Client, message: Message):
         )
 
     keyword = message.text.split(None, 1)[1].lower().strip()
-    reply_text, btn, alert, old_fileid = await find_filter(target_chat_id, keyword)
+    reply_text, btn, alert, old_fileid, _ = await safe_find_filter(
+        target_chat_id, keyword
+    )
 
     if not reply_text and (not old_fileid or old_fileid == "None"):
         return await safe_reply_text(
@@ -3162,20 +3700,17 @@ async def edit_filter_image_cmd(client: Client, message: Message):
             parse_mode=enums.ParseMode.HTML,
         )
 
-    fileid = "None"
-    for media_attr in ["photo", "video", "document", "audio", "animation", "sticker"]:
-        if media_obj := getattr(message.reply_to_message, media_attr, None):
-            fileid = media_obj.file_id
-            break
-
+    fileid, media_type = _extract_replied_media(message.reply_to_message)
     if fileid == "None":
         return await safe_reply_text(
             message,
-            "❌ <b>Could not extract valid media.</b>",
+            "❌ <b>Could not extract valid media from the replied message.</b>",
             parse_mode=enums.ParseMode.HTML,
         )
 
-    await safe_save_filter(target_chat_id, keyword, reply_text, btn, fileid, alert)
+    await safe_save_filter(
+        target_chat_id, keyword, reply_text, btn, fileid, alert, media_type=media_type
+    )
     out_msg = await safe_reply_text(
         message,
         f"✅ <b>Filter image updated!</b>\n\n<b>Keyword:</b> <code>{html.escape(keyword)}</code>",
@@ -3186,18 +3721,23 @@ async def edit_filter_image_cmd(client: Client, message: Message):
 
 
 @Client.on_message(
-    filters.command(["editfiltercolur", "editfiltercolour"]) & filters.incoming,
-    group=-2,
+    filters.command(["editfiltercolur", "editfiltercolour"]),
+    group=-15,
 )
 async def edit_filter_colour_cmd(client: Client, message: Message):
     target_chat_id = await get_target_chat(client, message)
     if not target_chat_id:
-        return await safe_reply_text(
-            message,
-            "⚠️ <b>No active connection!</b>\nPlease run <code>/connect &lt;group_id&gt;</code> first.",
-            parse_mode=enums.ParseMode.HTML,
-        )
-    if not await verify_admin(client, message, target_chat_id):
+        if await verify_admin(client, message, None):
+            target_chat_id = "global"
+        else:
+            return await safe_reply_text(
+                message,
+                "⚠️ <b>No active connection!</b>\nPlease run <code>/connect &lt;group_id&gt;</code> first.",
+                parse_mode=enums.ParseMode.HTML,
+            )
+    if target_chat_id != "global" and not await verify_admin(
+        client, message, target_chat_id
+    ):
         return await safe_reply_text(
             message,
             f"❌ <b>You are not authorized for chat:</b> <code>{target_chat_id}</code>",
@@ -3233,7 +3773,9 @@ async def edit_filter_colour_cmd(client: Client, message: Message):
             parse_mode=enums.ParseMode.HTML,
         )
 
-    reply_text, btn, alert, fileid = await find_filter(target_chat_id, keyword)
+    reply_text, btn, alert, fileid, media_type = await safe_find_filter(
+        target_chat_id, keyword
+    )
     if not reply_text and (not fileid or fileid == "None"):
         return await safe_reply_text(
             message,
@@ -3275,7 +3817,13 @@ async def edit_filter_colour_cmd(client: Client, message: Message):
         )
 
     await safe_save_filter(
-        target_chat_id, keyword, reply_text, str(button_data), fileid, alert
+        target_chat_id,
+        keyword,
+        reply_text,
+        str(button_data),
+        fileid,
+        alert,
+        media_type=media_type,
     )
     out_msg = await safe_reply_text(
         message,
@@ -3286,16 +3834,21 @@ async def edit_filter_colour_cmd(client: Client, message: Message):
     schedule_auto_delete(client, message.chat.id, False, delete_timer, out_msg, message)
 
 
-@Client.on_message(filters.command(["delfilter", "stop"]) & filters.incoming, group=-2)
+@Client.on_message(filters.command(["delfilter", "stop"]), group=-15)
 async def del_filter_cmd(client: Client, message: Message):
     target_chat_id = await get_target_chat(client, message)
     if not target_chat_id:
-        return await safe_reply_text(
-            message,
-            "⚠️ <b>No active connection!</b>\nPlease run <code>/connect &lt;group_id&gt;</code> first.",
-            parse_mode=enums.ParseMode.HTML,
-        )
-    if not await verify_admin(client, message, target_chat_id):
+        if await verify_admin(client, message, None):
+            target_chat_id = "global"
+        else:
+            return await safe_reply_text(
+                message,
+                "⚠️ <b>No active connection!</b>\nPlease run <code>/connect &lt;group_id&gt;</code> first.",
+                parse_mode=enums.ParseMode.HTML,
+            )
+    if target_chat_id != "global" and not await verify_admin(
+        client, message, target_chat_id
+    ):
         return await safe_reply_text(
             message,
             f"❌ <b>You are not authorized for chat:</b> <code>{target_chat_id}</code>",
@@ -3309,8 +3862,7 @@ async def del_filter_cmd(client: Client, message: Message):
             parse_mode=enums.ParseMode.HTML,
         )
     keyword = message.text.split(None, 1)[1].lower().strip()
-    await delete_filter(message, keyword, target_chat_id)
-    MANUAL_FILTERS_CACHE._data.pop(str(target_chat_id), None)
+    await safe_delete_filter(message, keyword, target_chat_id)
     out_msg = await safe_reply_text(
         message,
         f"🗑️ <b>Filter <code>{html.escape(keyword)}</code> deleted.</b>",
@@ -3320,18 +3872,21 @@ async def del_filter_cmd(client: Client, message: Message):
     schedule_auto_delete(client, message.chat.id, False, delete_timer, out_msg, message)
 
 
-@Client.on_message(
-    filters.command(["delall", "deleteall"]) & filters.incoming, group=-2
-)
+@Client.on_message(filters.command(["delall", "deleteall"]), group=-15)
 async def del_all_filters_cmd(client: Client, message: Message):
     target_chat_id = await get_target_chat(client, message)
     if not target_chat_id:
-        return await safe_reply_text(
-            message,
-            "⚠️ <b>No active connection!</b>\nPlease run <code>/connect &lt;group_id&gt;</code> first.",
-            parse_mode=enums.ParseMode.HTML,
-        )
-    if not await verify_admin(client, message, target_chat_id):
+        if await verify_admin(client, message, None):
+            target_chat_id = "global"
+        else:
+            return await safe_reply_text(
+                message,
+                "⚠️ <b>No active connection!</b>\nPlease run <code>/connect &lt;group_id&gt;</code> first.",
+                parse_mode=enums.ParseMode.HTML,
+            )
+    if target_chat_id != "global" and not await verify_admin(
+        client, message, target_chat_id
+    ):
         return await safe_reply_text(
             message,
             f"❌ <b>You are not authorized for chat:</b> <code>{target_chat_id}</code>",
@@ -3356,25 +3911,30 @@ async def del_all_filters_cmd(client: Client, message: Message):
 
 
 @Client.on_message(
-    filters.command(["listfilters", "filters", "viewfilters"]) & filters.incoming,
-    group=-2,
+    filters.command(["listfilters", "filters", "viewfilters"]),
+    group=-15,
 )
 async def list_filters_cmd(client: Client, message: Message):
     target_chat_id = await get_target_chat(client, message)
     if not target_chat_id:
-        return await safe_reply_text(
-            message,
-            "⚠️ <b>No active connection!</b>\nPlease run <code>/connect &lt;group_id&gt;</code> first.",
-            parse_mode=enums.ParseMode.HTML,
-        )
-    if not await verify_admin(client, message, target_chat_id):
+        if await verify_admin(client, message, None):
+            target_chat_id = "global"
+        else:
+            return await safe_reply_text(
+                message,
+                "⚠️ <b>No active connection!</b>\nPlease run <code>/connect &lt;group_id&gt;</code> first.",
+                parse_mode=enums.ParseMode.HTML,
+            )
+    if target_chat_id != "global" and not await verify_admin(
+        client, message, target_chat_id
+    ):
         return await safe_reply_text(
             message,
             f"❌ <b>You are not authorized for chat:</b> <code>{target_chat_id}</code>",
             parse_mode=enums.ParseMode.HTML,
         )
 
-    keywords = await get_filters(target_chat_id)
+    keywords = await safe_get_all_filters(target_chat_id)
     if not keywords:
         return await safe_reply_text(
             message,
@@ -3393,8 +3953,22 @@ async def list_filters_cmd(client: Client, message: Message):
 
 
 # ============================================================
-# 📤 4-LAYER MULTI-MEDIA FILTER DISPATCHER
+# 📤 4-LAYER MULTI-MEDIA FILTER DISPATCHER (LAYER 230 SAFE)
 # ============================================================
+def _get_reply_kwargs(func: Any, reply_id: Optional[int]) -> dict:
+    if not reply_id:
+        return {}
+    try:
+        params = set(inspect.signature(func).parameters.keys())
+        if "reply_to_message_id" in params:
+            return {"reply_to_message_id": reply_id}
+        if "reply_parameters" in params and ReplyParameters is not None:
+            return {"reply_parameters": ReplyParameters(message_id=reply_id)}
+    except Exception:
+        pass
+    return {}
+
+
 async def send_filter_media(
     client: Client,
     chat_id: int,
@@ -3402,84 +3976,125 @@ async def send_filter_media(
     reply_text: str,
     reply_markup,
     reply_id: int,
+    media_type: str = "None",
 ):
     if RESTRICTED_WRITE_CHATS.get(str(chat_id)):
         return None
-    try:
-        return await client.send_cached_media(
-            chat_id,
-            fileid,
-            caption=reply_text,
-            reply_markup=reply_markup,
-            reply_to_message_id=reply_id,
-            parse_mode=enums.ParseMode.HTML,
-        )
-    except FloodWait as e:
-        await asyncio.sleep(e.value + 1)
-        return await send_filter_media(
-            client, chat_id, fileid, reply_text, reply_markup, reply_id
-        )
-    except (
-        ChatWriteForbidden,
-        Forbidden,
-        ChatAdminRequired,
-        UserIsBlocked,
-        PeerIdInvalid,
-    ):
-        RESTRICTED_WRITE_CHATS.set(str(chat_id), True)
-        return None
-    except Exception:
-        pass
 
-    try:
-        return await client.send_cached_media(
-            chat_id,
-            fileid,
-            caption=reply_text,
-            reply_markup=reply_markup,
-            parse_mode=enums.ParseMode.HTML,
-        )
-    except (ChatWriteForbidden, Forbidden, UserIsBlocked, PeerIdInvalid):
-        RESTRICTED_WRITE_CHATS.set(str(chat_id), True)
-        return None
-    except Exception:
-        pass
+    method_map = {
+        "photo": (client.send_photo, "photo"),
+        "video": (client.send_video, "video"),
+        "document": (client.send_document, "document"),
+        "animation": (client.send_animation, "animation"),
+        "audio": (client.send_audio, "audio"),
+        "voice": (client.send_voice, "voice"),
+        "sticker": (client.send_sticker, "sticker"),
+    }
 
-    for send_fn, arg_name in [
-        (client.send_photo, "photo"),
-        (client.send_video, "video"),
-        (client.send_document, "document"),
-        (client.send_animation, "animation"),
-    ]:
+    # Layer 1: If media_type is known, dispatch directly with full HTML + plain-text fallback
+    if media_type in method_map:
+        send_fn, arg_name = method_map[media_type]
+        rep_kw = _get_reply_kwargs(send_fn, reply_id)
         try:
+            if media_type == "sticker":
+                return await send_fn(
+                    chat_id=chat_id,
+                    sticker=fileid,
+                    reply_markup=reply_markup,
+                    **rep_kw,
+                )
             return await send_fn(
                 **{
                     "chat_id": chat_id,
                     arg_name: fileid,
-                    "caption": reply_text,
+                    "caption": reply_text or "",
                     "reply_markup": reply_markup,
                     "parse_mode": enums.ParseMode.HTML,
+                    **rep_kw,
                 }
             )
         except (ChatWriteForbidden, Forbidden, UserIsBlocked, PeerIdInvalid):
             RESTRICTED_WRITE_CHATS.set(str(chat_id), True)
             return None
         except Exception:
+            try:
+                return await send_fn(
+                    **{
+                        "chat_id": chat_id,
+                        arg_name: fileid,
+                        "caption": re.sub(r"<[^>]+>", "", reply_text or ""),
+                        "reply_markup": reply_markup,
+                    }
+                )
+            except Exception:
+                pass
+
+    # Layer 2: send_cached_media (with and without reply kwargs)
+    for use_rep in (True, False):
+        rep_kw = (
+            _get_reply_kwargs(client.send_cached_media, reply_id) if use_rep else {}
+        )
+        try:
+            return await client.send_cached_media(
+                chat_id=chat_id,
+                file_id=fileid,
+                caption=reply_text or "",
+                reply_markup=reply_markup,
+                parse_mode=enums.ParseMode.HTML,
+                **rep_kw,
+            )
+        except FloodWait as e:
+            if e.value <= 10:
+                await asyncio.sleep(e.value + 1)
+                continue
+            return None
+        except (
+            ChatWriteForbidden,
+            Forbidden,
+            ChatAdminRequired,
+            UserIsBlocked,
+            PeerIdInvalid,
+        ):
+            RESTRICTED_WRITE_CHATS.set(str(chat_id), True)
+            return None
+        except Exception:
             continue
 
-    try:
-        return await client.send_message(
-            chat_id,
-            text=reply_text or "<b>Here is your file:</b>",
-            reply_markup=reply_markup,
-            parse_mode=enums.ParseMode.HTML,
-        )
-    except (ChatWriteForbidden, Forbidden, UserIsBlocked, PeerIdInvalid):
-        RESTRICTED_WRITE_CHATS.set(str(chat_id), True)
-        return None
-    except Exception as err:
-        logger.error(f"Media filter failed all 4 layers: {err}")
-        return None
+    # Layer 3: Try each media method sequentially (handles photo file_ids that send_cached_media rejects)
+    for m_key, (send_fn, arg_name) in method_map.items():
+        if m_key == "sticker":
+            continue
+        rep_kw = _get_reply_kwargs(send_fn, reply_id)
+        for p_mode in (enums.ParseMode.HTML, None):
+            try:
+                kw_call = {
+                    "chat_id": chat_id,
+                    arg_name: fileid,
+                    "caption": (
+                        reply_text
+                        if p_mode
+                        else re.sub(r"<[^>]+>", "", reply_text or "")
+                    ),
+                    "reply_markup": reply_markup,
+                    **rep_kw,
+                }
+                if p_mode:
+                    kw_call["parse_mode"] = p_mode
+                return await send_fn(**kw_call)
+            except (ChatWriteForbidden, Forbidden, UserIsBlocked, PeerIdInvalid):
+                RESTRICTED_WRITE_CHATS.set(str(chat_id), True)
+                return None
+            except Exception:
+                continue
+
+    # Layer 4: Fallback to text message if media file_id is expired/invalid
+    return await safe_send_text_filter(
+        client,
+        chat_id,
+        reply_text or "<b>Here is your filter result:</b>",
+        reply_markup,
+        reply_id,
+    )
 
 
 async def safe_send_text_filter(
@@ -3499,30 +4114,28 @@ async def safe_send_text_filter(
     elif "link_preview_options" in _SEND_MSG_PARAMS and LinkPreviewOptions is not None:
         kw["link_preview_options"] = LinkPreviewOptions(is_disabled=True)
 
+    rep_kw = _get_reply_kwargs(client.send_message, reply_id)
     try:
-        if "reply_to_message_id" in _SEND_MSG_PARAMS:
-            return await client.send_message(**kw, reply_to_message_id=reply_id)
-        elif "reply_parameters" in _SEND_MSG_PARAMS and ReplyParameters is not None:
-            return await client.send_message(
-                **kw, reply_parameters=ReplyParameters(message_id=reply_id)
-            )
-        return await client.send_message(**kw)
+        return await client.send_message(**kw, **rep_kw)
     except (ChatWriteForbidden, Forbidden, UserIsBlocked, PeerIdInvalid, SlowmodeWait):
         RESTRICTED_WRITE_CHATS.set(str(chat_id), True)
         return None
     except Exception:
         try:
             return await client.send_message(**kw)
-        except (ChatWriteForbidden, Forbidden, UserIsBlocked, PeerIdInvalid):
-            RESTRICTED_WRITE_CHATS.set(str(chat_id), True)
-            return None
-        except Exception as e:
-            logger.error(f"Text filter failed: {e}")
-            return None
+        except Exception:
+            # Plain text fallback if HTML tags in manual filter are malformed
+            kw.pop("parse_mode", None)
+            kw["text"] = re.sub(r"<[^>]+>", "", text or "")
+            try:
+                return await client.send_message(**kw)
+            except Exception as e:
+                logger.error(f"Text filter failed: {e}")
+                return None
 
 
 # ============================================================
-# ⚡ LIVE GROUP TRIGGER HANDLER (CACHED MANUAL FILTERS)
+# ⚡ LIVE GROUP & PM TRIGGER HANDLER (CACHED MANUAL FILTERS)
 # ============================================================
 async def manual_filters(client: Client, message: Message, text=False) -> bool:
     if getattr(info, "REPAIR_MODE", False) and not await verify_admin(
@@ -3530,49 +4143,38 @@ async def manual_filters(client: Client, message: Message, text=False) -> bool:
     ):
         return False
 
-    group_id = message.chat.id
+    group_id: Any = message.chat.id
     if message.chat.type == enums.ChatType.PRIVATE:
-        if active_grp := await get_active_connection(
+        active_grp = await get_active_connection(
             str(message.from_user.id if message.from_user else 0)
-        ):
-            group_id = active_grp
+        )
+        group_id = active_grp if active_grp else "global"
 
-    name = text or message.text or message.caption or ""
-    if not name:
+    raw_name = text or message.text or message.caption or ""
+    if not raw_name:
         return False
 
+    # Match both raw text (for Indic/Kannada keywords) and stylish-stripped text
+    norm_name = strip_stylish_fonts(raw_name)
     reply_id = message.reply_to_message.id if message.reply_to_message else message.id
 
     grp_key = str(group_id)
     keywords = MANUAL_FILTERS_CACHE.get(grp_key)
     if keywords is None:
-        try:
-            raw_kws = await get_filters(group_id)
-            keywords = sorted(
-                [str(k).strip() for k in (raw_kws or []) if str(k).strip()],
-                key=len,
-                reverse=True,
-            )
-        except Exception:
-            keywords = []
+        keywords = await safe_get_all_filters(group_id)
         MANUAL_FILTERS_CACHE.set(grp_key, keywords)
 
     if not keywords:
         return False
 
     for kw_str in keywords:
-        if re.search(
-            r"( |^|[^\w])" + re.escape(kw_str) + r"( |$|[^\w])",
-            name,
-            flags=re.IGNORECASE,
+        pat = r"( |^|[^\w])" + re.escape(kw_str) + r"( |$|[^\w])"
+        if re.search(pat, raw_name, flags=re.IGNORECASE) or re.search(
+            pat, norm_name, flags=re.IGNORECASE
         ):
-            reply_text, btn, alert, fileid = await find_filter(group_id, kw_str)
-            if str(fileid).strip() in ["[]", "None", ""] and str(alert).strip() not in [
-                "[]",
-                "None",
-                "",
-            ]:
-                fileid, alert = alert, fileid
+            reply_text, btn, alert, fileid, media_type = await safe_find_filter(
+                group_id, kw_str
+            )
 
             fileid_str = str(fileid).strip()
             has_valid_file = bool(
@@ -3583,8 +4185,6 @@ async def manual_filters(client: Client, message: Message, text=False) -> bool:
 
             if reply_text:
                 reply_text = reply_text.replace("\\n", "\n").replace("\\t", "\t")
-                if not reply_text.startswith("<b>") and not reply_text.startswith("**"):
-                    reply_text = f"<b>{reply_text}</b>"
 
             button_layout = build_keyboard(btn) or []
             reply_markup = (
@@ -3603,6 +4203,7 @@ async def manual_filters(client: Client, message: Message, text=False) -> bool:
                     reply_text or "",
                     reply_markup,
                     reply_id,
+                    media_type=media_type,
                 )
 
             if sent_msg:
