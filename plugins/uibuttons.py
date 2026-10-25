@@ -2621,9 +2621,7 @@ async def _register_chat_in_bg(client: Client, chat):
                     await safe_send_message(
                         client,
                         LOG_CHANNEL,
-                        script.LOG_TEXT_G.format(
-                            chat.title, chat.id, total, "Unknown"
-                        ),
+                        script.LOG_TEXT_G.format(chat.title, chat.id, total, "Unknown"),
                     )
             except Exception:
                 pass
@@ -2710,7 +2708,9 @@ async def start_and_help_cmd(client: Client, message: Message):
             try:
                 from plugins.genlink import deliver_genlink_payload
 
-                if await deliver_genlink_payload(client, uid, message.chat.id, cmd_data):
+                if await deliver_genlink_payload(
+                    client, uid, message.chat.id, cmd_data
+                ):
                     return
             except Exception as e:
                 logger.error(f"Genlink start error: {e}")
@@ -2771,7 +2771,11 @@ async def start_and_help_cmd(client: Client, message: Message):
             text, await get_help_keyboard()
         )
         img = getattr(info, "HELP_IMG", None)
-        if img and str(img).strip().lower() not in ["none", "null", "false", ""] and len(final_text) <= 1024:
+        if (
+            img
+            and str(img).strip().lower() not in ["none", "null", "false", ""]
+            and len(final_text) <= 1024
+        ):
             try:
                 return await message.reply_photo(
                     photo=img,
@@ -2842,10 +2846,7 @@ async def start_and_help_cmd(client: Client, message: Message):
     ]
     photo_to_send = (
         db_img
-        if (
-            db_img
-            and str(db_img).strip().lower() not in ["none", "null", "false", ""]
-        )
+        if (db_img and str(db_img).strip().lower() not in ["none", "null", "false", ""])
         else (random.choice(valid_pics) if valid_pics else None)
     )
 
