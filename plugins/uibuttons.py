@@ -56,6 +56,7 @@ logger.setLevel(ERROR)
 
 # In-memory cache of known registered user IDs so `/start file_...` never waits on MongoDB
 _KNOWN_USERS_RAM: Set[int] = set()
+_KNOWN_CHATS_RAM: Set[int] = set()
 
 # Safe optional imports
 try:
@@ -331,26 +332,56 @@ _DIRECT_CMD_ROUTES: Dict[str, Tuple[str, str]] = {
 
 
 # ============================================================
-# 🔗 LIVE CONNECTION TO plugins/editable.py
+# 🔗 LIVE CONNECTION TO plugins/editable.py (TIMEOUT-PROTECTED)
 # ============================================================
+_UI_SYNC_CACHE: Dict[str, Any] = {}
+_UI_SYNC_TS: float = 0.0
+_CUSTOM_ROWS_CACHE: Dict[str, Tuple[float, List[List[InlineKeyboardButton]]]] = {}
+
+
 async def _ensure_ui_synced() -> Dict[str, Any]:
-    """Ensures custom UI texts & images from plugins/editable.py are synced to runtime."""
+    """
+    Ensures custom UI texts & images from plugins/editable.py are synced to runtime,
+    protected by a strict 1.5s timeout so a slow/full MongoDB NEVER freezes `/start`!
+    """
+    global _UI_SYNC_CACHE, _UI_SYNC_TS
+    now = time.time()
+    if _UI_SYNC_TS > 0 and (now - _UI_SYNC_TS) < 120:
+        return _UI_SYNC_CACHE
     try:
         from plugins.editable import get_ui
 
-        return await get_ui()
+        res = await asyncio.wait_for(get_ui(), timeout=1.5)
+        if isinstance(res, dict):
+            _UI_SYNC_CACHE = res
+            _UI_SYNC_TS = now
+            return res
     except Exception:
-        return {}
+        pass
+    _UI_SYNC_TS = now
+    return _UI_SYNC_CACHE
 
 
 async def _get_custom_rows(menu_name: str) -> List[List[InlineKeyboardButton]]:
-    """Fetches custom inline button rows configured via plugins/editable.py."""
+    """
+    Fetches custom inline button rows configured via plugins/editable.py,
+    protected by a strict 1.2s timeout so `/start` is always instant.
+    """
+    now = time.time()
+    cached = _CUSTOM_ROWS_CACHE.get(menu_name)
+    if cached and (now - cached[0]) < 120:
+        return cached[1]
     try:
         from plugins.editable import get_custom_menu_rows
 
-        return await get_custom_menu_rows(menu_name)
+        rows = await asyncio.wait_for(get_custom_menu_rows(menu_name), timeout=1.2)
+        if isinstance(rows, list):
+            _CUSTOM_ROWS_CACHE[menu_name] = (now, rows)
+            return rows
     except Exception:
-        return []
+        pass
+    _CUSTOM_ROWS_CACHE[menu_name] = (now, [])
+    return []
 
 
 # ============================================================
@@ -481,30 +512,40 @@ def _prepare_compat_kwargs(
 async def safe_reply_text(
     message: Message, text: str, disable_web_page_preview: bool = True, **kwargs
 ):
+    safe_txt = str(text or "Hello!").strip() or "Hello!"
     compat_kw = _prepare_compat_kwargs(
         kwargs, _REPLY_PARAMS, disable_preview=disable_web_page_preview
     )
     try:
-        return await message.reply_text(text, **compat_kw)
+        return await message.reply_text(safe_txt, **compat_kw)
     except TypeError:
         compat_kw.pop("disable_web_page_preview", None)
         compat_kw.pop("link_preview_options", None)
         compat_kw.pop("reply_parameters", None)
         compat_kw.pop("reply_to_message_id", None)
-        return await message.reply_text(text, **compat_kw)
+        try:
+            return await message.reply_text(safe_txt, **compat_kw)
+        except Exception:
+            pass
     except (ChatWriteForbidden, Forbidden, UserIsBlocked, PeerIdInvalid):
         return None
     except Exception:
-        compat_kw.pop("parse_mode", None)
-        try:
-            return await message.reply_text(text, **compat_kw)
-        except Exception:
-            return None
+        pass
+
+    # Fallback: Strip invalid custom HTML / emoji tags if Telegram rejected HTML entities
+    compat_kw.pop("parse_mode", None)
+    plain_txt = re.sub(r"<[^>]+>", "", safe_txt).strip() or "Hello!"
+    try:
+        return await message.reply_text(plain_txt, **compat_kw)
+    except Exception as e:
+        logger.error(f"safe_reply_text fallback error: {e}")
+        return None
 
 
 async def safe_edit_text(
     message: Message, text: str, disable_web_page_preview: bool = True, **kwargs
 ):
+    safe_txt = str(text or "Menu").strip() or "Menu"
     compat_kw = _prepare_compat_kwargs(
         kwargs, _EDIT_PARAMS, disable_preview=disable_web_page_preview
     )
@@ -515,18 +556,19 @@ async def safe_edit_text(
                 for k, v in compat_kw.items()
                 if k in ("reply_markup", "parse_mode")
             }
-            return await message.edit_caption(caption=text, **cap_kw)
-        return await message.edit_text(text, **compat_kw)
+            return await message.edit_caption(caption=safe_txt, **cap_kw)
+        return await message.edit_text(safe_txt, **compat_kw)
     except TypeError:
         compat_kw.pop("disable_web_page_preview", None)
         compat_kw.pop("link_preview_options", None)
-        return await message.edit_text(text, **compat_kw)
+        return await message.edit_text(safe_txt, **compat_kw)
     except (MessageNotModified, MessageIdInvalid, ChatWriteForbidden, Forbidden):
         return None
     except Exception:
         compat_kw.pop("parse_mode", None)
+        plain_txt = re.sub(r"<[^>]+>", "", safe_txt).strip() or "Menu"
         try:
-            return await message.edit_text(text, **compat_kw)
+            return await message.edit_text(plain_txt, **compat_kw)
         except Exception:
             return None
 
@@ -538,19 +580,29 @@ async def safe_send_message(
     disable_web_page_preview: Optional[bool] = True,
     **kwargs,
 ):
+    safe_txt = str(text or "Hello!").strip() or "Hello!"
     compat_kw = _prepare_compat_kwargs(
         kwargs, _SEND_MSG_PARAMS, disable_preview=disable_web_page_preview
     )
     try:
-        return await client.send_message(chat_id=chat_id, text=text, **compat_kw)
+        return await client.send_message(chat_id=chat_id, text=safe_txt, **compat_kw)
     except TypeError:
         compat_kw.pop("disable_web_page_preview", None)
         compat_kw.pop("link_preview_options", None)
         compat_kw.pop("reply_parameters", None)
         compat_kw.pop("reply_to_message_id", None)
-        return await client.send_message(chat_id=chat_id, text=text, **compat_kw)
+        return await client.send_message(chat_id=chat_id, text=safe_txt, **compat_kw)
     except (ChatWriteForbidden, Forbidden, UserIsBlocked, PeerIdInvalid):
         return None
+    except Exception:
+        compat_kw.pop("parse_mode", None)
+        plain_txt = re.sub(r"<[^>]+>", "", safe_txt).strip() or "Hello!"
+        try:
+            return await client.send_message(
+                chat_id=chat_id, text=plain_txt, **compat_kw
+            )
+        except Exception:
+            return None
 
 
 async def safe_answer(
@@ -648,7 +700,8 @@ async def upload_image_safely(client: Client, message: Message) -> Optional[str]
 def safe_parse_text_and_markup(text: str, default_markup=None):
     """
     Parses text and optional inline buttons while ensuring `default_markup` (such as
-    the PM Auto-Reply button) is ALWAYS preserved if `text` itself contains no custom buttons!
+    the Start/Help keyboard or PM Auto-Reply button) is ALWAYS preserved if `text`
+    itself contains no custom buttons!
     """
     if not text:
         return "", default_markup
@@ -680,38 +733,46 @@ def format_script_text(
     **extra_kwargs,
 ) -> str:
     if not template:
-        return ""
+        return f"<b>Hello {mention}! 👋</b>"
     uname = uname or getattr(temp, "U_NAME", None) or "Bot"
     bname = bname or getattr(temp, "B_NAME", None) or "MovieBot"
 
     mapping = _SafeFormatDict(
         mention=mention,
         user=mention,
+        first=mention,
+        first_name=mention,
         uname=uname,
+        username=uname,
         bname=bname,
         bot=bname,
+        bot_name=bname,
         plane_emoji=MESSAGE_EMOJI_PLANE,
         link_emoji=MESSAGE_EMOJI_LINK,
         **extra_kwargs,
     )
 
     try:
-        return template.format_map(mapping)
+        res = template.format_map(mapping)
+        if res and res.strip():
+            return res
     except (IndexError, ValueError, KeyError):
+        pass
+
+    try:
+        return template.format(
+            mention,
+            uname,
+            bname,
+            MESSAGE_EMOJI_PLANE,
+            MESSAGE_EMOJI_LINK,
+            **mapping,
+        )
+    except Exception:
         try:
-            return template.format(
-                mention,
-                uname,
-                bname,
-                MESSAGE_EMOJI_PLANE,
-                MESSAGE_EMOJI_LINK,
-                **mapping,
-            )
+            return template.format(mention, bname)
         except Exception:
-            try:
-                return template.format(mention, bname)
-            except Exception:
-                return template
+            return str(template)
 
 
 # ============================================================
@@ -746,9 +807,9 @@ _CW_CACHE_TS: float = 0.0
 try:
     _DB_CLIENT = AsyncIOMotorClient(
         info.DATABASE_URI,
-        serverSelectionTimeoutMS=4000,
-        connectTimeoutMS=4000,
-        socketTimeoutMS=8000,
+        serverSelectionTimeoutMS=3000,
+        connectTimeoutMS=3000,
+        socketTimeoutMS=5000,
     )
     _BOT_DB = _DB_CLIENT[info.DATABASE_NAME]
     pm_db = _BOT_DB["pm_settings"]
@@ -789,7 +850,7 @@ async def get_pm_settings(force_refresh: bool = False) -> Dict[str, Any]:
     best_ts = -1.0
     for col in _get_all_candidate_cols("pm_settings", pm_db):
         try:
-            doc = await col.find_one({"id": "pm_config"})
+            doc = await asyncio.wait_for(col.find_one({"id": "pm_config"}), timeout=2.0)
             if doc:
                 doc_ts = float(doc.get("updated_at", 0.0) or 0.0)
                 if best_doc is None or doc_ts >= best_ts:
@@ -818,7 +879,10 @@ async def save_pm_settings(key: str, value: Any):
     payload["id"] = "pm_config"
     for col in _get_all_candidate_cols("pm_settings", pm_db):
         try:
-            await col.update_one({"id": "pm_config"}, {"$set": payload}, upsert=True)
+            await asyncio.wait_for(
+                col.update_one({"id": "pm_config"}, {"$set": payload}, upsert=True),
+                timeout=2.0,
+            )
         except Exception:
             continue
 
@@ -835,7 +899,7 @@ async def get_clean_words_state() -> Tuple[bool, List[str]]:
     best_ts = -1.0
     for col in _get_all_candidate_cols("clean_words", cw_db):
         try:
-            doc = await col.find_one({"id": "words"})
+            doc = await asyncio.wait_for(col.find_one({"id": "words"}), timeout=2.0)
             if doc:
                 doc_ts = float(doc.get("updated_at", 0.0) or 0.0)
                 if best_doc is None or doc_ts >= best_ts:
@@ -871,7 +935,10 @@ async def save_clean_words_state(words_list: List[str], use_default: bool = Fals
     }
     for col in _get_all_candidate_cols("clean_words", cw_db):
         try:
-            await col.update_one({"id": "words"}, {"$set": payload}, upsert=True)
+            await asyncio.wait_for(
+                col.update_one({"id": "words"}, {"$set": payload}, upsert=True),
+                timeout=2.0,
+            )
         except Exception:
             continue
 
@@ -958,6 +1025,8 @@ def cancel_cmd_user_input(chat_id: int):
 
 @Client.on_message(filters.private | filters.group, group=-19)
 async def _cmd_interactive_listener(client: Client, message: Message):
+    if not message or not message.chat:
+        return
     chat_id = message.chat.id
     if chat_id not in _CMD_WAITING_INPUT:
         return
@@ -1156,7 +1225,7 @@ async def get_start_keyboard(client: Client, user_id: int) -> InlineKeyboardMark
     buttons.append(
         [
             create_btn(
-                "🔗 Nᴇᴡ Rᴇʟᴇᴀꜱᴇꜱ & Oᴛᴛ Uᴘᴅᴀꜱ",
+                "🔗 Nᴇᴡ Rᴇʟᴇᴀꜱᴇꜱ & Oᴛᴛ Uᴘᴅᴀᴛᴇꜱ",
                 url="https://t.me/sandalwood_kannada_moviesz",
                 style=BTN_SUCCESS,
             )
@@ -2479,7 +2548,7 @@ async def transition_ui_message(
 # ⚡ DIRECT HELP SECTION SHORTCUT COMMANDS (/uistart, /welcome, etc.)
 # ============================================================
 @Client.on_message(
-    filters.command(list(HELP_SHORTCUT_MAP.keys())) & filters.incoming,
+    filters.command(list(HELP_SHORTCUT_MAP.keys())),
     group=-15,
 )
 async def help_category_shortcut_cmds(client: Client, message: Message):
@@ -2518,13 +2587,16 @@ async def help_category_shortcut_cmds(client: Client, message: Message):
 
 
 async def _register_user_in_bg(client: Client, user):
-    """Registers a new PM user in the background so file delivery is never delayed."""
+    """Registers a new PM user in the background so `/start` is never delayed or blocked by a full DB."""
     if not user or user.id in _KNOWN_USERS_RAM:
         return
     _KNOWN_USERS_RAM.add(user.id)
     try:
-        if not await _db.is_user_exist(user.id):
-            await _db.add_user(user.id, user.first_name)
+        exists = await asyncio.wait_for(_db.is_user_exist(user.id), timeout=2.0)
+        if not exists:
+            await asyncio.wait_for(
+                _db.add_user(user.id, user.first_name or "User"), timeout=2.0
+            )
             if LOG_CHANNEL:
                 await safe_send_message(
                     client,
@@ -2535,11 +2607,41 @@ async def _register_user_in_bg(client: Client, user):
         pass
 
 
+async def _register_chat_in_bg(client: Client, chat):
+    """Registers a group chat in the background so `/start` in groups never hangs on MongoDB."""
+    if not chat or chat.id in _KNOWN_CHATS_RAM:
+        return
+    _KNOWN_CHATS_RAM.add(chat.id)
+    try:
+        chat_doc = await asyncio.wait_for(_db.get_chat(chat.id), timeout=2.0)
+        if not chat_doc:
+            try:
+                total = await client.get_chat_members_count(chat.id)
+                if LOG_CHANNEL:
+                    await safe_send_message(
+                        client,
+                        LOG_CHANNEL,
+                        script.LOG_TEXT_G.format(
+                            chat.title, chat.id, total, "Unknown"
+                        ),
+                    )
+            except Exception:
+                pass
+            await asyncio.wait_for(
+                _db.add_chat(chat.id, chat.title or "Group"), timeout=2.0
+            )
+    except Exception:
+        pass
+
+
 # ============================================================
-# 🎯 MAIN START & HELP COMMANDS (INSTANT FILE DELIVERY)
+# 🎯 MAIN START & HELP COMMANDS (INSTANT & UNBREAKABLE)
 # ============================================================
-@Client.on_message(filters.command(["start", "help"]) & filters.incoming, group=-14)
+@Client.on_message(filters.command(["start", "help"]), group=-16)
 async def start_and_help_cmd(client: Client, message: Message):
+    if not message or not message.chat:
+        return
+
     uid = (
         message.from_user.id
         if message.from_user
@@ -2559,17 +2661,22 @@ async def start_and_help_cmd(client: Client, message: Message):
     if message.from_user and await is_user_banned(uid):
         return
 
+    cmd_list = message.command or ["start"]
+
     # ⚡ FAST-PATH FOR FILE & SEARCH DEEP-LINKS (0ms Overhead):
     if (
         message.chat.type == enums.ChatType.PRIVATE
-        and len(message.command) == 2
-        and message.command[1] not in ["help", "error", "okay", "hehe"]
+        and len(cmd_list) == 2
+        and cmd_list[1] not in ["help", "error", "okay", "hehe", "start"]
     ):
         if message.from_user and uid not in _KNOWN_USERS_RAM:
             asyncio.create_task(_register_user_in_bg(client, message.from_user))
 
-        cmd_data = message.command[1]
-        from plugins.commands import run_force_sub, send_requested_file
+        cmd_data = cmd_list[1].strip()
+        try:
+            from plugins.commands import run_force_sub, send_requested_file
+        except ImportError:
+            from commands import run_force_sub, send_requested_file
 
         if cmd_data == "subscribe":
             return await run_force_sub(client, message)
@@ -2588,10 +2695,25 @@ async def start_and_help_cmd(client: Client, message: Message):
                 logger.error(f"Search interceptor failed: {e}")
                 await safe_reply_text(
                     message,
-                    f"🔍 <b>Search Query:</b> <code>{query_str}</code>\n\nSend this text in our group to search!",
+                    f"🔍 <b>Search Query:</b> <code>{html.escape(query_str)}</code>\n\nSend this text in our group to search!",
                     parse_mode=enums.ParseMode.HTML,
                 )
             return
+
+        # Support BATCH- and DSTORE- deep links if genlink plugin is present
+        if cmd_data.startswith(("BATCH-", "DSTORE-")):
+            status = await run_force_sub(
+                client, message, file_id=cmd_data, mode="checksub"
+            )
+            if not status:
+                return
+            try:
+                from plugins.genlink import deliver_genlink_payload
+
+                if await deliver_genlink_payload(client, uid, message.chat.id, cmd_data):
+                    return
+            except Exception as e:
+                logger.error(f"Genlink start error: {e}")
 
         kk, file_id = cmd_data.split("_", 1) if "_" in cmd_data else (False, False)
         pre = ("checksubp" if kk == "filep" else "checksub") if kk else False
@@ -2609,11 +2731,12 @@ async def start_and_help_cmd(client: Client, message: Message):
             reply_target=message,
         )
 
+    # Sync custom UI in background/timeout-protected so `/start` never blocks
     await _ensure_ui_synced()
 
     if not getattr(temp, "U_NAME", None) or not getattr(temp, "B_NAME", None):
         try:
-            me = await client.get_me()
+            me = await asyncio.wait_for(client.get_me(), timeout=3.0)
             temp.U_NAME = me.username
             temp.B_NAME = me.first_name
             temp.ME = me.id
@@ -2628,8 +2751,8 @@ async def start_and_help_cmd(client: Client, message: Message):
         else (message.chat.title or "User")
     )
 
-    is_help_command = (message.command[0].lower() == "help") or (
-        len(message.command) == 2 and message.command[1].lower() == "help"
+    is_help_command = (cmd_list[0].lower() == "help") or (
+        len(cmd_list) == 2 and cmd_list[1].lower() == "help"
     )
 
     if is_help_command:
@@ -2640,7 +2763,7 @@ async def start_and_help_cmd(client: Client, message: Message):
                 parse_mode=enums.ParseMode.HTML,
             )
 
-        raw_help = getattr(script, "HELP_TXT", "<b>Help Menu</b>")
+        raw_help = getattr(script, "HELP_TXT", None) or "<b>⚙️ Bot Help Menu</b>"
         text = format_script_text(
             raw_help, mention=user_mention, uname=bot_uname, bname=b_name
         )
@@ -2648,7 +2771,7 @@ async def start_and_help_cmd(client: Client, message: Message):
             text, await get_help_keyboard()
         )
         img = getattr(info, "HELP_IMG", None)
-        if img and len(final_text) <= 1024:
+        if img and str(img).strip().lower() not in ["none", "null", "false", ""] and len(final_text) <= 1024:
             try:
                 return await message.reply_photo(
                     photo=img,
@@ -2666,10 +2789,17 @@ async def start_and_help_cmd(client: Client, message: Message):
             disable_web_page_preview=True,
         )
 
-    # Group /start handling
+    # Group /start handling (non-blocking background chat registration)
     if message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
+        if message.chat.id not in _KNOWN_CHATS_RAM:
+            asyncio.create_task(_register_chat_in_bg(client, message.chat))
+
+        raw_start = (
+            getattr(script, "START_TXT", None)
+            or "<b>Hello {mention}! 👋\n\nI am {bname}, ready to find movies for you!</b>"
+        )
         raw_text = format_script_text(
-            getattr(script, "START_TXT", "Hello {mention}!"),
+            raw_start,
             mention=user_mention,
             uname=bot_uname,
             bname=b_name,
@@ -2677,36 +2807,25 @@ async def start_and_help_cmd(client: Client, message: Message):
         final_text, final_keyboard = safe_parse_text_and_markup(
             raw_text, await get_start_keyboard(client, uid)
         )
-        await safe_reply_text(
+        return await safe_reply_text(
             message,
             final_text,
             reply_markup=final_keyboard,
             parse_mode=enums.ParseMode.HTML,
             disable_web_page_preview=True,
         )
-        if not await _db.get_chat(message.chat.id):
-            try:
-                total = await client.get_chat_members_count(message.chat.id)
-                if LOG_CHANNEL:
-                    await safe_send_message(
-                        client,
-                        LOG_CHANNEL,
-                        script.LOG_TEXT_G.format(
-                            message.chat.title, message.chat.id, total, "Unknown"
-                        ),
-                    )
-            except Exception:
-                pass
-            await _db.add_chat(message.chat.id, message.chat.title)
-        return
 
     # Register new private user in background
     if message.from_user and uid not in _KNOWN_USERS_RAM:
         asyncio.create_task(_register_user_in_bg(client, message.from_user))
 
-    # Standard /start with no deep-link payload
+    # Standard Private /start with no deep-link payload
+    raw_start = (
+        getattr(script, "START_TXT", None)
+        or "<b>Hello {mention}! 👋\n\nWelcome to {bname}! Join our official groups below to request and download movies.</b>"
+    )
     raw_text = format_script_text(
-        getattr(script, "START_TXT", "Hello {mention}!"),
+        raw_start,
         mention=user_mention,
         uname=bot_uname,
         bname=b_name,
@@ -2714,8 +2833,21 @@ async def start_and_help_cmd(client: Client, message: Message):
     final_text, final_keyboard = safe_parse_text_and_markup(
         raw_text, await get_start_keyboard(client, uid)
     )
+
     db_img = getattr(info, "START_IMG", None)
-    photo_to_send = db_img if db_img else (random.choice(PICS) if PICS else None)
+    valid_pics = [
+        p
+        for p in (PICS or [])
+        if p and str(p).strip().lower() not in ["none", "null", "false", ""]
+    ]
+    photo_to_send = (
+        db_img
+        if (
+            db_img
+            and str(db_img).strip().lower() not in ["none", "null", "false", ""]
+        )
+        else (random.choice(valid_pics) if valid_pics else None)
+    )
 
     try:
         if photo_to_send and len(final_text) <= 1024:
@@ -2727,7 +2859,18 @@ async def start_and_help_cmd(client: Client, message: Message):
                     parse_mode=enums.ParseMode.HTML,
                 )
             except Exception:
-                pass
+                try:
+                    # Fallback if custom <tg-emoji> tags in caption failed on non-Premium bot
+                    clean_cap = re.sub(r"</?tg-emoji[^>]*>", "", final_text)
+                    return await message.reply_photo(
+                        photo=photo_to_send,
+                        caption=clean_cap,
+                        reply_markup=final_keyboard,
+                        parse_mode=enums.ParseMode.HTML,
+                    )
+                except Exception:
+                    pass
+
         await safe_reply_text(
             message,
             text=final_text,
@@ -2737,6 +2880,14 @@ async def start_and_help_cmd(client: Client, message: Message):
         )
     except (UserIsBlocked, PeerIdInvalid):
         pass
+    except Exception as e:
+        logger.error(f"/start reply error: {e}")
+        await safe_reply_text(
+            message,
+            text=f"<b>Hello {user_mention}! 👋</b>",
+            reply_markup=final_keyboard,
+            parse_mode=enums.ParseMode.HTML,
+        )
 
 
 # ============================================================
@@ -3276,8 +3427,6 @@ async def _handle_help_cmd_button(client: Client, query: CallbackQuery, cmd_name
         arg_str = str(raw_content).strip()
         arg_html = getattr(raw_content, "html", arg_str) if raw_content else ""
 
-        # Allow commands like /broadcast, /group_broadcast, /filter, /addfilter, /filterimage
-        # to use either `resp.reply_to_message` (if the admin replied to a message) or `resp` itself!
         explicit_reply = getattr(resp, "reply_to_message", None)
         needs_reply_obj = has_media_or_fwd or cmd_clean in [
             "broadcast",
