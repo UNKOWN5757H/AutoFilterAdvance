@@ -919,7 +919,8 @@ async def get_active_connected_group(
     except Exception:
         pass
     for col in _get_all_candidate_cols(
-        "active_connections", _BOT_DB["active_connections"] if _BOT_DB is not None else None
+        "active_connections",
+        _BOT_DB["active_connections"] if _BOT_DB is not None else None,
     ):
         try:
             doc = await col.find_one({"user_id": str(user_id)})
@@ -3440,7 +3441,9 @@ async def interactive_help_actions_cb(client: Client, query: CallbackQuery):
                 rows = list(panel_kb.inline_keyboard) if panel_kb else []
                 rows.append(
                     [
-                        create_btn("🔙 Back to Index Help", callback_data="helps_index"),
+                        create_btn(
+                            "🔙 Back to Index Help", callback_data="helps_index"
+                        ),
                         create_btn("🔐 Close", callback_data="close_data"),
                     ]
                 )
@@ -3886,7 +3889,9 @@ async def interactive_help_actions_cb(client: Client, query: CallbackQuery):
 
             await safe_answer(query, f"📋 Sending {len(kws)} filters...")
 
-            chat_title = "All Groups (Global)" if target_gid == "global" else str(target_gid)
+            chat_title = (
+                "All Groups (Global)" if target_gid == "global" else str(target_gid)
+            )
             if target_gid != "global":
                 try:
                     c_obj = await client.get_chat(int(target_gid))
