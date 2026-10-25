@@ -84,9 +84,9 @@ try:
         safe_parse_text_and_markup,
         save_clean_words_state,
         save_pm_settings,
-        start_and_help_cmd as _uibuttons_start_help_cmd,
-        upload_image_safely,
     )
+    from plugins.uibuttons import start_and_help_cmd as _uibuttons_start_help_cmd
+    from plugins.uibuttons import upload_image_safely
 except ImportError:
     from uibuttons import (
         DEFAULT_CLEAN_WORDS,
@@ -109,9 +109,9 @@ except ImportError:
         safe_parse_text_and_markup,
         save_clean_words_state,
         save_pm_settings,
-        start_and_help_cmd as _uibuttons_start_help_cmd,
-        upload_image_safely,
     )
+    from uibuttons import start_and_help_cmd as _uibuttons_start_help_cmd
+    from uibuttons import upload_image_safely
 
 logger = getLogger(__name__)
 logger.setLevel(ERROR)
