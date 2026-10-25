@@ -404,9 +404,7 @@ async def get_all_allowed_auto_index_channels() -> List[int]:
     """Combines channels from `info.py` (`CHANNELS`, `DATABASE_CHANNEL`, etc.) and dynamically added DB channels."""
     cfg = await get_auto_index_config()
     dyn_channels = [
-        int(k)
-        for k in cfg.get("channels", {}).keys()
-        if str(k).lstrip("-").isdigit()
+        int(k) for k in cfg.get("channels", {}).keys() if str(k).lstrip("-").isdigit()
     ]
     env_channels = _get_env_auto_index_channels()
     return sorted(set(env_channels + dyn_channels))
@@ -648,7 +646,9 @@ def _build_auto_index_panel(cfg: Dict[str, Any]) -> Tuple[str, InlineKeyboardMar
             idx_num += 1
     for cid_str, c_title in dyn_channels.items():
         safe_title = html.escape(str(c_title or cid_str))
-        ch_lines.append(f"{idx_num}. <b>{safe_title}</b> (<code>{html.escape(cid_str)}</code>)")
+        ch_lines.append(
+            f"{idx_num}. <b>{safe_title}</b> (<code>{html.escape(cid_str)}</code>)"
+        )
         idx_num += 1
 
     if ch_lines:
@@ -774,9 +774,7 @@ async def add_index_channel_cmd(client: Client, message: Message):
 
     raw_target = message.command[1].strip()
     try:
-        target_arg = (
-            int(raw_target) if raw_target.lstrip("-").isdigit() else raw_target
-        )
+        target_arg = int(raw_target) if raw_target.lstrip("-").isdigit() else raw_target
         chat_obj = await client.get_chat(target_arg)
         cid = int(chat_obj.id)
         title = chat_obj.title or str(cid)
@@ -968,9 +966,7 @@ def parse_channel_link_or_forward(
 # ============================================================
 # 🧹 /freedb COMMAND (FREES UP WASTED MONGODB SPACE INSTANTLY)
 # ============================================================
-@Client.on_message(
-    filters.command(["freedb", "compactdb", "cleanquota"]), group=-15
-)
+@Client.on_message(filters.command(["freedb", "compactdb", "cleanquota"]), group=-15)
 async def freedb_command_handler(client: Client, message: Message):
     uid = (
         message.from_user.id
