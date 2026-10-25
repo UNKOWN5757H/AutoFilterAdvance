@@ -2,6 +2,7 @@ import asyncio
 import builtins
 import html
 import inspect
+import random
 import re
 import time
 from logging import ERROR, getLogger
@@ -42,7 +43,8 @@ for _t_name, _t_obj in (
 import info
 from database.ia_filterdb import get_file_details
 from database.users_chats_db import db as _db
-from info import AUTH_CHANNEL, CUSTOM_FILE_CAPTION, REQ_CHANNEL
+from info import AUTH_CHANNEL, CUSTOM_FILE_CAPTION, PICS, REQ_CHANNEL
+from Script import script
 from utils import get_size, is_subscribed, temp
 
 try:
@@ -68,17 +70,21 @@ try:
         build_cleanwords_panel_ui,
         build_interactive_help_section,
         cw_db,
+        format_script_text,
         get_clean_words_state,
         get_default_file_keyboard,
         get_deleted_file_notify_keyboard,
+        get_help_keyboard,
         get_pm_autoreply_keyboard,
         get_pm_settings,
+        get_start_keyboard,
         is_global_admin,
         is_user_banned,
         is_waiting_for_cmd_input,
         safe_parse_text_and_markup,
         save_clean_words_state,
         save_pm_settings,
+        start_and_help_cmd as _uibuttons_start_help_cmd,
         upload_image_safely,
     )
 except ImportError:
@@ -89,17 +95,21 @@ except ImportError:
         build_cleanwords_panel_ui,
         build_interactive_help_section,
         cw_db,
+        format_script_text,
         get_clean_words_state,
         get_default_file_keyboard,
         get_deleted_file_notify_keyboard,
+        get_help_keyboard,
         get_pm_autoreply_keyboard,
         get_pm_settings,
+        get_start_keyboard,
         is_global_admin,
         is_user_banned,
         is_waiting_for_cmd_input,
         safe_parse_text_and_markup,
         save_clean_words_state,
         save_pm_settings,
+        start_and_help_cmd as _uibuttons_start_help_cmd,
         upload_image_safely,
     )
 
@@ -209,30 +219,38 @@ def _prepare_compat_kwargs(
 async def safe_reply_text(
     message: Message, text: str, disable_web_page_preview: bool = True, **kwargs
 ):
+    safe_txt = str(text or "Hello!").strip() or "Hello!"
     compat_kw = _prepare_compat_kwargs(
         kwargs, _REPLY_PARAMS, disable_preview=disable_web_page_preview
     )
     try:
-        return await message.reply_text(text, **compat_kw)
+        return await message.reply_text(safe_txt, **compat_kw)
     except TypeError:
         compat_kw.pop("disable_web_page_preview", None)
         compat_kw.pop("link_preview_options", None)
         compat_kw.pop("reply_parameters", None)
         compat_kw.pop("reply_to_message_id", None)
-        return await message.reply_text(text, **compat_kw)
+        try:
+            return await message.reply_text(safe_txt, **compat_kw)
+        except Exception:
+            pass
     except (ChatWriteForbidden, Forbidden, UserIsBlocked, PeerIdInvalid):
         return None
     except Exception:
-        compat_kw.pop("parse_mode", None)
-        try:
-            return await message.reply_text(text, **compat_kw)
-        except Exception:
-            return None
+        pass
+
+    compat_kw.pop("parse_mode", None)
+    plain_txt = re.sub(r"<[^>]+>", "", safe_txt).strip() or "Hello!"
+    try:
+        return await message.reply_text(plain_txt, **compat_kw)
+    except Exception:
+        return None
 
 
 async def safe_edit_text(
     message: Message, text: str, disable_web_page_preview: bool = True, **kwargs
 ):
+    safe_txt = str(text or "Menu").strip() or "Menu"
     compat_kw = _prepare_compat_kwargs(
         kwargs, _EDIT_PARAMS, disable_preview=disable_web_page_preview
     )
@@ -243,18 +261,19 @@ async def safe_edit_text(
                 for k, v in compat_kw.items()
                 if k in ("reply_markup", "parse_mode")
             }
-            return await message.edit_caption(caption=text, **edit_cap_kw)
-        return await message.edit_text(text, **compat_kw)
+            return await message.edit_caption(caption=safe_txt, **edit_cap_kw)
+        return await message.edit_text(safe_txt, **compat_kw)
     except TypeError:
         compat_kw.pop("disable_web_page_preview", None)
         compat_kw.pop("link_preview_options", None)
-        return await message.edit_text(text, **compat_kw)
+        return await message.edit_text(safe_txt, **compat_kw)
     except (MessageNotModified, MessageIdInvalid, ChatWriteForbidden, Forbidden):
         return None
     except Exception:
         compat_kw.pop("parse_mode", None)
+        plain_txt = re.sub(r"<[^>]+>", "", safe_txt).strip() or "Menu"
         try:
-            return await message.edit_text(text, **compat_kw)
+            return await message.edit_text(plain_txt, **compat_kw)
         except Exception:
             return None
 
@@ -266,19 +285,29 @@ async def safe_send_message(
     disable_web_page_preview: Optional[bool] = True,
     **kwargs,
 ):
+    safe_txt = str(text or "Hello!").strip() or "Hello!"
     compat_kw = _prepare_compat_kwargs(
         kwargs, _SEND_MSG_PARAMS, disable_preview=disable_web_page_preview
     )
     try:
-        return await client.send_message(chat_id=chat_id, text=text, **compat_kw)
+        return await client.send_message(chat_id=chat_id, text=safe_txt, **compat_kw)
     except TypeError:
         compat_kw.pop("disable_web_page_preview", None)
         compat_kw.pop("link_preview_options", None)
         compat_kw.pop("reply_parameters", None)
         compat_kw.pop("reply_to_message_id", None)
-        return await client.send_message(chat_id=chat_id, text=text, **compat_kw)
+        return await client.send_message(chat_id=chat_id, text=safe_txt, **compat_kw)
     except (ChatWriteForbidden, Forbidden, UserIsBlocked, PeerIdInvalid):
         return None
+    except Exception:
+        compat_kw.pop("parse_mode", None)
+        plain_txt = re.sub(r"<[^>]+>", "", safe_txt).strip() or "Hello!"
+        try:
+            return await client.send_message(
+                chat_id=chat_id, text=plain_txt, **compat_kw
+            )
+        except Exception:
+            return None
 
 
 async def safe_answer(
@@ -299,6 +328,57 @@ async def safe_answer(
         await query.answer(**kwargs)
     except (QueryIdInvalid, Exception):
         pass
+
+
+# ============================================================
+# 🛡️ FAILSAFE /start & /help HANDLER (GROUP -14)
+# ============================================================
+_HANDLED_START_MSGS: Set[Tuple[int, int]] = set()
+
+
+@Client.on_message(filters.command(["start", "help"]), group=-14)
+async def failsafe_start_and_help_router(client: Client, message: Message):
+    """
+    Guarantees that `/start` and `/help` ALWAYS respond even if `uibuttons.py`
+    was not registered in Pyrogram's plugin loader or encountered an error!
+    Also prevents duplicate execution if `uibuttons.py` already handled the message.
+    """
+    if not message or not message.chat:
+        return
+    msg_key = (int(message.chat.id), int(message.id))
+    if msg_key in _HANDLED_START_MSGS:
+        return
+    if len(_HANDLED_START_MSGS) > 5000:
+        _HANDLED_START_MSGS.clear()
+    _HANDLED_START_MSGS.add(msg_key)
+
+    # Check if uibuttons.start_and_help_cmd is already registered in Pyrogram's dispatcher
+    dispatcher = getattr(client, "dispatcher", None)
+    if dispatcher and getattr(dispatcher, "groups", None):
+        for grp_handlers in dispatcher.groups.values():
+            for h in grp_handlers:
+                cb = getattr(h, "callback", None)
+                if cb and getattr(cb, "__name__", "") == "start_and_help_cmd":
+                    return
+
+    # If uibuttons handler wasn't registered by Pyrogram, execute it directly here!
+    try:
+        await _uibuttons_start_help_cmd(client, message)
+    except Exception as e:
+        logger.error(f"Failsafe /start error: {e}")
+        uid = (
+            message.from_user.id
+            if message.from_user
+            else getattr(message.sender_chat, "id", 0)
+        )
+        mention = message.from_user.mention if message.from_user else "User"
+        kb = await get_start_keyboard(client, uid)
+        await safe_reply_text(
+            message,
+            f"<b>Hello {mention}! 👋\n\nWelcome to {getattr(temp, 'B_NAME', 'MovieBot')}!</b>",
+            reply_markup=kb,
+            parse_mode=enums.ParseMode.HTML,
+        )
 
 
 # ============================================================
