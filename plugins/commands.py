@@ -19,7 +19,12 @@ from pyrogram.errors import (
     QueryIdInvalid,
     UserIsBlocked,
 )
-from pyrogram.types import CallbackQuery, Message
+from pyrogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 
 # Ensure typing aliases exist in builtins before importing other plugins
 for _t_name, _t_obj in (
@@ -41,14 +46,25 @@ from info import AUTH_CHANNEL, CUSTOM_FILE_CAPTION, REQ_CHANNEL
 from utils import get_size, is_subscribed, temp
 
 try:
-    from database.ia_filterdb import encode_file_id, update_cached_file_id
+    from database.ia_filterdb import (
+        encode_file_id,
+        get_all_healthy_read_dbs,
+        get_writable_System_db,
+        mark_db_error,
+        update_cached_file_id,
+    )
 except ImportError:
     encode_file_id = None
     update_cached_file_id = None
+    get_all_healthy_read_dbs = None
+    get_writable_System_db = None
+    mark_db_error = None
 
 try:
     from plugins.uibuttons import (
+        DEFAULT_CLEAN_WORDS,
         _invalidate_pm_filter_clean_cache,
+        _normalize_pm_button_url,
         build_cleanwords_panel_ui,
         build_interactive_help_section,
         cw_db,
@@ -61,12 +77,15 @@ try:
         is_user_banned,
         is_waiting_for_cmd_input,
         safe_parse_text_and_markup,
+        save_clean_words_state,
         save_pm_settings,
         upload_image_safely,
     )
 except ImportError:
     from uibuttons import (
+        DEFAULT_CLEAN_WORDS,
         _invalidate_pm_filter_clean_cache,
+        _normalize_pm_button_url,
         build_cleanwords_panel_ui,
         build_interactive_help_section,
         cw_db,
@@ -79,6 +98,7 @@ except ImportError:
         is_user_banned,
         is_waiting_for_cmd_input,
         safe_parse_text_and_markup,
+        save_clean_words_state,
         save_pm_settings,
         upload_image_safely,
     )
@@ -110,6 +130,46 @@ except ImportError:
 _SEND_MSG_PARAMS = set(inspect.signature(Client.send_message).parameters.keys())
 _REPLY_PARAMS = set(inspect.signature(Message.reply_text).parameters.keys())
 _EDIT_PARAMS = set(inspect.signature(Message.edit_text).parameters.keys())
+
+BTN_PRIMARY = None
+BTN_SUCCESS = None
+BTN_DANGER = None
+_SUPPORTS_BTN_STYLE = False
+
+try:
+    from pyrogram.enums import ButtonStyle
+
+    if "style" in inspect.signature(InlineKeyboardButton.__init__).parameters:
+        BTN_PRIMARY = getattr(ButtonStyle, "PRIMARY", None)
+        BTN_SUCCESS = getattr(ButtonStyle, "SUCCESS", None)
+        BTN_DANGER = getattr(ButtonStyle, "DANGER", None)
+        _SUPPORTS_BTN_STYLE = True
+except (ImportError, ValueError, TypeError):
+    BTN_PRIMARY = BTN_SUCCESS = BTN_DANGER = None
+    _SUPPORTS_BTN_STYLE = False
+
+
+def create_btn(
+    text: str,
+    url: Optional[str] = None,
+    callback_data: Optional[str] = None,
+    style: Any = None,
+) -> InlineKeyboardButton:
+    kwargs: Dict[str, Any] = {"text": str(text)}
+    if url:
+        clean_u = str(url).strip()
+        if clean_u and not clean_u.startswith(("http://", "https://", "tg://")):
+            clean_u = "https://" + clean_u.lstrip("/")
+        kwargs["url"] = clean_u
+    elif callback_data:
+        kwargs["callback_data"] = str(callback_data)[:64]
+    if _SUPPORTS_BTN_STYLE and style is not None:
+        kwargs["style"] = style
+    try:
+        return InlineKeyboardButton(**kwargs)
+    except Exception:
+        kwargs.pop("style", None)
+        return InlineKeyboardButton(**kwargs)
 
 
 def _prepare_compat_kwargs(
@@ -162,6 +222,12 @@ async def safe_reply_text(
         return await message.reply_text(text, **compat_kw)
     except (ChatWriteForbidden, Forbidden, UserIsBlocked, PeerIdInvalid):
         return None
+    except Exception:
+        compat_kw.pop("parse_mode", None)
+        try:
+            return await message.reply_text(text, **compat_kw)
+        except Exception:
+            return None
 
 
 async def safe_edit_text(
@@ -171,6 +237,13 @@ async def safe_edit_text(
         kwargs, _EDIT_PARAMS, disable_preview=disable_web_page_preview
     )
     try:
+        if getattr(message, "photo", None) or getattr(message, "video", None):
+            edit_cap_kw = {
+                k: v
+                for k, v in compat_kw.items()
+                if k in ("reply_markup", "parse_mode")
+            }
+            return await message.edit_caption(caption=text, **edit_cap_kw)
         return await message.edit_text(text, **compat_kw)
     except TypeError:
         compat_kw.pop("disable_web_page_preview", None)
@@ -178,6 +251,12 @@ async def safe_edit_text(
         return await message.edit_text(text, **compat_kw)
     except (MessageNotModified, MessageIdInvalid, ChatWriteForbidden, Forbidden):
         return None
+    except Exception:
+        compat_kw.pop("parse_mode", None)
+        try:
+            return await message.edit_text(text, **compat_kw)
+        except Exception:
+            return None
 
 
 async def safe_send_message(
@@ -220,6 +299,50 @@ async def safe_answer(
         await query.answer(**kwargs)
     except (QueryIdInvalid, Exception):
         pass
+
+
+# ============================================================
+# 💾 QUOTA-SAFE MULTI-DB HELPERS FOR CLEAN WORDS & PM BUTTONS
+# ============================================================
+async def safe_update_clean_words(words_list: List[str], use_default: bool = False):
+    """Delegates directly to uibuttons.save_clean_words_state so RAM + Multi-DB stay 100% synced."""
+    await save_clean_words_state(words_list, use_default=use_default)
+
+
+def _parse_pm_button_args(raw_input: str) -> Tuple[Optional[str], Optional[str], str]:
+    """
+    Parses PM button input in any of these formats:
+    1. `Button Text | https://t.me/link | green`
+    2. `Button Text - https://t.me/link`
+    3. `[Button Text](https://t.me/link)`
+    4. `Button Text | @ChannelUsername`
+    """
+    raw = str(raw_input or "").strip()
+    if not raw:
+        return None, None, "red"
+
+    btn_text, btn_url, btn_color = None, None, "red"
+
+    md_m = re.search(r"\[([^\[\]]+)\]\(\s*([^\(\)]+)\s*\)", raw)
+    if md_m:
+        btn_text = md_m.group(1).strip()
+        btn_url = md_m.group(2).strip()
+    elif "|" in raw:
+        parts = [p.strip() for p in raw.split("|") if p.strip()]
+        if len(parts) >= 2:
+            btn_text, btn_url = parts[0], parts[1]
+            if len(parts) > 2:
+                btn_color = parts[2].lower()
+    elif " - " in raw:
+        parts = [p.strip() for p in raw.split(" - ", 1)]
+        if len(parts) == 2:
+            btn_text, btn_url = parts[0], parts[1]
+
+    if btn_color not in ["green", "red", "blue", "normal"]:
+        btn_color = "red"
+
+    norm_url = _normalize_pm_button_url(btn_url)
+    return btn_text, norm_url, btn_color
 
 
 # ============================================================
@@ -829,12 +952,11 @@ async def file_cb_handler(client: Client, query: CallbackQuery):
 
 
 # ============================================================
-# ⚙️ CLEAN FILENAME COMMANDS (ADMIN ONLY)
+# ⚙️ CLEAN FILENAME COMMANDS (ADMIN ONLY - QUOTA SAFE)
 # ============================================================
 @Client.on_message(
-    filters.command(["listcleanfilename", "cleanfilenames", "cleanwords", "cleanfile"])
-    & filters.incoming,
-    group=-2,
+    filters.command(["listcleanfilename", "cleanfilenames", "cleanwords", "cleanfile"]),
+    group=-15,
 )
 async def list_clean_words_cmd(client: Client, message: Message):
     uid = (
@@ -858,7 +980,7 @@ async def list_clean_words_cmd(client: Client, message: Message):
     )
 
 
-@Client.on_message(filters.command("addcleanfilename") & filters.incoming, group=-2)
+@Client.on_message(filters.command("addcleanfilename"), group=-15)
 async def add_clean_words_cmd(client: Client, message: Message):
     uid = (
         message.from_user.id
@@ -885,15 +1007,10 @@ async def add_clean_words_cmd(client: Client, message: Message):
     new_words = [
         w.strip() for w in message.text.split(None, 1)[1].split(",") if w.strip()
     ]
-    if cw_db is not None and new_words:
+    if new_words:
         _, cur_words = await get_clean_words_state()
-        merged = list(dict.fromkeys(cur_words + new_words))
-        await cw_db.update_one(
-            {"id": "words"},
-            {"$set": {"list": merged, "use_default": False}},
-            upsert=True,
-        )
-        _invalidate_pm_filter_clean_cache()
+        merged = list(dict.fromkeys((cur_words or []) + new_words))
+        await safe_update_clean_words(merged, use_default=False)
         text, markup = await build_cleanwords_panel_ui()
         await safe_reply_text(
             message,
@@ -903,7 +1020,7 @@ async def add_clean_words_cmd(client: Client, message: Message):
         )
 
 
-@Client.on_message(filters.command("setcleanfilename") & filters.incoming, group=-2)
+@Client.on_message(filters.command("setcleanfilename"), group=-15)
 async def set_clean_words(client: Client, message: Message):
     uid = (
         message.from_user.id
@@ -929,23 +1046,17 @@ async def set_clean_words(client: Client, message: Message):
     words_list = [
         w.strip() for w in message.text.split(None, 1)[1].split(",") if w.strip()
     ]
-    if cw_db is not None:
-        await cw_db.update_one(
-            {"id": "words"},
-            {"$set": {"list": words_list, "use_default": False}},
-            upsert=True,
-        )
-        _invalidate_pm_filter_clean_cache()
-        text, markup = await build_cleanwords_panel_ui()
-        await safe_reply_text(
-            message,
-            f"✅ <b>Clean Words Updated Successfully!</b>\n\n{text}",
-            reply_markup=markup,
-            parse_mode=enums.ParseMode.HTML,
-        )
+    await safe_update_clean_words(words_list, use_default=False)
+    text, markup = await build_cleanwords_panel_ui()
+    await safe_reply_text(
+        message,
+        f"✅ <b>Clean Words Updated Successfully!</b>\n\n{text}",
+        reply_markup=markup,
+        parse_mode=enums.ParseMode.HTML,
+    )
 
 
-@Client.on_message(filters.command("defaultcleanfilename") & filters.incoming, group=-2)
+@Client.on_message(filters.command("defaultcleanfilename"), group=-15)
 async def default_clean_words(client: Client, message: Message):
     uid = (
         message.from_user.id
@@ -959,21 +1070,17 @@ async def default_clean_words(client: Client, message: Message):
             parse_mode=enums.ParseMode.HTML,
         )
 
-    if cw_db is not None:
-        await cw_db.update_one(
-            {"id": "words"}, {"$set": {"use_default": True}}, upsert=True
-        )
-        _invalidate_pm_filter_clean_cache()
-        text, markup = await build_cleanwords_panel_ui()
-        await safe_reply_text(
-            message,
-            f"✅ <b>Reverted to Default Clean Words!</b>\n\n{text}",
-            reply_markup=markup,
-            parse_mode=enums.ParseMode.HTML,
-        )
+    await safe_update_clean_words(list(DEFAULT_CLEAN_WORDS), use_default=True)
+    text, markup = await build_cleanwords_panel_ui()
+    await safe_reply_text(
+        message,
+        f"✅ <b>Reverted to Default Clean Words!</b>\n\n{text}",
+        reply_markup=markup,
+        parse_mode=enums.ParseMode.HTML,
+    )
 
 
-@Client.on_message(filters.command("remcleanfilename") & filters.incoming, group=-2)
+@Client.on_message(filters.command("remcleanfilename"), group=-15)
 async def rem_clean_words(client: Client, message: Message):
     uid = (
         message.from_user.id
@@ -987,24 +1094,20 @@ async def rem_clean_words(client: Client, message: Message):
             parse_mode=enums.ParseMode.HTML,
         )
 
-    if cw_db is not None:
-        await cw_db.update_one(
-            {"id": "words"}, {"$set": {"list": [], "use_default": False}}, upsert=True
-        )
-        _invalidate_pm_filter_clean_cache()
-        text, markup = await build_cleanwords_panel_ui()
-        await safe_reply_text(
-            message,
-            f"🗑️ <b>All Custom Clean Words Removed!</b>\n<i>(Note: Stylish fonts, @words and symbols are still always stripped automatically)</i>\n\n{text}",
-            reply_markup=markup,
-            parse_mode=enums.ParseMode.HTML,
-        )
+    await safe_update_clean_words([], use_default=False)
+    text, markup = await build_cleanwords_panel_ui()
+    await safe_reply_text(
+        message,
+        f"🗑️ <b>All Custom Clean Words Removed!</b>\n<i>(Note: Stylish fonts, @words and symbols are still always stripped automatically)</i>\n\n{text}",
+        reply_markup=markup,
+        parse_mode=enums.ParseMode.HTML,
+    )
 
 
 # ============================================================
 # ⚙️ PM REPLY SETTINGS SETUP COMMANDS (ADMIN ONLY)
 # ============================================================
-@Client.on_message(filters.command("setpmtext") & filters.incoming, group=-2)
+@Client.on_message(filters.command("setpmtext"), group=-15)
 async def set_pm_text(client: Client, message: Message):
     uid = (
         message.from_user.id
@@ -1035,7 +1138,7 @@ async def set_pm_text(client: Client, message: Message):
         await safe_reply_text(message, f"⚠️ Error: {e}")
 
 
-@Client.on_message(filters.command("rempmtext") & filters.incoming, group=-2)
+@Client.on_message(filters.command("rempmtext"), group=-15)
 async def rem_pm_text(client: Client, message: Message):
     uid = (
         message.from_user.id
@@ -1059,7 +1162,7 @@ async def rem_pm_text(client: Client, message: Message):
     )
 
 
-@Client.on_message(filters.command("setpmimage") & filters.incoming, group=-2)
+@Client.on_message(filters.command("setpmimage"), group=-15)
 async def set_pm_image(client: Client, message: Message):
     uid = (
         message.from_user.id
@@ -1072,7 +1175,12 @@ async def set_pm_image(client: Client, message: Message):
             "❌ <b>Unauthorized:</b> Global Bot Admin only.",
             parse_mode=enums.ParseMode.HTML,
         )
-    if not message.reply_to_message or not message.reply_to_message.photo:
+    target_photo_msg = (
+        message.reply_to_message
+        if (message.reply_to_message and message.reply_to_message.photo)
+        else (message if message.photo else None)
+    )
+    if not target_photo_msg:
         return await safe_reply_text(
             message,
             "⚙️ <b>Usage:</b> Reply to a photo with <code>/setpmimage</code>",
@@ -1082,7 +1190,7 @@ async def set_pm_image(client: Client, message: Message):
     status = await safe_reply_text(
         message, "⏳ <b>Uploading to Cloud...</b>", parse_mode=enums.ParseMode.HTML
     )
-    url = await upload_image_safely(client, message.reply_to_message)
+    url = await upload_image_safely(client, target_photo_msg)
     if url:
         await save_pm_settings("image", url)
         if status:
@@ -1092,7 +1200,7 @@ async def set_pm_image(client: Client, message: Message):
                 parse_mode=enums.ParseMode.HTML,
             )
     else:
-        file_id = message.reply_to_message.photo.file_id
+        file_id = target_photo_msg.photo.file_id
         await save_pm_settings("image", file_id)
         if status:
             await safe_edit_text(
@@ -1102,7 +1210,7 @@ async def set_pm_image(client: Client, message: Message):
             )
 
 
-@Client.on_message(filters.command("rempmimage") & filters.incoming, group=-2)
+@Client.on_message(filters.command("rempmimage"), group=-15)
 async def rem_pm_image(client: Client, message: Message):
     uid = (
         message.from_user.id
@@ -1121,7 +1229,7 @@ async def rem_pm_image(client: Client, message: Message):
     )
 
 
-@Client.on_message(filters.command("setpmbutton") & filters.incoming, group=-2)
+@Client.on_message(filters.command("setpmbutton"), group=-15)
 async def set_pm_button(client: Client, message: Message):
     uid = (
         message.from_user.id
@@ -1135,38 +1243,54 @@ async def set_pm_button(client: Client, message: Message):
             parse_mode=enums.ParseMode.HTML,
         )
     try:
-        if len(message.command) < 2:
+        raw_arg = (
+            message.text.split(None, 1)[1].strip()
+            if (message.text and len(message.command) >= 2)
+            else ""
+        )
+        if not raw_arg and message.reply_to_message:
+            raw_arg = (
+                message.reply_to_message.text or message.reply_to_message.caption or ""
+            ).strip()
+
+        if not raw_arg:
             return await safe_reply_text(
                 message,
-                "⚙️ <b>Usage:</b> <code>/setpmbutton Text | URL | Color</code>",
-                parse_mode=enums.ParseMode.HTML,
-            )
-        args = message.text.split(None, 1)[1].split("|")
-        if len(args) < 2:
-            return await safe_reply_text(
-                message,
-                "❌ Invalid format. Use: <code>Text | URL | Color</code>",
+                "⚙️ <b>Usage:</b>\n"
+                "• <code>/setpmbutton Text | https://t.me/link | green</code>\n"
+                "• <code>/setpmbutton Text - https://t.me/link</code>\n"
+                "• <code>/setpmbutton [Text](https://t.me/link)</code>",
                 parse_mode=enums.ParseMode.HTML,
             )
 
-        btn_text, btn_url = args[0].strip(), args[1].strip()
-        btn_color = args[2].strip().lower() if len(args) > 2 else "normal"
-        if btn_color not in ["green", "red", "blue", "normal"]:
-            btn_color = "normal"
+        btn_text, btn_url, btn_color = _parse_pm_button_args(raw_arg)
+        if not btn_text or not btn_url:
+            return await safe_reply_text(
+                message,
+                "❌ <b>Invalid button format.</b>\n"
+                "Use: <code>/setpmbutton Text | https://t.me/your_group | green</code>",
+                parse_mode=enums.ParseMode.HTML,
+            )
 
         await save_pm_settings("button_text", btn_text)
         await save_pm_settings("button_url", btn_url)
         await save_pm_settings("button_color", btn_color)
+
+        preview_kb = get_pm_autoreply_keyboard(btn_text, btn_url, btn_color)
         await safe_reply_text(
             message,
-            f"✅ <b>PM Button updated!</b>\n<b>Text:</b> {btn_text}\n<b>URL:</b> {btn_url}\n<b>Color:</b> {btn_color}",
+            f"✅ <b>PM Auto-Reply Button Updated!</b>\n\n"
+            f"🔘 <b>Text:</b> <code>{html.escape(btn_text)}</code>\n"
+            f"🔗 <b>URL:</b> <code>{html.escape(btn_url)}</code>\n"
+            f"🎨 <b>Color:</b> <code>{btn_color.upper()}</code>",
+            reply_markup=preview_kb,
             parse_mode=enums.ParseMode.HTML,
         )
     except Exception as e:
         await safe_reply_text(message, f"⚠️ Error: {e}")
 
 
-@Client.on_message(filters.command("rempmbutton") & filters.incoming, group=-2)
+@Client.on_message(filters.command("rempmbutton"), group=-15)
 async def rem_pm_button(client: Client, message: Message):
     uid = (
         message.from_user.id
@@ -1188,9 +1312,7 @@ async def rem_pm_button(client: Client, message: Message):
     )
 
 
-@Client.on_message(
-    filters.command(["pmautoreply", "pmreply"]) & filters.incoming, group=-2
-)
+@Client.on_message(filters.command(["pmautoreply", "pmreply"]), group=-15)
 async def toggle_pm_autoreply_cmd(client: Client, message: Message):
     uid = (
         message.from_user.id
