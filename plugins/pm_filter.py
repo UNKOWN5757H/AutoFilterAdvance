@@ -260,9 +260,7 @@ def strip_stylish_fonts(text: str) -> str:
         cp = ord(ch)
         if 0x0900 <= cp <= 0x0D7F:
             out_chars.append(ch)
-        elif (
-            0x0300 <= cp <= 0x036F or 0x20D0 <= cp <= 0x20FF or 0xFE00 <= cp <= 0xFE0F
-        ):
+        elif 0x0300 <= cp <= 0x036F or 0x20D0 <= cp <= 0x20FF or 0xFE00 <= cp <= 0xFE0F:
             # Skip combining decorative marks & variation selectors
             continue
         elif cp > 127:
@@ -1274,7 +1272,9 @@ async def safe_save_filter(
     for target_key in {gid_str, "global"}:
         if target_key not in _RAM_FILTERS_STORE:
             _RAM_FILTERS_STORE[target_key] = {}
-        _RAM_FILTERS_STORE[target_key][kw_clean] = dict(doc_payload, group_id=target_key)
+        _RAM_FILTERS_STORE[target_key][kw_clean] = dict(
+            doc_payload, group_id=target_key
+        )
 
     # 2. Save to healthy writable DBs in `manual_filters_v2`
     for db_inst in _get_all_filter_dbs():
