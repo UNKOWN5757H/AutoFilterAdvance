@@ -921,9 +921,7 @@ async def _fsub_waiting_filter_func(_, __, message: Message) -> bool:
 fsub_waiting_filter = filters.create(_fsub_waiting_filter_func)
 
 
-@Client.on_message(
-    (filters.group | filters.private) & fsub_waiting_filter, group=-12
-)
+@Client.on_message((filters.group | filters.private) & fsub_waiting_filter, group=-12)
 async def custom_listener(client: Client, message: Message):
     chat_id = message.chat.id
     req_info = _WAITING_REQUESTS.get(chat_id)
@@ -1694,7 +1692,9 @@ async def rem_fsub(bot: Client, message: Message):
         )
 
 
-@Client.on_message(filters.command(["rmallfsub", "remallfsub", "delallfsub"]), group=-15)
+@Client.on_message(
+    filters.command(["rmallfsub", "remallfsub", "delallfsub"]), group=-15
+)
 async def rem_all_fsub(bot: Client, message: Message):
     target_chat_id = await get_target_chat(bot, message)
     if not await verify_admin(bot, message, target_chat_id):
@@ -1828,9 +1828,7 @@ async def get_pending_fsub_cmd(bot: Client, message: Message):
     )
 
 
-@Client.on_message(
-    filters.command(["activatefsub", "deactivatefsub"]), group=-15
-)
+@Client.on_message(filters.command(["activatefsub", "deactivatefsub"]), group=-15)
 async def toggle_fsub_channel_status_cmd(bot: Client, message: Message):
     target_chat_id = await get_target_chat(bot, message)
     if not await verify_admin(bot, message, target_chat_id):
