@@ -38,7 +38,9 @@ logger.setLevel(ERROR)
 AUTO_DELETE_TASKS = set()
 _ACTIVE_WATCHER_TASKS: Dict[int, asyncio.Task] = {}
 
-DEFAULT_FSUB_CAPTION = "<b>⚠️ Please join the channel below to get your file automatically!</b>"
+DEFAULT_FSUB_CAPTION = (
+    "<b>⚠️ Please join the channel below to get your file automatically!</b>"
+)
 
 # ============================================================
 # 🛡️ SAFE OPTIONAL IMPORTS (ZERO PLUGIN LOAD CRASHES)
@@ -1319,9 +1321,7 @@ async def _check_and_auto_deliver_for_user(bot: Client, user_id: int) -> bool:
         file_id = pending.get("file_id", "0")
         mode = pending.get("mode", "checksub")
         if file_id and file_id != "0":
-            await _deliver_verified_file(
-                bot, uid, prompt_chat_id or uid, file_id, mode
-            )
+            await _deliver_verified_file(bot, uid, prompt_chat_id or uid, file_id, mode)
         return True
 
 
@@ -1370,9 +1370,7 @@ def _register_pending_fsub_delivery(
         and old_pending.get("prompt_msg_id") != prompt_msg_id
     ):
         asyncio.create_task(
-            bot.delete_messages(
-                old_pending["chat_id"], old_pending["prompt_msg_id"]
-            )
+            bot.delete_messages(old_pending["chat_id"], old_pending["prompt_msg_id"])
         )
 
     _PENDING_FSUB_DELIVERIES[uid] = {
