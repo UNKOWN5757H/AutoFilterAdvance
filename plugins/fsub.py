@@ -38,9 +38,7 @@ logger.setLevel(ERROR)
 AUTO_DELETE_TASKS = set()
 _ACTIVE_WATCHER_TASKS: Dict[int, asyncio.Task] = {}
 
-DEFAULT_FSUB_CAPTION = (
-    "<b>Please join below channel to get file!</b>"
-)
+DEFAULT_FSUB_CAPTION = "<b>Please join below channel to get file!</b>"
 
 # ============================================================
 # 🛡️ SAFE OPTIONAL IMPORTS (ZERO PLUGIN LOAD CRASHES)
