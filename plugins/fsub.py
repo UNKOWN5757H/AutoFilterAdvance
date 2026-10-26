@@ -410,11 +410,12 @@ _INVITE_LINK_CACHE: Dict[str, str] = {}
 _VERIFIED_MEMBER_CACHE: Dict[Tuple[int, int], float] = {}
 _JOIN_REQ_RAM_CACHE: set = set()
 
-# 🔄 Per-member Round-Robin Auto-Rotation & Instant Auto-Delivery State:
-# Assigns Member 1 -> Channel 1, Member 2 -> Channel 2, Member 3 -> Channel 3, etc.
-# Tracks pending file requests per user so the moment they join (or send a join request),
-# the bot deletes the FSub prompt and sends their file automatically without any manual button!
-_ROTATION_TURN_COUNTER: int = 0
+# 🔄 Sequential In-Line Auto-Rotation & Instant Auto-Delivery State:
+# Every member is checked strictly in line: Channel A ➔ Channel B ➔ Channel C ➔ Channel D ➔ Channel E...
+# - Request 1: Member not in A ➔ sees ONLY 1 button (Join Channel A). Once joined, file sends automatically!
+# - Request 2: Member already in A ➔ checked in line, not in B ➔ sees ONLY 1 button (Join Channel B). Once joined, file sends automatically!
+# - Request 3: Member already in A & B ➔ checked in line, not in C ➔ sees ONLY 1 button (Join Channel C).
+# - Live Check: If a member leaves Channel A, B, C, etc., live check detects it immediately and requires them to join again!
 _USER_ASSIGNED_CHANNEL: Dict[int, str] = {}
 _PENDING_FSUB_DELIVERIES: Dict[int, Dict[str, Any]] = {}
 _DELIVERY_LOCKS: Dict[int, asyncio.Lock] = {}
@@ -494,7 +495,7 @@ async def get_fsub_config(force_refresh: bool = False) -> dict:
     default_cfg = {
         "is_enabled": True,
         "max_count": 0,
-        "rotation_enabled": False,
+        "rotation_enabled": True,
         "channels": {},
         "updated_at": 0.0,
     }
@@ -543,7 +544,7 @@ async def _persist_full_fsub_config(cfg_doc: dict):
     payload = {
         "is_enabled": cfg_doc.get("is_enabled", True),
         "max_count": cfg_doc.get("max_count", 0),
-        "rotation_enabled": cfg_doc.get("rotation_enabled", False),
+        "rotation_enabled": cfg_doc.get("rotation_enabled", True),
         "channels": cfg_doc.get("channels", {}),
         "updated_at": cfg_doc.get("updated_at", time.time()),
     }
@@ -719,19 +720,12 @@ async def has_join_request(user_id: int, chat_id: Optional[int] = None) -> bool:
                 if doc:
                     _JOIN_REQ_RAM_CACHE.add((int(chat_id), uid))
                     return True
-            doc_any = await target_col.find_one({"user_id": uid})
-            if doc_any:
-                if chat_id is not None:
-                    _JOIN_REQ_RAM_CACHE.add((int(chat_id), uid))
-                return True
         except Exception:
             continue
 
     try:
-        if _join_reqs_db and _join_reqs_db.isActive():
+        if _join_reqs_db and _join_reqs_db.isActive() and chat_id is None:
             if await _join_reqs_db.get_user(uid):
-                if chat_id is not None:
-                    _JOIN_REQ_RAM_CACHE.add((int(chat_id), uid))
                 return True
     except Exception:
         pass
@@ -979,7 +973,7 @@ async def native_listen(
 
 
 # ============================================================
-# 🔗 INVITE LINK & PER-MEMBER 1-CHANNEL ROUND-ROBIN ENGINE
+# 🔗 INVITE LINK & SEQUENTIAL IN-LINE 1-CHANNEL ROTATION ENGINE
 # ============================================================
 async def get_invite_link(bot: Client, chat_id_str: str, config: dict) -> str:
     channels = config.get("channels", {})
@@ -1030,18 +1024,28 @@ async def get_invite_link(bot: Client, chat_id_str: str, config: dict) -> str:
 
 
 async def check_user_in_channel(
-    bot: Client, channel_id: int, user_id: int, is_req: bool = False
+    bot: Client,
+    channel_id: int,
+    user_id: int,
+    is_req: bool = False,
+    bypass_cache: bool = False,
 ) -> bool:
+    """
+    Checks if `user_id` is currently a member (or has a pending join request) in `channel_id`.
+    - When `bypass_cache=True` (used on every new file request), it performs a real-time
+      check against Telegram so if a user left Channel A, B, C, D, or E, it is detected immediately!
+    """
     cid, uid = int(channel_id), int(user_id)
     cache_key = (cid, uid)
     now = time.time()
 
-    exp = _VERIFIED_MEMBER_CACHE.get(cache_key)
-    if exp and now < exp:
-        return True
+    if not bypass_cache:
+        exp = _VERIFIED_MEMBER_CACHE.get(cache_key)
+        if exp and now < exp:
+            return True
 
     if is_req and cache_key in _JOIN_REQ_RAM_CACHE:
-        _VERIFIED_MEMBER_CACHE[cache_key] = now + 3600
+        _VERIFIED_MEMBER_CACHE[cache_key] = now + 300
         return True
 
     try:
@@ -1053,21 +1057,26 @@ async def check_user_in_channel(
         ]:
             if len(_VERIFIED_MEMBER_CACHE) > 20000:
                 _VERIFIED_MEMBER_CACHE.clear()
-            _VERIFIED_MEMBER_CACHE[cache_key] = now + 600
+            _VERIFIED_MEMBER_CACHE[cache_key] = now + 30
             return True
+        else:
+            # User is RESTRICTED / LEFT / BANNED -> remove any stale cache
+            _VERIFIED_MEMBER_CACHE.pop(cache_key, None)
     except UserNotParticipant:
-        pass
+        _VERIFIED_MEMBER_CACHE.pop(cache_key, None)
     except FloodWait as e:
         if e.value <= 5:
             await asyncio.sleep(e.value + 1)
-            return await check_user_in_channel(bot, cid, uid, is_req)
+            return await check_user_in_channel(
+                bot, cid, uid, is_req, bypass_cache=bypass_cache
+            )
         return True
     except Exception:
         pass
 
     if is_req:
         if await has_join_request(uid, cid):
-            _VERIFIED_MEMBER_CACHE[cache_key] = now + 3600
+            _VERIFIED_MEMBER_CACHE[cache_key] = now + 300
             return True
     return False
 
@@ -1076,26 +1085,35 @@ async def _get_missing_channels_and_buttons(
     bot: Client, user_id: int, config: dict, is_refresh: bool = False
 ) -> Tuple[List[List[InlineKeyboardButton]], List[int]]:
     """
-    Returns `(buttons, required_channel_ids)`:
-    - When Auto-Rotation (`rotation_enabled`) is ON:
-      * Member 1 gets Channel 1, Member 2 gets Channel 2, Member 3 gets Channel 3 (Round-Robin).
-      * If the member has already joined their assigned channel, it automatically picks the next
-        unjoined channel in the rotation order.
-      * ALWAYS returns ONLY 1 channel button and 1 required channel ID!
-    - When Auto-Rotation is OFF:
-      * Checks active channels up to `max_count` (standard static mode).
-    """
-    global _ROTATION_TURN_COUNTER
+    Sequential In-Line 1-Channel Rotation Engine (Identical for Every Member):
+    Suppose channels are configured in line: [Channel A, Channel B, Channel C, Channel D, Channel E...]
 
+    - When Auto-Rotation (`rotation_enabled`) is ON:
+      1. Every member is checked strictly in line from the first channel to the last:
+         Channel A ➔ Channel B ➔ Channel C ➔ Channel D ➔ Channel E...
+      2. If the member is NOT in Channel A (or hasn't requested to join Channel A):
+         ➔ Assigns Channel A and shows ONLY 1 button: [Join Channel A].
+         ➔ Once they join Channel A, the bot automatically sends their requested file!
+      3. Next time the member requests a file (or if they are already in Channel A):
+         ➔ Checks Channel A (already joined ✅) ➔ Checks Channel B (not joined ❌)
+         ➔ Assigns Channel B and shows ONLY 1 button: [Join Channel B].
+         ➔ Once they join Channel B, the bot automatically sends their requested file!
+      4. Next time the member requests a file (already in Channel A & Channel B):
+         ➔ Checks Channel A (✅), Channel B (✅) ➔ Checks Channel C (not joined ❌)
+         ➔ Assigns Channel C and shows ONLY 1 button: [Join Channel C].
+      5. Continues in line through Channel D, Channel E, Channel F, etc.!
+      6. Always checks live membership in line before giving files—if a member left Channel A
+         (or any earlier channel), it immediately gives them the Join button for that channel!
+    """
     channels_dict = config.get("channels", {})
     if not channels_dict:
         return [], []
 
-    rotation_enabled = config.get("rotation_enabled", False)
+    rotation_enabled = config.get("rotation_enabled", True)
     max_count = int(config.get("max_count", 0) or 0)
 
     # ============================================================
-    # 🔄 MODE 1: PER-MEMBER ROUND-ROBIN (ALWAYS ONLY 1 CHANNEL)
+    # 🔄 MODE 1: SEQUENTIAL IN-LINE 1-CHANNEL ROTATION (A ➔ B ➔ C ➔ D ➔ E)
     # ============================================================
     if rotation_enabled:
         all_channels = list(channels_dict.keys())
@@ -1103,54 +1121,49 @@ async def _get_missing_channels_and_buttons(
             return [], []
 
         uid = int(user_id)
-        assigned_cid = _USER_ASSIGNED_CHANNEL.get(uid)
 
-        # 1. If the user is being re-checked by the auto-delivery engine (or already has an active assignment):
-        if assigned_cid and assigned_cid in channels_dict:
+        # 1. If this is an auto-delivery background check (`is_refresh=True`) for a currently assigned single channel:
+        assigned_cid = _USER_ASSIGNED_CHANNEL.get(uid)
+        if is_refresh and assigned_cid and assigned_cid in channels_dict:
             ch_data = channels_dict.get(assigned_cid, {})
             is_req = ch_data.get("type") == "req"
-            joined = await check_user_in_channel(bot, int(assigned_cid), uid, is_req)
-
+            joined = await check_user_in_channel(
+                bot, int(assigned_cid), uid, is_req, bypass_cache=True
+            )
             if joined:
-                if is_refresh:
-                    _USER_ASSIGNED_CHANNEL.pop(uid, None)
-                    return [], []
-                # Brand new file request later on and they already joined the old channel:
-                # clear the old assignment so we give them the next unjoined channel below!
                 _USER_ASSIGNED_CHANNEL.pop(uid, None)
-            else:
-                link = await get_invite_link(bot, assigned_cid, config)
-                if link:
-                    btn_text = "⚓ Request to Join" if is_req else "📢 Join Channel"
-                    return (
-                        [[create_btn(btn_text, url=link, style=BTN_PRIMARY)]],
-                        [int(assigned_cid)],
-                    )
+                return [], []
+            link = await get_invite_link(bot, assigned_cid, config)
+            if link:
+                btn_text = "⚓ Request to Join" if is_req else "📢 Join Channel"
+                return (
+                    [[create_btn(btn_text, url=link, style=BTN_PRIMARY)]],
+                    [int(assigned_cid)],
+                )
 
-        # 2. Advance the global Round-Robin counter so every member starts on a different channel:
-        #    Member 1 -> Channel 1, Member 2 -> Channel 2, Member 3 -> Channel 3...
-        turn_idx = _ROTATION_TURN_COUNTER % len(all_channels)
-        _ROTATION_TURN_COUNTER = (_ROTATION_TURN_COUNTER + 1) % 1000000
-        ordered_channels = all_channels[turn_idx:] + all_channels[:turn_idx]
-
-        # 3. Check membership in parallel and pick the FIRST unjoined channel in this member's rotation order
-        async def _check_rot_single(cid_str: str):
+        # 2. Check ALL channels in line [Channel A, Channel B, Channel C, Channel D, Channel E...]
+        #    using live Telegram verification (`bypass_cache=True`) so we always know the exact
+        #    first channel in line that the member has not joined yet!
+        async def _check_line_single(cid_str: str):
             ch_data = channels_dict.get(cid_str, {})
             is_req = ch_data.get("type") == "req"
-            joined = await check_user_in_channel(bot, int(cid_str), uid, is_req)
+            joined = await check_user_in_channel(
+                bot, int(cid_str), uid, is_req, bypass_cache=True
+            )
             return cid_str, is_req, joined
 
         results = await asyncio.gather(
-            *[_check_rot_single(cid) for cid in ordered_channels],
+            *[_check_line_single(cid) for cid in all_channels],
             return_exceptions=True,
         )
 
+        # Find the FIRST channel in line (A -> B -> C -> D -> E...) where the member is NOT joined
         for res in results:
             if isinstance(res, Exception):
                 continue
             cid_str, is_req, joined = res
             if joined:
-                # Member already joined this channel -> skip to the next channel!
+                # Member is already in this channel -> move to the next channel in line!
                 continue
             link = await get_invite_link(bot, cid_str, config)
             if link:
@@ -1158,18 +1171,18 @@ async def _get_missing_channels_and_buttons(
                     _USER_ASSIGNED_CHANNEL.clear()
                 _USER_ASSIGNED_CHANNEL[uid] = cid_str
                 btn_text = "⚓ Request to Join" if is_req else "📢 Join Channel"
-                # ALWAYS return ONLY 1 channel button!
+                # ALWAYS return ONLY 1 channel button for the first unjoined channel in line!
                 return (
                     [[create_btn(btn_text, url=link, style=BTN_PRIMARY)]],
                     [int(cid_str)],
                 )
 
-        # Member has already joined ALL configured channels!
+        # Member has joined ALL channels in line (A, B, C, D, E...)!
         _USER_ASSIGNED_CHANNEL.pop(uid, None)
         return [], []
 
     # ============================================================
-    # 📋 MODE 2: STATIC PRIORITY (ROTATION OFF)
+    # 📋 MODE 2: STATIC PRIORITY (WHEN ROTATION IS TURNED OFF)
     # ============================================================
     eligible_channels = [
         k for k, v in channels_dict.items() if v.get("status", "active") == "active"
@@ -1180,7 +1193,9 @@ async def _get_missing_channels_and_buttons(
     async def _check_single(cid_str: str):
         ch_data = channels_dict.get(cid_str, {})
         is_req = ch_data.get("type") == "req"
-        joined = await check_user_in_channel(bot, int(cid_str), user_id, is_req)
+        joined = await check_user_in_channel(
+            bot, int(cid_str), user_id, is_req, bypass_cache=True
+        )
         return cid_str, is_req, joined
 
     results = await asyncio.gather(
@@ -1293,10 +1308,12 @@ async def _check_and_auto_deliver_for_user(bot: Client, user_id: int) -> bool:
         for req_cid in required_cids:
             ch_data = channels_dict.get(str(req_cid), {})
             is_req = ch_data.get("type") == "req"
-            if not await check_user_in_channel(bot, int(req_cid), uid, is_req):
+            if not await check_user_in_channel(
+                bot, int(req_cid), uid, is_req, bypass_cache=True
+            ):
                 return False
 
-        # All required channels are joined! Pop pending record so it only delivers once
+        # Required channel is joined! Pop pending record so it only delivers once
         _PENDING_FSUB_DELIVERIES.pop(uid, None)
         _USER_ASSIGNED_CHANNEL.pop(uid, None)
 
@@ -1417,7 +1434,7 @@ async def ForceSub(
         safe_fid = file_id or "0"
 
         # Notice: NO manual "✅ I've Joined" button is appended!
-        # Only the channel Join / Request to Join button(s) are shown.
+        # Only the 1 channel Join / Request to Join button is shown.
         b_settings = await get_bot_settings() or {}
         custom_fsub_img = b_settings.get("fsub_img") or getattr(info, "FSUB_IMG", None)
         raw_fsub_msg = b_settings.get("fsub_msg") or getattr(info, "FSUB_MSG", None)
@@ -1539,7 +1556,7 @@ async def refresh_fsub_callback(bot: Client, query: CallbackQuery):
 
 
 # ============================================================
-# 🚪 INSTANT AUTO-DELIVERY ON JOIN REQUEST OR NORMAL CHANNEL JOIN
+# 🚪 INSTANT AUTO-DELIVERY ON JOIN REQUEST OR NORMAL CHANNEL JOIN/LEAVE
 # ============================================================
 @Client.on_chat_join_request(group=-3)
 async def join_reqs_handler(bot: Client, join_req: ChatJoinRequest):
@@ -1566,27 +1583,36 @@ async def auto_deliver_on_channel_join(
     bot: Client, chat_member_updated: ChatMemberUpdated
 ):
     """
-    Fires the exact millisecond a user joins a Normal FSub channel!
-    Marks the user as verified in RAM and automatically sends their pending file.
+    Fires the exact millisecond a user joins or leaves a Normal FSub channel!
+    - If they join: marks verified and immediately sends their pending file.
+    - If they leave: removes them from the verified cache so the next time they request
+      a file, the in-line check requires them to join that channel again!
     """
     try:
         if not chat_member_updated or not chat_member_updated.chat:
             return
+        cid = int(chat_member_updated.chat.id)
         new_m = chat_member_updated.new_chat_member
-        if not new_m or not new_m.user:
+        old_m = chat_member_updated.old_chat_member
+        user_obj = (new_m.user if new_m and new_m.user else None) or (
+            old_m.user if old_m and old_m.user else None
+        )
+        if not user_obj:
             return
 
-        if new_m.status in [
+        uid = int(user_obj.id)
+        if new_m and new_m.status in [
             enums.ChatMemberStatus.MEMBER,
             enums.ChatMemberStatus.ADMINISTRATOR,
             enums.ChatMemberStatus.OWNER,
         ]:
-            uid = int(new_m.user.id)
-            cid = int(chat_member_updated.chat.id)
-            _VERIFIED_MEMBER_CACHE[(cid, uid)] = time.time() + 600
-
+            _VERIFIED_MEMBER_CACHE[(cid, uid)] = time.time() + 30
             if uid in _PENDING_FSUB_DELIVERIES:
                 await _check_and_auto_deliver_for_user(bot, uid)
+        else:
+            # User left or was kicked -> clear cache so in-line check catches it immediately
+            _VERIFIED_MEMBER_CACHE.pop((cid, uid), None)
+            _JOIN_REQ_RAM_CACHE.discard((cid, uid))
     except Exception as e:
         logger.error(f"auto_deliver_on_channel_join error: {e}")
 
@@ -1605,19 +1631,29 @@ async def toggle_rotate(bot: Client, message: Message):
         )
 
     config = await get_fsub_config()
-    current = config.get("rotation_enabled", False)
+    current = config.get("rotation_enabled", True)
     new_val = not current
     _USER_ASSIGNED_CHANNEL.clear()
     await update_fsub_config("rotation_enabled", new_val)
     status = (
-        "🟢 ENABLED (1 Member = 1 Channel Round-Robin + Auto-Send)"
+        "🟢 ENABLED (Sequential In-Line: Ch A ➔ Ch B ➔ Ch C, 1 Button at a Time + Auto-Send)"
         if new_val
         else "🔴 DISABLED (Static Priority + Auto-Send)"
     )
     await safe_reply_text(
         message,
-        f"🔄 <b>Auto-Rotation Engine:</b> {status}\n\n"
-        f"<i>When enabled, each member is given ONLY 1 channel to join (Member 1 ➔ Channel 1, Member 2 ➔ Channel 2, etc.) and receives their file automatically the instant they join!</i>",
+        f"🔄 <b>Auto-Rotation Engine:</b> {status}
+
+"
+        f"<i>When enabled, every member is checked in line (Channel A ➔ Channel B ➔ Channel C ➔ Channel D ➔ Channel E...):
+"
+        f"• Not in Channel A? Shows ONLY Channel A.
+"
+        f"• Already in Channel A? Shows ONLY Channel B.
+"
+        f"• Already in Channel A & B? Shows ONLY Channel C.
+"
+        f"• Sends the file automatically as soon as they join!</i>",
         parse_mode=enums.ParseMode.HTML,
     )
 
@@ -1671,7 +1707,8 @@ async def set_fsub_count_cmd(bot: Client, message: Message):
     if len(message.command) < 2 or not message.command[1].strip().isdigit():
         return await safe_reply_text(
             message,
-            "⚙️ <b>Usage:</b> <code>/setfsubcount &lt;number&gt;</code>\n<i>(Use 0 for unlimited active channels)</i>",
+            "⚙️ <b>Usage:</b> <code>/setfsubcount &lt;number&gt;</code>
+<i>(Use 0 for unlimited active channels)</i>",
             parse_mode=enums.ParseMode.HTML,
         )
 
@@ -1715,8 +1752,10 @@ async def _finalize_setfsub(
             if is_req:
                 return (
                     False,
-                    f"❌ <b>Failed to create Join Request link for <code>{html.escape(str(chat.title))}</code>.</b>\n"
-                    f"Make sure the bot is an admin with <b>'Invite Users via Link'</b> permission.\n"
+                    f"❌ <b>Failed to create Join Request link for <code>{html.escape(str(chat.title))}</code>.</b>
+"
+                    f"Make sure the bot is an admin with <b>'Invite Users via Link'</b> permission.
+"
                     f"<code>Error: {html.escape(str(e))}</code>",
                 )
             try:
@@ -1745,11 +1784,17 @@ async def _finalize_setfsub(
         safe_title = html.escape(str(chat.title or chat.id))
         safe_link = html.escape(str(inv_link))
         msg = (
-            f"✅ <b>Successfully Configured FSub!</b>\n\n"
-            f"📢 <b>Channel:</b> <code>{safe_title}</code>\n"
-            f"🆔 <b>ID:</b> <code>{chat.id}</code>\n"
-            f"🔗 <b>Link:</b> {safe_link}\n"
-            f"⚙️ <b>Type:</b> <code>{'Join Request' if is_req else 'Normal'}</code>\n"
+            f"✅ <b>Successfully Configured FSub!</b>
+
+"
+            f"📢 <b>Channel:</b> <code>{safe_title}</code>
+"
+            f"🆔 <b>ID:</b> <code>{chat.id}</code>
+"
+            f"🔗 <b>Link:</b> {safe_link}
+"
+            f"⚙️ <b>Type:</b> <code>{'Join Request' if is_req else 'Normal'}</code>
+"
             f"🟢 <b>Status:</b> <code>{status.upper()}</code>"
         )
         return True, msg
@@ -1775,7 +1820,8 @@ async def add_dynamic_fsub(bot: Client, message: Message):
     if len(message.command) < 2:
         return await safe_reply_text(
             message,
-            "⚙️ <b>Usage:</b> <code>/setfsub &lt;channel_id&gt;</code>\nExample: <code>/setfsub -1001234567890</code>",
+            "⚙️ <b>Usage:</b> <code>/setfsub &lt;channel_id&gt;</code>
+Example: <code>/setfsub -1001234567890</code>",
             parse_mode=enums.ParseMode.HTML,
         )
 
@@ -1788,7 +1834,8 @@ async def add_dynamic_fsub(bot: Client, message: Message):
     except Exception as e:
         return await safe_reply_text(
             message,
-            f"❌ <b>Failed to fetch channel.</b> Make sure the bot is an admin in <code>{html.escape(channel_id)}</code>.\n<code>Error: {html.escape(str(e))}</code>",
+            f"❌ <b>Failed to fetch channel.</b> Make sure the bot is an admin in <code>{html.escape(channel_id)}</code>.
+<code>Error: {html.escape(str(e))}</code>",
             parse_mode=enums.ParseMode.HTML,
         )
 
@@ -1830,8 +1877,12 @@ async def add_dynamic_fsub(bot: Client, message: Message):
     safe_title = html.escape(str(chat.title or channel_id))
     ask_msg = await safe_reply_text(
         message,
-        f"🎯 <b>Target:</b> <code>{safe_title}</code> (<code>{channel_id}</code>)\n\n"
-        f"Do you want this to be a <b>Join Request</b> channel?\n\n"
+        f"🎯 <b>Target:</b> <code>{safe_title}</code> (<code>{channel_id}</code>)
+
+"
+        f"Do you want this to be a <b>Join Request</b> channel?
+
+"
         f"👉 <b>Click a button below</b> <i>(or reply with <code>y</code> for Yes / <code>n</code> for No)</i>:",
         reply_markup=InlineKeyboardMarkup(buttons),
         parse_mode=enums.ParseMode.HTML,
@@ -2022,9 +2073,9 @@ async def build_fsub_list_ui(
     channels_dict = config.get("channels", {})
     max_count = config.get("max_count", 0)
     rot_status = (
-        "ON (1 Member = 1 Channel + Auto-Send)"
-        if config.get("rotation_enabled", False)
-        else "OFF (Auto-Send)"
+        "ON (In-Line: Ch A ➔ Ch B ➔ Ch C, 1 Button + Auto-Send)"
+        if config.get("rotation_enabled", True)
+        else "OFF (Static Priority + Auto-Send)"
     )
     fsub_enabled = "🟢 ENABLED" if config.get("is_enabled", True) else "🔴 DISABLED"
 
@@ -2033,9 +2084,13 @@ async def build_fsub_list_ui(
         channels = [(k, v) for k, v in channels if v.get("status") == filter_status]
 
     header = (
-        f"📡 <b>Force Subscribe Status:</b> {fsub_enabled}\n"
-        f"⚙️ <b>Queue Limit:</b> <code>{max_count if max_count > 0 else 'Unlimited'}</code>\n"
-        f"🔄 <b>Auto-Rotation:</b> <code>{rot_status}</code>\n\n"
+        f"📡 <b>Force Subscribe Status:</b> {fsub_enabled}
+"
+        f"⚙️ <b>Queue Limit:</b> <code>{max_count if max_count > 0 else 'Unlimited'}</code>
+"
+        f"🔄 <b>Auto-Rotation:</b> <code>{rot_status}</code>
+
+"
     )
 
     if not channels:
@@ -2045,7 +2100,9 @@ async def build_fsub_list_ui(
             None,
         )
 
-    text = header + f"📋 <b>{title_prefix} ForceSub Channels ({len(channels)}):</b>\n\n"
+    text = header + f"📋 <b>{title_prefix} ForceSub Channels In Line ({len(channels)}):</b>
+
+"
     buttons = []
     for idx, (cid, data) in enumerate(channels, 1):
         status_emoji = "🟢" if data.get("status", "active") == "active" else "🟡"
@@ -2056,10 +2113,15 @@ async def build_fsub_list_ui(
             str(data.get("target") or data.get("link") or "No Link Generated")
         )
         text += (
-            f"{idx}. {status_emoji} <b>{safe_title}</b>\n"
-            f"├ ID: <code>{html.escape(str(cid))}</code>\n"
-            f"├ Type: <code>{req_type}</code>\n"
-            f"└ Link: {active_link}\n\n"
+            f"{idx}. {status_emoji} <b>{safe_title}</b>
+"
+            f"├ ID: <code>{html.escape(str(cid))}</code>
+"
+            f"├ Type: <code>{req_type}</code>
+"
+            f"└ Link: {active_link}
+
+"
         )
         buttons.append(
             [
@@ -2305,7 +2367,9 @@ async def purge_requests(bot: Client, message: Message):
 
     ask_msg = await safe_reply_text(
         message,
-        "⚠️ <b>Are you sure you want to delete all join requests?</b>\n\n"
+        "⚠️ <b>Are you sure you want to delete all join requests?</b>
+
+"
         "👉 <i>Click a button below or reply with <code>y</code> / <code>n</code>:</i>",
         reply_markup=InlineKeyboardMarkup(buttons),
         parse_mode=enums.ParseMode.HTML,
