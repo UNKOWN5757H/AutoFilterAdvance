@@ -2,6 +2,7 @@ import asyncio
 import html
 import inspect
 import time
+from collections import OrderedDict
 from logging import ERROR, getLogger
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -51,7 +52,10 @@ except Exception:
 
 
 try:
-    from database.ia_filterdb import get_all_healthy_read_dbs, get_writable_System_db
+    from database.ia_filterdb import (
+        get_all_healthy_read_dbs,
+        get_writable_System_db,
+    )
 except Exception:
     get_all_healthy_read_dbs = None
     get_writable_System_db = None
@@ -377,9 +381,30 @@ _USER_ASSIGNED_CHANNEL: Dict[int, str] = {}
 _PENDING_FSUB_DELIVERIES: Dict[int, Dict[str, Any]] = {}
 _DELIVERY_LOCKS: Dict[int, asyncio.Lock] = {}
 
-# Ephemeral in-memory tracker ONLY for active pending file requests on private Join-Request channels
-# (Never saved to MongoDB, cleared immediately upon file delivery or session expiry)
-_ACTIVE_SESSION_JOIN_REQS: Set[Tuple[int, int]] = set()
+# Pure RAM-Only Join Request Tracker (ZERO MongoDB writes!)
+# Why this is needed: Telegram's Bot API `get_chat_member` returns `UserNotParticipant`
+# for unapproved join requests. Keeping `(channel_id, user_id)` in pure RAM ensures that
+# once a user clicks "Request to Join", future file requests recognise their pending join
+# request immediately without ever saving user data to MongoDB!
+_RAM_JOIN_REQS: OrderedDict = OrderedDict()
+_MAX_RAM_JOIN_REQS = 200000
+
+
+def _record_ram_join_req(chat_id: int, user_id: int):
+    key = (int(chat_id), int(user_id))
+    _RAM_JOIN_REQS[key] = time.time()
+    _RAM_JOIN_REQS.move_to_end(key)
+    if len(_RAM_JOIN_REQS) > _MAX_RAM_JOIN_REQS:
+        _RAM_JOIN_REQS.popitem(last=False)
+
+
+def _has_ram_join_req(chat_id: int, user_id: int) -> bool:
+    return (int(chat_id), int(user_id)) in _RAM_JOIN_REQS
+
+
+def _remove_ram_join_req(chat_id: int, user_id: int):
+    _RAM_JOIN_REQS.pop((int(chat_id), int(user_id)), None)
+
 
 try:
     _DB_CLIENT = AsyncIOMotorClient(
@@ -522,34 +547,35 @@ async def update_fsub_channels(channels_dict: dict):
 
 
 # ============================================================
-# 🚫 NO-OP USER/REQUEST HELPERS (ZERO USER DATA SAVED IN DB)
+# 🚫 RAM-ONLY USER/REQUEST HELPERS (ZERO USER DATA SAVED IN DB)
 # ============================================================
 async def get_total_fsub_users() -> int:
-    """User records are never stored in MongoDB (live Telegram check on every file request)."""
-    return 0
+    """User records are never stored in MongoDB."""
+    return len(_RAM_JOIN_REQS)
 
 
 async def clear_all_fsub_users() -> int:
-    """Drops any legacy user collections if they existed previously to free DB space."""
-    _ACTIVE_SESSION_JOIN_REQS.clear()
+    """Clears RAM join requests and drops any legacy user collections from MongoDB."""
+    cnt = len(_RAM_JOIN_REQS)
+    _RAM_JOIN_REQS.clear()
     for col_name in ("fsub_verified_users", "fsub_users"):
         for col in _get_all_candidate_cols(col_name, None):
             try:
                 await col.drop()
             except Exception:
                 pass
-    return 0
+    return cnt
 
 
 async def get_total_join_requests() -> int:
-    """Join requests are never stored in MongoDB."""
-    return 0
+    """Returns count of active join requests held in RAM (zero MongoDB storage)."""
+    return len(_RAM_JOIN_REQS)
 
 
 async def clear_all_join_requests() -> int:
-    """Drops any legacy join request collections if they existed previously to free DB space."""
-    cnt = len(_ACTIVE_SESSION_JOIN_REQS)
-    _ACTIVE_SESSION_JOIN_REQS.clear()
+    """Clears RAM join requests and drops any legacy join request collections from MongoDB."""
+    cnt = len(_RAM_JOIN_REQS)
+    _RAM_JOIN_REQS.clear()
     for col in _get_all_candidate_cols("fsub_join_requests", None):
         try:
             await col.drop()
@@ -808,7 +834,9 @@ async def check_user_in_channel(
     bot: Client, channel_id: int, user_id: int, is_req: bool = False
 ) -> bool:
     """
-    Performs a 100% real-time live check against Telegram on every single request.
+    Performs a 100% real-time live check against Telegram on every single request,
+    plus checks the pure-RAM Join Request tracker for pending join-request channels
+    (since Telegram's Bot API returns UserNotParticipant for unapproved join requests).
     Zero user records or join requests are ever stored in MongoDB!
     """
     cid, uid = int(channel_id), int(user_id)
@@ -818,8 +846,15 @@ async def check_user_in_channel(
             enums.ChatMemberStatus.MEMBER,
             enums.ChatMemberStatus.ADMINISTRATOR,
             enums.ChatMemberStatus.OWNER,
+            enums.ChatMemberStatus.RESTRICTED,
         ]:
             return True
+        if member.status in [
+            enums.ChatMemberStatus.LEFT,
+            enums.ChatMemberStatus.BANNED,
+        ]:
+            if not is_req:
+                _remove_ram_join_req(cid, uid)
     except UserNotParticipant:
         pass
     except FloodWait as e:
@@ -830,8 +865,9 @@ async def check_user_in_channel(
     except Exception:
         pass
 
-    # If the user just clicked "Request to Join" during this active pending file request
-    if is_req and (cid, uid) in _ACTIVE_SESSION_JOIN_REQS:
+    # Telegram Bot API cannot query pending join requests via get_chat_member (it raises UserNotParticipant).
+    # So if this is a Join-Request channel and the user already sent a Join Request (held in pure RAM), pass!
+    if is_req and _has_ram_join_req(cid, uid):
         return True
 
     return False
@@ -842,6 +878,8 @@ async def _get_missing_channels_and_buttons(
 ) -> Tuple[List[List[InlineKeyboardButton]], List[int]]:
     """
     Performs a real-time live check against Telegram every single time a user requests a file.
+    Includes an '✅ I've Joined / Requested' button so users who already sent a join request
+    before a bot restart can also verify in 1 click without getting stuck!
     """
     channels_dict = config.get("channels", {})
     if not channels_dict:
@@ -967,14 +1005,6 @@ async def _deliver_verified_file(
         pass
 
 
-def _clear_ephemeral_user_join_reqs(user_id: int):
-    """Clears any ephemeral join-request flags for this user so the next file request checks fresh."""
-    uid = int(user_id)
-    for pair in list(_ACTIVE_SESSION_JOIN_REQS):
-        if pair[1] == uid:
-            _ACTIVE_SESSION_JOIN_REQS.discard(pair)
-
-
 async def _check_and_auto_deliver_for_user(bot: Client, user_id: int) -> bool:
     uid = int(user_id)
     pending = _PENDING_FSUB_DELIVERIES.get(uid)
@@ -1001,7 +1031,6 @@ async def _check_and_auto_deliver_for_user(bot: Client, user_id: int) -> bool:
                 return False
 
         _PENDING_FSUB_DELIVERIES.pop(uid, None)
-        _clear_ephemeral_user_join_reqs(uid)
 
         watcher = _ACTIVE_WATCHER_TASKS.pop(uid, None)
         if watcher and not watcher.done() and watcher is not asyncio.current_task():
@@ -1036,7 +1065,6 @@ async def _background_join_poller(bot: Client, user_id: int):
     except Exception:
         pass
     finally:
-        _clear_ephemeral_user_join_reqs(uid)
         if _ACTIVE_WATCHER_TASKS.get(uid) is asyncio.current_task():
             _ACTIVE_WATCHER_TASKS.pop(uid, None)
 
@@ -1053,8 +1081,6 @@ def _register_pending_fsub_delivery(
     uid = int(user_id)
     if len(_PENDING_FSUB_DELIVERIES) > 20000:
         _PENDING_FSUB_DELIVERIES.clear()
-
-    _clear_ephemeral_user_join_reqs(uid)
 
     old_pending = _PENDING_FSUB_DELIVERIES.get(uid)
     if (
@@ -1085,7 +1111,7 @@ def _register_pending_fsub_delivery(
 
 
 # ============================================================
-# 🛑 MAIN FORCESUB INTERCEPTOR (LIVE CHECK EVERY TIME, ZERO DB STORAGE)
+# 🛑 MAIN FORCESUB INTERCEPTOR (LIVE CHECK, ZERO DB STORAGE)
 # ============================================================
 async def ForceSub(
     bot: Client, message: Message, file_id: str = None, mode: str = None
@@ -1101,9 +1127,6 @@ async def ForceSub(
         return True
 
     try:
-        # Clear any old session state so every file request performs a fresh live check against Telegram
-        _clear_ephemeral_user_join_reqs(user.id)
-
         not_joined_buttons, missing_cids = await _get_missing_channels_and_buttons(
             bot, user.id, config, is_refresh=False
         )
@@ -1221,7 +1244,6 @@ async def refresh_fsub_callback(bot: Client, query: CallbackQuery):
             return
 
     _PENDING_FSUB_DELIVERIES.pop(int(user_id), None)
-    _clear_ephemeral_user_join_reqs(user_id)
     await safe_answer(query, "✅ Subscription verified!", show_alert=False)
 
     try:
@@ -1238,8 +1260,10 @@ async def refresh_fsub_callback(bot: Client, query: CallbackQuery):
 @Client.on_chat_join_request(group=-3)
 async def join_reqs_handler(bot: Client, join_req: ChatJoinRequest):
     """
-    Handles live join requests in memory ONLY if the user has an active pending file request.
-    Never saves anything to MongoDB, and clears immediately once the file is delivered!
+    Records ANY incoming Join Request into pure RAM (`_RAM_JOIN_REQS`) — even if the user
+    requested to join before clicking a file link — and never writes to MongoDB!
+    Because `_RAM_JOIN_REQS` is kept in RAM across file requests, the user will NEVER
+    be asked to send a join request to the same channel again!
     """
     user = join_req.from_user
     if not user or not join_req.chat:
@@ -1247,8 +1271,8 @@ async def join_reqs_handler(bot: Client, join_req: ChatJoinRequest):
     try:
         uid = int(user.id)
         cid = int(join_req.chat.id)
+        _record_ram_join_req(cid, uid)
         if uid in _PENDING_FSUB_DELIVERIES:
-            _ACTIVE_SESSION_JOIN_REQS.add((cid, uid))
             await _check_and_auto_deliver_for_user(bot, uid)
     except Exception as e:
         logger.error(f"join_reqs_handler auto-deliver error: {e}")
@@ -1261,18 +1285,24 @@ async def auto_deliver_on_channel_join(
     try:
         if not chat_member_updated or not chat_member_updated.chat:
             return
+        cid = int(chat_member_updated.chat.id)
         new_m = chat_member_updated.new_chat_member
         if not new_m or not new_m.user:
             return
 
+        uid = int(new_m.user.id)
         if new_m.status in [
             enums.ChatMemberStatus.MEMBER,
             enums.ChatMemberStatus.ADMINISTRATOR,
             enums.ChatMemberStatus.OWNER,
         ]:
-            uid = int(new_m.user.id)
             if uid in _PENDING_FSUB_DELIVERIES:
                 await _check_and_auto_deliver_for_user(bot, uid)
+        elif new_m.status in [
+            enums.ChatMemberStatus.LEFT,
+            enums.ChatMemberStatus.BANNED,
+        ]:
+            _remove_ram_join_req(cid, uid)
     except Exception as e:
         logger.error(f"auto_deliver_on_channel_join error: {e}")
 
@@ -1636,7 +1666,7 @@ async def fsub_admin_callbacks(bot: Client, query: CallbackQuery):
             await safe_answer(query, "✅ Join requests purged!", show_alert=True)
             return await safe_edit_text(
                 query.message,
-                f"✅ <b>All join requests purged successfully!</b> (<code>{count}</code> deleted)",
+                f"✅ <b>All join requests purged from RAM & DB!</b> (<code>{count}</code> cleared)",
                 parse_mode=enums.ParseMode.HTML,
             )
 
@@ -1721,7 +1751,7 @@ async def build_fsub_list_ui(
         f"📡 <b>Force Subscribe Status:</b> {fsub_enabled}\n"
         f"⚙️ <b>Queue Limit:</b> <code>{max_count if max_count > 0 else 'Unlimited'}</code>\n"
         f"🔄 <b>Auto-Rotation:</b> <code>{rot_status}</code>\n"
-        f"⚡ <b>Verification Mode:</b> <code>100% Real-Time Live Telegram Check (Zero User DB Storage)</code>\n\n"
+        f"⚡ <b>Verification Mode:</b> <code>Real-Time Live Check + RAM Join-Request Tracker (Zero User DB Storage)</code>\n\n"
     )
 
     if not channels:
@@ -1731,10 +1761,7 @@ async def build_fsub_list_ui(
             None,
         )
 
-    text = (
-        header
-        + f"📋 <b>{title_prefix} ForceSub Channels In Line ({len(channels)}):</b>\n\n"
-    )
+    text = header + f"📋 <b>{title_prefix} ForceSub Channels In Line ({len(channels)}):</b>\n\n"
     buttons = []
     for idx, (cid, data) in enumerate(channels, 1):
         status_emoji = "🟢" if data.get("status", "active") == "active" else "🟡"
@@ -1913,9 +1940,9 @@ async def check_fsub_users_cmd(bot: Client, message: Message):
 
     await safe_reply_text(
         message,
-        "ℹ️ <b>Live Telegram Check Mode Active:</b>\n"
-        "User records and join requests are <b>not</b> stored in MongoDB. "
-        "Every file request is verified in real time against Telegram!",
+        f"ℹ️ <b>Live Telegram Check + RAM Join-Request Mode Active:</b>\n"
+        f"• <b>Active Join Requests in RAM:</b> <code>{len(_RAM_JOIN_REQS):,}</code>\n"
+        f"• <b>MongoDB User Storage:</b> <code>0 Bytes (Disabled)</code>",
         parse_mode=enums.ParseMode.HTML,
     )
 
@@ -1930,10 +1957,10 @@ async def clear_fsub_users_cmd(bot: Client, message: Message):
             parse_mode=enums.ParseMode.HTML,
         )
 
-    await clear_all_fsub_users()
+    cnt = await clear_all_fsub_users()
     await safe_reply_text(
         message,
-        "🗑️ <b>Dropped any legacy ForceSub user collections from MongoDB!</b> (Zero user records are stored).",
+        f"🗑️ <b>Cleared <code>{cnt:,}</code> RAM Join Requests & dropped any legacy MongoDB user collections!</b>",
         parse_mode=enums.ParseMode.HTML,
     )
 
@@ -1953,8 +1980,8 @@ async def total_requests(bot: Client, message: Message):
 
     await safe_reply_text(
         message,
-        "ℹ️ <b>Join requests are not saved in MongoDB.</b>\n"
-        "The bot performs a real-time live check against Telegram every single time a user requests a file.",
+        f"📨 <b>Active Join Requests in RAM:</b> <code>{len(_RAM_JOIN_REQS):,}</code>\n"
+        f"<i>(Zero join requests are stored in MongoDB)</i>",
         parse_mode=enums.ParseMode.HTML,
     )
 
@@ -1969,9 +1996,9 @@ async def purge_requests(bot: Client, message: Message):
             parse_mode=enums.ParseMode.HTML,
         )
 
-    await clear_all_join_requests()
+    cnt = await clear_all_join_requests()
     await safe_reply_text(
         message,
-        "✅ <b>Dropped any legacy join request collections from MongoDB!</b> (Zero join requests are stored in the database).",
+        f"✅ <b>Purged <code>{cnt:,}</code> join requests from RAM and dropped any legacy MongoDB collections!</b>",
         parse_mode=enums.ParseMode.HTML,
     )
