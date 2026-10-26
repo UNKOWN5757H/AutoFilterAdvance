@@ -39,7 +39,7 @@ AUTO_DELETE_TASKS = set()
 _ACTIVE_WATCHER_TASKS: Dict[int, asyncio.Task] = {}
 
 DEFAULT_FSUB_CAPTION = (
-    "<b>⚠️ Please join the channel below to get your file automatically!</b>"
+    "<b>Please join below channel to get file!</b>"
 )
 
 # ============================================================
