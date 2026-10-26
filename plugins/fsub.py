@@ -51,10 +51,7 @@ except Exception:
 
 
 try:
-    from database.ia_filterdb import (
-        get_all_healthy_read_dbs,
-        get_writable_System_db,
-    )
+    from database.ia_filterdb import get_all_healthy_read_dbs, get_writable_System_db
 except Exception:
     get_all_healthy_read_dbs = None
     get_writable_System_db = None
@@ -1667,7 +1664,10 @@ async def build_fsub_list_ui(
             None,
         )
 
-    text = header + f"📋 <b>{title_prefix} ForceSub Channels In Line ({len(channels)}):</b>\n\n"
+    text = (
+        header
+        + f"📋 <b>{title_prefix} ForceSub Channels In Line ({len(channels)}):</b>\n\n"
+    )
     buttons = []
     for idx, (cid, data) in enumerate(channels, 1):
         status_emoji = "🟢" if data.get("status", "active") == "active" else "🟡"
@@ -1845,14 +1845,18 @@ async def check_fsub_users_cmd(bot: Client, message: Message):
         )
 
     count = await get_total_fsub_users()
-    await safe_reply_text(
-        message,
-        f"👥 <b>Total Verified ForceSub Users:</b> <code>{count}</code>",
-        parse_mode=enums.EOF
-    ) if False else await safe_reply_text(
-        message,
-        f"👥 <b>Total Verified ForceSub Users:</b> <code>{count}</code>",
-        parse_mode=enums.ParseMode.HTML,
+    (
+        await safe_reply_text(
+            message,
+            f"👥 <b>Total Verified ForceSub Users:</b> <code>{count}</code>",
+            parse_mode=enums.EOF,
+        )
+        if False
+        else await safe_reply_text(
+            message,
+            f"👥 <b>Total Verified ForceSub Users:</b> <code>{count}</code>",
+            parse_mode=enums.ParseMode.HTML,
+        )
     )
 
 
