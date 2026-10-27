@@ -39,15 +39,15 @@ logger.setLevel(INFO)
 # 🔗 SAFE IMPORTS FOR DATABASE & MULTI-BOT WORKER POOL
 # ============================================================
 try:
+    from database.ia_filterdb import Media as _Media
+    from database.ia_filterdb import free_up_mongodb_storage as _free_up_mongodb_storage
     from database.ia_filterdb import (
-        Media as _Media,
-        free_up_mongodb_storage as _free_up_mongodb_storage,
         get_all_healthy_read_dbs,
         get_writable_System_db,
         mark_db_error,
-        save_batch as _db_save_batch,
-        save_file,
     )
+    from database.ia_filterdb import save_batch as _db_save_batch
+    from database.ia_filterdb import save_file
 except ImportError:
     _Media = None
     _free_up_mongodb_storage = None
