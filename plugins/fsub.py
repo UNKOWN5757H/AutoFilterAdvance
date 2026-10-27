@@ -52,7 +52,10 @@ except Exception:
 
 
 try:
-    from database.ia_filterdb import get_all_healthy_read_dbs, get_writable_System_db
+    from database.ia_filterdb import (
+        get_all_healthy_read_dbs,
+        get_writable_System_db,
+    )
 except Exception:
     get_all_healthy_read_dbs = None
     get_writable_System_db = None
@@ -364,7 +367,7 @@ def schedule_auto_delete(
 
 
 # ============================================================
-# ⚙️ MONGODB CONFIG ONLY (ONLY FSUB CHANNELS ARE SAVED IN DB)
+# ⚙️ MONGODB CONFIG ONLY + STABLE RAM ROTATION & JOIN TRACKER
 # ============================================================
 _fsub_db = None
 _active_db = None
@@ -372,19 +375,22 @@ _BOT_DB = None
 
 _FSUB_CONFIG_CACHE: Optional[dict] = None
 _FSUB_CACHE_TS: float = 0.0
-_INVITE_LINK_CACHE: Dict[str, str] = {}
+_INVITE_LINK_CACHE: Dict[str, Tuple[float, str]] = {}  # cid_str -> (timestamp, link)
+_DEAD_FSUB_CHANNELS: Dict[str, float] = {}  # cid_str -> cooldown_until_ts
 
+# Sticky per-user channel assignment & rotation cursor in RAM (Zero DB writes!)
+# Ensures that:
+# 1. If a user hasn't completed their assigned channel yet, they aren't randomly switched mid-click.
+# 2. Once they complete Channel A and request a 2nd file, the cursor advances to Channel B -> C -> D!
 _USER_ASSIGNED_CHANNEL: Dict[int, str] = {}
+_USER_ROTATION_CURSOR: Dict[int, int] = {}
+
 _PENDING_FSUB_DELIVERIES: Dict[int, Dict[str, Any]] = {}
 _DELIVERY_LOCKS: Dict[int, asyncio.Lock] = {}
 
 # Pure RAM-Only Join Request Tracker (ZERO MongoDB writes!)
-# Why this is needed: Telegram's Bot API `get_chat_member` returns `UserNotParticipant`
-# for unapproved join requests. Keeping `(channel_id, user_id)` in pure RAM ensures that
-# once a user clicks "Request to Join", future file requests recognise their pending join
-# request immediately without ever saving user data to MongoDB!
 _RAM_JOIN_REQS: OrderedDict = OrderedDict()
-_MAX_RAM_JOIN_REQS = 200000
+_MAX_RAM_JOIN_REQS = 250000
 
 
 def _record_ram_join_req(chat_id: int, user_id: int):
@@ -446,6 +452,24 @@ def _get_all_candidate_cols(col_name: str, fallback_col: Any) -> List[Any]:
     return cols
 
 
+def _ordered_channel_keys(channels_dict: dict) -> List[str]:
+    """
+    Returns channel IDs in a deterministic, stable order sorted by their `added_at`
+    timestamp (or insertion order) so MongoDB dict key reordering never scrambles rotation!
+    """
+    if not channels_dict:
+        return []
+    indexed_items = list(enumerate(channels_dict.items()))
+    indexed_items.sort(
+        key=lambda item: (
+            float(item[1][1].get("order", item[0]))
+            if isinstance(item[1][1], dict)
+            else float(item[0])
+        )
+    )
+    return [cid_str for _, (cid_str, _) in indexed_items]
+
+
 async def get_fsub_config(force_refresh: bool = False) -> dict:
     global _FSUB_CONFIG_CACHE, _FSUB_CACHE_TS
     now = time.time()
@@ -482,6 +506,13 @@ async def get_fsub_config(force_refresh: bool = False) -> dict:
         for k, v in default_cfg.items():
             if k not in best_doc:
                 best_doc[k] = v
+        # Ensure every channel has a deterministic `order` index
+        ch_dict = best_doc.get("channels", {})
+        if isinstance(ch_dict, dict):
+            for idx, (cid_k, cid_v) in enumerate(ch_dict.items()):
+                if isinstance(cid_v, dict) and "order" not in cid_v:
+                    cid_v["order"] = idx
+
         if (
             _FSUB_CONFIG_CACHE is not None
             and float(_FSUB_CONFIG_CACHE.get("updated_at", 0.0) or 0.0) > best_ts
@@ -533,11 +564,20 @@ async def update_fsub_config(key: str, value: Any):
 async def update_fsub_channels(channels_dict: dict):
     global _FSUB_CONFIG_CACHE, _FSUB_CACHE_TS
     _USER_ASSIGNED_CHANNEL.clear()
+    _DEAD_FSUB_CHANNELS.clear()
     if _FSUB_CONFIG_CACHE is None:
         await get_fsub_config()
     now = time.time()
+    # Assign deterministic order to all channels
+    ordered_keys = _ordered_channel_keys(channels_dict)
+    clean_channels = {}
+    for idx, k in enumerate(ordered_keys):
+        v = dict(channels_dict[k]) if isinstance(channels_dict[k], dict) else {}
+        v["order"] = idx
+        clean_channels[str(k)] = v
+
     if _FSUB_CONFIG_CACHE is not None:
-        _FSUB_CONFIG_CACHE["channels"] = dict(channels_dict)
+        _FSUB_CONFIG_CACHE["channels"] = clean_channels
         _FSUB_CONFIG_CACHE["updated_at"] = now
         _FSUB_CACHE_TS = now
         await _persist_full_fsub_config(_FSUB_CONFIG_CACHE)
@@ -547,14 +587,14 @@ async def update_fsub_channels(channels_dict: dict):
 # 🚫 RAM-ONLY USER/REQUEST HELPERS (ZERO USER DATA SAVED IN DB)
 # ============================================================
 async def get_total_fsub_users() -> int:
-    """User records are never stored in MongoDB."""
     return len(_RAM_JOIN_REQS)
 
 
 async def clear_all_fsub_users() -> int:
-    """Clears RAM join requests and drops any legacy user collections from MongoDB."""
     cnt = len(_RAM_JOIN_REQS)
     _RAM_JOIN_REQS.clear()
+    _USER_ASSIGNED_CHANNEL.clear()
+    _USER_ROTATION_CURSOR.clear()
     for col_name in ("fsub_verified_users", "fsub_users"):
         for col in _get_all_candidate_cols(col_name, None):
             try:
@@ -565,14 +605,14 @@ async def clear_all_fsub_users() -> int:
 
 
 async def get_total_join_requests() -> int:
-    """Returns count of active join requests held in RAM (zero MongoDB storage)."""
     return len(_RAM_JOIN_REQS)
 
 
 async def clear_all_join_requests() -> int:
-    """Clears RAM join requests and drops any legacy join request collections from MongoDB."""
     cnt = len(_RAM_JOIN_REQS)
     _RAM_JOIN_REQS.clear()
+    _USER_ASSIGNED_CHANNEL.clear()
+    _USER_ROTATION_CURSOR.clear()
     for col in _get_all_candidate_cols("fsub_join_requests", None):
         try:
             await col.drop()
@@ -777,17 +817,32 @@ async def native_listen(
 
 
 # ============================================================
-# 🔗 INVITE LINK & REAL-TIME LIVE MEMBERSHIP CHECK ENGINE
+# 🔗 SELF-HEALING INVITE LINK & REAL-TIME LIVE CHECK ENGINE
 # ============================================================
-async def get_invite_link(bot: Client, chat_id_str: str, config: dict) -> str:
+async def get_invite_link(
+    bot: Client, chat_id_str: str, config: dict, force_regenerate: bool = False
+) -> str:
+    """
+    Fetches or generates a valid invite link for a ForceSub channel.
+    Automatically skips channels where the bot was removed or lacks permissions
+    so rotation never gets stuck on a dead channel!
+    """
+    now = time.time()
+    if now < _DEAD_FSUB_CHANNELS.get(chat_id_str, 0.0):
+        return ""
+
     channels = config.get("channels", {})
     channel_data = channels.get(chat_id_str, {})
     if channel_data.get("target"):
-        return channel_data["target"]
-    if channel_data.get("link"):
-        return channel_data["link"]
-    if chat_id_str in _INVITE_LINK_CACHE:
-        return _INVITE_LINK_CACHE[chat_id_str]
+        return str(channel_data["target"]).strip()
+
+    if not force_regenerate:
+        cached = _INVITE_LINK_CACHE.get(chat_id_str)
+        if cached and (now - cached[0]) < 1800 and cached[1]:
+            return cached[1]
+        if channel_data.get("link"):
+            _INVITE_LINK_CACHE[chat_id_str] = (now, str(channel_data["link"]).strip())
+            return str(channel_data["link"]).strip()
 
     try:
         chat_id_int = int(str(chat_id_str).strip())
@@ -799,32 +854,35 @@ async def get_invite_link(bot: Client, chat_id_str: str, config: dict) -> str:
                 chat_id_int, creates_join_request=is_req
             )
             inv_link = invite.invite_link
+        except FloodWait as e:
+            if e.value <= 5:
+                await asyncio.sleep(e.value + 1)
+            inv_link = channel_data.get("link") or ""
         except Exception:
-            try:
-                inv_link = await bot.export_chat_invite_link(chat_id_int)
-            except Exception:
-                inv_link = chat.invite_link or (
-                    f"https://t.me/{chat.username}" if chat.username else ""
-                )
+            if not is_req:
+                try:
+                    inv_link = await bot.export_chat_invite_link(chat_id_int)
+                except Exception:
+                    inv_link = chat.invite_link or (
+                        f"https://t.me/{chat.username}" if chat.username else ""
+                    )
 
         if inv_link:
-            _INVITE_LINK_CACHE[chat_id_str] = inv_link
-            if chat_id_str not in channels:
-                channels[chat_id_str] = {
-                    "title": chat.title or str(chat_id_int),
-                    "link": inv_link,
-                    "target": None,
-                    "type": "req" if is_req else "regular",
-                    "status": "active",
-                }
-            else:
+            _INVITE_LINK_CACHE[chat_id_str] = (now, inv_link)
+            if chat_id_str in channels:
                 channels[chat_id_str]["link"] = inv_link
                 channels[chat_id_str]["title"] = chat.title or str(chat_id_int)
-            await update_fsub_channels(channels)
-        return inv_link
-    except (ChatAdminRequired, Exception) as e:
-        logger.error(f"get_invite_link error for {chat_id_str}: {e}")
+            return inv_link
+        else:
+            _DEAD_FSUB_CHANNELS[chat_id_str] = now + 300
+            return ""
+    except (ChatAdminRequired, PeerIdInvalid, Forbidden) as e:
+        logger.error(f"FSub channel {chat_id_str} unreachable/no admin: {e}")
+        _DEAD_FSUB_CHANNELS[chat_id_str] = now + 300
         return ""
+    except Exception as e:
+        logger.error(f"get_invite_link error for {chat_id_str}: {e}")
+        return channel_data.get("link") or ""
 
 
 async def check_user_in_channel(
@@ -832,11 +890,20 @@ async def check_user_in_channel(
 ) -> bool:
     """
     Performs a 100% real-time live check against Telegram on every single request,
-    plus checks the pure-RAM Join Request tracker for pending join-request channels
-    (since Telegram's Bot API returns UserNotParticipant for unapproved join requests).
-    Zero user records or join requests are ever stored in MongoDB!
+    plus checks the pure-RAM Join Request tracker for pending join-request channels.
+    If the bot is not an admin or the channel is unreachable, returns True (fail-open)
+    so users are never blocked by a misconfigured channel!
     """
     cid, uid = int(channel_id), int(user_id)
+    cid_str = str(cid)
+
+    if time.time() < _DEAD_FSUB_CHANNELS.get(cid_str, 0.0):
+        return True
+
+    # Fast-path for Join-Request channels if the user already sent a request in this session
+    if is_req and _has_ram_join_req(cid, uid):
+        return True
+
     try:
         member = await bot.get_chat_member(cid, uid)
         if member.status in [
@@ -859,11 +926,13 @@ async def check_user_in_channel(
             await asyncio.sleep(e.value + 1)
             return await check_user_in_channel(bot, cid, uid, is_req)
         return True
+    except (ChatAdminRequired, PeerIdInvalid, Forbidden):
+        # Bot lost admin in this channel; mark channel temporarily dead & don't block user
+        _DEAD_FSUB_CHANNELS[cid_str] = time.time() + 300
+        return True
     except Exception:
-        pass
+        return True
 
-    # Telegram Bot API cannot query pending join requests via get_chat_member (it raises UserNotParticipant).
-    # So if this is a Join-Request channel and the user already sent a Join Request (held in pure RAM), pass!
     if is_req and _has_ram_join_req(cid, uid):
         return True
 
@@ -874,24 +943,58 @@ async def _get_missing_channels_and_buttons(
     bot: Client, user_id: int, config: dict, is_refresh: bool = False
 ) -> Tuple[List[List[InlineKeyboardButton]], List[int]]:
     """
-    Performs a real-time live check against Telegram every single time a user requests a file.
-    Includes an '✅ I've Joined / Requested' button so users who already sent a join request
-    before a bot restart can also verify in 1 click without getting stuck!
+    Stabilized Force Subscribe Rotation & Priority Engine:
+    - When `rotation_enabled` is True:
+      1. Maintains a deterministic channel list (`Ch 1 ➔ Ch 2 ➔ Ch 3 ➔ ...`).
+      2. If the user already has a pending assigned channel (`_USER_ASSIGNED_CHANNEL[uid]`)
+         and still hasn't joined/requested it, keeps showing that exact same channel
+         so the button never jumps while they are trying to join!
+      3. Once the user joins/requests their assigned channel and asks for their next file,
+         automatically advances their rotation cursor to the next unjoined channel in line!
+    - Includes a fallback `✅ Verify / Try Again` button below the join button so if a user
+      already sent a join request earlier (or if Telegram delays the join event), they can
+      verify in 1 click without getting stuck!
     """
     channels_dict = config.get("channels", {})
     if not channels_dict:
         return [], []
 
+    ordered_cids = [
+        cid
+        for cid in _ordered_channel_keys(channels_dict)
+        if time.time() >= _DEAD_FSUB_CHANNELS.get(cid, 0.0)
+    ]
+    if not ordered_cids:
+        return [], []
+
+    uid = int(user_id)
     rotation_enabled = config.get("rotation_enabled", True)
     max_count = int(config.get("max_count", 0) or 0)
 
     if rotation_enabled:
-        all_channels = list(channels_dict.keys())
-        if not all_channels:
-            return [], []
+        # 1. Check if the user has a sticky assigned channel they haven't completed yet
+        assigned_cid = _USER_ASSIGNED_CHANNEL.get(uid)
+        if assigned_cid and assigned_cid in channels_dict:
+            ch_data = channels_dict.get(assigned_cid, {})
+            is_req = ch_data.get("type") == "req"
+            if not await check_user_in_channel(bot, int(assigned_cid), uid, is_req):
+                link = await get_invite_link(bot, assigned_cid, config)
+                if link:
+                    btn_text = "⚓ Request to Join" if is_req else "📢 Join Channel"
+                    return (
+                        [[create_btn(btn_text, url=link, style=BTN_PRIMARY)]],
+                        [int(assigned_cid)],
+                    )
+            else:
+                # User completed their assigned channel! Advance their rotation cursor
+                _USER_ASSIGNED_CHANNEL.pop(uid, None)
+                try:
+                    completed_idx = ordered_cids.index(assigned_cid)
+                    _USER_ROTATION_CURSOR[uid] = (completed_idx + 1) % len(ordered_cids)
+                except ValueError:
+                    pass
 
-        uid = int(user_id)
-
+        # 2. Check all channels concurrently in real time
         async def _check_line_single(cid_str: str):
             ch_data = channels_dict.get(cid_str, {})
             is_req = ch_data.get("type") == "req"
@@ -899,18 +1002,30 @@ async def _get_missing_channels_and_buttons(
             return cid_str, is_req, joined
 
         results = await asyncio.gather(
-            *[_check_line_single(cid) for cid in all_channels],
+            *[_check_line_single(cid) for cid in ordered_cids],
             return_exceptions=True,
         )
 
+        status_by_cid: Dict[str, Tuple[bool, bool]] = {}
         for res in results:
             if isinstance(res, Exception):
                 continue
             cid_str, is_req, joined = res
+            status_by_cid[cid_str] = (is_req, joined)
+
+        # Start scanning from the user's rotation cursor so channels rotate evenly in line
+        start_idx = _USER_ROTATION_CURSOR.get(uid, 0) % len(ordered_cids)
+        rotated_order = ordered_cids[start_idx:] + ordered_cids[:start_idx]
+
+        for cid_str in rotated_order:
+            is_req, joined = status_by_cid.get(cid_str, (False, True))
             if joined:
                 continue
             link = await get_invite_link(bot, cid_str, config)
             if link:
+                if len(_USER_ASSIGNED_CHANNEL) > 100000:
+                    _USER_ASSIGNED_CHANNEL.clear()
+                _USER_ASSIGNED_CHANNEL[uid] = cid_str
                 btn_text = "⚓ Request to Join" if is_req else "📢 Join Channel"
                 return (
                     [[create_btn(btn_text, url=link, style=BTN_PRIMARY)]],
@@ -919,21 +1034,35 @@ async def _get_missing_channels_and_buttons(
 
         return [], []
 
-    # Static priority mode
+    # Static priority mode (when rotation_enabled is False)
     eligible_channels = [
-        k for k, v in channels_dict.items() if v.get("status", "active") == "active"
+        cid
+        for cid in ordered_cids
+        if channels_dict.get(cid, {}).get("status", "active") == "active"
     ]
     if not eligible_channels:
         return [], []
+
+    async def _check_static_single(cid_str: str):
+        ch_data = channels_dict.get(cid_str, {})
+        is_req = ch_data.get("type") == "req"
+        joined = await check_user_in_channel(bot, int(cid_str), uid, is_req)
+        return cid_str, is_req, joined
+
+    results = await asyncio.gather(
+        *[_check_static_single(cid) for cid in eligible_channels],
+        return_exceptions=True,
+    )
 
     not_joined_buttons = []
     missing_cids: List[int] = []
     channels_to_force = 0
 
-    for cid_str in eligible_channels:
-        ch_data = channels_dict.get(cid_str, {})
-        is_req = ch_data.get("type") == "req"
-        if await check_user_in_channel(bot, int(cid_str), user_id, is_req):
+    for res in results:
+        if isinstance(res, Exception):
+            continue
+        cid_str, is_req, joined = res
+        if joined:
             continue
         if max_count > 0 and channels_to_force >= max_count:
             break
@@ -1002,7 +1131,9 @@ async def _deliver_verified_file(
         pass
 
 
-async def _check_and_auto_deliver_for_user(bot: Client, user_id: int) -> bool:
+async def _check_and_auto_deliver_for_user(
+    bot: Client, user_id: int, joined_chat_id: Optional[int] = None
+) -> bool:
     uid = int(user_id)
     pending = _PENDING_FSUB_DELIVERIES.get(uid)
     if not pending:
@@ -1019,13 +1150,24 @@ async def _check_and_auto_deliver_for_user(bot: Client, user_id: int) -> bool:
 
         config = await get_fsub_config()
         channels_dict = config.get("channels", {})
+        ordered_cids = _ordered_channel_keys(channels_dict)
         required_cids: List[int] = pending.get("required_channels", [])
 
         for req_cid in required_cids:
+            if joined_chat_id is not None and int(req_cid) == int(joined_chat_id):
+                continue
             ch_data = channels_dict.get(str(req_cid), {})
             is_req = ch_data.get("type") == "req"
             if not await check_user_in_channel(bot, int(req_cid), uid, is_req):
                 return False
+
+        # Advance rotation cursor for next file request after this channel is completed
+        assigned_cid = _USER_ASSIGNED_CHANNEL.pop(uid, None)
+        if assigned_cid and ordered_cids and assigned_cid in ordered_cids:
+            idx = ordered_cids.index(assigned_cid)
+            if len(_USER_ROTATION_CURSOR) > 100000:
+                _USER_ROTATION_CURSOR.clear()
+            _USER_ROTATION_CURSOR[uid] = (idx + 1) % len(ordered_cids)
 
         _PENDING_FSUB_DELIVERIES.pop(uid, None)
 
@@ -1051,7 +1193,7 @@ async def _check_and_auto_deliver_for_user(bot: Client, user_id: int) -> bool:
 async def _background_join_poller(bot: Client, user_id: int):
     uid = int(user_id)
     try:
-        for _ in range(150):  # 150 * 2s = 5 minutes
+        for _ in range(90):  # 90 * 2s = 3 minutes
             await asyncio.sleep(2)
             if uid not in _PENDING_FSUB_DELIVERIES:
                 return
@@ -1258,9 +1400,7 @@ async def refresh_fsub_callback(bot: Client, query: CallbackQuery):
 async def join_reqs_handler(bot: Client, join_req: ChatJoinRequest):
     """
     Records ANY incoming Join Request into pure RAM (`_RAM_JOIN_REQS`) — even if the user
-    requested to join before clicking a file link — and never writes to MongoDB!
-    Because `_RAM_JOIN_REQS` is kept in RAM across file requests, the user will NEVER
-    be asked to send a join request to the same channel again!
+    requested to join before clicking a file link — and immediately delivers any pending file!
     """
     user = join_req.from_user
     if not user or not join_req.chat:
@@ -1270,7 +1410,7 @@ async def join_reqs_handler(bot: Client, join_req: ChatJoinRequest):
         cid = int(join_req.chat.id)
         _record_ram_join_req(cid, uid)
         if uid in _PENDING_FSUB_DELIVERIES:
-            await _check_and_auto_deliver_for_user(bot, uid)
+            await _check_and_auto_deliver_for_user(bot, uid, joined_chat_id=cid)
     except Exception as e:
         logger.error(f"join_reqs_handler auto-deliver error: {e}")
 
@@ -1294,7 +1434,7 @@ async def auto_deliver_on_channel_join(
             enums.ChatMemberStatus.OWNER,
         ]:
             if uid in _PENDING_FSUB_DELIVERIES:
-                await _check_and_auto_deliver_for_user(bot, uid)
+                await _check_and_auto_deliver_for_user(bot, uid, joined_chat_id=cid)
         elif new_m.status in [
             enums.ChatMemberStatus.LEFT,
             enums.ChatMemberStatus.BANNED,
@@ -1329,7 +1469,7 @@ async def toggle_rotate(bot: Client, message: Message):
     await safe_reply_text(
         message,
         f"🔄 <b>Auto-Rotation Engine:</b> {status}\n\n"
-        f"<i>When enabled, every member is checked in line in real time against Telegram!</i>",
+        f"<i>When enabled, each user progresses cleanly through your channels (Ch 1 ➔ Ch 2 ➔ Ch 3) with sticky assignment and real-time Telegram verification!</i>",
         parse_mode=enums.ParseMode.HTML,
     )
 
@@ -1443,14 +1583,21 @@ async def _finalize_setfsub(
                     f"❌ <b>The bot is not an admin in <code>{html.escape(str(chat.title))}</code> or lacks 'Invite Users' rights.</b>",
                 )
 
-        _INVITE_LINK_CACHE[str(chat.id)] = inv_link
+        _INVITE_LINK_CACHE[str(chat.id)] = (time.time(), inv_link)
+        _DEAD_FSUB_CHANNELS.pop(str(chat.id), None)
 
+        existing_order = (
+            channels[str(chat.id)].get("order", len(channels))
+            if str(chat.id) in channels and isinstance(channels[str(chat.id)], dict)
+            else len(channels)
+        )
         channels[str(chat.id)] = {
             "title": chat.title or str(chat.id),
             "link": inv_link,
             "target": None,
             "type": fsub_type,
             "status": status,
+            "order": existing_order,
         }
         await update_fsub_channels(channels)
 
@@ -1637,6 +1784,7 @@ async def fsub_admin_callbacks(bot: Client, query: CallbackQuery):
         if channel_id in channels:
             del channels[channel_id]
             _INVITE_LINK_CACHE.pop(channel_id, None)
+            _DEAD_FSUB_CHANNELS.pop(channel_id, None)
             await update_fsub_channels(channels)
             await safe_answer(query, "🗑️ Channel removed!", show_alert=True)
             text, markup = await build_fsub_list_ui("All")
@@ -1692,6 +1840,7 @@ async def rem_fsub(bot: Client, message: Message):
     if channel_id in channels:
         del channels[channel_id]
         _INVITE_LINK_CACHE.pop(channel_id, None)
+        _DEAD_FSUB_CHANNELS.pop(channel_id, None)
         await update_fsub_channels(channels)
         await safe_reply_text(
             message,
@@ -1719,6 +1868,7 @@ async def rem_all_fsub(bot: Client, message: Message):
         )
 
     _INVITE_LINK_CACHE.clear()
+    _DEAD_FSUB_CHANNELS.clear()
     await update_fsub_channels({})
     await safe_reply_text(
         message,
@@ -1734,13 +1884,14 @@ async def build_fsub_list_ui(
     channels_dict = config.get("channels", {})
     max_count = config.get("max_count", 0)
     rot_status = (
-        "ON (In-Line: Ch A ➔ Ch B ➔ Ch C, 1 Button + Auto-Send)"
+        "ON (Sticky Progressive In-Line: Ch 1 ➔ Ch 2 ➔ Ch 3)"
         if config.get("rotation_enabled", True)
         else "OFF (Static Priority + Auto-Send)"
     )
     fsub_enabled = "🟢 ENABLED" if config.get("is_enabled", True) else "🔴 DISABLED"
 
-    channels = list(channels_dict.items())
+    ordered_keys = _ordered_channel_keys(channels_dict)
+    channels = [(k, channels_dict[k]) for k in ordered_keys]
     if filter_status:
         channels = [(k, v) for k, v in channels if v.get("status") == filter_status]
 
@@ -1764,7 +1915,12 @@ async def build_fsub_list_ui(
     )
     buttons = []
     for idx, (cid, data) in enumerate(channels, 1):
-        status_emoji = "🟢" if data.get("status", "active") == "active" else "🟡"
+        is_dead = time.time() < _DEAD_FSUB_CHANNELS.get(cid, 0.0)
+        status_emoji = (
+            "🔴"
+            if is_dead
+            else ("🟢" if data.get("status", "active") == "active" else "🟡")
+        )
         req_type = "Join Request" if data.get("type") == "req" else "Normal"
         raw_title = str(data.get("title", "Unknown"))
         safe_title = html.escape(raw_title)
@@ -1880,6 +2036,7 @@ async def toggle_fsub_channel_status_cmd(bot: Client, message: Message):
 
     new_status = "active" if cmd == "activatefsub" else "pending"
     channels[cid]["status"] = new_status
+    _DEAD_FSUB_CHANNELS.pop(cid, None)
     await update_fsub_channels(channels)
     await safe_reply_text(
         message,
@@ -1920,6 +2077,7 @@ async def update_fsub_target_cmd(bot: Client, message: Message):
         None if target_link.lower() in ["off", "none", "reset"] else target_link
     )
     _INVITE_LINK_CACHE.pop(cid, None)
+    _DEAD_FSUB_CHANNELS.pop(cid, None)
     await update_fsub_channels(channels)
     await safe_reply_text(
         message,
