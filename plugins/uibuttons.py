@@ -2949,6 +2949,7 @@ async def start_and_help_cmd(client: Client, message: Message):
             parse_mode=enums.ParseMode.HTML,
         )
 
+
 # ============================================================
 # 🚀 UNIVERSAL COMMAND DISPATCHER FOR HELP MENU BUTTONS
 # ============================================================
