@@ -1288,6 +1288,8 @@ async def get_help_keyboard() -> InlineKeyboardMarkup:
             create_btn("🔗 Shortener", callback_data="helps_shortener"),
             create_btn("💾 Database", callback_data="helps_backup"),
         ],
+
+    ]
         
     custom_rows = await _get_custom_rows("help")
     if custom_rows:
