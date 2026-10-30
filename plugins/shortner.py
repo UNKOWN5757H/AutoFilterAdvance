@@ -253,7 +253,11 @@ def _invalidate_pm_filter_search_cache():
 async def get_shortener_config(force_refresh: bool = False) -> Dict[str, Any]:
     global _SHORTENER_CACHE_TS
     now = time.time()
-    if not force_refresh and _SHORTENER_CACHE_TS > 0 and (now - _SHORTENER_CACHE_TS) < 300:
+    if (
+        not force_refresh
+        and _SHORTENER_CACHE_TS > 0
+        and (now - _SHORTENER_CACHE_TS) < 300
+    ):
         return _SHORTENER_RAM_CONFIG
 
     best_doc = None
@@ -270,7 +274,9 @@ async def get_shortener_config(force_refresh: bool = False) -> Dict[str, Any]:
         except Exception:
             continue
 
-    if best_doc and best_ts >= float(_SHORTENER_RAM_CONFIG.get("updated_at", 0.0) or 0.0):
+    if best_doc and best_ts >= float(
+        _SHORTENER_RAM_CONFIG.get("updated_at", 0.0) or 0.0
+    ):
         _SHORTENER_RAM_CONFIG["enabled"] = bool(best_doc.get("enabled", False))
         _SHORTENER_RAM_CONFIG["site"] = _clean_site_domain(best_doc.get("site", ""))
         _SHORTENER_RAM_CONFIG["api"] = str(best_doc.get("api", "") or "").strip()
@@ -347,7 +353,9 @@ def _shorten_sync(site: str, api: str, long_url: str) -> str:
 
     endpoints = []
     if "shareus" in domain:
-        endpoints.append(f"https://api.shareus.io/easy_api?key={api}&link={encoded_url}")
+        endpoints.append(
+            f"https://api.shareus.io/easy_api?key={api}&link={encoded_url}"
+        )
         endpoints.append(f"https://{domain}/easy_api?key={api}&link={encoded_url}")
     elif "ouo.io" in domain or "ouo.press" in domain:
         endpoints.append(f"https://ouo.io/api/{api}?s={encoded_url}")
@@ -383,7 +391,9 @@ def _shorten_sync(site: str, api: str, long_url: str) -> str:
     return long_url
 
 
-async def shorten_single_url(long_url: str, cfg: Optional[Dict[str, Any]] = None) -> str:
+async def shorten_single_url(
+    long_url: str, cfg: Optional[Dict[str, Any]] = None
+) -> str:
     """Shortens a single URL if shortener is enabled and configured; otherwise returns `long_url`."""
     if not long_url:
         return long_url
