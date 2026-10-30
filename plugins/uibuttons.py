@@ -140,6 +140,8 @@ HELP_SHORTCUT_MAP: Dict[str, str] = {
     "customcaptions": "helps_customcaption",
     "backups": "helps_backup",
     "posthand": "helps_posthand",
+    "shorteners": "helps_shortener",
+    "shortners": "helps_shortener",
 }
 
 # ============================================================
@@ -328,6 +330,11 @@ _DIRECT_CMD_ROUTES: Dict[str, Tuple[str, str]] = {
     "setcleanfilename": ("plugins.commands", "set_clean_words"),
     "defaultcleanfilename": ("plugins.commands", "default_clean_words"),
     "remcleanfilename": ("plugins.commands", "rem_clean_words"),
+    # Link Shortener (plugins/shortner.py)
+    "shortener": ("plugins.shortner", "shortener_cmd_handler"),
+    "shortner": ("plugins.shortner", "shortener_cmd_handler"),
+    "shortenerapi": ("plugins.shortner", "shortener_api_cmd_handler"),
+    "shortenersite": ("plugins.shortner", "shortener_site_cmd_handler"),
 }
 
 
@@ -1273,12 +1280,15 @@ async def get_help_keyboard() -> InlineKeyboardMarkup:
             create_btn("📝 Post Handle", callback_data="helps_posthand"),
             create_btn("📝 Custom Captions", callback_data="helps_customcaption"),
         ],
-        [
+                [
             create_btn("💬 PM Auto Reply", callback_data="helps_pmautoreply"),
             create_btn("🧹 Clean Filename", callback_data="helps_cleanfile"),
         ],
-        [create_btn("💾 Database", callback_data="helps_backup")],
-    ]
+        [
+            create_btn("🔗 Shortener", callback_data="helps_shortener"),
+            create_btn("💾 Database", callback_data="helps_backup"),
+        ],
+        
     custom_rows = await _get_custom_rows("help")
     if custom_rows:
         rows.extend(custom_rows)
@@ -1971,6 +1981,32 @@ def get_help_section_keyboard(
             ]
         )
 
+        elif section_key == "helps_shortener":
+        sh_on = bool(st.get("sh_on", False))
+        rows.extend(
+            [
+                [
+                    create_btn(
+                        f"On/Off: {'ON 🟢' if sh_on else 'OFF 🔴'}",
+                        callback_data="shrt#toggle",
+                        style=BTN_SUCCESS if sh_on else BTN_DANGER,
+                    )
+                ],
+                [
+                    create_btn("🔑 Set API", callback_data="shrt#set_api", style=BTN_PRIMARY),
+                    create_btn("🌐 Set Site", callback_data="shrt#set_site", style=BTN_PRIMARY),
+                ],
+                [
+                    create_btn("👁️ View API & Site", callback_data="shrt#view"),
+                    create_btn(
+                        "🗑️ Remove API & Site",
+                        callback_data="shrt#remove",
+                        style=BTN_DANGER,
+                    ),
+                ],
+            ]
+        )
+
     rows.append(
         [
             create_btn("🔙 Back", callback_data="help"),
@@ -2175,6 +2211,25 @@ async def build_interactive_help_section(
 ) -> Tuple[str, InlineKeyboardMarkup]:
     if section_key == "helps_cleanfile":
         return await build_cleanwords_panel_ui()
+
+        if section_key == "helps_shortener":
+        try:
+            from plugins.shortner import build_shortener_panel
+
+            sh_txt, sh_kb = await build_shortener_panel()
+            rows = list(sh_kb.inline_keyboard)[:-1] if sh_kb else []
+            rows.append(
+                [
+                    create_btn("🔙 Back", callback_data="help"),
+                    create_btn("🔐 Close", callback_data="close_data"),
+                ]
+            )
+            return sh_txt, InlineKeyboardMarkup(rows)
+        except Exception as e:
+            return (
+                f"🔗 <b>Link Shortener Help</b>\n\n⚠️ Error loading shortner.py: <code>{html.escape(str(e))}</code>",
+                get_help_section_keyboard("helps_shortener", {"sh_on": False}),
+            )
 
     ui_doc = await _ensure_ui_synced()
     bot_uname = getattr(temp, "U_NAME", None) or "my_bot"
