@@ -1983,7 +1983,7 @@ def get_help_section_keyboard(
             ]
         )
 
-        elif section_key == "helps_shortener":
+    elif section_key == "helps_shortener":
         sh_on = bool(st.get("sh_on", False))
         rows.extend(
             [
