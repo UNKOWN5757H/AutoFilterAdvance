@@ -2235,8 +2235,10 @@ async def build_result_buttons(
 
     btn.append(nav_row)
     return btn
-    
-#For link shortner 
+
+
+# For link shortner
+
 
 @Client.on_callback_query(filters.regex(r"^shrtget#"), group=-2)
 async def on_demand_shortener_file_callback(bot: Client, query: CallbackQuery):
@@ -2301,8 +2303,7 @@ async def on_demand_shortener_file_callback(bot: Client, query: CallbackQuery):
         k_msg = await safe_reply_text(
             query.message,
             text=(
-                f"<b>Hᴇʏ {mention} 👋🏻\n\n"
-                f"✅ Yᴏᴜʀ Fɪʟᴇ Lɪɴᴋ Iꜱ Rᴇᴀᴅʏ Bᴇʟᴏᴡ 👇</b>"
+                f"<b>Hᴇʏ {mention} 👋🏻\n\n" f"✅ Yᴏᴜʀ Fɪʟᴇ Lɪɴᴋ Iꜱ Rᴇᴀᴅʏ Bᴇʟᴏᴡ 👇</b>"
             ),
             reply_markup=link_kb,
             parse_mode=enums.ParseMode.HTML,
@@ -2311,10 +2312,8 @@ async def on_demand_shortener_file_callback(bot: Client, query: CallbackQuery):
             query.message.chat.id, default_time=300
         )
         if delete_timer > 0 and k_msg:
-            schedule_auto_delete(
-                bot, query.message.chat.id, False, delete_timer, k_msg
-            )
-            
+            schedule_auto_delete(bot, query.message.chat.id, False, delete_timer, k_msg)
+
 
 # ============================================================
 # ⏳ RELIABLE AUTO-DELETE ENGINE (GROUP + PM)
