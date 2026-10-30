@@ -2338,9 +2338,7 @@ async def on_demand_shortener_file_callback(bot: Client, query: CallbackQuery):
 # ⏳ RELIABLE AUTO-DELETE ENGINE (GROUP + PM)
 # ============================================================
 def _get_deleted_file_notify_keyboard() -> InlineKeyboardMarkup:
-    req_grp_url = getattr(
-        info, "GRP_LNK", "https://t.me/Sandalwood_Kannada_Group"
-    )
+    req_grp_url = getattr(info, "GRP_LNK", "https://t.me/Sandalwood_Kannada_Group")
     return InlineKeyboardMarkup(
         [
             [
@@ -2677,6 +2675,7 @@ async def auto_filter(client: Client, msg: Message):
 
     except Exception as e:
         logger.error(f"Fatal error in auto_filter: {e}")
+
 
 # ============================================================
 # 👉 END OF PART 1 — PASTE PART 2 DIRECTLY BELOW THIS LINE
