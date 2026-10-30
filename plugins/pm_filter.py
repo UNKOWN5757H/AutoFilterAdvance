@@ -108,7 +108,8 @@ except ImportError:
         def get_stopwords():
             return []
 
-#For link shortner 
+
+# For link shortner
 
 try:
     from plugins.shortner import is_shortener_active, shorten_single_url
@@ -2148,7 +2149,7 @@ async def build_result_buttons(
     for p in promos[:2]:
         btn.append([create_btn(text=p["text"], url=p["url"])])
 
-    #For link shortner 
+        # For link shortner
 
         shortener_on = await is_shortener_active()
 
