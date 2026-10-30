@@ -108,13 +108,20 @@ except ImportError:
         def get_stopwords():
             return []
 
+#For link shortner 
 
 try:
-    from plugins.uibuttons import (
-        get_deleted_file_notify_keyboard as _get_deleted_file_notify_keyboard,
-    )
-except Exception:
-    _get_deleted_file_notify_keyboard = None
+    from plugins.shortner import is_shortener_active, shorten_single_url
+except ImportError:
+    try:
+        from shortner import is_shortener_active, shorten_single_url
+    except ImportError:
+
+        async def is_shortener_active() -> bool:
+            return False
+
+        async def shorten_single_url(url: str, cfg=None) -> str:
+            return url
 
 
 logger = getLogger(__name__)
@@ -2141,6 +2148,10 @@ async def build_result_buttons(
     for p in promos[:2]:
         btn.append([create_btn(text=p["text"], url=p["url"])])
 
+    #For link shortner 
+
+        shortener_on = await is_shortener_active()
+
     for file in files:
         file_id = str(
             file.get("file_id", file.get("_id", ""))
@@ -2161,16 +2172,31 @@ async def build_result_buttons(
         display_name = clean_filename(raw_name, clean_words)
         size_str = get_size(file_size)
         url_payload = f"https://t.me/{bot_username}?start={pre}_{file_id}"
+        cb_payload = f"shrtget#{pre}#{file_id}"
 
         if settings.get("button", False):
             btn.append(
-                [create_btn(text=f"{size_str} | {display_name}", url=url_payload)]
+                [
+                    create_btn(
+                        text=f"{size_str} | {display_name}",
+                        callback_data=cb_payload if shortener_on else None,
+                        url=None if shortener_on else url_payload,
+                    )
+                ]
             )
         else:
             btn.append(
                 [
-                    create_btn(text=f"{display_name}", url=url_payload),
-                    create_btn(text=f"{size_str}", url=url_payload),
+                    create_btn(
+                        text=f"{display_name}",
+                        callback_data=cb_payload if shortener_on else None,
+                        url=None if shortener_on else url_payload,
+                    ),
+                    create_btn(
+                        text=f"{size_str}",
+                        callback_data=cb_payload if shortener_on else None,
+                        url=None if shortener_on else url_payload,
+                    ),
                 ]
             )
 
