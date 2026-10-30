@@ -1,3 +1,4 @@
+
 import asyncio
 import html
 import inspect
@@ -11,7 +12,6 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from pyrogram import Client, StopPropagation, enums, filters
 from pyrogram.errors import (
     ChatWriteForbidden,
-    FloodWait,
     Forbidden,
     MessageIdInvalid,
     MessageNotModified,
@@ -38,12 +38,10 @@ try:
     from database.ia_filterdb import (
         get_all_healthy_read_dbs,
         get_writable_System_db,
-        mark_db_error,
     )
 except Exception:
     get_all_healthy_read_dbs = None
     get_writable_System_db = None
-    mark_db_error = None
 
 # ============================================================
 # 🎨 SAFE TELEGRAM BUTTON STYLE DETECTION
@@ -94,7 +92,6 @@ async def safe_reply_text(
     message: Message,
     text: str,
     reply_markup: Optional[InlineKeyboardMarkup] = None,
-    disable_web_page_preview: bool = True,
 ) -> Optional[Message]:
     if not message:
         return None
@@ -237,19 +234,6 @@ def _clean_site_domain(raw_site: str) -> str:
     return s
 
 
-def _invalidate_pm_filter_search_cache():
-    """Clears pm_filter caches when shortener settings change."""
-    try:
-        import plugins.pm_filter as _pmf
-
-        for cache_attr in ("GLOBAL_SEARCH_CACHE", "POOL_SEARCH_CACHE"):
-            c_obj = getattr(_pmf, cache_attr, None)
-            if c_obj and hasattr(c_obj, "_data"):
-                c_obj._data.clear()
-    except Exception:
-        pass
-
-
 async def get_shortener_config(force_refresh: bool = False) -> Dict[str, Any]:
     global _SHORTENER_CACHE_TS
     now = time.time()
@@ -308,7 +292,6 @@ async def save_shortener_config(
     _SHORTENER_RAM_CONFIG["updated_at"] = now
     _SHORTENER_CACHE_TS = now
     _SHORT_URL_CACHE.clear()
-    _invalidate_pm_filter_search_cache()
 
     payload = {
         "enabled": _SHORTENER_RAM_CONFIG["enabled"],
@@ -328,15 +311,15 @@ async def save_shortener_config(
 
 
 # ============================================================
-# 🔗 HIGH-SPEED UNIVERSAL SHORTENER ENGINE (FOR PM_FILTER.PY)
+# 🔗 ON-DEMAND SINGLE LINK SHORTENER ENGINE (ONLY ON USER CLICK)
 # ============================================================
 def _shorten_sync(site: str, api: str, long_url: str) -> str:
     """
-    Supports all popular Indian & global link shorteners:
+    Converts a single file URL on demand when a user clicks a file button.
+    Supports all popular link shorteners:
     - Standard AdLinkFly API (`/api?api=KEY&url=URL`)
     - Shareus.io / Shareus.in (`/easy_api?key=KEY&link=URL`)
     - OuO.io (`/api/KEY?s=URL`)
-    - Cutt.ly / Bit.ly / TinyURL fallbacks
     """
     if not site or not api or not long_url:
         return long_url
@@ -360,7 +343,6 @@ def _shorten_sync(site: str, api: str, long_url: str) -> str:
     elif "ouo.io" in domain or "ouo.press" in domain:
         endpoints.append(f"https://ouo.io/api/{api}?s={encoded_url}")
 
-    # Standard AdLinkFly JSON & Text endpoints (ShrinkMe, FXNLinks, GPLinks, Droplink, TNShort, ModijiUrl, etc.)
     endpoints.append(f"https://{domain}/api?api={api}&url={encoded_url}")
     endpoints.append(f"https://{domain}/api?api={api}&url={encoded_url}&format=text")
 
@@ -371,7 +353,11 @@ def _shorten_sync(site: str, api: str, long_url: str) -> str:
                 continue
 
             raw_text = resp.text.strip()
-            if raw_text.startswith(("http://", "https://")) and " " not in raw_text:
+            if (
+                raw_text.startswith(("http://", "https://"))
+                and " " not in raw_text
+                and "<html" not in raw_text.lower()
+            ):
                 return raw_text
 
             data = resp.json()
@@ -394,7 +380,10 @@ def _shorten_sync(site: str, api: str, long_url: str) -> str:
 async def shorten_single_url(
     long_url: str, cfg: Optional[Dict[str, Any]] = None
 ) -> str:
-    """Shortens a single URL if shortener is enabled and configured; otherwise returns `long_url`."""
+    """
+    Shortens ONLY the single URL that the user clicked!
+    Caches the shortened link for 24 hours so repeat clicks are instant.
+    """
     if not long_url:
         return long_url
     if cfg is None:
@@ -422,30 +411,8 @@ async def shorten_single_url(
     return long_url
 
 
-async def shorten_url_batch(urls: List[str]) -> List[str]:
-    """
-    Shortens a list of file URLs in parallel (`asyncio.gather`) for `pm_filter.py`
-    so all 10 file buttons on a search result page are shortened simultaneously!
-    """
-    if not urls:
-        return []
-    cfg = await get_shortener_config()
-    if not cfg.get("enabled") or not cfg.get("site") or not cfg.get("api"):
-        return list(urls)
-
-    results = await asyncio.gather(
-        *[shorten_single_url(u, cfg) for u in urls], return_exceptions=True
-    )
-    out: List[str] = []
-    for orig_u, res in zip(urls, results):
-        if isinstance(res, str) and res.startswith(("http://", "https://")):
-            out.append(res)
-        else:
-            out.append(orig_u)
-    return out
-
-
 async def is_shortener_active() -> bool:
+    """Returns True if Link Shortener is ON and both Site and API Key are configured."""
     cfg = await get_shortener_config()
     return bool(cfg.get("enabled") and cfg.get("site") and cfg.get("api"))
 
@@ -454,6 +421,10 @@ async def is_shortener_active() -> bool:
 # 🔄 INTERACTIVE INPUT LISTENER FOR BUTTON PROMPTS
 # ============================================================
 _SHORTENER_WAITING_INPUT: Dict[int, Dict[str, Any]] = {}
+
+
+def is_waiting_for_shortener_input(chat_id: int) -> bool:
+    return int(chat_id) in _SHORTENER_WAITING_INPUT
 
 
 def _cancel_shortener_input(chat_id: int):
@@ -551,7 +522,7 @@ async def build_shortener_panel() -> Tuple[str, InlineKeyboardMarkup]:
 
     is_ready = bool(enabled and site and api)
     if is_ready:
-        status_str = "🟢 ON (Active in Auto-Filter Results)"
+        status_str = "🟢 ON (Converts Only Clicked File Link)"
     elif enabled and (not site or not api):
         status_str = "🟡 ON (⚠️ Set API & Site to Activate)"
     else:
@@ -571,7 +542,7 @@ async def build_shortener_panel() -> Tuple[str, InlineKeyboardMarkup]:
         f"🌐 <b>Shortener Site:</b> {site_display}\n"
         f"🔑 <b>Shortener API:</b> {api_display}\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"💡 <i>When enabled, all movie file buttons in group Auto-Filter results open directly as shortened links!</i>\n\n"
+        f"💡 <i>When enabled, search results load instantly and only the specific file link a user clicks is converted!</i>\n\n"
         f"<b>Direct Commands:</b>\n"
         f"• <code>/shortener</code> or <code>/shortner</code>\n"
         f"• <code>/shortener on</code> | <code>/shortener off</code>\n"
