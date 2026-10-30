@@ -2235,7 +2235,86 @@ async def build_result_buttons(
 
     btn.append(nav_row)
     return btn
+    
+#For link shortner 
 
+@Client.on_callback_query(filters.regex(r"^shrtget#"), group=-2)
+async def on_demand_shortener_file_callback(bot: Client, query: CallbackQuery):
+    """
+    Converts ONLY the single file link that the user clicked!
+    """
+    try:
+        _, pre, file_id = query.data.split("#", 2)
+    except ValueError:
+        return await safe_answer(query, "⚠️ Invalid file link!", show_alert=True)
+
+    if not getattr(temp, "U_NAME", None):
+        me = await bot.get_me()
+        temp.U_NAME = me.username
+        temp.B_NAME = me.first_name
+        temp.ME = me.id
+    bot_username = temp.U_NAME or "bot"
+
+    long_url = f"https://t.me/{bot_username}?start={pre}_{file_id}"
+
+    # If shortener was turned off in the meantime, open the bot deep-link directly
+    if not await is_shortener_active():
+        try:
+            return await query.answer(url=long_url)
+        except Exception:
+            return
+
+    await safe_answer(query, "⏳ Generating your download link...", show_alert=False)
+    short_url = await shorten_single_url(long_url)
+
+    mention = query.from_user.mention if query.from_user else "User"
+    link_kb = InlineKeyboardMarkup(
+        [
+            [
+                create_btn(
+                    text="🔓 Click Here To Get File 📥",
+                    url=short_url,
+                    style=BTN_SUCCESS,
+                )
+            ]
+        ]
+    )
+
+    # Try sending the converted link to the user's PM first; if they haven't started the bot, reply in group
+    sent_msg = None
+    if query.from_user:
+        try:
+            sent_msg = await bot.send_message(
+                chat_id=query.from_user.id,
+                text=(
+                    f"<b>Hᴇʏ {mention} 👋🏻\n\n"
+                    f"✅ Yᴏᴜʀ Fɪʟᴇ Lɪɴᴋ Iꜱ Rᴇᴀᴅʏ!\n"
+                    f"👇 Cʟɪᴄᴋ Tʜᴇ Bᴜᴛᴛᴏɴ Bᴇʟᴏᴡ Tᴏ Oᴘᴇɴ & Gᴇᴛ Yᴏᴜʀ Fɪʟᴇ:</b>"
+                ),
+                reply_markup=link_kb,
+                parse_mode=enums.ParseMode.HTML,
+            )
+        except Exception:
+            sent_msg = None
+
+    if not sent_msg and query.message:
+        k_msg = await safe_reply_text(
+            query.message,
+            text=(
+                f"<b>Hᴇʏ {mention} 👋🏻\n\n"
+                f"✅ Yᴏᴜʀ Fɪʟᴇ Lɪɴᴋ Iꜱ Rᴇᴀᴅʏ Bᴇʟᴏᴡ 👇</b>"
+            ),
+            reply_markup=link_kb,
+            parse_mode=enums.ParseMode.HTML,
+        )
+        delete_timer = await resolve_auto_delete_timer(
+            query.message.chat.id, default_time=300
+        )
+        if delete_timer > 0 and k_msg:
+            schedule_auto_delete(
+                bot, query.message.chat.id, False, delete_timer, k_msg
+            )
+            
 
 # ============================================================
 # ⏳ RELIABLE AUTO-DELETE ENGINE (GROUP + PM)
