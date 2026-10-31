@@ -2649,6 +2649,7 @@ async def auto_filter(client: Client, msg: Message):
     except Exception as e:
         logger.error(f"Fatal error in auto_filter: {e}")
 
+
 # ============================================================
 # 👉 END OF PART 1 — PASTE PART 2 DIRECTLY BELOW THIS LINE
 # ============================================================
