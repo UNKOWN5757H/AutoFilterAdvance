@@ -8,7 +8,6 @@ from logging import ERROR, getLogger
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
-from requests.adapters import HTTPAdapter
 from motor.motor_asyncio import AsyncIOMotorClient
 from pyrogram import Client, StopPropagation, enums, filters
 from pyrogram.errors import (
@@ -26,6 +25,7 @@ from pyrogram.types import (
     InlineKeyboardMarkup,
     Message,
 )
+from requests.adapters import HTTPAdapter
 
 import info
 
