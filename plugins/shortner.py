@@ -1,12 +1,14 @@
 import asyncio
 import html
 import inspect
+import re
 import time
 import urllib.parse
 from logging import ERROR, getLogger
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
+from requests.adapters import HTTPAdapter
 from motor.motor_asyncio import AsyncIOMotorClient
 from pyrogram import Client, StopPropagation, enums, filters
 from pyrogram.errors import (
@@ -56,8 +58,7 @@ try:
         BTN_DANGER = getattr(ButtonStyle, "DANGER", None)
         _SUPPORTS_BTN_STYLE = True
 except (ImportError, ValueError, TypeError):
-    BTN_PRIMARY = BTN_SUCCESS = BTN_DANGER = None
-    _SUPPORTS_BTN_STYLE = False
+    pass
 
 
 def create_btn(
@@ -82,7 +83,7 @@ def create_btn(
 
 
 # ============================================================
-# 🛡️ PYROGRAM v2.2.26 (LAYER 230) SAFE HELPERS
+# 🛡️ SAFE MESSAGE & CALLBACK HELPERS
 # ============================================================
 async def safe_reply_text(
     message: Message,
@@ -159,13 +160,11 @@ def get_admin_list() -> List[int]:
 
 
 async def is_global_admin(user_id: int) -> bool:
-    if not user_id:
-        return False
-    return int(user_id) in get_admin_list()
+    return bool(user_id and int(user_id) in get_admin_list())
 
 
 # ============================================================
-# 💾 QUOTA-SAFE MULTI-DB + RAM SHORTENER CONFIG ENGINE
+# 💾 MULTI-DB + RAM SHORTENER CONFIG ENGINE
 # ============================================================
 _shortner_col = None
 try:
@@ -180,21 +179,41 @@ try:
 except Exception as e:
     logger.error(f"Failed to init shortner DB: {e}")
 
-# In-memory state so settings work instantaneously even if DB1 hits 512MB quota
+
+def _clean_site_domain(raw_site: str) -> str:
+    if not raw_site:
+        return ""
+    s = str(raw_site).strip().lower()
+    if s in ("none", "null", "off", "false", "reset"):
+        return ""
+    s = re.sub(r"^(?:https?://)?(?:www\.)?", "", s)
+    return s.split("/")[0].strip()
+
+
 _SHORTENER_RAM_CONFIG: Dict[str, Any] = {
     "enabled": bool(getattr(info, "SHORTLINK", False)),
-    "site": str(
-        getattr(info, "SHORTLINK_URL", getattr(info, "SHORTENER_SITE", "")) or ""
-    ).strip(),
+    "site": _clean_site_domain(
+        str(getattr(info, "SHORTLINK_URL", getattr(info, "SHORTENER_SITE", "")) or "")
+    ),
     "api": str(
         getattr(info, "SHORTLINK_API", getattr(info, "SHORTENER_API", "")) or ""
     ).strip(),
     "updated_at": 0.0,
 }
 _SHORTENER_CACHE_TS: float = 0.0
-
-# 24-hour cache of shortened URLs: {(site, api, long_url): (expire_ts, short_url)}
 _SHORT_URL_CACHE: Dict[Tuple[str, str, str], Tuple[float, str]] = {}
+
+# Persistent connection-pooled HTTP session for fast concurrent link shortening
+_HTTP_SESSION = requests.Session()
+_HTTP_ADAPTER = HTTPAdapter(pool_connections=20, pool_maxsize=50, max_retries=1)
+_HTTP_SESSION.mount("https://", _HTTP_ADAPTER)
+_HTTP_SESSION.mount("http://", _HTTP_ADAPTER)
+_HTTP_SESSION.headers.update(
+    {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+    }
+)
 
 
 def _get_all_shortner_cols() -> List[Any]:
@@ -217,17 +236,6 @@ def _get_all_shortner_cols() -> List[Any]:
     if _shortner_col is not None and _shortner_col not in cols:
         cols.append(_shortner_col)
     return cols
-
-
-def _clean_site_domain(raw_site: str) -> str:
-    if not raw_site:
-        return ""
-    s = str(raw_site).strip().lower()
-    if s in ("none", "null", "off", "false", "reset"):
-        return ""
-    s = s.replace("https://", "").replace("http://", "")
-    s = s.split("/")[0].strip()
-    return s
 
 
 async def get_shortener_config(force_refresh: bool = False) -> Dict[str, Any]:
@@ -275,8 +283,6 @@ async def save_shortener_config(
     await get_shortener_config()
     now = time.time()
 
-    if enabled is not None:
-        _SHORTENER_RAM_CONFIG["enabled"] = bool(enabled)
     if site is not None:
         _SHORTENER_RAM_CONFIG["site"] = _clean_site_domain(site)
     if api is not None:
@@ -284,6 +290,12 @@ async def save_shortener_config(
         if clean_api.lower() in ("none", "null", "off", "false", "reset"):
             clean_api = ""
         _SHORTENER_RAM_CONFIG["api"] = clean_api
+
+    if enabled is not None:
+        _SHORTENER_RAM_CONFIG["enabled"] = bool(enabled)
+    elif _SHORTENER_RAM_CONFIG["site"] and _SHORTENER_RAM_CONFIG["api"]:
+        # Auto-enable when both site and API are configured
+        _SHORTENER_RAM_CONFIG["enabled"] = True
 
     _SHORTENER_RAM_CONFIG["updated_at"] = now
     _SHORTENER_CACHE_TS = now
@@ -307,16 +319,9 @@ async def save_shortener_config(
 
 
 # ============================================================
-# 🔗 ON-DEMAND SINGLE LINK SHORTENER ENGINE (ONLY ON USER CLICK)
+# 🔗 FAST LINK SHORTENER ENGINE
 # ============================================================
 def _shorten_sync(site: str, api: str, long_url: str) -> str:
-    """
-    Converts a single file URL on demand when a user clicks a file button.
-    Supports all popular link shorteners:
-    - Standard AdLinkFly API (`/api?api=KEY&url=URL`)
-    - Shareus.io / Shareus.in (`/easy_api?key=KEY&link=URL`)
-    - OuO.io (`/api/KEY?s=URL`)
-    """
     if not site or not api or not long_url:
         return long_url
 
@@ -325,12 +330,8 @@ def _shorten_sync(site: str, api: str, long_url: str) -> str:
         return long_url
 
     encoded_url = urllib.parse.quote(long_url, safe="")
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0 Safari/537.36",
-        "Accept": "application/json, text/plain, */*",
-    }
-
     endpoints = []
+
     if "shareus" in domain:
         endpoints.append(
             f"https://api.shareus.io/easy_api?key={api}&link={encoded_url}"
@@ -344,7 +345,7 @@ def _shorten_sync(site: str, api: str, long_url: str) -> str:
 
     for api_url in endpoints:
         try:
-            resp = requests.get(api_url, headers=headers, timeout=5)
+            resp = _HTTP_SESSION.get(api_url, timeout=3.0)
             if resp.status_code != 200:
                 continue
 
@@ -358,14 +359,19 @@ def _shorten_sync(site: str, api: str, long_url: str) -> str:
 
             data = resp.json()
             if isinstance(data, dict):
+                nested = data.get("data") if isinstance(data.get("data"), dict) else {}
                 short = (
                     data.get("shortenedUrl")
                     or data.get("shorturl")
                     or data.get("short_url")
                     or data.get("result_url")
                     or data.get("link")
+                    or data.get("url")
+                    or nested.get("shortenedUrl")
+                    or nested.get("short_url")
+                    or nested.get("url")
                 )
-                if short and str(short).startswith(("http://", "https://")):
+                if short and str(short).strip().startswith(("http://", "https://")):
                     return str(short).strip()
         except Exception:
             continue
@@ -376,10 +382,6 @@ def _shorten_sync(site: str, api: str, long_url: str) -> str:
 async def shorten_single_url(
     long_url: str, cfg: Optional[Dict[str, Any]] = None
 ) -> str:
-    """
-    Shortens ONLY the single URL that the user clicked!
-    Caches the shortened link for 24 hours so repeat clicks are instant.
-    """
     if not long_url:
         return long_url
     if cfg is None:
@@ -408,7 +410,6 @@ async def shorten_single_url(
 
 
 async def is_shortener_active() -> bool:
-    """Returns True if Link Shortener is ON and both Site and API Key are configured."""
     cfg = await get_shortener_config()
     return bool(cfg.get("enabled") and cfg.get("site") and cfg.get("api"))
 
@@ -419,22 +420,12 @@ async def is_shortener_active() -> bool:
 _SHORTENER_WAITING_INPUT: Dict[int, Dict[str, Any]] = {}
 
 
-def is_waiting_for_shortener_input(chat_id: int) -> bool:
-    return int(chat_id) in _SHORTENER_WAITING_INPUT
-
-
 def _cancel_shortener_input(chat_id: int):
     sess = _SHORTENER_WAITING_INPUT.pop(int(chat_id), None)
     if sess:
         fut = sess.get("future")
         if fut and not fut.done():
             fut.cancel()
-        p_msg = sess.get("prompt_msg")
-        if p_msg:
-            try:
-                asyncio.create_task(p_msg.delete())
-            except Exception:
-                pass
 
 
 async def _shortener_waiting_filter_func(_, __, message: Message) -> bool:
@@ -443,7 +434,7 @@ async def _shortener_waiting_filter_func(_, __, message: Message) -> bool:
     if (
         message.text
         and message.text.startswith("/")
-        and message.text.strip().lower() not in ["/cancel"]
+        and message.text.strip().lower() != "/cancel"
     ):
         _cancel_shortener_input(message.chat.id)
         return False
@@ -457,8 +448,7 @@ shortener_waiting_filter = filters.create(_shortener_waiting_filter_func)
     (filters.private | filters.group) & shortener_waiting_filter, group=-18
 )
 async def _shortener_input_listener(client: Client, message: Message):
-    chat_id = message.chat.id
-    sess = _SHORTENER_WAITING_INPUT.get(chat_id)
+    sess = _SHORTENER_WAITING_INPUT.get(message.chat.id)
     if not sess:
         return
 
@@ -467,7 +457,7 @@ async def _shortener_input_listener(client: Client, message: Message):
         if message.from_user
         else getattr(message.sender_chat, "id", 0)
     )
-    if uid == sess["user_id"] or uid == chat_id or await is_global_admin(uid):
+    if uid == sess["user_id"] or uid == message.chat.id or await is_global_admin(uid):
         fut = sess["future"]
         if not fut.done():
             fut.set_result(message)
@@ -483,7 +473,6 @@ async def _wait_shortener_input(
     _SHORTENER_WAITING_INPUT[int(chat_id)] = {
         "future": future,
         "user_id": user_id,
-        "prompt_msg": prompt_msg,
     }
     try:
         return await asyncio.wait_for(future, timeout=timeout)
@@ -500,7 +489,7 @@ async def _wait_shortener_input(
 
 
 # ============================================================
-# 🎛️ SHORTENER UI PANEL BUILDER (EXACT REQUESTED BUTTON LAYOUT)
+# 🎛️ SHORTENER UI PANEL BUILDER
 # ============================================================
 def _mask_api_key(api_key: str) -> str:
     if not api_key:
@@ -516,9 +505,8 @@ async def build_shortener_panel() -> Tuple[str, InlineKeyboardMarkup]:
     site = cfg.get("site") or ""
     api = cfg.get("api") or ""
 
-    is_ready = bool(enabled and site and api)
-    if is_ready:
-        status_str = "🟢 ON (Converts Only Clicked File Link)"
+    if enabled and site and api:
+        status_str = "🟢 ON (Direct Shortened Redirect Links)"
     elif enabled and (not site or not api):
         status_str = "🟡 ON (⚠️ Set API & Site to Activate)"
     else:
@@ -538,7 +526,6 @@ async def build_shortener_panel() -> Tuple[str, InlineKeyboardMarkup]:
         f"🌐 <b>Shortener Site:</b> {site_display}\n"
         f"🔑 <b>Shortener API:</b> {api_display}\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"💡 <i>When enabled, search results load instantly and only the specific file link a user clicks is converted!</i>\n\n"
         f"<b>Direct Commands:</b>\n"
         f"• <code>/shortener</code> or <code>/shortner</code>\n"
         f"• <code>/shortener on</code> | <code>/shortener off</code>\n"
@@ -549,10 +536,6 @@ async def build_shortener_panel() -> Tuple[str, InlineKeyboardMarkup]:
     toggle_label = "On/Off: ON 🟢" if enabled else "On/Off: OFF 🔴"
     toggle_style = BTN_SUCCESS if enabled else BTN_DANGER
 
-    # Exact 3-row layout requested:
-    # Row 1: On/off
-    # Row 2: Set api | Set site
-    # Row 3: View api & site | Remove api & site
     buttons = [
         [
             create_btn(
@@ -584,10 +567,7 @@ async def build_shortener_panel() -> Tuple[str, InlineKeyboardMarkup]:
 # ============================================================
 # 🎯 SHORTENER COMMAND HANDLERS
 # ============================================================
-@Client.on_message(
-    filters.command(["shortener", "shortner"]),
-    group=-15,
-)
+@Client.on_message(filters.command(["shortener", "shortner"]), group=-15)
 async def shortener_cmd_handler(client: Client, message: Message):
     uid = (
         message.from_user.id
@@ -611,7 +591,7 @@ async def shortener_cmd_handler(client: Client, message: Message):
                 f"✅ <b>Link Shortener turned ON!</b>\n\n{text}",
                 reply_markup=markup,
             )
-        elif arg in ("off", "disable", "false", "0", "no"):
+        if arg in ("off", "disable", "false", "0", "no"):
             await save_shortener_config(enabled=False)
             text, markup = await build_shortener_panel()
             return await safe_reply_text(
@@ -645,13 +625,12 @@ async def shortener_api_cmd_handler(client: Client, message: Message):
         text, markup = await build_shortener_panel()
         return await safe_reply_text(
             message,
-            "⚙️ <b>Usage:</b> <code>/shortenerapi &lt;your_api_key&gt;</code>\n\n"
-            + text,
+            f"⚙️ <b>Usage:</b> <code>/shortenerapi &lt;your_api_key&gt;</code>\n\n{text}",
             reply_markup=markup,
         )
 
     api_val = message.text.split(None, 1)[1].strip()
-    await save_shortener_config(api=api_val, enabled=True)
+    await save_shortener_config(api=api_val)
     text, markup = await build_shortener_panel()
     await safe_reply_text(
         message,
@@ -681,13 +660,12 @@ async def shortener_site_cmd_handler(client: Client, message: Message):
         text, markup = await build_shortener_panel()
         return await safe_reply_text(
             message,
-            "⚙️ <b>Usage:</b> <code>/shortenersite &lt;domain.com&gt;</code>\n"
-            "Example: <code>/shortenersite shrinkme.io</code>\n\n" + text,
+            f"⚙️ <b>Usage:</b> <code>/shortenersite &lt;domain.com&gt;</code>\n\n{text}",
             reply_markup=markup,
         )
 
     site_val = message.text.split(None, 1)[1].strip()
-    await save_shortener_config(site=site_val, enabled=True)
+    await save_shortener_config(site=site_val)
     text, markup = await build_shortener_panel()
     await safe_reply_text(
         message,
@@ -697,7 +675,7 @@ async def shortener_site_cmd_handler(client: Client, message: Message):
 
 
 # ============================================================
-# 🎛️ SHORTENER BUTTON CALLBACK HANDLER (shrt#...)
+# 🎛️ SHORTENER BUTTON CALLBACK HANDLER
 # ============================================================
 @Client.on_callback_query(filters.regex(r"^shrt#"), group=-16)
 async def shortener_callback_handler(client: Client, query: CallbackQuery):
@@ -824,50 +802,34 @@ async def shortener_callback_handler(client: Client, query: CallbackQuery):
         text, markup = await build_shortener_panel()
         return await safe_edit_text(query.message, text, reply_markup=markup)
 
-    if action == "set_api":
+    if action in ("set_api", "set_site"):
         await safe_answer(query)
+        is_api = action == "set_api"
         cancel_kb = InlineKeyboardMarkup(
             [[create_btn("❌ Cancel", callback_data="shrt#cancel_input")]]
         )
+        prompt_text = (
+            "🔑 <b>Send your Link Shortener API Key:</b>\n\nExample: <code>a1b2c3d4e5f6g7h8i9j0</code>"
+            if is_api
+            else "🌐 <b>Send your Link Shortener Website Domain:</b>\n\nExample: <code>shrinkme.io</code> or <code>gplinks.in</code>"
+        )
         prompt = await safe_reply_text(
-            query.message,
-            "🔑 <b>Send your Link Shortener API Key:</b>\n\n"
-            "Example: <code>a1b2c3d4e5f6g7h8i9j0</code>",
-            reply_markup=cancel_kb,
+            query.message, prompt_text, reply_markup=cancel_kb
         )
         resp = await _wait_shortener_input(chat_id, uid, prompt_msg=prompt, timeout=90)
         if not resp or not resp.text or resp.text.strip().lower() == "/cancel":
             return
-        api_input = resp.text.strip()
+
+        user_input = resp.text.strip()
         try:
             await resp.delete()
         except Exception:
             pass
 
-        await save_shortener_config(api=api_input)
-        text, markup = await build_shortener_panel()
-        return await safe_edit_text(query.message, text, reply_markup=markup)
+        if is_api:
+            await save_shortener_config(api=user_input)
+        else:
+            await save_shortener_config(site=user_input)
 
-    if action == "set_site":
-        await safe_answer(query)
-        cancel_kb = InlineKeyboardMarkup(
-            [[create_btn("❌ Cancel", callback_data="shrt#cancel_input")]]
-        )
-        prompt = await safe_reply_text(
-            query.message,
-            "🌐 <b>Send your Link Shortener Website Domain:</b>\n\n"
-            "Example: <code>shrinkme.io</code> or <code>fxnlinks.com</code> or <code>gplinks.in</code>",
-            reply_markup=cancel_kb,
-        )
-        resp = await _wait_shortener_input(chat_id, uid, prompt_msg=prompt, timeout=90)
-        if not resp or not resp.text or resp.text.strip().lower() == "/cancel":
-            return
-        site_input = resp.text.strip()
-        try:
-            await resp.delete()
-        except Exception:
-            pass
-
-        await save_shortener_config(site=site_input)
         text, markup = await build_shortener_panel()
         return await safe_edit_text(query.message, text, reply_markup=markup)
