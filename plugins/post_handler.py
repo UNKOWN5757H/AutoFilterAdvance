@@ -8,7 +8,7 @@ import re
 import time
 import urllib.parse
 from logging import ERROR, getLogger
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -145,7 +145,7 @@ async def safe_reply_text(
 
 async def safe_send_message(
     client: Client,
-    chat_id: int,
+    chat_id: Any,
     text: str,
     disable_web_page_preview: bool = False,
     **kwargs,
@@ -165,7 +165,7 @@ async def safe_send_message(
 
 async def safe_edit_message_text(
     client: Client,
-    chat_id: int,
+    chat_id: Any,
     message_id: int,
     text: str,
     disable_web_page_preview: bool = False,
@@ -178,12 +178,17 @@ async def safe_edit_message_text(
         return await client.edit_message_text(
             chat_id, message_id, text=text, **compat_kw
         )
+    except MessageNotModified:
+        return None
     except TypeError:
         compat_kw.pop("disable_web_page_preview", None)
         compat_kw.pop("link_preview_options", None)
-        return await client.edit_message_text(
-            chat_id, message_id, text=text, **compat_kw
-        )
+        try:
+            return await client.edit_message_text(
+                chat_id, message_id, text=text, **compat_kw
+            )
+        except MessageNotModified:
+            return None
 
 
 # ============================================================
@@ -272,7 +277,6 @@ async def safe_send_photo(
                 except Exception:
                     pass
 
-    # Final fallback: send as text message so the preview or post never fails
     return await safe_send_message(
         client,
         chat_id,
@@ -304,6 +308,17 @@ async def safe_edit_photo_media(
             ),
             reply_markup=reply_markup,
         )
+    except MessageNotModified:
+        try:
+            return await client.edit_message_caption(
+                chat_id,
+                message_id,
+                caption=caption,
+                reply_markup=reply_markup,
+                parse_mode=parse_mode,
+            )
+        except MessageNotModified:
+            return None
     except Exception as e:
         err_str = str(e)
         if (
@@ -330,15 +345,20 @@ async def safe_edit_photo_media(
                         ),
                         reply_markup=reply_markup,
                     )
+                except MessageNotModified:
+                    return None
                 except Exception:
                     pass
-        return await client.edit_message_caption(
-            chat_id,
-            message_id,
-            caption=caption,
-            reply_markup=reply_markup,
-            parse_mode=parse_mode,
-        )
+        try:
+            return await client.edit_message_caption(
+                chat_id,
+                message_id,
+                caption=caption,
+                reply_markup=reply_markup,
+                parse_mode=parse_mode,
+            )
+        except MessageNotModified:
+            return None
 
 
 # ============================================================
@@ -552,19 +572,35 @@ RESOLUTIONS = [
 ]
 GENRES = [
     "Action",
-    "Adventure",
-    "Animation",
-    "Biography",
-    "Comedy",
-    "Crime",
-    "Documentary",
-    "Drama",
-    "Family",
-    "Fantasy",
-    "Horror",
-    "Romance",
-    "Sci-Fi",
-    "Thriller",
+"Adventure",
+"Animation",
+"Biography",
+"Comedy",
+"Crime",
+"Documentary",
+"Drama",
+"Family",
+"Fantasy",
+"History",
+"Horror",
+"Music",
+"Musical",
+"Mystery",
+"Romance",
+"Sci-Fi",
+"Sport",
+"Thriller",
+"War",
+"Western",
+"Historical",
+"Psychological",
+"Superhero",
+"Martial Arts",
+"Disaster",
+"Political",
+"Road",
+"Teen",
+"Experimental",
     "#NotAvailable",
 ]
 OTT_PLATFORMS = [
@@ -579,6 +615,7 @@ OTT_PLATFORMS = [
     "Zee5",
     "AmazonPrime",
     "Netflix",
+    "ManoramaMAX",
     "NotAvailable",
 ]
 
@@ -841,7 +878,7 @@ def _upload_sync(file_bytes: bytes) -> Optional[str]:
     )
     headers = {"User-Agent": ua, "Accept": "*/*"}
 
-    # 1. Freeimage.host (Fastest & never blocked by Telegram's webpage preview crawler)
+    # 1. Freeimage.host
     try:
         res = requests.post(
             "https://freeimage.host/api/1/upload",
@@ -858,7 +895,7 @@ def _upload_sync(file_bytes: bytes) -> Optional[str]:
     except Exception:
         pass
 
-    # 2. Catbox (Permanent host)
+    # 2. Catbox
     try:
         res = requests.post(
             "https://catbox.moe/user/api.php",
@@ -972,13 +1009,10 @@ async def apply_poster_update_to_session(
     notify_msg: Optional[Message] = None,
 ) -> bool:
     """
-    Unified poster/image updater for both the `🖼️ Poster` button and `/editimage` (`/editposter`, `/setposter`):
-    - Accepts a Photo, an image Document, a direct HTTP/HTTPS URL, `/reset`, or `blank`.
-    - Properly updates both `/post` and `/editpost` sessions without being overwritten by old `custom_photo_id`.
+    Unified poster/image updater for both the `🖼️ Poster` button and `/editimage` (`/editposter`, `/setposter`).
     """
     is_edit_target = bool(session.get("edit_target"))
 
-    # 1. Check for Photo or Image Document
     if media_msg and (
         media_msg.photo
         or (
@@ -988,12 +1022,12 @@ async def apply_poster_update_to_session(
         )
     ):
         file_id = (
-            media_msg.photo.file_id if media_msg.photo else media_msg.document.file_id
+            media_msg.photo.file_id
+            if media_msg.photo
+            else media_msg.document.file_id
         )
         session["custom_photo_id"] = file_id
 
-        # If this is an imported Normal Photo post (/editpost on a photo message),
-        # we don't even need an external host upload—Telegram can edit media directly with file_id!
         if is_edit_target and session.get("photo_mode"):
             session["custom_poster"] = file_id
             return True
@@ -1016,7 +1050,9 @@ async def apply_poster_update_to_session(
                         parse_mode=enums.ParseMode.HTML,
                     )
                     asyncio.create_task(
-                        delete_after_delay(client, status_msg.chat.id, status_msg.id, 4)
+                        delete_after_delay(
+                            client, status_msg.chat.id, status_msg.id, 4
+                        )
                     )
                 except Exception:
                     pass
@@ -1037,13 +1073,14 @@ async def apply_poster_update_to_session(
                         parse_mode=enums.ParseMode.HTML,
                     )
                     asyncio.create_task(
-                        delete_after_delay(client, status_msg.chat.id, status_msg.id, 6)
+                        delete_after_delay(
+                            client, status_msg.chat.id, status_msg.id, 6
+                        )
                     )
                 except Exception:
                     pass
             return True
 
-    # 2. Check for Text (URL, /reset, blank)
     if raw_text:
         t_clean = raw_text.strip()
         t_lower = t_clean.lower()
@@ -1205,6 +1242,9 @@ async def expire_post_session(
                 pass
 
 
+# ============================================================
+# 🛠️ SMART PATCHING ENGINE FOR IMPORTED (/editpost) CAPTIONS
+# ============================================================
 def smart_patch_imported_caption(session, old_val, new_val, is_title=False):
     if session.get("is_manual_caption") and session.get("caption"):
         if is_title:
@@ -1213,6 +1253,143 @@ def smart_patch_imported_caption(session, old_val, new_val, is_title=False):
             )
         elif old_val and new_val:
             session["caption"] = session["caption"].replace(str(old_val), str(new_val))
+
+
+def smart_patch_imported_metadata(session: dict, meta_type: str):
+    """
+    When editing an imported post via `/editpost`, `session["is_manual_caption"]` is True.
+    This helper patches the imported caption in-place whenever the admin changes
+    Languages (🔊), Resolutions (🖥️), Genres (🎥), OTTs (📺), or Watermark (💧)!
+    """
+    if not session.get("is_manual_caption") or not session.get("caption"):
+        return
+
+    cap = session["caption"]
+    if meta_type == "languages":
+        c_langs = session.get("custom_languages", [])
+        langs_str = (
+            "" if c_langs == ["BLANK"] else (", ".join(c_langs) if c_langs else "")
+        )
+        new_line = (
+            session.get("lang_format", LANGUAGES_FORMAT).format_map(
+                SafeDict(langs=langs_str, LANGUAGES=langs_str)
+            )
+            if langs_str
+            else ""
+        )
+        pat = r"(?m)^[^\n]*🔊[^\n]*$"
+        if re.search(pat, cap):
+            cap = (
+                re.sub(pat, new_line, cap, count=1)
+                if new_line
+                else re.sub(r"(?m)^[^\n]*🔊[^\n]*\n?", "", cap, count=1)
+            )
+        elif new_line:
+            cap = (
+                cap.replace("<blockquote>", f"<blockquote>{new_line}\n", 1)
+                if "<blockquote>" in cap
+                else f"{cap}\n{new_line}"
+            )
+    elif meta_type == "resolutions":
+        c_res = session.get("custom_resolutions", [])
+        res_str = "" if c_res == ["BLANK"] else (", ".join(c_res) if c_res else "")
+        new_line = (
+            session.get("res_format", RESOLUTIONS_FORMAT).format_map(
+                SafeDict(resolutions=res_str, RESOLUTIONS=res_str)
+            )
+            if res_str
+            else ""
+        )
+        pat = r"(?m)^[^\n]*🖥️[^\n]*$"
+        if re.search(pat, cap):
+            cap = (
+                re.sub(pat, new_line, cap, count=1)
+                if new_line
+                else re.sub(r"(?m)^[^\n]*🖥️[^\n]*\n?", "", cap, count=1)
+            )
+        elif new_line:
+            cap = (
+                cap.replace("<blockquote>", f"<blockquote>{new_line}\n", 1)
+                if "<blockquote>" in cap
+                else f"{cap}\n{new_line}"
+            )
+    elif meta_type == "genres":
+        c_gen = session.get("custom_genres", [])
+        gen_str = "" if c_gen == ["BLANK"] else (", ".join(c_gen) if c_gen else "")
+        new_line = (
+            session.get("gen_format", GENRES_FORMAT).format_map(
+                SafeDict(genres=gen_str, GENRES=gen_str)
+            )
+            if gen_str
+            else ""
+        )
+        pat = r"(?m)^[^\n]*🎥[^\n]*$"
+        if re.search(pat, cap):
+            cap = (
+                re.sub(pat, new_line, cap, count=1)
+                if new_line
+                else re.sub(r"(?m)^[^\n]*🎥[^\n]*\n?", "", cap, count=1)
+            )
+        elif new_line:
+            cap = (
+                cap.replace("<blockquote>", f"<blockquote>{new_line}\n", 1)
+                if "<blockquote>" in cap
+                else f"{cap}\n{new_line}"
+            )
+    elif meta_type == "otts":
+        c_ott = session.get("custom_otts", [])
+        ott_str = "" if c_ott == ["BLANK"] else (", ".join(c_ott) if c_ott else "")
+        new_line = (
+            session.get("ott_format", OTT_FORMAT).format_map(
+                SafeDict(otts=ott_str, OTT_PLATFORMS=ott_str)
+            )
+            if ott_str
+            else ""
+        )
+        pat = r"(?m)^[^\n]*📺[^\n]*$"
+        if re.search(pat, cap):
+            cap = (
+                re.sub(pat, new_line, cap, count=1)
+                if new_line
+                else re.sub(r"(?m)^[^\n]*📺[^\n]*\n?", "", cap, count=1)
+            )
+        elif new_line:
+            cap = (
+                cap.replace("<blockquote>", f"<blockquote>{new_line}\n", 1)
+                if "<blockquote>" in cap
+                else f"{cap}\n{new_line}"
+            )
+
+    session["caption"] = cap
+
+
+def _parse_existing_metadata_from_html(html_text: str) -> Dict[str, List[str]]:
+    """Extracts existing Languages, Resolutions, Genres, and OTTs when importing a post via `/editpost`."""
+    extracted: Dict[str, List[str]] = {
+        "langs": [],
+        "res": [],
+        "genres": [],
+        "otts": [],
+    }
+    plain = re.sub(r"<[^>]+>", "", html_text or "")
+    for line in plain.splitlines():
+        if ":" not in line:
+            continue
+        val_part = line.split(":", 1)[1].strip()
+        items = [
+            x.strip().lstrip("#")
+            for x in val_part.split(",")
+            if x.strip() and x.strip() != "N/A"
+        ]
+        if "🔊" in line:
+            extracted["langs"] = items
+        elif "🖥️" in line:
+            extracted["res"] = items
+        elif "🎥" in line:
+            extracted["genres"] = items
+        elif "📺" in line:
+            extracted["otts"] = items
+    return extracted
 
 
 @Client.on_message(
@@ -1366,6 +1543,7 @@ async def cmd_edit_langs(client: Client, message: Message):
     session["custom_languages"] = [
         x.strip() for x in message.text.split(None, 1)[1].split(",") if x.strip()
     ]
+    smart_patch_imported_metadata(session, "languages")
     await update_post_preview(client, uid, message.chat.id, force_resend=False)
     await safe_reply_text(
         message, "✅ <b>Languages updated!</b>", parse_mode=enums.ParseMode.HTML
@@ -1391,6 +1569,7 @@ async def cmd_edit_res(client: Client, message: Message):
     session["custom_resolutions"] = [
         x.strip() for x in message.text.split(None, 1)[1].split(",") if x.strip()
     ]
+    smart_patch_imported_metadata(session, "resolutions")
     await update_post_preview(client, uid, message.chat.id, force_resend=False)
     await safe_reply_text(
         message, "✅ <b>Resolutions updated!</b>", parse_mode=enums.ParseMode.HTML
@@ -1416,6 +1595,7 @@ async def cmd_edit_gen(client: Client, message: Message):
     session["custom_genres"] = [
         x.strip() for x in message.text.split(None, 1)[1].split(",") if x.strip()
     ]
+    smart_patch_imported_metadata(session, "genres")
     await update_post_preview(client, uid, message.chat.id, force_resend=False)
     await safe_reply_text(
         message, "✅ <b>Genres updated!</b>", parse_mode=enums.ParseMode.HTML
@@ -1441,6 +1621,7 @@ async def cmd_edit_ott(client: Client, message: Message):
     session["custom_otts"] = [
         x.strip() for x in message.text.split(None, 1)[1].split(",") if x.strip()
     ]
+    smart_patch_imported_metadata(session, "otts")
     await update_post_preview(client, uid, message.chat.id, force_resend=False)
     await safe_reply_text(
         message, "✅ <b>OTT Platforms updated!</b>", parse_mode=enums.ParseMode.HTML
@@ -1787,27 +1968,67 @@ async def start_post_session(
         )
 
 
+def _parse_post_link_or_reply(message: Message) -> Tuple[Optional[Any], Optional[int]]:
+    """
+    Parses a Telegram post link (`/editpost https://t.me/...`) OR a replied/forwarded channel post.
+    Supports:
+    - `https://t.me/c/123456789/45`
+    - `https://t.me/c/123456789/10/45` (topic links)
+    - `https://t.me/channel_username/45?single`
+    - Replying to a forwarded channel post with `/editpost`
+    """
+    if len(message.command) >= 2:
+        raw_link = message.command[1].strip()
+        clean_link = raw_link.split("?")[0].rstrip("/")
+        m_priv = re.search(r"t\.me/c/(\d+)/(?:\d+/)?(\d+)$", clean_link)
+        if m_priv:
+            return int(f"-100{m_priv.group(1)}"), int(m_priv.group(2))
+        m_pub = re.search(r"t\.me/([a-zA-Z0-9_]+)/(?:\d+/)?(\d+)$", clean_link)
+        if m_pub:
+            uname = m_pub.group(1)
+            return (uname if uname.startswith("@") else f"@{uname}"), int(
+                m_pub.group(2)
+            )
+
+    replied = message.reply_to_message
+    if replied:
+        f_chat = getattr(replied, "forward_from_chat", None)
+        f_msg_id = getattr(replied, "forward_from_message_id", None)
+        if f_chat and f_msg_id:
+            return f_chat.id, int(f_msg_id)
+        if replied.chat:
+            return replied.chat.id, int(replied.id)
+
+    return None, None
+
+
 @Client.on_message(filters.command("editpost") & admin_filter, group=-4)
 async def edit_post_cmd(client: Client, message: Message):
     try:
-        if len(message.command) < 2:
+        chat_id, msg_id = _parse_post_link_or_reply(message)
+        if not chat_id or not msg_id:
             return await safe_reply_text(
                 message,
-                "❌ <b>Provide a post link.</b>",
+                "❌ <b>Provide a valid channel post link or reply to a forwarded channel post!</b>\n"
+                "⚙️ <b>Usage:</b> <code>/editpost https://t.me/ChannelName/123</code>",
                 parse_mode=enums.ParseMode.HTML,
             )
-        link = message.command[1].strip()
-        parts = link.rstrip("/").split("/")
-        chat_id = (
-            int("-100" + parts[-2])
-            if "t.me/c/" in link
-            else ("@" + parts[-2] if not parts[-2].startswith("@") else parts[-2])
-        )
-        msg_id = int(parts[-1])
+
         status_msg = await safe_reply_text(
             message, "⏳ <b>Fetching post...</b>", parse_mode=enums.ParseMode.HTML
         )
         target_msg = await client.get_messages(chat_id, msg_id)
+        if not target_msg or getattr(target_msg, "empty", False):
+            if status_msg:
+                await status_msg.edit_text(
+                    "❌ <b>Could not find that message!</b> Make sure the bot is an admin in the channel and the link is valid.",
+                    parse_mode=enums.ParseMode.HTML,
+                )
+            return
+
+        # Store numeric chat.id so editing never fails on username resolution
+        resolved_chat_id = target_msg.chat.id if target_msg.chat else chat_id
+
         poster_url, html_text, is_photo_mode = None, "", False
         if target_msg.photo:
             html_text = target_msg.caption.html if target_msg.caption else ""
@@ -1815,7 +2036,6 @@ async def edit_post_cmd(client: Client, message: Message):
             is_photo_mode = True
         else:
             html_text = target_msg.text.html if target_msg.text else ""
-            # Match any invisible preview link (&#8205;, &#8203;, \u200d, \u200b, or whitespace)
             inv_pattern = r"<a href=['\"](https?://[^'\"]+)['\"]>(?:&#8205;|&#8203;|\u200d|\u200b|\s)*</a>"
             match = re.search(inv_pattern, html_text)
             if match:
@@ -1825,8 +2045,24 @@ async def edit_post_cmd(client: Client, message: Message):
                 target_msg.web_page, "url", None
             ):
                 poster_url = target_msg.web_page.url
+
         title_match = re.search(r"<b>(.*?)</b>", html_text.split("\n")[0])
-        search_name = title_match.group(1).strip() if title_match else "Unknown Movie"
+        raw_header = (
+            re.sub(r"<[^>]+>", "", title_match.group(1)).strip()
+            if title_match
+            else "Unknown Movie"
+        )
+        year_m = re.search(r"\b(19\d{2}|20\d{2})\b", raw_header)
+        extracted_year = year_m.group(1) if year_m else ""
+        clean_title = (
+            raw_header.replace(extracted_year, "").strip(" ()[]-")
+            if extracted_year
+            else raw_header
+        )
+        search_name = clean_title or raw_header
+
+        parsed_meta = _parse_existing_metadata_from_html(html_text)
+
         buttons = []
         if target_msg.reply_markup and target_msg.reply_markup.inline_keyboard:
             for row in target_msg.reply_markup.inline_keyboard:
@@ -1849,10 +2085,10 @@ async def edit_post_cmd(client: Client, message: Message):
             "buttons": buttons,
             "photo_mode": is_photo_mode,
             "use_landscape": False,
-            "custom_languages": [],
-            "custom_resolutions": [],
-            "custom_genres": [],
-            "custom_otts": [],
+            "custom_languages": parsed_meta["langs"],
+            "custom_resolutions": parsed_meta["res"],
+            "custom_genres": parsed_meta["genres"],
+            "custom_otts": parsed_meta["otts"],
             "schedule": 0,
             "auto_delete": 0,
             "last_preview_message_id": status_msg.id if status_msg else None,
@@ -1868,7 +2104,7 @@ async def edit_post_cmd(client: Client, message: Message):
             "active_template": "clean_grid",
             "movie_details": {
                 "title": search_name,
-                "year": "",
+                "year": extracted_year,
                 "poster_url": (
                     poster_url
                     if (
@@ -1879,7 +2115,12 @@ async def edit_post_cmd(client: Client, message: Message):
                 ),
                 "backdrop_url": None,
             },
-            "edit_target": {"chat_id": chat_id, "message_id": msg_id},
+            "edit_target": {
+                "chat_id": resolved_chat_id,
+                "message_id": int(target_msg.id),
+                "orig_photo_mode": is_photo_mode,
+                "orig_poster": poster_url,
+            },
             "custom_direct_btn_text": "Direct Search 🔎",
             "updated_at": time.time(),
         }
@@ -1900,12 +2141,6 @@ class SafeDict(dict):
 
 
 def _resolve_poster_for_mode(session: dict) -> Optional[str]:
-    """
-    Returns the right poster for the current mode:
-    - In Preview Image mode (`photo_mode=False`), an `https://` URL is required for `<a href='...'>&#8205;</a>`.
-      If `custom_poster` is a Telegram `file_id`, it falls back to the TMDB URL so Preview Mode isn't broken.
-    - In Normal Image mode (`photo_mode=True`), prefers `custom_photo_id` (Telegram file_id) or `custom_poster`.
-    """
     custom_p = session.get("custom_poster")
     if custom_p == "BLANK":
         return None
@@ -1929,8 +2164,11 @@ async def _build_final_post_content(session: dict, session_id: int):
     movie_details = session.get("movie_details", {})
     poster_to_use = _resolve_poster_for_mode(session)
     if session.get("is_manual_caption") and session.get("caption"):
+        cap_out = session["caption"]
+        if session.get("watermark") and session["watermark"] not in cap_out:
+            cap_out = f"{cap_out}\n\n{session['watermark']}"
         return (
-            session["caption"],
+            cap_out,
             build_keyboard(session, session_id),
             poster_to_use,
         )
@@ -2412,6 +2650,12 @@ async def post_callbacks(client: Client, query: CallbackQuery):
                 "select_gen": "custom_genres",
                 "select_ott": "custom_otts",
             }
+            meta_map = {
+                "select_lang": "languages",
+                "select_res": "resolutions",
+                "select_gen": "genres",
+                "select_ott": "otts",
+            }
             k = arr_map[action]
             if "BLANK" in session[k]:
                 session[k] = []
@@ -2419,6 +2663,7 @@ async def post_callbacks(client: Client, query: CallbackQuery):
                 session[k].append(item)
             else:
                 session[k].remove(item)
+            smart_patch_imported_metadata(session, meta_map[action])
             await save_session_to_db(session_id, session)
             if action == "select_lang":
                 await show_selection_menu(query, session_id, "languages")
@@ -2431,7 +2676,13 @@ async def post_callbacks(client: Client, query: CallbackQuery):
             return
         elif action == "format_lang":
             return await format_updater(
-                client, query, session_id, "lang_format", "{langs}", LANGUAGES_FORMAT
+                client,
+                query,
+                session_id,
+                "lang_format",
+                "{langs}",
+                LANGUAGES_FORMAT,
+                "languages",
             )
         elif action == "format_res":
             return await format_updater(
@@ -2441,14 +2692,27 @@ async def post_callbacks(client: Client, query: CallbackQuery):
                 "res_format",
                 "{resolutions}",
                 RESOLUTIONS_FORMAT,
+                "resolutions",
             )
         elif action == "format_gen":
             return await format_updater(
-                client, query, session_id, "gen_format", "{genres}", GENRES_FORMAT
+                client,
+                query,
+                session_id,
+                "gen_format",
+                "{genres}",
+                GENRES_FORMAT,
+                "genres",
             )
         elif action == "format_ott":
             return await format_updater(
-                client, query, session_id, "ott_format", "{otts}", OTT_FORMAT
+                client,
+                query,
+                session_id,
+                "ott_format",
+                "{otts}",
+                OTT_FORMAT,
+                "otts",
             )
         elif action == "select_template":
             await query.answer("✅ Template selected!")
@@ -2493,16 +2757,23 @@ async def post_callbacks(client: Client, query: CallbackQuery):
             )
             if response and response.text:
                 text_input = response.text.strip().lower()
+                old_wm = session.get("watermark", "")
                 if text_input in ["/reset", "blank"]:
-                    session["watermark"] = ""
+                    new_wm = ""
                 elif text_input == "/default":
-                    session["watermark"] = DEFAULT_WATERMARK
+                    new_wm = DEFAULT_WATERMARK
                 else:
-                    session["watermark"] = (
+                    new_wm = (
                         response.text.html
                         if hasattr(response.text, "html")
                         else response.text
                     )
+                if session.get("is_manual_caption") and session.get("caption"):
+                    if old_wm and old_wm in session["caption"]:
+                        session["caption"] = (
+                            session["caption"].replace(old_wm, new_wm).strip()
+                        )
+                session["watermark"] = new_wm
         elif action == "edit_buttons":
             response = await get_user_input(
                 client,
@@ -2653,14 +2924,15 @@ async def post_callbacks(client: Client, query: CallbackQuery):
             new_landscape = not session.get("use_landscape", False)
             session["use_landscape"] = new_landscape
 
-            # If this session came from /editpost, fetch TMDB poster_url / backdrop_url on demand
             md = session.get("movie_details", {})
-            if not md.get("backdrop_url") and not md.get("poster_url"):
+            if not md.get("backdrop_url") or not md.get("poster_url"):
                 try:
                     fetched = await get_movie_detailsx(session.get("movie_name", ""))
                     if fetched and isinstance(fetched, dict):
-                        md["poster_url"] = fetched.get("poster_url")
-                        md["backdrop_url"] = fetched.get("backdrop_url")
+                        if fetched.get("poster_url"):
+                            md["poster_url"] = fetched.get("poster_url")
+                        if fetched.get("backdrop_url"):
+                            md["backdrop_url"] = fetched.get("backdrop_url")
                         session["movie_details"] = md
                 except Exception:
                     pass
@@ -2920,6 +3192,7 @@ async def format_updater(
     format_key: str,
     tag: str,
     default_format: str,
+    meta_type: str = "",
 ):
     response = await get_user_input(
         client,
@@ -2939,6 +3212,8 @@ async def format_updater(
             )
         else:
             session[format_key] = response.text
+        if meta_type:
+            smart_patch_imported_metadata(session, meta_type)
     await save_session_to_db(session_id, session)
     return await update_post_preview(
         client, session_id, query.message.chat.id, force_resend=False
@@ -3030,7 +3305,7 @@ async def delete_after_delay(client: Client, chat_id: int, message_id: int, dela
 
 async def delayed_post_worker(
     client: Client, session: dict, target_chats: list, edit_target: dict = None
-):
+) -> Tuple[int, Optional[str]]:
     delay = session.get("schedule", 0)
     if delay > 0:
         await asyncio.sleep(delay)
@@ -3039,7 +3314,9 @@ async def delayed_post_worker(
             session, -1
         )
     except Exception as e:
-        return logger.error(f"Post Worker Error: {e}")
+        logger.error(f"Post Worker Error: {e}")
+        return 0, str(e)
+
     is_normal_photo = (
         session.get("photo_mode")
         and poster_to_use
@@ -3047,35 +3324,68 @@ async def delayed_post_worker(
     )
     g_settings = await get_global_post_settings()
     sticker_id = g_settings.get("sticker")
+    success_count = 0
+    last_error: Optional[str] = None
+
     for chat_id in target_chats:
         try:
             if edit_target:
-                if is_normal_photo:
-                    await safe_edit_photo_media(
-                        client,
-                        edit_target["chat_id"],
-                        edit_target["message_id"],
-                        photo=poster_to_use,
-                        caption=final_caption,
-                        reply_markup=keyboard,
-                        parse_mode=enums.ParseMode.HTML,
-                    )
+                e_chat_id = edit_target["chat_id"]
+                e_msg_id = int(edit_target["message_id"])
+                orig_photo_mode = edit_target.get("orig_photo_mode", is_normal_photo)
+                orig_poster = edit_target.get("orig_poster")
+
+                if orig_photo_mode:
+                    # Target message in the channel is a Photo post
+                    if (
+                        poster_to_use
+                        and str(poster_to_use).upper() != "BLANK"
+                        and poster_to_use != orig_poster
+                    ):
+                        await safe_edit_photo_media(
+                            client,
+                            e_chat_id,
+                            e_msg_id,
+                            photo=poster_to_use,
+                            caption=final_caption,
+                            reply_markup=keyboard,
+                            parse_mode=enums.ParseMode.HTML,
+                        )
+                    else:
+                        try:
+                            await client.edit_message_caption(
+                                e_chat_id,
+                                e_msg_id,
+                                caption=final_caption,
+                                reply_markup=keyboard,
+                                parse_mode=enums.ParseMode.HTML,
+                            )
+                        except MessageNotModified:
+                            pass
                 else:
+                    # Target message in the channel is a Text / Preview Image post
+                    has_valid_url = bool(
+                        poster_to_use
+                        and str(poster_to_use).upper() != "BLANK"
+                        and str(poster_to_use).startswith(("http://", "https://"))
+                    )
                     text_content = (
                         f"{final_caption}\n<a href='{poster_to_use}'>&#8205;</a>"
-                        if poster_to_use and str(poster_to_use).upper() != "BLANK"
+                        if has_valid_url
                         else final_caption
                     )
                     await safe_edit_message_text(
                         client,
-                        edit_target["chat_id"],
-                        edit_target["message_id"],
+                        e_chat_id,
+                        e_msg_id,
                         text=text_content,
                         reply_markup=keyboard,
-                        disable_web_page_preview=False,
+                        disable_web_page_preview=not has_valid_url,
                         parse_mode=enums.ParseMode.HTML,
                     )
+                success_count += 1
                 continue
+
             if is_normal_photo:
                 sent_msg = await safe_send_photo(
                     client,
@@ -3086,9 +3396,14 @@ async def delayed_post_worker(
                     parse_mode=enums.ParseMode.HTML,
                 )
             else:
+                has_valid_url = bool(
+                    poster_to_use
+                    and str(poster_to_use).upper() != "BLANK"
+                    and str(poster_to_use).startswith(("http://", "https://"))
+                )
                 text_content = (
                     f"{final_caption}\n<a href='{poster_to_use}'>&#8205;</a>"
-                    if poster_to_use and str(poster_to_use).upper() != "BLANK"
+                    if has_valid_url
                     else final_caption
                 )
                 sent_msg = await safe_send_message(
@@ -3096,7 +3411,7 @@ async def delayed_post_worker(
                     chat_id,
                     text=text_content,
                     reply_markup=keyboard,
-                    disable_web_page_preview=False,
+                    disable_web_page_preview=not has_valid_url,
                     parse_mode=enums.ParseMode.HTML,
                 )
             if sticker_id:
@@ -3109,14 +3424,18 @@ async def delayed_post_worker(
                 asyncio.create_task(
                     delete_after_delay(client, chat_id, sent_msg.id, auto_del)
                 )
+            success_count += 1
         except FloodWait as e:
             await asyncio.sleep(e.value + 1)
         except Exception as e:
-            logger.error(f"Failed to post in {chat_id}: {e}")
+            last_error = str(e)
+            logger.error(f"Failed to post/edit in {chat_id}: {e}")
+
+    return success_count, last_error
 
 
 async def execute_post(
-    client: Client, query: CallbackQuery, session_id: int, target_chat_id: int
+    client: Client, query: CallbackQuery, session_id: int, target_chat_id: Any
 ):
     session = post_sessions.pop(session_id, None) or await get_or_load_session(
         session_id
@@ -3153,15 +3472,27 @@ async def execute_post(
             if query.message
             else None
         )
-        await delayed_post_worker(
+        ok_count, err_msg = await delayed_post_worker(
             client, session, [target_chat_id], session.get("edit_target")
         )
         if status_msg:
             try:
-                await status_msg.edit_text(
-                    "✅ <b>Post completed successfully!</b>",
-                    parse_mode=enums.ParseMode.HTML,
-                )
+                if ok_count > 0:
+                    done_txt = (
+                        "✅ <b>Channel post edited successfully!</b>"
+                        if session.get("edit_target")
+                        else "✅ <b>Post completed successfully!</b>"
+                    )
+                    await status_msg.edit_text(
+                        done_txt,
+                        parse_mode=enums.ParseMode.HTML,
+                    )
+                else:
+                    await status_msg.edit_text(
+                        f"❌ <b>Failed to update/post in channel!</b>\n"
+                        f"<b>Reason:</b> <code>{html.escape(err_msg or 'Unknown error (check bot admin permissions in channel)')}</code>",
+                        parse_mode=enums.ParseMode.HTML,
+                    )
             except Exception:
                 pass
 
@@ -3226,11 +3557,18 @@ async def execute_post_all(client: Client, query: CallbackQuery, session_id: int
             if query.message
             else None
         )
-        await delayed_post_worker(client, session, all_targets)
+        ok_count, err_msg = await delayed_post_worker(client, session, all_targets)
         if status_msg:
             try:
-                await status_msg.edit_text(
-                    "✅ <b>Broadcast Complete!</b>", parse_mode=enums.ParseMode.HTML
-                )
+                if ok_count > 0:
+                    await status_msg.edit_text(
+                        f"✅ <b>Broadcast Complete! ({ok_count}/{len(all_targets)} channels)</b>",
+                        parse_mode=enums.ParseMode.HTML,
+                    )
+                else:
+                    await status_msg.edit_text(
+                        f"❌ <b>Broadcast Failed!</b>\n<code>{html.escape(err_msg or 'Unknown error')}</code>",
+                        parse_mode=enums.ParseMode.HTML,
+                    )
             except Exception:
                 pass
