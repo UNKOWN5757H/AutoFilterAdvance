@@ -109,7 +109,6 @@ except ImportError:
             return []
 
 
-# For link shortener
 try:
     from plugins.shortner import is_shortener_active, shorten_single_url
 except ImportError:
@@ -127,10 +126,7 @@ except ImportError:
 logger = getLogger(__name__)
 logger.setLevel(ERROR)
 
-# Strong reference set so Python's garbage collector never cancels sleeping auto-delete tasks
 AUTO_DELETE_TASKS = set()
-
-# Track unhealthy DB collections so a broken DB doesn't cause freezes
 _DEAD_COLLECTIONS: Dict[str, float] = {}
 
 # ============================================================
@@ -138,7 +134,6 @@ _DEAD_COLLECTIONS: Dict[str, float] = {}
 # ============================================================
 _STYLISH_CHAR_MAP: Dict[int, str] = {}
 
-# 1. Small Caps & Special Latin Stylized Letters
 _SMALL_CAPS_PAIRS = (
     ("ᴀ", "a"),
     ("ʙ", "b"),
@@ -167,7 +162,6 @@ _SMALL_CAPS_PAIRS = (
     ("ʏ", "y"),
     ("ᴢ", "z"),
     ("ꞯ", "q"),
-    ("w", "w"),
     ("ℓ", "l"),
     ("ℏ", "h"),
     ("℘", "p"),
@@ -197,18 +191,15 @@ for _sc_k, _sc_v in _SMALL_CAPS_PAIRS:
     if len(_sc_k) == 1:
         _STYLISH_CHAR_MAP[ord(_sc_k)] = _sc_v
 
-# 2. Enclosed Alphanumerics: Ⓐ-Ⓩ (0x24B6-0x24CF), ⓐ-ⓩ (0x24D0-0x24E9)
 for _i in range(26):
     _STYLISH_CHAR_MAP[0x24B6 + _i] = chr(ord("A") + _i)
     _STYLISH_CHAR_MAP[0x24D0 + _i] = chr(ord("a") + _i)
-    # Parenthesized/Squared/Negative Circled/Regional Indicator/Tag Letters
-    _STYLISH_CHAR_MAP[0x1F110 + _i] = chr(ord("A") + _i)  # 🄐-🄩
-    _STYLISH_CHAR_MAP[0x1F130 + _i] = chr(ord("A") + _i)  # 🄰-🅉
-    _STYLISH_CHAR_MAP[0x1F150 + _i] = chr(ord("A") + _i)  # 🅐-🅩
-    _STYLISH_CHAR_MAP[0x1F170 + _i] = chr(ord("A") + _i)  # 🅰-🆉
-    _STYLISH_CHAR_MAP[0x1F1E6 + _i] = chr(ord("A") + _i)  # 🇦-🇿
+    _STYLISH_CHAR_MAP[0x1F110 + _i] = chr(ord("A") + _i)
+    _STYLISH_CHAR_MAP[0x1F130 + _i] = chr(ord("A") + _i)
+    _STYLISH_CHAR_MAP[0x1F150 + _i] = chr(ord("A") + _i)
+    _STYLISH_CHAR_MAP[0x1F170 + _i] = chr(ord("A") + _i)
+    _STYLISH_CHAR_MAP[0x1F1E6 + _i] = chr(ord("A") + _i)
 
-# 3. Mathematical Alphanumeric Symbols (Bold, Italic, Script, Fraktur, Double-Struck, Sans, Mono)
 _MATH_ALPHA_RANGES = (
     (0x1D400, "A", 26),
     (0x1D41A, "a", 26),
@@ -241,34 +232,21 @@ for _start_cp, _base_ch, _cnt in _MATH_ALPHA_RANGES:
     for _i in range(_cnt):
         _STYLISH_CHAR_MAP[_start_cp + _i] = chr(ord(_base_ch) + _i)
 
-# 4. Mathematical Digits (Bold, Double-Struck, Sans-Serif, Sans-Bold, Monospace)
 for _d_start in (0x1D7CE, 0x1D7D8, 0x1D7E2, 0x1D7EC, 0x1D7F6):
     for _i in range(10):
         _STYLISH_CHAR_MAP[_d_start + _i] = str(_i)
 
 
 def strip_stylish_fonts(text: str) -> str:
-    """
-    Converts/removes ALL fancy/stylish Unicode fonts (Mathematical Bold, Italic, Script,
-    Fraktur, Sans-Serif, Monospace, Fullwidth, Circled, Squared, Negative Squared,
-    Regional Indicator flags, Small-Caps, and Combining Strikethrough/Underline marks)
-    into clean standard English letters and numbers while preserving Indic scripts.
-    """
     if not text:
         return ""
-
-    # Step 1: Direct codepoint translation for Math, Small-Caps, Circled & Squared fonts
     text = text.translate(_STYLISH_CHAR_MAP)
-
-    # Step 2: Strip combining diacritical overlays (e.g., strikethrough s̶t̶y̶l̶e̶, underline)
-    # while keeping Indic vowel/consonant signs (0x0900 - 0x0D7F) intact
     out_chars: List[str] = []
     for ch in text:
         cp = ord(ch)
         if 0x0900 <= cp <= 0x0D7F:
             out_chars.append(ch)
         elif 0x0300 <= cp <= 0x036F or 0x20D0 <= cp <= 0x20FF or 0xFE00 <= cp <= 0xFE0F:
-            # Skip combining decorative marks & variation selectors
             continue
         elif cp > 127:
             norm_ch = unicodedata.normalize("NFKC", ch).translate(_STYLISH_CHAR_MAP)
@@ -278,19 +256,14 @@ def strip_stylish_fonts(text: str) -> str:
                 out_chars.append(ascii_only)
         else:
             out_chars.append(ch)
-
     return "".join(out_chars)
 
 
 # ============================================================
-# 🔗 CUSTOM EXTRA BUTTON LINKS (EDIT YOUR LINKS HERE)
+# 🔗 CUSTOM EXTRA BUTTON LINKS
 # ============================================================
-EXTRA_BTN_1_URL = getattr(
-    info, "EXTRA_BTN_1_URL", "https://t.me/+lcTawsnhdi0zYWE1"
-)  # Link for [🎞] button
-EXTRA_BTN_2_URL = getattr(
-    info, "EXTRA_BTN_2_URL", "https://t.me/linkz_ki_duniyaa"
-)  # Link for [🔞] button
+EXTRA_BTN_1_URL = getattr(info, "EXTRA_BTN_1_URL", "https://t.me/+lcTawsnhdi0zYWE1")
+EXTRA_BTN_2_URL = getattr(info, "EXTRA_BTN_2_URL", "https://t.me/linkz_ki_duniyaa")
 
 # ============================================================
 # 🌐 LANGUAGES & 🎞️ QUALITIES CONFIGURATION
@@ -525,10 +498,7 @@ def transliterate_indic_to_english(text: str) -> str:
                     if (i + 1 < n and 0x0900 <= ord(norm_text[i + 1]) <= 0x0D7F)
                     else 0
                 )
-                if 0x2A <= next_offset <= 0x2E or next_offset == 0:
-                    out.append("m")
-                else:
-                    out.append("n")
+                out.append("m" if (0x2A <= next_offset <= 0x2E or next_offset == 0) else "n")
                 i += 1
                 continue
 
@@ -564,10 +534,7 @@ def transliterate_indic_to_english(text: str) -> str:
 
                 is_devanagari = (cp & 0xFF80) == 0x0900
                 is_word_end = (i + 1 == n) or not (0x0900 <= next_cp <= 0x0D7F)
-                if is_devanagari and is_word_end and len(out) > 0:
-                    out.append(base_c)
-                else:
-                    out.append(base_c + "a")
+                out.append(base_c if (is_devanagari and is_word_end and len(out) > 0) else (base_c + "a"))
                 i += 1
                 continue
 
@@ -581,15 +548,23 @@ def transliterate_indic_to_english(text: str) -> str:
             out.append(ch)
             i += 1
 
-    result = "".join(out)
-    return re.sub(r"\s+", " ", result).strip().lower()
+    return re.sub(r"\s+", " ", "".join(out)).strip().lower()
 
 
 def generate_phonetic_variants(translit_str: str) -> List[str]:
     if not translit_str:
         return []
     variants = [translit_str]
-    v1 = translit_str.replace("aa", "a").replace("ee", "i").replace("oo", "u")
+    v1 = (
+        translit_str.replace("aa", "a")
+        .replace("ee", "i")
+        .replace("oo", "u")
+        .replace("bh", "b")
+        .replace("dh", "d")
+        .replace("th", "t")
+        .replace("kh", "k")
+        .replace("gh", "g")
+    )
     if v1 not in variants:
         variants.append(v1)
     v2_words = [(w[:-1] if len(w) > 4 and w.endswith("a") else w) for w in v1.split()]
@@ -613,8 +588,6 @@ except ImportError:
     ReplyParameters = None
 
 _SEND_MSG_PARAMS = set(inspect.signature(Client.send_message).parameters.keys())
-_REPLY_PARAMS = set(inspect.signature(Message.reply_text).parameters.keys())
-_EDIT_PARAMS = set(inspect.signature(Message.edit_text).parameters.keys())
 
 BTN_PRIMARY = None
 BTN_SUCCESS = None
@@ -630,8 +603,7 @@ try:
         BTN_DANGER = getattr(ButtonStyle, "DANGER", None)
         _SUPPORTS_BTN_STYLE = True
 except (ImportError, ValueError, TypeError):
-    BTN_PRIMARY = BTN_SUCCESS = BTN_DANGER = None
-    _SUPPORTS_BTN_STYLE = False
+    pass
 
 
 def _normalize_style(style: Any) -> Any:
@@ -654,7 +626,6 @@ def create_btn(
     callback_data: Optional[str] = None,
     style: Any = None,
 ) -> InlineKeyboardButton:
-    """Creates an InlineKeyboardButton safely. Pass style=None for no colour."""
     kwargs: Dict[str, Any] = {"text": str(text)}
     if url:
         kwargs["url"] = str(url).strip()
@@ -709,14 +680,12 @@ BUTTONS_CACHE = TTLCache(maxsize=4000, ttl=1800)
 FILTER_STATE_CACHE = TTLCache(maxsize=4000, ttl=1800)
 SUGGESTIONS_CACHE = TTLCache(maxsize=2000, ttl=1800)
 DYM_QUERY_CACHE = TTLCache(maxsize=2000, ttl=1800)
-USER_LAST_REQ = TTLCache(maxsize=5000, ttl=30)
 FUZZY_TITLES_CACHE = TTLCache(maxsize=10, ttl=1800)
 RESTRICTED_WRITE_CHATS = TTLCache(maxsize=500, ttl=300)
 SHORT_URL_CACHE = TTLCache(maxsize=10000, ttl=21600)
 
 
 async def _get_fast_short_url(long_url: str) -> str:
-    """Shortens a single deep-link URL with caching and timeout protection for direct button redirects."""
     cached = SHORT_URL_CACHE.get(long_url)
     if cached:
         return cached
@@ -741,7 +710,6 @@ async def safe_reply_text(
     reply_markup: Optional[InlineKeyboardMarkup] = None,
     parse_mode: enums.ParseMode = enums.ParseMode.HTML,
 ) -> Optional[Message]:
-    """Replies safely without ever crashing or logging errors on 403 CHAT_WRITE_FORBIDDEN."""
     if not msg:
         return None
     try:
@@ -795,7 +763,6 @@ async def safe_reply_photo_or_text(
     reply_markup: Optional[InlineKeyboardMarkup] = None,
     parse_mode: enums.ParseMode = enums.ParseMode.HTML,
 ) -> Optional[Message]:
-    """Tries sending a photo reply, and falls back to text if media is restricted."""
     if not msg:
         return None
     if photo and str(photo).strip().lower() not in ["none", "null", "false", ""]:
@@ -863,7 +830,7 @@ DEFAULT_CLEAN_WORDS = [
     "dub",
     "dubbed",
     "(",
-    "(",
+    ")",
     "{",
     "}",
     "#",
@@ -899,7 +866,6 @@ def _get_writable_col(col_name: str, fallback_col: Any):
 
 
 def _get_all_filter_dbs() -> List[Any]:
-    """Returns all available database instances across primary and secondary clusters."""
     dbs = []
     if callable(get_writable_System_db):
         try:
@@ -920,7 +886,6 @@ def _get_all_filter_dbs() -> List[Any]:
     return dbs
 
 
-# In-memory backup store for manual filters so filters work 100% even if all MongoDB clusters hit 512MB quota
 _RAM_FILTERS_STORE: Dict[str, Dict[str, dict]] = {}
 
 
@@ -981,7 +946,6 @@ async def get_clean_words() -> list:
 
 
 async def get_active_promos() -> List[Dict[str, str]]:
-    """Fetches active promotional buttons added via /addpromo in broadcast.py or plugin_db."""
     global _PROMO_CACHE
     now = time.time()
     if now - _PROMO_CACHE[0] < 120:
@@ -1018,14 +982,6 @@ async def get_active_promos() -> List[Dict[str, str]]:
 
 
 def clean_filename(name: str, clean_words: list) -> str:
-    """
-    Always removes & cleans:
-    - Converts/removes all stylish Unicode fonts (e.g. 𝙆𝙖𝙣𝙩𝙖𝙧𝙖 -> Kantara, 𝖬𝗈𝗏𝗂𝖾 -> Movie, Ⓜⓞⓥⓘⓔ -> Movie)
-    - Any word starting with '@' (e.g., @Sandalwood_Kannada, [@Channel_Name])
-    - URLs & Telegram links
-    - Custom clean words & default file extensions
-    - All symbols/punctuation while preserving clean alphanumeric + Indic characters
-    """
     if not name:
         return "File"
 
@@ -1056,47 +1012,9 @@ def clean_filename(name: str, clean_words: list) -> str:
     return (name[:42] + "..") if len(name) > 45 else (name or "File")
 
 
-def get_auto_delete_timer(
-    var_name: str = "AUTO_DELETE_TIME", default_time: int = 300
-) -> int:
-    try:
-        global_switch = getattr(info, "AUTO_DELETE", True)
-        if str(global_switch).strip().lower() in ["false", "off", "0", "no"]:
-            return 0
-        raw_val = getattr(
-            info,
-            var_name,
-            getattr(
-                info,
-                "AUTO_DELETE_TIME",
-                getattr(info, "FILE_AUTO_DELETE", default_time),
-            ),
-        )
-        if isinstance(raw_val, bool):
-            return default_time if raw_val else 0
-        val = int(str(raw_val).strip())
-        return max(0, val)
-    except Exception:
-        return default_time
-
-
-def format_duration(seconds: int) -> str:
-    if seconds <= 0:
-        return "0 Seconds"
-    m, s = divmod(int(seconds), 60)
-    if m > 0 and s > 0:
-        return f"{m} Minute{'s' if m != 1 else ''} {s} Second{'s' if s != 1 else ''}"
-    if m > 0:
-        return f"{m} Minute{'s' if m != 1 else ''}"
-    return f"{s} Second{'s' if s != 1 else ''}"
-
-
 async def resolve_auto_delete_timer(
     chat_id: Optional[int] = None, default_time: int = 300
 ) -> int:
-    """
-    Cached auto-delete timer resolver (avoids 3 MongoDB queries on every group message).
-    """
     cache_key = str(chat_id or "global")
     cached_val = AUTO_DELETE_TIMER_CACHE.get(cache_key)
     if cached_val is not None:
@@ -1171,18 +1089,15 @@ def get_admin_list():
 
 
 async def is_global_admin(user_id: int) -> bool:
-    if not user_id:
-        return False
-    return int(user_id) in get_admin_list()
+    return bool(user_id and int(user_id) in get_admin_list())
 
 
 async def is_user_banned(user_id: int) -> bool:
-    """Fast in-memory ban check using temp.BANNED_USERS (0ms latency)."""
-    if not user_id:
-        return False
-    if hasattr(temp, "BANNED_USERS") and int(user_id) in temp.BANNED_USERS:
-        return True
-    return False
+    return bool(
+        user_id
+        and hasattr(temp, "BANNED_USERS")
+        and int(user_id) in temp.BANNED_USERS
+    )
 
 
 async def get_active_connection(user_id: str) -> Optional[int]:
@@ -1286,12 +1201,6 @@ async def safe_save_filter(
     alert: str = "[]",
     media_type: str = "None",
 ):
-    """
-    Saves a manual filter across:
-    1. In-memory RAM store (instant 0ms availability, never fails on 512MB DB quota)
-    2. All healthy writable MongoDB databases (`manual_filters_v2` collection)
-    3. Legacy `database.filters_mdb.add_filter` (wrapped in try/except so quota errors never crash commands)
-    """
     gid_str = str(group_id)
     kw_clean = str(keyword).lower().strip()
     MANUAL_FILTERS_CACHE._data.pop(gid_str, None)
@@ -1345,9 +1254,6 @@ async def safe_save_filter(
 async def safe_find_filter(
     group_id: Any, keyword: str
 ) -> Tuple[str, str, str, str, str]:
-    """
-    Returns `(reply_text, btn, alert, fileid, media_type)` from RAM, `manual_filters_v2`, or legacy `find_filter`.
-    """
     gid_str = str(group_id)
     kw_clean = str(keyword).lower().strip()
 
@@ -1404,7 +1310,6 @@ async def safe_find_filter(
 
 
 async def safe_get_all_filters(group_id: Any) -> List[str]:
-    """Returns all filter keywords for the group + global store across RAM and all healthy DBs."""
     gid_str = str(group_id)
     kw_set = set()
 
@@ -1529,6 +1434,30 @@ def build_effective_search_query(base_query: str, state: dict) -> str:
 # ============================================================
 # 🔮 ULTRA-FAST SEARCH, FALLBACK DB ENGINE & DEDUPLICATION
 # ============================================================
+_ROMAN_TO_DIGIT = (
+    (re.compile(r"(?i)\bpart\s+i\b"), "part 1"),
+    (re.compile(r"(?i)\bpart\s+ii\b"), "part 2"),
+    (re.compile(r"(?i)\bpart\s+iii\b"), "part 3"),
+    (re.compile(r"(?i)\bpart\s+iv\b"), "part 4"),
+    (re.compile(r"(?i)\bchapter\s+i\b"), "chapter 1"),
+    (re.compile(r"(?i)\bchapter\s+ii\b"), "chapter 2"),
+    (re.compile(r"(?i)\bchapter\s+iii\b"), "chapter 3"),
+    (re.compile(r"(?i)\bvol(?:ume)?\s+i\b"), "vol 1"),
+    (re.compile(r"(?i)\bvol(?:ume)?\s+ii\b"), "vol 2"),
+    (re.compile(r"(?i)\bvol(?:ume)?\s+iii\b"), "vol 3"),
+)
+
+_NOISE_SEARCH_WORDS = re.compile(
+    r"(?i)\b(4320p|2160p|1440p|1080p|720p|540p|480p|360p|240p|144p|4k|2k|8k|mkv|mp4|avi|"
+    r"hdrip|web-?dl|webrip|bluray|brrip|dvdrip|camrip|hdts|predvd|x264|x265|hevc|avc|aac\d*|"
+    r"ddp?\d*|dd\d*|ac3|eac3|atmos|\d+ch|10bit|8bit|hdr|sdr|dual\s*audio|multi\s*audio|"
+    r"hindi|kannada|tulu|telugu|tamil|malayalam|marathi|gujarati|bengali|punjabi|nepali|"
+    r"english|subtitles|subs|esub|episodes|season\s*\d+|s\d+e\d+|complete|movie|movies|"
+    r"full\s*movie|download|link|links|send|please|pls|plz|bro|sir|admin|dubbed|dub|new|latest|"
+    r"hd|fhd|uhd|qhd|sd|org|original|uncut|unrated|extended|remastered|proper|repack)\b"
+)
+
+
 def sanitize_search_query(text: str, allow_translit: bool = True) -> str:
     if not text:
         return ""
@@ -1536,15 +1465,17 @@ def sanitize_search_query(text: str, allow_translit: bool = True) -> str:
     if allow_translit and has_indic_script(text):
         text = transliterate_indic_to_english(text)
 
-    raw_q = re.sub(r"https?://\S+|t\.me/\S+|@\w+", "", text.strip().lower())
+    raw_q = re.sub(r"https?://\S+|t\.me/\S+|@\w+", " ", text.strip().lower())
+    for pat, repl in _ROMAN_TO_DIGIT:
+        raw_q = pat.sub(repl, raw_q)
+
+    # Split glued letters and numbers like "kgf2" -> "kgf 2" (except resolution/season tokens)
+    raw_q = re.sub(r"\b([a-z]{3,})(\d)\b", r"\1 \2", raw_q)
+
     basic_q = re.sub(r"[^a-zA-Z0-9]", " ", raw_q)
     basic_q = re.sub(r"\s+", " ", basic_q).strip()
 
-    q = re.sub(
-        r"(?i)\b(4320p|2160p|1440p|1080p|720p|540p|480p|360p|240p|144p|4k|2k|8k|mkv|mp4|avi|hdrip|web-?dl|webrip|bluray|brrip|dvdrip|x264|x265|hevc|aac\d*|ddp?\d*|\d+ch|10bit|8bit|hdr|sdr|dual audio|multi audio|hindi|kannada|tulu|telugu|tamil|malayalam|marathi|gujarati|bengali|punjabi|nepali|english|subtitles|subs|esub|episodes|season\s*\d+|s\d+e\d+|complete)\b",
-        "",
-        raw_q,
-    )
+    q = _NOISE_SEARCH_WORDS.sub(" ", raw_q)
     q = re.sub(r"[^a-zA-Z0-9]", " ", q)
     try:
         active_stops = get_stopwords()
@@ -1581,26 +1512,28 @@ def extract_inline_lang_and_qual(raw_text: str) -> Tuple[Optional[str], Optional
 async def _direct_collection_search(
     query: str, max_results: int = 10, offset: int = 0
 ) -> Tuple[list, int, int]:
-    """
-    Fallback direct search on healthy Media collections across all /datadb clusters.
-    """
     q_clean = query.strip()
     if not q_clean:
         return [], 0, 0
 
-    words = [re.escape(w) for w in re.split(r"\s+", q_clean) if w]
+    words = [w for w in re.split(r"\s+", q_clean) if w]
     if not words:
         return [], 0, 0
 
-    pattern_str = ".*".join(words)
-    regex = re.compile(pattern_str, re.IGNORECASE)
-    mongo_filter = (
-        {"$or": [{"file_name": regex}, {"caption": regex}]}
-        if getattr(info, "USE_CAPTION_FILTER", False)
-        else {"file_name": regex}
-    )
+    # Flexible token matching: allows words in any order or separated by dots/underscores/spaces
+    def _build_mongo_filter(word_list: List[str]):
+        and_clauses = []
+        for w in word_list:
+            w_reg = re.compile(rf"(?:^|[^a-zA-Z0-9]){re.escape(w)}", re.IGNORECASE)
+            if getattr(info, "USE_CAPTION_FILTER", False):
+                and_clauses.append({"$or": [{"file_name": w_reg}, {"caption": w_reg}]})
+            else:
+                and_clauses.append({"file_name": w_reg})
+        return {"$and": and_clauses} if len(and_clauses) > 1 else and_clauses[0]
 
+    mongo_filter = _build_mongo_filter(words)
     results = []
+
     if callable(get_all_healthy_read_dbs):
         for idx, target_db in get_all_healthy_read_dbs():
             try:
@@ -1643,8 +1576,9 @@ async def safe_search_db(query: str, max_results: int = 10, offset: int = 0):
             query, max_results=max_results, offset=offset
         )
 
+    res = ([], 0, 0)
     try:
-        return await get_search_results(
+        res = await get_search_results(
             query,
             max_results=max_results,
             offset=offset,
@@ -1653,29 +1587,28 @@ async def safe_search_db(query: str, max_results: int = 10, offset: int = 0):
         )
     except TypeError:
         try:
-            return await get_search_results(
+            res = await get_search_results(
                 query, max_results=max_results, offset=offset, filter=True
             )
         except TypeError:
             try:
-                return await get_search_results(
+                res = await get_search_results(
                     query, max_results=max_results, offset=offset
                 )
             except Exception:
                 _DEAD_COLLECTIONS["get_search_results"] = time.time() + 300
-                return await _direct_collection_search(
-                    query, max_results=max_results, offset=offset
-                )
         except Exception:
             _DEAD_COLLECTIONS["get_search_results"] = time.time() + 300
-            return await _direct_collection_search(
-                query, max_results=max_results, offset=offset
-            )
     except Exception:
         _DEAD_COLLECTIONS["get_search_results"] = time.time() + 300
-        return await _direct_collection_search(
-            query, max_results=max_results, offset=offset
-        )
+
+    if res and res[0]:
+        return res
+
+    # Fallback to flexible multi-token direct search if strict order regex returned 0 results
+    return await _direct_collection_search(
+        query, max_results=max_results, offset=offset
+    )
 
 
 def _file_text(file_obj) -> str:
@@ -1693,7 +1626,6 @@ def _file_text(file_obj) -> str:
 
 
 def _is_kannada_file(file_obj) -> bool:
-    """Detects if a file is Kannada via filename/caption tags or Kannada script."""
     txt = _file_text(file_obj)
     if LANG_PATTERNS["kan"].search(txt):
         return True
@@ -1701,7 +1633,6 @@ def _is_kannada_file(file_obj) -> bool:
 
 
 def _normalize_dedup_name(raw_name: str, clean_words: list) -> str:
-    """Normalizes a filename for deduplication (strips stylish fonts, @usernames, extensions, symbols, and case)."""
     s = strip_stylish_fonts(str(raw_name or "")).lower()
     s = re.sub(r"(?i)https?://\S+|t\.me/\S+|www\.\S+", " ", s)
     s = re.sub(r"[\[\(\{<]*@[a-zA-Z0-9_.\-]+[\]\)\}>]*", " ", s)
@@ -1716,10 +1647,6 @@ def _normalize_dedup_name(raw_name: str, clean_words: list) -> str:
 
 
 def _deduplicate_files(files: list, clean_words: list) -> list:
-    """
-    Removes duplicate files that have the same normalized filename AND same file size
-    (or identical file_id).
-    """
     unique_files = []
     seen_ids = set()
     seen_name_size = set()
@@ -1756,44 +1683,57 @@ def _deduplicate_files(files: list, clean_words: list) -> list:
     return unique_files
 
 
-def _score_file_relevance(file_obj, query_str: str) -> Tuple[int, int, int]:
+def _score_file_relevance(file_obj, query_str: str) -> Tuple[int, int, int, int]:
     """
-    Scores files so that:
-    1. Exact/matching movie title with KANNADA language always appears FIRST.
-    2. Exact title relevance comes next.
-    3. Larger/better quality file size breaks ties.
+    Precision file ranking:
+    1. Exact movie title boundary match + Kannada language priority
+    2. All query words matched as whole tokens
+    3. Year match bonus (if user included a year)
+    4. Larger/higher-quality file size tie-breaker
     """
-    fname = strip_stylish_fonts(
-        str(
-            file_obj.get("file_name", "")
-            if isinstance(file_obj, dict)
-            else getattr(file_obj, "file_name", "")
-        )
-    ).lower()
+    raw_fname = str(
+        file_obj.get("file_name", "")
+        if isinstance(file_obj, dict)
+        else getattr(file_obj, "file_name", "")
+    )
+    fname = strip_stylish_fonts(raw_fname).lower()
     fsize = int(
         file_obj.get("file_size", 0)
         if isinstance(file_obj, dict)
         else getattr(file_obj, "file_size", 0)
     )
+    extracted_title = _extract_clean_movie_title(raw_fname)
     clean_fname = re.sub(r"@[a-zA-Z0-9_.\-]+", " ", fname)
     clean_fname = re.sub(r"[^a-zA-Z0-9]", " ", clean_fname)
     clean_fname = re.sub(r"\s+", " ", clean_fname).strip()
 
     q_lower = query_str.lower().strip()
+    q_no_year = re.sub(r"\b(19\d{2}|20\d{2})\b", "", q_lower).strip()
+    q_no_year = re.sub(r"\s+", " ", q_no_year) or q_lower
     tokens = [t for t in q_lower.split() if t]
 
     title_match_score = 0
-    if clean_fname.startswith(q_lower):
+    if extracted_title == q_lower or extracted_title == q_no_year:
+        title_match_score += 200
+    elif extracted_title.startswith(q_no_year + " ") or clean_fname.startswith(q_lower + " "):
+        title_match_score += 140
+    elif re.search(rf"\b{re.escape(q_no_year)}\b", extracted_title):
         title_match_score += 100
     elif q_lower in clean_fname:
-        title_match_score += 70
-    if tokens and all(re.search(rf"\b{re.escape(t)}\b", clean_fname) for t in tokens):
-        title_match_score += 50
+        title_match_score += 60
+
+    matched_tokens = sum(
+        1 for t in tokens if re.search(rf"\b{re.escape(t)}\b", clean_fname)
+    )
+    if tokens and matched_tokens == len(tokens):
+        title_match_score += 80
+    else:
+        title_match_score += matched_tokens * 20
 
     is_kan = 1 if _is_kannada_file(file_obj) else 0
-    kannada_priority = 1 if (is_kan and title_match_score > 0) else is_kan
+    kannada_priority = 1 if (is_kan and title_match_score >= 60) else 0
 
-    return (kannada_priority, title_match_score, fsize)
+    return (kannada_priority, title_match_score, is_kan, fsize)
 
 
 async def smart_filtered_search(
@@ -1807,7 +1747,7 @@ async def smart_filtered_search(
     deduped = POOL_SEARCH_CACHE.get(pool_cache_key)
 
     if deduped is None:
-        pool_limit = 100 if (lang_code or qual_val) else 60
+        pool_limit = 120 if (lang_code or qual_val) else 80
         pool, _, _ = await safe_search_db(base_query, max_results=pool_limit, offset=0)
 
         if not pool and (lang_code or qual_val):
@@ -1844,23 +1784,26 @@ async def smart_filtered_search(
 
 
 def _extract_clean_movie_title(raw_filename: str) -> str:
-    """Extracts a clean movie title without audio/codec suffixes."""
     if not raw_filename:
         return ""
     s = strip_stylish_fonts(raw_filename)
-    s = re.sub(r"https?://\S+|t\.me/\S+|@\w+|\[[^\]]*\]|\([^)]*\)", " ", s)
-    s = re.sub(r"[_.-]", " ", s)
+    s = re.sub(r"(?i)https?://\S+|t\.me/\S+|www\.\S+", " ", s)
+    s = re.sub(r"[\[\(\{<]*@[a-zA-Z0-9_.\-]+[\]\)\}>]*", " ", s)
+    s = re.sub(r"@\S+|\[[^\]]*\]|\{[^}]*\}", " ", s)
+    s = re.sub(r"\((?!(?:19|20)\d{2}\))[^)]*\)", " ", s)
+    s = re.sub(r"[_.\-]+", " ", s)
     s = re.split(
-        r"(?i)\b(4320p|2160p|1440p|1080p|720p|540p|480p|360p|240p|144p|4k|2k|8k|hdrip|web-?dl|webrip|bluray|brrip|dvdrip|camrip|hdts|predvd|x264|x265|hevc|avc|aac\d*|ddp?\d*|dd\d*|ac3|eac3|atmos|10bit|8bit|hdr|sdr|dual\s*audio|multi\s*audio|kannada|tulu|telugu|tamil|malayalam|hindi|english|marathi|gujarati|bengali|punjabi|nepali|esub|subtitles|mkv|mp4|avi)\b",
+        r"(?i)\b(4320p|2160p|1440p|1080p|720p|540p|480p|360p|240p|144p|4k|2k|8k|hdrip|web-?dl|webrip|bluray|brrip|dvdrip|camrip|hdts|predvd|x264|x265|hevc|avc|aac\d*|ddp?\d*|dd\d*|ac3|eac3|atmos|10bit|8bit|hdr|sdr|dual\s*audio|multi\s*audio|kannada|tulu|telugu|tamil|malayalam|hindi|english|marathi|gujarati|bengali|punjabi|nepali|esub|subtitles|mkv|mp4|avi|s\d+e\d+|season\s*\d+|ep\s*\d+|episode\s*\d+|complete|uncut|unrated|org|original)\b",
         s,
     )[0]
     s = re.sub(r"[^a-zA-Z0-9\s]", " ", s)
-    s = re.sub(r"\b(?!(?:19|20)\d{2}\b)\d{1,3}\b$", "", s.strip())
+    s = re.sub(r"\b(19\d{2}|20\d{2})\b.*$", "", s).strip()
+    s = re.sub(r"\b(?!(?:19|20)\d{2}\b)\d{2,4}\b$", "", s.strip())
     s = re.sub(r"\s+", " ", s).strip()
     if len(s) < 2:
         return sanitize_search_query(raw_filename)
     words = s.split()
-    return " ".join(words[:5]).lower()
+    return " ".join(words[:6]).lower()
 
 
 async def get_cached_db_titles() -> List[str]:
@@ -1876,8 +1819,8 @@ async def get_cached_db_titles() -> List[str]:
                     await target_db[info.COLLECTION_NAME]
                     .find({}, {"file_name": 1})
                     .sort("_id", -1)
-                    .limit(1000)
-                    .to_list(length=1000)
+                    .limit(2500)
+                    .to_list(length=2500)
                 )
                 for d in sample_docs:
                     fn = d.get("file_name", "")
@@ -1896,8 +1839,8 @@ async def get_cached_db_titles() -> List[str]:
             sample_docs = (
                 await media_col.find({}, {"file_name": 1})
                 .sort("_id", -1)
-                .limit(1000)
-                .to_list(length=1000)
+                .limit(2500)
+                .to_list(length=2500)
             )
             for d in sample_docs:
                 fn = d.get("file_name", "")
@@ -1915,49 +1858,145 @@ async def get_cached_db_titles() -> List[str]:
 
 
 # ============================================================
-# 💡 FAST "DID YOU MEAN?" MULTI-CHOICE SUGGESTIONS FINDER
+# 💡 UPGRADED "DID YOU MEAN?" MULTI-CHOICE SUGGESTIONS FINDER
 # ============================================================
+def _phonetic_key(s: str) -> str:
+    """
+    Indian-English phonetic normalizer so common spelling variations
+    (e.g. Kantara/Kanthara, Kaatera/Katera, Pushpa/Puspa, Bhairathi/Bairati, Vicky/Viki)
+    produce identical phonetic keys.
+    """
+    s = re.sub(r"[^a-z0-9]", "", s.lower())
+    if not s:
+        return ""
+    for old, new in (
+        ("aa", "a"),
+        ("ee", "i"),
+        ("oo", "u"),
+        ("bh", "b"),
+        ("dh", "d"),
+        ("th", "t"),
+        ("kh", "k"),
+        ("gh", "g"),
+        ("ph", "f"),
+        ("sh", "s"),
+        ("chh", "ch"),
+        ("ck", "k"),
+        ("q", "k"),
+        ("z", "s"),
+        ("v", "w"),
+        ("y", "i"),
+    ):
+        s = s.replace(old, new)
+    return re.sub(r"(.)\1+", r"\1", s)
+
+
 def _consonant_skeleton(s: str) -> str:
-    s_clean = re.sub(r"[^a-z0-9]", "", s.lower())
-    s_clean = re.sub(r"(.)\1+", r"\1", s_clean)
-    if len(s_clean) <= 2:
-        return s_clean
-    return s_clean[0] + re.sub(r"[aeiou]", "", s_clean[1:])
+    p = _phonetic_key(s)
+    if len(p) <= 2:
+        return p
+    return p[0] + re.sub(r"[aeiou]", "", p[1:])
+
+
+def _char_ngrams(s: str, n: int = 2) -> set:
+    s_pad = f" {s} "
+    if len(s_pad) < n:
+        return {s_pad}
+    return {s_pad[i : i + n] for i in range(len(s_pad) - n + 1)}
+
+
+def _dice_ngram_similarity(a: str, b: str) -> float:
+    if not a or not b:
+        return 0.0
+    if a == b:
+        return 1.0
+    na = _char_ngrams(a, 2)
+    nb = _char_ngrams(b, 2)
+    return (2.0 * len(na & nb)) / (len(na) + len(nb))
 
 
 async def get_did_you_mean_suggestions(
-    query: str, max_suggestions: int = 5, allow_translit: bool = True
+    query: str, max_suggestions: int = 6, allow_translit: bool = True
 ) -> List[str]:
+    """
+    Multi-stage "Did You Mean?" engine:
+    1. Live MongoDB prefix/substring/token regex discovery so titles outside the 2500-title cache are also found.
+    2. Hybrid 5-signal similarity scoring:
+       - Full SequenceMatcher ratio
+       - Indian-English Phonetic Key similarity (Kantara == Kanthara, Kaatera == Katera)
+       - Consonant Skeleton similarity (handles missing/swapped vowels)
+       - Character Bigram Dice similarity (handles transposed letters)
+       - Token-level best word match + prefix bonus
+    """
     clean_q = sanitize_search_query(query, allow_translit=allow_translit)
     if not clean_q:
         return []
 
-    db_titles = await get_cached_db_titles()
-    if not db_titles:
+    q_lower = clean_q.lower().strip()
+    q_no_year = re.sub(r"\b(19\d{2}|20\d{2})\b", "", q_lower).strip() or q_lower
+    q_tokens = [t for t in q_no_year.split() if t]
+    if not q_tokens:
         return []
 
-    q_lower = clean_q.lower()
-    q_skel = _consonant_skeleton(q_lower)
-    q_tokens = q_lower.split()
+    candidate_pool = set(await get_cached_db_titles())
+
+    # Live DB fuzzy prefix lookup for any token >= 3 chars to discover titles not yet in cache
+    prefix_patterns = []
+    for tok in q_tokens[:2]:
+        if len(tok) >= 3:
+            prefix_patterns.append(re.escape(tok[:3]))
+            p_tok = _phonetic_key(tok)
+            if len(p_tok) >= 3 and p_tok[:3] != tok[:3]:
+                prefix_patterns.append(re.escape(p_tok[:3]))
+
+    if prefix_patterns and callable(get_all_healthy_read_dbs):
+        live_reg = re.compile(r"(?:^|[^a-zA-Z0-9])(" + "|".join(prefix_patterns) + r")", re.IGNORECASE)
+        for idx, target_db in get_all_healthy_read_dbs():
+            try:
+                docs = (
+                    await target_db[info.COLLECTION_NAME]
+                    .find({"file_name": live_reg}, {"file_name": 1})
+                    .limit(120)
+                    .to_list(length=120)
+                )
+                for d in docs:
+                    ct = _extract_clean_movie_title(d.get("file_name", ""))
+                    if ct and len(ct) >= 2:
+                        candidate_pool.add(ct)
+            except Exception:
+                continue
+
+    if not candidate_pool:
+        return []
+
+    q_phon = _phonetic_key(q_no_year)
+    q_skel = _consonant_skeleton(q_no_year)
 
     scored_candidates: List[Tuple[float, str]] = []
 
-    for title in db_titles:
+    for title in candidate_pool:
         t_lower = title.lower().strip()
         if not t_lower:
             continue
 
-        ratio = difflib.SequenceMatcher(None, q_lower, t_lower).ratio()
-
         t_tokens = t_lower.split()
-        first_word_ratio = (
-            difflib.SequenceMatcher(None, q_tokens[0], t_tokens[0]).ratio()
-            if (q_tokens and t_tokens)
+        if not t_tokens:
+            continue
+
+        # 1. Standard character sequence ratio
+        seq_ratio = difflib.SequenceMatcher(None, q_no_year, t_lower).ratio()
+
+        # 2. Phonetic similarity (Indian-English spelling tolerant)
+        t_phon = _phonetic_key(t_lower)
+        phon_ratio = (
+            difflib.SequenceMatcher(None, q_phon, t_phon).ratio()
+            if (q_phon and t_phon)
             else 0.0
         )
 
+        # 3. Consonant skeleton similarity
         t_skel = _consonant_skeleton(
-            t_tokens[0] if len(q_tokens) == 1 and t_tokens else t_lower
+            t_tokens[0] if len(q_tokens) == 1 else t_lower
         )
         skel_ratio = (
             difflib.SequenceMatcher(None, q_skel, t_skel).ratio()
@@ -1965,29 +2004,60 @@ async def get_did_you_mean_suggestions(
             else 0.0
         )
 
-        prefix_bonus = (
-            0.15 if (t_lower.startswith(q_lower[:3]) and len(q_lower) >= 3) else 0.0
+        # 4. Bigram Dice similarity
+        ngram_ratio = _dice_ngram_similarity(q_no_year, t_lower)
+
+        # 5. Token-level alignment (matches single misspelled word against multi-word movie titles)
+        token_scores = []
+        for qt in q_tokens:
+            qt_p = _phonetic_key(qt)
+            best_tok = 0.0
+            for tt in t_tokens:
+                tt_p = _phonetic_key(tt)
+                r_raw = difflib.SequenceMatcher(None, qt, tt).ratio()
+                r_ph = difflib.SequenceMatcher(None, qt_p, tt_p).ratio() if (qt_p and tt_p) else 0.0
+                best_tok = max(best_tok, r_raw, r_ph * 0.98)
+            token_scores.append(best_tok)
+        avg_token_score = sum(token_scores) / len(token_scores) if token_scores else 0.0
+
+        # Bonuses for prefix/substring overlap
+        bonus = 0.0
+        if len(q_no_year) >= 3 and (
+            t_lower.startswith(q_no_year[:3]) or (q_phon and t_phon.startswith(q_phon[:3]))
+        ):
+            bonus += 0.12
+        if len(q_no_year) >= 3 and (q_no_year in t_lower or t_lower in q_no_year):
+            bonus += 0.14
+
+        final_score = (
+            max(
+                seq_ratio,
+                phon_ratio * 0.97,
+                skel_ratio * 0.91,
+                ngram_ratio * 0.94,
+                avg_token_score * 0.93,
+            )
+            + bonus
         )
 
-        best_score = (
-            max(ratio, first_word_ratio * 0.95, skel_ratio * 0.92) + prefix_bonus
-        )
-        if best_score >= 0.48:
-            scored_candidates.append((best_score, t_lower))
+        threshold = 0.50 if len(q_no_year) >= 4 else 0.58
+        if final_score >= threshold:
+            scored_candidates.append((final_score, t_lower))
 
-    scored_candidates.sort(key=lambda x: x[0], reverse=True)
+    scored_candidates.sort(key=lambda x: (round(x[0], 3), -len(x[1])), reverse=True)
 
     unique_suggestions: List[str] = []
-    seen_roots = set()
+    seen_phonetic_roots = set()
 
     for _, cand in scored_candidates:
         if len(unique_suggestions) >= max_suggestions:
             break
-        root_key = re.sub(r"\b\d+\b", "", cand).strip()
-        root_key = re.sub(r"\s+", " ", root_key)
-        if not root_key or root_key in seen_roots:
+        root_norm = re.sub(r"\b(?:part|chapter|vol|volume)?\s*\d+\b", "", cand).strip()
+        root_norm = re.sub(r"\s+", " ", root_norm) or cand
+        phon_root = _phonetic_key(root_norm)
+        if not phon_root or phon_root in seen_phonetic_roots:
             continue
-        seen_roots.add(root_key)
+        seen_phonetic_roots.add(phon_root)
         unique_suggestions.append(cand)
 
     return unique_suggestions
@@ -2039,6 +2109,7 @@ async def god_tier_search(
 
     default_state = {"lang": None, "qual": None, "from_dym": False}
 
+    # 1. Try Indic transliteration variants first
     if translit_variants:
         for variant in translit_variants:
             v_clean = sanitize_search_query(variant, allow_translit=False)
@@ -2052,12 +2123,14 @@ async def god_tier_search(
 
     is_short_query = len(clean_query) <= 2
 
+    # 2. Exact sanitized query
     files, offset, total = await smart_filtered_search(
         clean_query, default_state, max_results=10, offset=0
     )
     if files:
         return files, offset, total, clean_query, was_transliterated
 
+    # 3. Alphanumeric raw query fallback
     raw_alnum = re.sub(r"[^a-zA-Z0-9]", " ", strip_stylish_fonts(query).lower())
     raw_alnum = re.sub(r"\s+", " ", raw_alnum).strip()
     if raw_alnum and raw_alnum != clean_query:
@@ -2067,6 +2140,7 @@ async def god_tier_search(
         if files:
             return files, offset, total, raw_alnum, was_transliterated
 
+    # 4. Strip year and retry (e.g. "Kantara 2022" -> "Kantara")
     no_year_query = re.sub(r"\b(19\d{2}|20\d{2})\b", "", clean_query).strip()
     no_year_query = re.sub(r"\s+", " ", no_year_query)
     if no_year_query and no_year_query != clean_query and len(no_year_query) > 2:
@@ -2076,14 +2150,23 @@ async def god_tier_search(
         if files:
             return files, offset, total, no_year_query, was_transliterated
 
+    # 5. Phonetic English variant retry (e.g. "Kanthara" -> "Kantara", "Kaatera" -> "Katera")
+    for p_var in generate_phonetic_variants(no_year_query or clean_query):
+        if p_var != clean_query and len(p_var) > 2:
+            files, offset, total = await smart_filtered_search(
+                p_var, default_state, max_results=10, offset=0
+            )
+            if files:
+                return files, offset, total, p_var, True
+
+    # 6. High-confidence fuzzy auto-correction (cutoff >= 0.78; lower confidence goes to "Did You Mean?" buttons)
     if is_short_query or not allow_fuzzy:
         return [], 0, 0, query, False
 
     try:
         db_titles = await get_cached_db_titles()
-        if matches := difflib.get_close_matches(
-            clean_query, db_titles, n=1, cutoff=0.72
-        ):
+        target_q = no_year_query or clean_query
+        if matches := difflib.get_close_matches(target_q, db_titles, n=1, cutoff=0.78):
             corrected_query = matches[0]
             c_files, c_offset, c_total = await smart_filtered_search(
                 corrected_query, default_state, max_results=10, offset=0
@@ -2097,7 +2180,7 @@ async def god_tier_search(
 
 
 # ============================================================
-# 🧩 KEYBOARD BUILDER FOR AUTO-FILTER RESULTS (DIRECT URL REDIRECT)
+# 🧩 KEYBOARD BUILDER FOR AUTO-FILTER RESULTS (NO LINKS IN FILE BUTTONS!)
 # ============================================================
 async def build_result_buttons(
     files: list,
@@ -2109,6 +2192,11 @@ async def build_result_buttons(
     bot_username: str,
     current_offset: int = 0,
 ) -> List[List[InlineKeyboardButton]]:
+    """
+    Builds search result buttons using `callback_data` (`fget#...`) instead of `url=...`
+    so the buttons ONLY show the button text (no hidden link preview, no 'Open Link?' URL popup,
+    and no arrow icon on the file buttons!).
+    """
     pre = "filep" if settings.get("file_secure", False) else "file"
     clean_words = await get_clean_words()
     state = get_filter_state(key)
@@ -2162,12 +2250,6 @@ async def build_result_buttons(
     for p in promos[:2]:
         btn.append([create_btn(text=p["text"], url=p["url"])])
 
-    try:
-        shortener_on = bool(await is_shortener_active())
-    except Exception:
-        shortener_on = False
-
-    file_entries: List[Tuple[str, str, str]] = []
     for file in files:
         file_id = str(
             file.get("file_id", file.get("_id", ""))
@@ -2187,24 +2269,15 @@ async def build_result_buttons(
 
         display_name = clean_filename(raw_name, clean_words)
         size_str = get_size(file_size)
-        url_payload = f"https://t.me/{bot_username}?start={pre}_{file_id}"
-        file_entries.append((display_name, size_str, url_payload))
+        # Pure callback_data button: hides the URL inside the button so only button text is shown!
+        cb_payload = f"fget#{pre}#{file_id}"
 
-    # Resolve direct URLs concurrently so clicking any file button immediately opens/redirects
-    if shortener_on and file_entries:
-        resolved_urls = await asyncio.gather(
-            *(_get_fast_short_url(u) for _, _, u in file_entries)
-        )
-    else:
-        resolved_urls = [u for _, _, u in file_entries]
-
-    for (display_name, size_str, _), final_url in zip(file_entries, resolved_urls):
         if settings.get("button", False):
             btn.append(
                 [
                     create_btn(
                         text=f"{size_str} | {display_name}",
-                        url=final_url,
+                        callback_data=cb_payload,
                     )
                 ]
             )
@@ -2213,11 +2286,11 @@ async def build_result_buttons(
                 [
                     create_btn(
                         text=f"{display_name}",
-                        url=final_url,
+                        callback_data=cb_payload,
                     ),
                     create_btn(
                         text=f"{size_str}",
-                        url=final_url,
+                        callback_data=cb_payload,
                     ),
                 ]
             )
@@ -2251,7 +2324,6 @@ async def build_result_buttons(
             create_btn(
                 "⬅️ Back",
                 callback_data=f"dymback#{req}#{key}",
-                style=None,
             )
         )
 
@@ -2277,7 +2349,6 @@ async def build_result_buttons(
             create_btn(
                 "🔙 Choices",
                 callback_data=f"dymback#{req}#{key}",
-                style=None,
             )
         )
 
@@ -2285,13 +2356,20 @@ async def build_result_buttons(
     return btn
 
 
-# Legacy fallback for any old `shrtget#` callback buttons — redirects directly without sending any message or button
-@Client.on_callback_query(filters.regex(r"^shrtget#"), group=-2)
-async def on_demand_shortener_file_callback(bot: Client, query: CallbackQuery):
+# ============================================================
+# ⚡ FILE BUTTON CLICK HANDLER (NO URL INSIDE BUTTON, DIRECT REDIRECT)
+# ============================================================
+@Client.on_callback_query(filters.regex(r"^(fget#|shrtget#)"), group=-2)
+async def file_button_click_callback(bot: Client, query: CallbackQuery):
+    """
+    Handles clicks on file buttons (`fget#...`).
+    Because file buttons use `callback_data` instead of `url`, no link is visible inside the button.
+    When clicked, it seamlessly redirects the user straight to the bot deep-link (`t.me/bot?start=...`).
+    """
     try:
         _, pre, file_id = query.data.split("#", 2)
     except ValueError:
-        return await safe_answer(query, "⚠️ Invalid file link!", show_alert=True)
+        return await safe_answer(query, "⚠️ Invalid file!", show_alert=True)
 
     if not getattr(temp, "U_NAME", None):
         me = await bot.get_me()
@@ -2300,9 +2378,9 @@ async def on_demand_shortener_file_callback(bot: Client, query: CallbackQuery):
         temp.ME = me.id
     bot_username = temp.U_NAME or "bot"
 
-    long_url = f"https://t.me/{bot_username}?start={pre}_{file_id}"
+    deep_link = f"https://t.me/{bot_username}?start={pre}_{file_id}"
     try:
-        return await query.answer(url=long_url)
+        return await query.answer(url=deep_link)
     except Exception:
         return await safe_answer(query)
 
@@ -2411,7 +2489,7 @@ async def _send_not_found(
 
     suggestions = (
         await get_did_you_mean_suggestions(
-            raw_search, max_suggestions=5, allow_translit=autotranslate_on
+            raw_search, max_suggestions=6, allow_translit=autotranslate_on
         )
         if (raw_search and multichoice_on)
         else []
@@ -2672,7 +2750,6 @@ async def give_filter(client: Client, message: Message):
     if user_id and await is_user_banned(user_id):
         return
 
-    # In private chat, only process manual filters so PM guard isn't bypassed for non-admins
     if message.chat.type == enums.ChatType.PRIVATE:
         try:
             matched_manual = await manual_filters(client, message)
@@ -2795,7 +2872,7 @@ async def multichoice_cmd_handler(client: Client, message: Message):
     out_msg = await safe_reply_text(
         message,
         f"💡 <b>Multi-Choice ('Did You Mean?' Suggestions):</b> <code>{status_badge}</code>\n\n"
-        f"<i>When enabled, misspelled movie queries display up to 5 clickable movie title suggestions instead of File Not Found!</i>",
+        f"<i>When enabled, misspelled movie queries display clickable movie title suggestions instead of File Not Found!</i>",
         reply_markup=_build_feature_toggle_markup("multichoice", new_state),
         parse_mode=enums.ParseMode.HTML,
     )
@@ -2840,7 +2917,7 @@ async def pm_feature_toggle_callback(bot: Client, query: CallbackQuery):
     else:
         text = (
             f"💡 <b>Multi-Choice ('Did You Mean?' Suggestions):</b> <code>{status_badge}</code>\n\n"
-            f"<i>When enabled, misspelled movie queries display up to 5 clickable movie title suggestions instead of File Not Found!</i>"
+            f"<i>When enabled, misspelled movie queries display clickable movie title suggestions instead of File Not Found!</i>"
         )
 
     try:
@@ -3285,10 +3362,6 @@ async def pagination_handler(bot: Client, query: CallbackQuery):
 # 🎨 KEYBOARD AND BUTTON PARSERS (MANUAL FILTERS)
 # ============================================================
 def _clean_extracted_url(raw_url: str) -> str:
-    """
-    Cleans URLs even if Pyrogram `.html` wrapped them in `<a href="...">...</a>`
-    or prefixed them with `buttonurl:` / `buttonurl://` / `:same`.
-    """
     u = str(raw_url or "").strip()
     href_match = re.search(r"href=['\"]([^'\"]+)['\"]", u)
     if href_match:
@@ -3300,6 +3373,15 @@ def _clean_extracted_url(raw_url: str) -> str:
         if "." in u or u.startswith("t.me/"):
             u = "https://" + u.lstrip("/")
     return u
+
+
+def _clean_button_label(raw_label: str) -> str:
+    """
+    Ensures button text never displays raw HTTP/Telegram links inside the button label.
+    """
+    lbl = re.sub(r"<[^>]+>", "", str(raw_label or "")).strip()
+    lbl = re.sub(r"(?i)https?://\S+|t\.me/\S+|www\.\S+", "", lbl).strip(" -|:")
+    return lbl or "Click Here"
 
 
 def build_keyboard(btn_str: str):
@@ -3322,13 +3404,14 @@ def build_keyboard(btn_str: str):
                     style_val = b_copy.pop("style", None)
                     url_val = b_copy.get("url")
                     cb_val = b_copy.get("callback_data")
+                    lbl_val = _clean_button_label(b_copy.get("text", "Button"))
                     if url_val:
                         clean_u = _clean_extracted_url(url_val)
                         if not clean_u.startswith(("http://", "https://", "tg://")):
                             continue
                         btn_row.append(
                             create_btn(
-                                text=b_copy.get("text", "Button"),
+                                text=lbl_val,
                                 url=clean_u,
                                 style=style_val,
                             )
@@ -3336,7 +3419,7 @@ def build_keyboard(btn_str: str):
                     elif cb_val:
                         btn_row.append(
                             create_btn(
-                                text=b_copy.get("text", "Button"),
+                                text=lbl_val,
                                 callback_data=str(cb_val),
                                 style=style_val,
                             )
@@ -3352,14 +3435,6 @@ def build_keyboard(btn_str: str):
 
 
 def parse_markdown_buttons(text: str):
-    """
-    Supports all button formats in manual filters:
-    1. `[Button Text](https://url.com)` or `[Button Text](buttonurl:https://url.com:same)`
-    2. `[Button Text | https://url.com]` (even when `.html` converted the URL into `<a href="...">`)
-    3. `Button 1 - https://url1.com | Button 2 - https://url2.com`
-    while leaving normal text, blockquotes (`<blockquote>...</blockquote>`), Kannada/Indic text,
-    and standalone URLs intact!
-    """
     if not text:
         return "", "[]"
 
@@ -3380,7 +3455,7 @@ def parse_markdown_buttons(text: str):
 
         if matches:
             for _, _, raw_lbl, raw_u, full_token in matches:
-                clean_lbl = re.sub(r"<[^>]+>", "", raw_lbl).strip()
+                clean_lbl = _clean_button_label(raw_lbl)
                 is_same = bool(re.search(r"(?i):same\s*$", raw_u.strip()))
                 clean_u = _clean_extracted_url(raw_u)
                 if clean_lbl and clean_u.startswith(("http://", "https://", "tg://")):
@@ -3397,7 +3472,6 @@ def parse_markdown_buttons(text: str):
                 clean_lines.append(stripped_rem)
             continue
 
-        # Also support `Button Text - https://...` lines (when not inside a blockquote)
         if (
             " - " in working_line
             and (
@@ -3415,7 +3489,7 @@ def parse_markdown_buttons(text: str):
                     valid_dash_line = False
                     break
                 b_lbl, b_url = part.split(" - ", 1)
-                clean_lbl = re.sub(r"<[^>]+>", "", b_lbl).strip()
+                clean_lbl = _clean_button_label(b_lbl)
                 clean_u = _clean_extracted_url(b_url)
                 if clean_lbl and clean_u.startswith(("http://", "https://", "tg://")):
                     dash_btns.append({"text": clean_lbl, "url": clean_u})
@@ -3432,7 +3506,6 @@ def parse_markdown_buttons(text: str):
 
 
 def _extract_replied_media(replied: Optional[Message]) -> Tuple[str, str]:
-    """Returns `(file_id, media_type)` from any replied message."""
     if not replied:
         return "None", "None"
     for media_attr in (
@@ -3452,7 +3525,6 @@ def _extract_replied_media(replied: Optional[Message]) -> Tuple[str, str]:
 
 
 def _extract_message_html(msg: Optional[Message]) -> str:
-    """Safely extracts HTML-formatted text or caption (preserving blockquotes, bold, links, and Indic text)."""
     if not msg:
         return ""
     for attr in ("text", "caption"):
@@ -3478,7 +3550,7 @@ def _extract_existing_inline_buttons(msg: Optional[Message]) -> List[List[dict]]
     for row in msg.reply_markup.inline_keyboard:
         row_btns = []
         for b in row:
-            b_dict: Dict[str, Any] = {"text": b.text}
+            b_dict: Dict[str, Any] = {"text": _clean_button_label(b.text)}
             if b.url:
                 b_dict["url"] = b.url
             elif b.callback_data:
@@ -3494,9 +3566,6 @@ def _extract_existing_inline_buttons(msg: Optional[Message]) -> List[List[dict]]
 
 
 def _parse_filter_command_input(message: Message) -> Tuple[str, str]:
-    """
-    Parses `/filter <keyword> [optional inline reply/buttons]` or `/filter "multi word" [reply]`.
-    """
     raw_full = _extract_message_html(message)
     parts = raw_full.split(None, 1)
     if len(parts) < 2:
@@ -3505,12 +3574,10 @@ def _parse_filter_command_input(message: Message) -> Tuple[str, str]:
     if not rest:
         return "", ""
 
-    # Support quoted multi-word keyword: /filter "my keyword" reply text
     q_match = re.match(r'^["“”]([^"“”]+)["“”](?:\s+(.*))?$', rest, flags=re.DOTALL)
     if q_match:
         return q_match.group(1).strip().lower(), (q_match.group(2) or "").strip()
 
-    # If replying to a message and there are newlines, first line/token is keyword, rest are extra buttons/text
     if message.reply_to_message:
         if "\n" in rest:
             first_line, extra_lines = rest.split("\n", 1)
@@ -3522,7 +3589,6 @@ def _parse_filter_command_input(message: Message) -> Tuple[str, str]:
             return btn_split[0].strip().lower(), "".join(btn_split[1:]).strip()
         return rest.strip().lower(), ""
 
-    # Not replying to a message: first word is keyword, remainder is reply text + buttons
     kw_parts = rest.split(None, 1)
     keyword = kw_parts[0].strip().lower()
     inline_reply = kw_parts[1].strip() if len(kw_parts) > 1 else ""
@@ -3530,7 +3596,7 @@ def _parse_filter_command_input(message: Message) -> Tuple[str, str]:
 
 
 # ============================================================
-# 🎯 FILTER COMMANDS (HIGH PRIORITY GROUP=-15 SO THEY NEVER FAIL)
+# 🎯 FILTER COMMANDS
 # ============================================================
 @Client.on_message(filters.command(["filter", "addfilter"]), group=-15)
 async def add_filter_cmd(client: Client, message: Message):
@@ -3640,7 +3706,6 @@ async def add_filter_cmd(client: Client, message: Message):
     group=-15,
 )
 async def add_or_edit_filter_button_cmd(client: Client, message: Message):
-    """Allows adding or updating buttons on an existing filter easily."""
     target_chat_id = await get_target_chat(client, message)
     if not target_chat_id:
         if await verify_admin(client, message, None):
@@ -3704,8 +3769,9 @@ async def add_or_edit_filter_button_cmd(client: Client, message: Message):
     if not new_btns and "|" in raw_btn_input:
         b_lbl, b_url = raw_btn_input.split("|", 1)
         clean_u = _clean_extracted_url(b_url)
-        if b_lbl.strip() and clean_u.startswith(("http://", "https://", "tg://")):
-            new_btns = [[{"text": b_lbl.strip(), "url": clean_u}]]
+        clean_lbl = _clean_button_label(b_lbl)
+        if clean_lbl and clean_u.startswith(("http://", "https://", "tg://")):
+            new_btns = [[{"text": clean_lbl, "url": clean_u}]]
 
     if not new_btns:
         return await safe_reply_text(
@@ -4075,7 +4141,6 @@ async def send_filter_media(
         "sticker": (client.send_sticker, "sticker"),
     }
 
-    # Layer 1: If media_type is known, dispatch directly with full HTML + plain-text fallback
     if media_type in method_map:
         send_fn, arg_name = method_map[media_type]
         rep_kw = _get_reply_kwargs(send_fn, reply_id)
@@ -4113,7 +4178,6 @@ async def send_filter_media(
             except Exception:
                 pass
 
-    # Layer 2: send_cached_media (with and without reply kwargs)
     for use_rep in (True, False):
         rep_kw = (
             _get_reply_kwargs(client.send_cached_media, reply_id) if use_rep else {}
@@ -4144,7 +4208,6 @@ async def send_filter_media(
         except Exception:
             continue
 
-    # Layer 3: Try each media method sequentially (handles photo file_ids that send_cached_media rejects)
     for m_key, (send_fn, arg_name) in method_map.items():
         if m_key == "sticker":
             continue
@@ -4171,7 +4234,6 @@ async def send_filter_media(
             except Exception:
                 continue
 
-    # Layer 4: Fallback to text message if media file_id is expired/invalid
     return await safe_send_text_filter(
         client,
         chat_id,
@@ -4208,7 +4270,6 @@ async def safe_send_text_filter(
         try:
             return await client.send_message(**kw)
         except Exception:
-            # Plain text fallback if HTML tags in manual filter are malformed
             kw.pop("parse_mode", None)
             kw["text"] = re.sub(r"<[^>]+>", "", text or "")
             try:
@@ -4238,7 +4299,6 @@ async def manual_filters(client: Client, message: Message, text=False) -> bool:
     if not raw_name:
         return False
 
-    # Match both raw text (for Indic/Kannada keywords) and stylish-stripped text
     norm_name = strip_stylish_fonts(raw_name)
     reply_id = message.reply_to_message.id if message.reply_to_message else message.id
 
