@@ -917,7 +917,9 @@ def _upload_sync(file_bytes: bytes) -> Optional[str]:
         res = requests.post(
             "https://api.imgbb.com/1/upload",
             data={
-                "key": getattr(info, "IMGBB_API_KEY", "782a6f92499832f5e6257113b82623a6"),
+                "key": getattr(
+                    info, "IMGBB_API_KEY", "782a6f92499832f5e6257113b82623a6"
+                ),
                 "image": b64_img,
             },
             headers=headers,
@@ -1061,9 +1063,7 @@ async def apply_poster_update_to_session(
         )
     ):
         file_id = (
-            media_msg.photo.file_id
-            if media_msg.photo
-            else media_msg.document.file_id
+            media_msg.photo.file_id if media_msg.photo else media_msg.document.file_id
         )
         session["custom_photo_id"] = file_id
         session["poster_changed"] = True
@@ -1091,9 +1091,7 @@ async def apply_poster_update_to_session(
                         parse_mode=enums.ParseMode.HTML,
                     )
                     asyncio.create_task(
-                        delete_after_delay(
-                            client, status_msg.chat.id, status_msg.id, 3
-                        )
+                        delete_after_delay(client, status_msg.chat.id, status_msg.id, 3)
                     )
                 except Exception:
                     pass
@@ -1111,9 +1109,7 @@ async def apply_poster_update_to_session(
                         parse_mode=enums.ParseMode.HTML,
                     )
                     asyncio.create_task(
-                        delete_after_delay(
-                            client, status_msg.chat.id, status_msg.id, 4
-                        )
+                        delete_after_delay(client, status_msg.chat.id, status_msg.id, 4)
                     )
                 except Exception:
                     pass
@@ -2195,7 +2191,9 @@ def _resolve_poster_for_mode(session: dict) -> Optional[str]:
         if custom_p and str(custom_p).startswith(("http://", "https://")):
             return custom_p
         # If user sent a photo and external upload failed, custom_photo_id holds the file_id
-        if session.get("custom_photo_id") and not str(session.get("custom_photo_id")).startswith(("http://", "https://")):
+        if session.get("custom_photo_id") and not str(
+            session.get("custom_photo_id")
+        ).startswith(("http://", "https://")):
             session["photo_mode"] = True
             return session["custom_photo_id"]
         return tmdb_poster
@@ -3029,7 +3027,9 @@ async def post_callbacks(client: Client, query: CallbackQuery):
                 )
             force_resend = True
         elif action == "toggle_mode":
-            if session.get("edit_target") and session["edit_target"].get("orig_photo_mode"):
+            if session.get("edit_target") and session["edit_target"].get(
+                "orig_photo_mode"
+            ):
                 return await query.answer(
                     "ℹ️ A Telegram photo post cannot be converted back into a text-only post, only its photo can be changed!",
                     show_alert=True,
