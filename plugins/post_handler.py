@@ -92,24 +92,43 @@ _EDIT_PARAMS = set(inspect.signature(Message.edit_text).parameters.keys())
 
 
 def _prepare_compat_kwargs(
-    kwargs: dict, supported_params: set, disable_preview: Optional[bool] = None
+    kwargs: dict,
+    supported_params: set,
+    disable_preview: Optional[bool] = None,
+    preview_url: Optional[str] = None,
 ) -> dict:
     clean_kw = dict(kwargs)
     explicit_disable = clean_kw.pop("disable_web_page_preview", disable_preview)
 
-    if explicit_disable is not None:
-        if "disable_web_page_preview" in supported_params:
-            clean_kw["disable_web_page_preview"] = bool(explicit_disable)
-        elif (
+    if explicit_disable is not None or preview_url:
+        if (
             "link_preview_options" in supported_params
             and LinkPreviewOptions is not None
         ):
             try:
-                clean_kw["link_preview_options"] = LinkPreviewOptions(
-                    is_disabled=bool(explicit_disable)
-                )
+                if preview_url and not explicit_disable:
+                    clean_kw["link_preview_options"] = LinkPreviewOptions(
+                        is_disabled=False,
+                        url=preview_url,
+                        prefer_large_media=True,
+                        show_above_text=False,
+                    )
+                else:
+                    clean_kw["link_preview_options"] = LinkPreviewOptions(
+                        is_disabled=bool(explicit_disable)
+                    )
             except Exception:
-                pass
+                try:
+                    clean_kw["link_preview_options"] = LinkPreviewOptions(
+                        is_disabled=bool(explicit_disable)
+                    )
+                except Exception:
+                    pass
+        elif (
+            "disable_web_page_preview" in supported_params
+            and explicit_disable is not None
+        ):
+            clean_kw["disable_web_page_preview"] = bool(explicit_disable)
 
     if "reply_to_message_id" in clean_kw:
         rep_id = clean_kw.pop("reply_to_message_id")
@@ -148,10 +167,14 @@ async def safe_send_message(
     chat_id: Any,
     text: str,
     disable_web_page_preview: bool = False,
+    preview_url: Optional[str] = None,
     **kwargs,
 ) -> Optional[Message]:
     compat_kw = _prepare_compat_kwargs(
-        kwargs, _SEND_MSG_PARAMS, disable_preview=disable_web_page_preview
+        kwargs,
+        _SEND_MSG_PARAMS,
+        disable_preview=disable_web_page_preview,
+        preview_url=preview_url,
     )
     try:
         return await client.send_message(chat_id, text=text, **compat_kw)
@@ -169,10 +192,14 @@ async def safe_edit_message_text(
     message_id: int,
     text: str,
     disable_web_page_preview: bool = False,
+    preview_url: Optional[str] = None,
     **kwargs,
 ) -> Optional[Message]:
     compat_kw = _prepare_compat_kwargs(
-        kwargs, _EDIT_MSG_PARAMS, disable_preview=disable_web_page_preview
+        kwargs,
+        _EDIT_MSG_PARAMS,
+        disable_preview=disable_web_page_preview,
+        preview_url=preview_url,
     )
     try:
         return await client.edit_message_text(
@@ -192,7 +219,7 @@ async def safe_edit_message_text(
 
 
 # ============================================================
-# 🛡️ SAFE PHOTO SENDER & EDITOR (FIXES WEBPAGE_CURL_FAILED)
+# 🛡️ SAFE PHOTO SENDER & EDITOR (NEVER SILENTLY DROPS IMAGE UPDATES)
 # ============================================================
 def _download_image_bytes_sync(url: str) -> Optional[bytes]:
     headers = {
@@ -204,7 +231,7 @@ def _download_image_bytes_sync(url: str) -> Optional[bytes]:
         "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
     }
     try:
-        resp = requests.get(url, headers=headers, timeout=10)
+        resp = requests.get(url, headers=headers, timeout=12)
         if resp.status_code == 200 and resp.content:
             return resp.content
     except Exception:
@@ -223,7 +250,7 @@ async def safe_send_photo(
     """
     Sends a photo safely. If Telegram's servers fail to fetch the remote URL
     ([400 WEBPAGE_CURL_FAILED] / [400 MEDIA_EMPTY]), downloads the image bytes locally
-    and uploads them directly, or falls back to a text message so it never crashes.
+    and uploads them directly, or falls back to a text message with web preview.
     """
     try:
         return await client.send_photo(
@@ -233,7 +260,7 @@ async def safe_send_photo(
             reply_markup=reply_markup,
             parse_mode=parse_mode,
         )
-    except (WebpageCurlFailed, WebpageMediaEmpty, MediaEmpty) as e:
+    except Exception as e:
         if isinstance(photo, str) and photo.startswith(("http://", "https://")):
             img_bytes = await asyncio.to_thread(_download_image_bytes_sync, photo)
             if img_bytes:
@@ -247,42 +274,27 @@ async def safe_send_photo(
                         reply_markup=reply_markup,
                         parse_mode=parse_mode,
                     )
-                except Exception:
-                    pass
+                except Exception as err2:
+                    logger.error(f"Photo byte upload fallback error: {err2}")
         else:
             logger.error(f"Photo send media error: {e}")
-    except Exception as e:
-        err_str = str(e)
-        if (
-            (
-                "WEBPAGE_CURL_FAILED" in err_str
-                or "WEBPAGE_MEDIA_EMPTY" in err_str
-                or "MEDIA_EMPTY" in err_str
-            )
-            and isinstance(photo, str)
-            and photo.startswith(("http://", "https://"))
-        ):
-            img_bytes = await asyncio.to_thread(_download_image_bytes_sync, photo)
-            if img_bytes:
-                bio = io.BytesIO(img_bytes)
-                bio.name = "poster.jpg"
-                try:
-                    return await client.send_photo(
-                        chat_id,
-                        photo=bio,
-                        caption=caption,
-                        reply_markup=reply_markup,
-                        parse_mode=parse_mode,
-                    )
-                except Exception:
-                    pass
 
+    fallback_text = (
+        f"<a href='{photo}'>&#8205;</a>{caption}"
+        if (isinstance(photo, str) and photo.startswith(("http://", "https://")))
+        else caption
+    )
     return await safe_send_message(
         client,
         chat_id,
-        text=caption,
+        text=fallback_text,
         reply_markup=reply_markup,
         disable_web_page_preview=False,
+        preview_url=(
+            photo
+            if isinstance(photo, str) and photo.startswith(("http://", "https://"))
+            else None
+        ),
         parse_mode=parse_mode,
     )
 
@@ -296,7 +308,11 @@ async def safe_edit_photo_media(
     reply_markup: Optional[InlineKeyboardMarkup] = None,
     parse_mode: enums.ParseMode = enums.ParseMode.HTML,
 ):
-    """Safely edits message media with local byte-upload fallback on WEBPAGE_CURL_FAILED."""
+    """
+    Safely edits message media (`InputMediaPhoto`).
+    If Telegram cannot fetch a remote URL (`WEBPAGE_CURL_FAILED` / `MEDIA_EMPTY`),
+    downloads the image bytes locally and uploads them directly so the photo ALWAYS changes!
+    """
     try:
         return await client.edit_message_media(
             chat_id,
@@ -319,17 +335,8 @@ async def safe_edit_photo_media(
             )
         except MessageNotModified:
             return None
-    except Exception as e:
-        err_str = str(e)
-        if (
-            (
-                "WEBPAGE_CURL_FAILED" in err_str
-                or "WEBPAGE_MEDIA_EMPTY" in err_str
-                or "MEDIA_EMPTY" in err_str
-            )
-            and isinstance(photo, str)
-            and photo.startswith(("http://", "https://"))
-        ):
+    except Exception as first_err:
+        if isinstance(photo, str) and photo.startswith(("http://", "https://")):
             img_bytes = await asyncio.to_thread(_download_image_bytes_sync, photo)
             if img_bytes:
                 bio = io.BytesIO(img_bytes)
@@ -347,18 +354,7 @@ async def safe_edit_photo_media(
                     )
                 except MessageNotModified:
                     return None
-                except Exception:
-                    pass
-        try:
-            return await client.edit_message_caption(
-                chat_id,
-                message_id,
-                caption=caption,
-                reply_markup=reply_markup,
-                parse_mode=parse_mode,
-            )
-        except MessageNotModified:
-            return None
+        raise first_err
 
 
 # ============================================================
@@ -405,7 +401,6 @@ def _get_writable_col(col_name: str, fallback_col: Any):
 
 
 async def purge_expired_post_drafts(max_age: int = DRAFT_TTL_SECONDS):
-    """Deletes all post_drafts older than 1 hour across all databases."""
     cutoff = time.time() - max_age
     query = {
         "$or": [
@@ -441,7 +436,6 @@ async def _delete_draft_from_all_dbs(user_id: int):
 
 
 async def _hourly_draft_cleanup_worker(client: Client):
-    """Background task that purges expired post drafts from RAM & MongoDB every 15 minutes."""
     while True:
         try:
             now = time.time()
@@ -531,6 +525,12 @@ post_sessions: Dict[int, dict] = {}
 TEMP_SEARCH: Dict[int, List[str]] = {}
 USE_GETFILE_BUTTON_BY_DEFAULT = True
 
+# ============================================================
+# 🌟 DEFAULT LANGUAGES, RESOLUTIONS, TEMPLATES & QUOTE MODES
+# ============================================================
+DEFAULT_LANGUAGES = ["Kannada"]
+DEFAULT_RESOLUTIONS = ["WEB-DL", "HDRip"]
+
 DEFAULT_WATERMARK = "<b>Jᴏɪɴ: @Sandalwood_Kannada_Moviesz</b>"
 LANGUAGES_FORMAT = "<b>🔊 : {langs}</b>"
 RESOLUTIONS_FORMAT = "<b>🖥️ : {resolutions}</b>"
@@ -581,26 +581,10 @@ GENRES = [
     "Drama",
     "Family",
     "Fantasy",
-    "History",
     "Horror",
-    "Music",
-    "Musical",
-    "Mystery",
     "Romance",
     "Sci-Fi",
-    "Sport",
     "Thriller",
-    "War",
-    "Western",
-    "Historical",
-    "Psychological",
-    "Superhero",
-    "Martial Arts",
-    "Disaster",
-    "Political",
-    "Road",
-    "Teen",
-    "Experimental",
     "#NotAvailable",
 ]
 OTT_PLATFORMS = [
@@ -615,9 +599,39 @@ OTT_PLATFORMS = [
     "Zee5",
     "AmazonPrime",
     "Netflix",
-    "ManoramaMAX",
     "NotAvailable",
 ]
+
+
+def apply_quote_mode(html_text: str, quote_mode: str = "expand") -> str:
+    """
+    Applies Quote Collapse (`<blockquote expandable>...</blockquote>`) or
+    Quote Expand (`<blockquote>...</blockquote>`) to both generated and `/editpost` captions.
+    If an imported `/editpost` caption doesn't have `<blockquote>` tags yet, wraps the body in one!
+    """
+    if not html_text:
+        return html_text
+
+    target_tag = (
+        "<blockquote expandable>" if quote_mode == "collapse" else "<blockquote>"
+    )
+
+    if re.search(r"<blockquote(?:\s+expandable)?>", html_text, flags=re.IGNORECASE):
+        return re.sub(
+            r"<blockquote(?:\s+expandable)?>",
+            target_tag,
+            html_text,
+            flags=re.IGNORECASE,
+        )
+
+    lines = html_text.strip().split("\n")
+    if len(lines) > 1:
+        header = lines[0]
+        body = "\n".join(lines[1:]).strip()
+        if body:
+            return f"{header}\n\n{target_tag}{body}</blockquote>"
+    return f"{target_tag}{html_text}</blockquote>"
+
 
 # ============================================================
 # 🎨 SAFE TELEGRAM BUTTON STYLE DETECTION
@@ -909,21 +923,7 @@ def _upload_sync(file_bytes: bytes) -> Optional[str]:
     except Exception:
         pass
 
-    # 3. Litterbox (Catbox 72h host)
-    try:
-        res = requests.post(
-            "https://litterbox.catbox.moe/resources/internals/api.php",
-            data={"reqtype": "fileupload", "time": "72h"},
-            files={"fileToUpload": ("poster.jpg", file_bytes, "image/jpeg")},
-            headers=headers,
-            timeout=10,
-        )
-        if res.status_code == 200 and res.text.strip().startswith("http"):
-            return res.text.strip()
-    except Exception:
-        pass
-
-    # 4. Pixhost.to
+    # 3. Pixhost.to
     try:
         res = requests.post(
             "https://api.pixhost.to/images",
@@ -941,6 +941,20 @@ def _upload_sync(file_bytes: bytes) -> Optional[str]:
                 )
                 if direct_url.startswith("http"):
                     return direct_url
+    except Exception:
+        pass
+
+    # 4. Litterbox (Catbox 72h host)
+    try:
+        res = requests.post(
+            "https://litterbox.catbox.moe/resources/internals/api.php",
+            data={"reqtype": "fileupload", "time": "72h"},
+            files={"fileToUpload": ("poster.jpg", file_bytes, "image/jpeg")},
+            headers=headers,
+            timeout=10,
+        )
+        if res.status_code == 200 and res.text.strip().startswith("http"):
+            return res.text.strip()
     except Exception:
         pass
 
@@ -1010,6 +1024,7 @@ async def apply_poster_update_to_session(
 ) -> bool:
     """
     Unified poster/image updater for both the `🖼️ Poster` button and `/editimage` (`/editposter`, `/setposter`).
+    Ensures the new image is ALWAYS shown in the preview and updated in the channel post!
     """
     is_edit_target = bool(session.get("edit_target"))
 
@@ -1022,10 +1037,13 @@ async def apply_poster_update_to_session(
         )
     ):
         file_id = (
-            media_msg.photo.file_id if media_msg.photo else media_msg.document.file_id
+            media_msg.photo.file_id
+            if media_msg.photo
+            else media_msg.document.file_id
         )
         session["custom_photo_id"] = file_id
 
+        # If editing an existing Normal Photo post in a channel, use Telegram's file_id directly
         if is_edit_target and session.get("photo_mode"):
             session["custom_poster"] = file_id
             return True
@@ -1034,7 +1052,7 @@ async def apply_poster_update_to_session(
         if notify_msg:
             status_msg = await safe_reply_text(
                 notify_msg,
-                "⏳ <b>Uploading image for Preview Mode...</b>",
+                "⏳ <b>Uploading image...</b>",
                 parse_mode=enums.ParseMode.HTML,
             )
 
@@ -1044,32 +1062,37 @@ async def apply_poster_update_to_session(
             if status_msg:
                 try:
                     await status_msg.edit_text(
-                        "✅ <b>Poster updated!</b>",
+                        "✅ <b>Poster image updated!</b>",
                         parse_mode=enums.ParseMode.HTML,
                     )
                     asyncio.create_task(
-                        delete_after_delay(client, status_msg.chat.id, status_msg.id, 4)
+                        delete_after_delay(
+                            client, status_msg.chat.id, status_msg.id, 4
+                        )
                     )
                 except Exception:
                     pass
             return True
         else:
+            # External host blocked by VPS IP: use Telegram file_id directly in Normal Photo mode
             session["custom_poster"] = file_id
             if not is_edit_target:
                 session["photo_mode"] = True
             if status_msg:
                 try:
                     msg_txt = (
-                        "⚠️ <b>External image hosts blocked by server IP. Please send a direct image URL (https://...) to update a Preview-mode post!</b>"
+                        "⚠️ <b>External image hosts blocked by server IP. Please send a direct image URL (https://...) to update a Text-Preview post!</b>"
                         if (is_edit_target and not session.get("photo_mode"))
-                        else "⚠️ <b>Image hosts blocked by server IP. Switched to 'Normal Image' Mode!</b>"
+                        else "✅ <b>Poster updated (Switched to Normal Image Mode)!</b>"
                     )
                     await status_msg.edit_text(
                         msg_txt,
                         parse_mode=enums.ParseMode.HTML,
                     )
                     asyncio.create_task(
-                        delete_after_delay(client, status_msg.chat.id, status_msg.id, 6)
+                        delete_after_delay(
+                            client, status_msg.chat.id, status_msg.id, 6
+                        )
                     )
                 except Exception:
                     pass
@@ -1105,11 +1128,8 @@ _WAITING_REQUESTS = {}
 async def _waiting_chat_check(_, __, message: Message) -> bool:
     if not message.chat or message.chat.id not in _WAITING_REQUESTS:
         return False
-    if (
-        message.text
-        and message.text.startswith("/")
-        and message.text.strip().lower() not in ["/reset", "/default", "/cancel"]
-    ):
+    txt = (message.text or message.caption or "").strip()
+    if txt.startswith("/") and txt.lower() not in ["/reset", "/default", "/cancel"]:
         return False
     return True
 
@@ -1222,7 +1242,6 @@ async def get_or_load_session(user_id: int):
 async def expire_post_session(
     client: Client, user_id: int, delay: int = DRAFT_TTL_SECONDS
 ):
-    """Automatically deletes the post draft from both RAM and MongoDB after 1 hour (3600s)."""
     await asyncio.sleep(delay)
     session = post_sessions.pop(user_id, None)
     await _delete_draft_from_all_dbs(user_id)
@@ -1251,14 +1270,18 @@ def smart_patch_imported_caption(session, old_val, new_val, is_title=False):
 
 def smart_patch_imported_metadata(session: dict, meta_type: str):
     """
-    When editing an imported post via `/editpost`, `session["is_manual_caption"]` is True.
-    This helper patches the imported caption in-place whenever the admin changes
-    Languages (🔊), Resolutions (🖥️), Genres (🎥), OTTs (📺), or Watermark (💧)!
+    Patches an imported `/editpost` caption in-place whenever the admin changes
+    Languages (🔊), Resolutions (🖥️), Genres (🎥), or OTTs (📺).
     """
     if not session.get("is_manual_caption") or not session.get("caption"):
         return
 
     cap = session["caption"]
+    open_bq_match = re.search(
+        r"<blockquote(?:\s+expandable)?>", cap, flags=re.IGNORECASE
+    )
+    open_bq_str = open_bq_match.group(0) if open_bq_match else None
+
     if meta_type == "languages":
         c_langs = session.get("custom_languages", [])
         langs_str = (
@@ -1280,8 +1303,8 @@ def smart_patch_imported_metadata(session: dict, meta_type: str):
             )
         elif new_line:
             cap = (
-                cap.replace("<blockquote>", f"<blockquote>{new_line}\n", 1)
-                if "<blockquote>" in cap
+                cap.replace(open_bq_str, f"{open_bq_str}{new_line}\n", 1)
+                if open_bq_str
                 else f"{cap}\n{new_line}"
             )
     elif meta_type == "resolutions":
@@ -1303,8 +1326,8 @@ def smart_patch_imported_metadata(session: dict, meta_type: str):
             )
         elif new_line:
             cap = (
-                cap.replace("<blockquote>", f"<blockquote>{new_line}\n", 1)
-                if "<blockquote>" in cap
+                cap.replace(open_bq_str, f"{open_bq_str}{new_line}\n", 1)
+                if open_bq_str
                 else f"{cap}\n{new_line}"
             )
     elif meta_type == "genres":
@@ -1326,8 +1349,8 @@ def smart_patch_imported_metadata(session: dict, meta_type: str):
             )
         elif new_line:
             cap = (
-                cap.replace("<blockquote>", f"<blockquote>{new_line}\n", 1)
-                if "<blockquote>" in cap
+                cap.replace(open_bq_str, f"{open_bq_str}{new_line}\n", 1)
+                if open_bq_str
                 else f"{cap}\n{new_line}"
             )
     elif meta_type == "otts":
@@ -1349,8 +1372,8 @@ def smart_patch_imported_metadata(session: dict, meta_type: str):
             )
         elif new_line:
             cap = (
-                cap.replace("<blockquote>", f"<blockquote>{new_line}\n", 1)
-                if "<blockquote>" in cap
+                cap.replace(open_bq_str, f"{open_bq_str}{new_line}\n", 1)
+                if open_bq_str
                 else f"{cap}\n{new_line}"
             )
 
@@ -1419,12 +1442,6 @@ async def cmd_edit_title(client: Client, message: Message):
     group=-4,
 )
 async def cmd_edit_image(client: Client, message: Message):
-    """
-    Allows updating the poster/image of any active `/post` or `/editpost` session via:
-    1. Replying to a photo/image with `/editimage`
-    2. Sending a photo with caption `/editimage`
-    3. Sending `/editimage https://example.com/poster.jpg` (or `/editimage blank` / `/editimage /reset`)
-    """
     uid = get_uid(message)
     session = await get_or_load_session(uid)
     if not session:
@@ -1531,7 +1548,7 @@ async def cmd_edit_langs(client: Client, message: Message):
     if len(message.command) < 2:
         return await safe_reply_text(
             message,
-            "⚠️ <b>Usage:</b> <code>/editlangs Hindi, English</code>",
+            "⚠️ <b>Usage:</b> <code>/editlangs Kannada, Hindi</code>",
             parse_mode=enums.ParseMode.HTML,
         )
     session["custom_languages"] = [
@@ -1557,7 +1574,7 @@ async def cmd_edit_res(client: Client, message: Message):
     if len(message.command) < 2:
         return await safe_reply_text(
             message,
-            "⚠️ <b>Usage:</b> <code>/editresolutions 1080p, 720p</code>",
+            "⚠️ <b>Usage:</b> <code>/editresolutions WEB-DL, HDRip, 1080p</code>",
             parse_mode=enums.ParseMode.HTML,
         )
     session["custom_resolutions"] = [
@@ -1923,10 +1940,11 @@ async def start_post_session(
             "buttons": [],
             "photo_mode": False,
             "use_landscape": bool(movie_details.get("backdrop_url")),
-            "custom_languages": [],
-            "custom_resolutions": [],
+            "custom_languages": list(DEFAULT_LANGUAGES),
+            "custom_resolutions": list(DEFAULT_RESOLUTIONS),
             "custom_genres": [],
             "custom_otts": [],
+            "quote_mode": "expand",
             "schedule": 0,
             "auto_delete": 0,
             "last_preview_message_id": status_msg.id if status_msg else None,
@@ -1963,14 +1981,6 @@ async def start_post_session(
 
 
 def _parse_post_link_or_reply(message: Message) -> Tuple[Optional[Any], Optional[int]]:
-    """
-    Parses a Telegram post link (`/editpost https://t.me/...`) OR a replied/forwarded channel post.
-    Supports:
-    - `https://t.me/c/123456789/45`
-    - `https://t.me/c/123456789/10/45` (topic links)
-    - `https://t.me/channel_username/45?single`
-    - Replying to a forwarded channel post with `/editpost`
-    """
     if len(message.command) >= 2:
         raw_link = message.command[1].strip()
         clean_link = raw_link.split("?")[0].rstrip("/")
@@ -2020,7 +2030,6 @@ async def edit_post_cmd(client: Client, message: Message):
                 )
             return
 
-        # Store numeric chat.id so editing never fails on username resolution
         resolved_chat_id = target_msg.chat.id if target_msg.chat else chat_id
 
         poster_url, html_text, is_photo_mode = None, "", False
@@ -2030,7 +2039,8 @@ async def edit_post_cmd(client: Client, message: Message):
             is_photo_mode = True
         else:
             html_text = target_msg.text.html if target_msg.text else ""
-            inv_pattern = r"<a href=['\"](https?://[^'\"]+)['\"]>(?:&#8205;|&#8203;|\u200d|\u200b|\s)*</a>"
+            # Match any invisible link (<a href="...">...</a> with zero-width characters or whitespace)
+            inv_pattern = r"<a href=['\"](https?://[^'\"]+)['\"]>(?:&#8205;|&#8203;|&#8204;|\u200d|\u200b|\u200c|\u2060|\s)*</a>"
             match = re.search(inv_pattern, html_text)
             if match:
                 poster_url = match.group(1)
@@ -2039,6 +2049,12 @@ async def edit_post_cmd(client: Client, message: Message):
                 target_msg.web_page, "url", None
             ):
                 poster_url = target_msg.web_page.url
+
+        detected_quote_mode = (
+            "collapse"
+            if re.search(r"<blockquote\s+expandable>", html_text, flags=re.IGNORECASE)
+            else "expand"
+        )
 
         title_match = re.search(r"<b>(.*?)</b>", html_text.split("\n")[0])
         raw_header = (
@@ -2056,6 +2072,12 @@ async def edit_post_cmd(client: Client, message: Message):
         search_name = clean_title or raw_header
 
         parsed_meta = _parse_existing_metadata_from_html(html_text)
+        init_langs = (
+            parsed_meta["langs"] if parsed_meta["langs"] else list(DEFAULT_LANGUAGES)
+        )
+        init_res = (
+            parsed_meta["res"] if parsed_meta["res"] else list(DEFAULT_RESOLUTIONS)
+        )
 
         buttons = []
         if target_msg.reply_markup and target_msg.reply_markup.inline_keyboard:
@@ -2079,10 +2101,11 @@ async def edit_post_cmd(client: Client, message: Message):
             "buttons": buttons,
             "photo_mode": is_photo_mode,
             "use_landscape": False,
-            "custom_languages": parsed_meta["langs"],
-            "custom_resolutions": parsed_meta["res"],
+            "custom_languages": init_langs,
+            "custom_resolutions": init_res,
             "custom_genres": parsed_meta["genres"],
             "custom_otts": parsed_meta["otts"],
+            "quote_mode": detected_quote_mode,
             "schedule": 0,
             "auto_delete": 0,
             "last_preview_message_id": status_msg.id if status_msg else None,
@@ -2157,15 +2180,21 @@ def _resolve_poster_for_mode(session: dict) -> Optional[str]:
 async def _build_final_post_content(session: dict, session_id: int):
     movie_details = session.get("movie_details", {})
     poster_to_use = _resolve_poster_for_mode(session)
+    quote_mode = session.get("quote_mode", "expand")
+
     if session.get("is_manual_caption") and session.get("caption"):
-        cap_out = session["caption"]
+        # Clean any stale invisible preview links from the manual caption so a new poster URL works cleanly
+        inv_pattern = r"<a href=['\"](https?://[^'\"]+)['\"]>(?:&#8205;|&#8203;|&#8204;|\u200d|\u200b|\u200c|\u2060|\s)*</a>"
+        cap_out = re.sub(inv_pattern, "", session["caption"]).strip()
         if session.get("watermark") and session["watermark"] not in cap_out:
             cap_out = f"{cap_out}\n\n{session['watermark']}"
+        cap_out = apply_quote_mode(cap_out, quote_mode)
         return (
             cap_out,
             build_keyboard(session, session_id),
             poster_to_use,
         )
+
     template_str = TEMPLATES.get(
         session.get("active_template"), TEMPLATES["clean_grid"]
     )
@@ -2240,7 +2269,7 @@ async def _build_final_post_content(session: dict, session_id: int):
         )
         if session.get("watermark"):
             text += f"\n\n{session['watermark']}"
-        return text
+        return apply_quote_mode(text, quote_mode)
 
     final_text = render_text(plot_str)
     if session.get("photo_mode") and len(final_text) > 1024:
@@ -2265,6 +2294,7 @@ async def update_post_preview(
         )
     except Exception as e:
         return logger.error(f"Build preview error: {e}")
+
     final_caption = final_caption + ("\u200b" * random.randint(1, 3))
     is_normal_photo = (
         session.get("photo_mode")
@@ -2321,9 +2351,15 @@ async def update_post_preview(
                     except Exception:
                         pass
         else:
+            has_valid_url = bool(
+                poster_to_use
+                and str(poster_to_use).upper() != "BLANK"
+                and str(poster_to_use).startswith(("http://", "https://"))
+            )
+            # Place invisible preview anchor at the very beginning so Telegram always renders the preview image
             text_content = (
-                f"{final_caption}\n<a href='{poster_to_use}'>&#8205;</a>"
-                if poster_to_use and str(poster_to_use).upper() != "BLANK"
+                f"<a href='{poster_to_use}'>&#8205;</a>{final_caption}"
+                if has_valid_url
                 else final_caption
             )
             if force_resend or not old_msg_id:
@@ -2332,7 +2368,8 @@ async def update_post_preview(
                     chat_id,
                     text=text_content,
                     reply_markup=keyboard,
-                    disable_web_page_preview=False,
+                    disable_web_page_preview=not has_valid_url,
+                    preview_url=poster_to_use if has_valid_url else None,
                     parse_mode=enums.ParseMode.HTML,
                 )
                 if sent_msg:
@@ -2350,7 +2387,8 @@ async def update_post_preview(
                         old_msg_id,
                         text=text_content,
                         reply_markup=keyboard,
-                        disable_web_page_preview=False,
+                        disable_web_page_preview=not has_valid_url,
+                        preview_url=poster_to_use if has_valid_url else None,
                         parse_mode=enums.ParseMode.HTML,
                     )
                 except MessageNotModified:
@@ -2361,7 +2399,8 @@ async def update_post_preview(
                         chat_id,
                         text=text_content,
                         reply_markup=keyboard,
-                        disable_web_page_preview=False,
+                        disable_web_page_preview=not has_valid_url,
+                        preview_url=poster_to_use if has_valid_url else None,
                         parse_mode=enums.ParseMode.HTML,
                     )
                     if sent_msg:
@@ -2379,6 +2418,7 @@ def build_keyboard(session: dict, session_id: int):
     rows = [[dict_to_btn(b) for b in row] for row in session.get("buttons", [])]
     if session_id == -1:
         return InlineKeyboardMarkup(rows) if rows else None
+
     mode_btn = []
     if not session.get("edit_target"):
         mode_btn.append(
@@ -2393,6 +2433,19 @@ def build_keyboard(session: dict, session_id: int):
             callback_data=f"post:toggle_poster:{session_id}",
         )
     )
+
+    q_mode = session.get("quote_mode", "expand")
+    quote_row = [
+        create_btn(
+            f"{'✅ ' if q_mode == 'collapse' else ''}🔽 Quote Collapse",
+            callback_data=f"post:quote_collapse:{session_id}",
+        ),
+        create_btn(
+            f"{'✅ ' if q_mode == 'expand' else ''}🔼 Quote Expand",
+            callback_data=f"post:quote_expand:{session_id}",
+        ),
+    ]
+
     sched_val, del_val = session.get("schedule", 0), session.get("auto_delete", 0)
     timing_row = [
         create_btn(
@@ -2432,6 +2485,7 @@ def build_keyboard(session: dict, session_id: int):
                     "💧 Watermark", callback_data=f"post:set_watermark:{session_id}"
                 ),
             ],
+            quote_row,
             [
                 create_btn(
                     "🀄 setpoststicker", callback_data=f"post:set_sticker:{session_id}"
@@ -2610,6 +2664,16 @@ async def post_callbacks(client: Client, query: CallbackQuery):
         force_resend = False
         if action == "back":
             await query.answer()
+        elif action == "quote_collapse":
+            session["quote_mode"] = "collapse"
+            if session.get("is_manual_caption") and session.get("caption"):
+                session["caption"] = apply_quote_mode(session["caption"], "collapse")
+            await query.answer("🔽 Quote set to Collapse!")
+        elif action == "quote_expand":
+            session["quote_mode"] = "expand"
+            if session.get("is_manual_caption") and session.get("caption"):
+                session["caption"] = apply_quote_mode(session["caption"], "expand")
+            await query.answer("🔼 Quote set to Expand!")
         elif action in [
             "languages",
             "resolutions",
@@ -3363,8 +3427,9 @@ async def delayed_post_worker(
                         and str(poster_to_use).upper() != "BLANK"
                         and str(poster_to_use).startswith(("http://", "https://"))
                     )
+                    # Place invisible preview anchor at the very beginning and pass preview_url
                     text_content = (
-                        f"{final_caption}\n<a href='{poster_to_use}'>&#8205;</a>"
+                        f"<a href='{poster_to_use}'>&#8205;</a>{final_caption}"
                         if has_valid_url
                         else final_caption
                     )
@@ -3375,6 +3440,7 @@ async def delayed_post_worker(
                         text=text_content,
                         reply_markup=keyboard,
                         disable_web_page_preview=not has_valid_url,
+                        preview_url=poster_to_use if has_valid_url else None,
                         parse_mode=enums.ParseMode.HTML,
                     )
                 success_count += 1
@@ -3396,7 +3462,7 @@ async def delayed_post_worker(
                     and str(poster_to_use).startswith(("http://", "https://"))
                 )
                 text_content = (
-                    f"{final_caption}\n<a href='{poster_to_use}'>&#8205;</a>"
+                    f"<a href='{poster_to_use}'>&#8205;</a>{final_caption}"
                     if has_valid_url
                     else final_caption
                 )
@@ -3406,6 +3472,7 @@ async def delayed_post_worker(
                     text=text_content,
                     reply_markup=keyboard,
                     disable_web_page_preview=not has_valid_url,
+                    preview_url=poster_to_use if has_valid_url else None,
                     parse_mode=enums.ParseMode.HTML,
                 )
             if sticker_id:
