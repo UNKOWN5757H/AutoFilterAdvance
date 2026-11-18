@@ -988,9 +988,7 @@ async def apply_poster_update_to_session(
         )
     ):
         file_id = (
-            media_msg.photo.file_id
-            if media_msg.photo
-            else media_msg.document.file_id
+            media_msg.photo.file_id if media_msg.photo else media_msg.document.file_id
         )
         session["custom_photo_id"] = file_id
 
@@ -1018,9 +1016,7 @@ async def apply_poster_update_to_session(
                         parse_mode=enums.ParseMode.HTML,
                     )
                     asyncio.create_task(
-                        delete_after_delay(
-                            client, status_msg.chat.id, status_msg.id, 4
-                        )
+                        delete_after_delay(client, status_msg.chat.id, status_msg.id, 4)
                     )
                 except Exception:
                     pass
@@ -1041,9 +1037,7 @@ async def apply_poster_update_to_session(
                         parse_mode=enums.ParseMode.HTML,
                     )
                     asyncio.create_task(
-                        delete_after_delay(
-                            client, status_msg.chat.id, status_msg.id, 6
-                        )
+                        delete_after_delay(client, status_msg.chat.id, status_msg.id, 6)
                     )
                 except Exception:
                     pass
@@ -1827,9 +1821,8 @@ async def edit_post_cmd(client: Client, message: Message):
             if match:
                 poster_url = match.group(1)
                 html_text = re.sub(inv_pattern, "", html_text).strip()
-            elif (
-                getattr(target_msg, "web_page", None)
-                and getattr(target_msg.web_page, "url", None)
+            elif getattr(target_msg, "web_page", None) and getattr(
+                target_msg.web_page, "url", None
             ):
                 poster_url = target_msg.web_page.url
         title_match = re.search(r"<b>(.*?)</b>", html_text.split("\n")[0])
@@ -1878,7 +1871,10 @@ async def edit_post_cmd(client: Client, message: Message):
                 "year": "",
                 "poster_url": (
                     poster_url
-                    if (poster_url and str(poster_url).startswith(("http://", "https://")))
+                    if (
+                        poster_url
+                        and str(poster_url).startswith(("http://", "https://"))
+                    )
                     else None
                 ),
                 "backdrop_url": None,
