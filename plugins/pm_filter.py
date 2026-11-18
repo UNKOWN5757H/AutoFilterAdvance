@@ -498,7 +498,9 @@ def transliterate_indic_to_english(text: str) -> str:
                     if (i + 1 < n and 0x0900 <= ord(norm_text[i + 1]) <= 0x0D7F)
                     else 0
                 )
-                out.append("m" if (0x2A <= next_offset <= 0x2E or next_offset == 0) else "n")
+                out.append(
+                    "m" if (0x2A <= next_offset <= 0x2E or next_offset == 0) else "n"
+                )
                 i += 1
                 continue
 
@@ -534,7 +536,11 @@ def transliterate_indic_to_english(text: str) -> str:
 
                 is_devanagari = (cp & 0xFF80) == 0x0900
                 is_word_end = (i + 1 == n) or not (0x0900 <= next_cp <= 0x0D7F)
-                out.append(base_c if (is_devanagari and is_word_end and len(out) > 0) else (base_c + "a"))
+                out.append(
+                    base_c
+                    if (is_devanagari and is_word_end and len(out) > 0)
+                    else (base_c + "a")
+                )
                 i += 1
                 continue
 
@@ -1094,9 +1100,7 @@ async def is_global_admin(user_id: int) -> bool:
 
 async def is_user_banned(user_id: int) -> bool:
     return bool(
-        user_id
-        and hasattr(temp, "BANNED_USERS")
-        and int(user_id) in temp.BANNED_USERS
+        user_id and hasattr(temp, "BANNED_USERS") and int(user_id) in temp.BANNED_USERS
     )
 
 
@@ -1715,7 +1719,9 @@ def _score_file_relevance(file_obj, query_str: str) -> Tuple[int, int, int, int]
     title_match_score = 0
     if extracted_title == q_lower or extracted_title == q_no_year:
         title_match_score += 200
-    elif extracted_title.startswith(q_no_year + " ") or clean_fname.startswith(q_lower + " "):
+    elif extracted_title.startswith(q_no_year + " ") or clean_fname.startswith(
+        q_lower + " "
+    ):
         title_match_score += 140
     elif re.search(rf"\b{re.escape(q_no_year)}\b", extracted_title):
         title_match_score += 100
@@ -1950,7 +1956,9 @@ async def get_did_you_mean_suggestions(
                 prefix_patterns.append(re.escape(p_tok[:3]))
 
     if prefix_patterns and callable(get_all_healthy_read_dbs):
-        live_reg = re.compile(r"(?:^|[^a-zA-Z0-9])(" + "|".join(prefix_patterns) + r")", re.IGNORECASE)
+        live_reg = re.compile(
+            r"(?:^|[^a-zA-Z0-9])(" + "|".join(prefix_patterns) + r")", re.IGNORECASE
+        )
         for idx, target_db in get_all_healthy_read_dbs():
             try:
                 docs = (
@@ -1995,9 +2003,7 @@ async def get_did_you_mean_suggestions(
         )
 
         # 3. Consonant skeleton similarity
-        t_skel = _consonant_skeleton(
-            t_tokens[0] if len(q_tokens) == 1 else t_lower
-        )
+        t_skel = _consonant_skeleton(t_tokens[0] if len(q_tokens) == 1 else t_lower)
         skel_ratio = (
             difflib.SequenceMatcher(None, q_skel, t_skel).ratio()
             if (q_skel and t_skel)
@@ -2015,7 +2021,11 @@ async def get_did_you_mean_suggestions(
             for tt in t_tokens:
                 tt_p = _phonetic_key(tt)
                 r_raw = difflib.SequenceMatcher(None, qt, tt).ratio()
-                r_ph = difflib.SequenceMatcher(None, qt_p, tt_p).ratio() if (qt_p and tt_p) else 0.0
+                r_ph = (
+                    difflib.SequenceMatcher(None, qt_p, tt_p).ratio()
+                    if (qt_p and tt_p)
+                    else 0.0
+                )
                 best_tok = max(best_tok, r_raw, r_ph * 0.98)
             token_scores.append(best_tok)
         avg_token_score = sum(token_scores) / len(token_scores) if token_scores else 0.0
@@ -2023,7 +2033,8 @@ async def get_did_you_mean_suggestions(
         # Bonuses for prefix/substring overlap
         bonus = 0.0
         if len(q_no_year) >= 3 and (
-            t_lower.startswith(q_no_year[:3]) or (q_phon and t_phon.startswith(q_phon[:3]))
+            t_lower.startswith(q_no_year[:3])
+            or (q_phon and t_phon.startswith(q_phon[:3]))
         ):
             bonus += 0.12
         if len(q_no_year) >= 3 and (q_no_year in t_lower or t_lower in q_no_year):
