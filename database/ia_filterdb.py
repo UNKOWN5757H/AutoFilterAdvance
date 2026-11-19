@@ -595,9 +595,9 @@ async def _fetch_single_db_stats(
         used_bytes = max(data_size + index_size, storage_size)
         free_bytes = max(0, quota_limit - used_bytes)
 
-        is_full = used_bytes >= (500 * 1024 * 1024) or time.time() < _QUOTA_FULL_DBS.get(
-            idx, 0.0
-        )
+        is_full = used_bytes >= (
+            500 * 1024 * 1024
+        ) or time.time() < _QUOTA_FULL_DBS.get(idx, 0.0)
         _DEAD_READ_DBS.pop(idx, None)
 
         return {
@@ -722,9 +722,7 @@ async def get_search_results(
     filter=False,
     is_autocorrect=False,
 ):
-    cache_key = (
-        f"{query_text}_{file_type}_{max_results}_{offset}_{filter}_{int(MULTI_DB_ENABLED)}"
-    )
+    cache_key = f"{query_text}_{file_type}_{max_results}_{offset}_{filter}_{int(MULTI_DB_ENABLED)}"
     if cached := search_cache.get(cache_key):
         return cached
 
