@@ -1,14 +1,15 @@
 import asyncio
+import hashlib
 import html
 import inspect
 import math
 import re
 import time
 from logging import INFO, getLogger
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from motor.motor_asyncio import AsyncIOMotorClient
-from pyrogram import Client, enums, filters
+from pyrogram import Client, StopPropagation, enums, filters
 from pyrogram.errors import (
     ChatWriteForbidden,
     Forbidden,
@@ -40,12 +41,65 @@ except ImportError:
     get_all_healthy_read_dbs = None
     mark_db_error = None
 
+try:
+    from pyrogram.types import LinkPreviewOptions
+except ImportError:
+    LinkPreviewOptions = None
+
+try:
+    from plugins.pm_filter import register_hidden_link, sanitize_markup_hide_links
+except ImportError:
+    try:
+        from pm_filter import register_hidden_link, sanitize_markup_hide_links
+    except ImportError:
+        _LOCAL_HIDDEN_LINKS: Dict[str, str] = {}
+
+        def register_hidden_link(url: str) -> str:
+            clean_u = str(url or "").strip()
+            if clean_u and not clean_u.startswith(("http://", "https://", "tg://")):
+                clean_u = "https://" + clean_u.lstrip("/")
+            token = hashlib.md5(clean_u.encode("utf-8")).hexdigest()[:12]
+            if len(_LOCAL_HIDDEN_LINKS) >= 15000:
+                _LOCAL_HIDDEN_LINKS.pop(next(iter(_LOCAL_HIDDEN_LINKS)), None)
+            _LOCAL_HIDDEN_LINKS[token] = clean_u
+            return token
+
+        def sanitize_markup_hide_links(
+            markup: Optional[InlineKeyboardMarkup],
+        ) -> Optional[InlineKeyboardMarkup]:
+            if not markup or not getattr(markup, "inline_keyboard", None):
+                return markup
+            rows = []
+            for row in markup.inline_keyboard:
+                new_row = []
+                for b in row:
+                    st = getattr(b, "style", None)
+                    if getattr(b, "url", None):
+                        new_row.append(create_btn(b.text, url=b.url, style=st))
+                    else:
+                        new_row.append(
+                            create_btn(
+                                b.text,
+                                callback_data=getattr(b, "callback_data", "noop"),
+                                style=st,
+                            )
+                        )
+                if new_row:
+                    rows.append(new_row)
+            return InlineKeyboardMarkup(rows) if rows else None
+
+
 logger = getLogger(__name__)
 logger.setLevel(INFO)
 
+_BG_TASKS: Set[asyncio.Task] = set()
+
 # ============================================================
-# 🛡️ PYROGRAM v2.2.26 COMPATIBILITY & BUTTON HELPERS
+# 🛡️ PYROGRAM v2.2.26 COMPATIBILITY & HIDDEN-LINK BUTTONS
 # ============================================================
+_REPLY_PARAMS = set(inspect.signature(Message.reply_text).parameters.keys())
+_EDIT_PARAMS = set(inspect.signature(Message.edit_text).parameters.keys())
+
 BTN_PRIMARY = None
 BTN_SUCCESS = None
 BTN_DANGER = None
@@ -60,8 +114,13 @@ try:
         BTN_DANGER = getattr(ButtonStyle, "DANGER", None)
         _SUPPORTS_BTN_STYLE = True
 except (ImportError, ValueError, TypeError):
-    BTN_PRIMARY = BTN_SUCCESS = BTN_DANGER = None
-    _SUPPORTS_BTN_STYLE = False
+    pass
+
+
+def _clean_button_label(raw_label: str) -> str:
+    lbl = re.sub(r"<[^>]+>", "", str(raw_label or "")).strip()
+    lbl = re.sub(r"(?i)https?://\S+|t\.me/\S+|www\.\S+", "", lbl).strip(" -|:")
+    return lbl or "Open"
 
 
 def create_btn(
@@ -70,11 +129,14 @@ def create_btn(
     callback_data: Optional[str] = None,
     style: Any = None,
 ) -> InlineKeyboardButton:
-    kwargs: Dict[str, Any] = {"text": str(text)}
-    if url:
-        kwargs["url"] = str(url).strip()
-    elif callback_data:
+    """Creates an InlineKeyboardButton with ZERO visible links inside the button."""
+    kwargs: Dict[str, Any] = {"text": _clean_button_label(text)}
+    if callback_data:
         kwargs["callback_data"] = str(callback_data)[:64]
+    elif url:
+        kwargs["callback_data"] = f"olink#{register_hidden_link(url)}"
+    else:
+        kwargs["callback_data"] = "noop"
 
     if _SUPPORTS_BTN_STYLE and style is not None:
         kwargs["style"] = style
@@ -83,6 +145,17 @@ def create_btn(
     except Exception:
         kwargs.pop("style", None)
         return InlineKeyboardButton(**kwargs)
+
+
+def _preview_off_kw(supported_params: set) -> Dict[str, Any]:
+    if "link_preview_options" in supported_params and LinkPreviewOptions is not None:
+        try:
+            return {"link_preview_options": LinkPreviewOptions(is_disabled=True)}
+        except Exception:
+            pass
+    if "disable_web_page_preview" in supported_params:
+        return {"disable_web_page_preview": True}
+    return {}
 
 
 async def safe_answer(
@@ -104,11 +177,15 @@ async def safe_reply_text(
     text: str,
     reply_markup: Optional[InlineKeyboardMarkup] = None,
 ) -> Optional[Message]:
+    if not message:
+        return None
+    reply_markup = sanitize_markup_hide_links(reply_markup)
     try:
         return await message.reply_text(
             text=text,
             reply_markup=reply_markup,
             parse_mode=enums.ParseMode.HTML,
+            **_preview_off_kw(_REPLY_PARAMS),
         )
     except (ChatWriteForbidden, Forbidden, UserIsBlocked, PeerIdInvalid):
         return None
@@ -122,17 +199,27 @@ async def safe_edit_text(
     text: str,
     reply_markup: Optional[InlineKeyboardMarkup] = None,
 ) -> Optional[Message]:
+    if not message:
+        return None
+    reply_markup = sanitize_markup_hide_links(reply_markup)
     try:
         return await message.edit_text(
             text=text,
             reply_markup=reply_markup,
             parse_mode=enums.ParseMode.HTML,
+            **_preview_off_kw(_EDIT_PARAMS),
         )
     except (MessageNotModified, MessageIdInvalid, ChatWriteForbidden, Forbidden):
         return None
     except Exception as e:
         logger.error(f"safe_edit_text error in multibot: {e}")
         return None
+
+
+def _spawn_bg(coro):
+    t = asyncio.create_task(coro)
+    _BG_TASKS.add(t)
+    t.add_done_callback(_BG_TASKS.discard)
 
 
 def get_admin_list() -> List[int]:
@@ -147,9 +234,7 @@ def get_admin_list() -> List[int]:
 
 
 async def is_global_admin(user_id: int) -> bool:
-    if not user_id:
-        return False
-    return int(user_id) in get_admin_list()
+    return bool(user_id and int(user_id) in get_admin_list())
 
 
 # ============================================================
@@ -170,7 +255,7 @@ except Exception:
 
 _MULTIBOT_CONFIG_CACHE: Dict[str, Any] = {
     "enabled": bool(getattr(info, "MULTI_BOT_ENABLED", True)),
-    "bots": [],  # Unlimited list of dicts: {"bot_id": int, "name": str, "username": str, "token": str}
+    "bots": [],
 }
 _CONFIG_LOADED = False
 ACTIVE_WORKER_CLIENTS: Dict[int, Client] = {}
@@ -179,7 +264,6 @@ _MB_WAITING_INPUT: Dict[int, Dict[str, Any]] = {}
 
 
 def _get_all_candidate_dbs() -> List[Tuple[int, Any]]:
-    """Returns all configured databases (Primary DB + all /datadb URLs) even if Multi-DB search is toggled off."""
     if callable(get_all_configured_dbs):
         dbs = [
             (idx, handle)
@@ -205,7 +289,6 @@ def _is_quota_err(exc: Exception) -> bool:
 
 
 async def _free_temp_space_on_db(target_db: Any):
-    """Frees temporary collections on a full 512MB DB so tiny config documents can be saved."""
     for temp_col in (
         "fsub_join_requests",
         "fsub_verified_users",
@@ -221,15 +304,10 @@ async def _free_temp_space_on_db(target_db: Any):
 
 
 async def load_multibot_config(force_refresh: bool = False) -> Dict[str, Any]:
-    """
-    Loads and merges saved Worker Bots across Primary DB + all /datadb URLs
-    plus any tokens in info.WORKER_BOT_TOKENS so no worker bots are ever lost on restart!
-    """
-    global _CONFIG_LOADED, _MULTIBOT_CONFIG_CACHE
+    global _CONFIG_LOADED
     if _CONFIG_LOADED and not force_refresh:
         return _MULTIBOT_CONFIG_CACHE
 
-    # Ensure dynamic /datadb URLs are loaded first so we scan all extra databases too
     try:
         from plugins.datadb import load_datadb_config
 
@@ -275,18 +353,15 @@ async def load_multibot_config(force_refresh: bool = False) -> Dict[str, Any]:
                 mark_db_error(idx, e)
             continue
 
-    # If the most recent action was "Remove All Bots", honor it
     if cleared_all_ts >= latest_updated_at and cleared_all_ts > 0:
         merged_bots_by_id.clear()
 
-    # Merge any existing in-memory bots not yet flushed
     for b in _MULTIBOT_CONFIG_CACHE.get("bots", []):
         if isinstance(b, dict) and b.get("token"):
             b_id = int(b["bot_id"])
             if b_id not in merged_bots_by_id and cleared_all_ts < latest_updated_at:
                 merged_bots_by_id[b_id] = b
 
-    # Merge any tokens pre-configured via info.WORKER_BOT_TOKENS env var
     env_tokens = getattr(info, "WORKER_BOT_TOKENS", []) or []
     existing_tokens = {b["token"] for b in merged_bots_by_id.values()}
     for tok in env_tokens:
@@ -310,26 +385,18 @@ async def load_multibot_config(force_refresh: bool = False) -> Dict[str, Any]:
 
 
 async def save_multibot_config(cleared_all: bool = False):
-    """
-    Saves Multi-Bot configuration redundantly across Primary DB AND all /datadb URLs.
-    If a DB hits the 512MB quota, automatically purges temporary collections and retries
-    so worker bots never disappear on restart!
-    """
-    now = time.time()
     payload = {
         "enabled": bool(_MULTIBOT_CONFIG_CACHE.get("enabled", True)),
         "bots": list(_MULTIBOT_CONFIG_CACHE.get("bots", [])),
         "cleared_all": bool(cleared_all),
-        "updated_at": now,
+        "updated_at": time.time(),
     }
 
     for idx, target_db in _get_all_candidate_dbs():
         try:
             await asyncio.wait_for(
                 target_db["multibot_workers"].update_one(
-                    {"_id": "master_config"},
-                    {"$set": payload},
-                    upsert=True,
+                    {"_id": "master_config"}, {"$set": payload}, upsert=True
                 ),
                 timeout=6.0,
             )
@@ -338,21 +405,17 @@ async def save_multibot_config(cleared_all: bool = False):
                 try:
                     await _free_temp_space_on_db(target_db)
                     await target_db["multibot_workers"].update_one(
-                        {"_id": "master_config"},
-                        {"$set": payload},
-                        upsert=True,
+                        {"_id": "master_config"}, {"$set": payload}, upsert=True
                     )
                     continue
                 except Exception as retry_err:
                     if callable(mark_db_error):
                         mark_db_error(idx, retry_err)
-            else:
-                if callable(mark_db_error):
-                    mark_db_error(idx, e)
+            elif callable(mark_db_error):
+                mark_db_error(idx, e)
 
 
 async def start_single_worker(bot_data: Dict[str, Any]) -> Optional[Client]:
-    """Starts an in-memory Pyrogram Worker Bot client for high-speed indexing."""
     bot_id = int(bot_data["bot_id"])
     token = str(bot_data["token"]).strip()
 
@@ -407,9 +470,6 @@ async def stop_all_workers():
 
 
 async def ensure_all_workers_started() -> List[Client]:
-    """
-    Ensures all configured worker bots (unlimited) are started and connected if Multi-Bot is ON.
-    """
     async with _WORKER_LOCK:
         cfg = await load_multibot_config()
         if not cfg.get("enabled", True):
@@ -434,15 +494,12 @@ async def ensure_all_workers_started() -> List[Client]:
                         updated_metadata = True
 
         if updated_metadata:
-            asyncio.create_task(save_multibot_config())
+            _spawn_bg(save_multibot_config())
 
         return clients
 
 
 async def get_indexing_clients(main_bot: Client) -> List[Client]:
-    """
-    Returns [main_bot] + all active Worker Bots (unlimited) when Multi-Bot Mode is ON.
-    """
     cfg = await load_multibot_config()
     if not cfg.get("enabled", True) or not cfg.get("bots"):
         return [main_bot]
@@ -471,16 +528,12 @@ def cancel_mb_input(chat_id: int):
         fut = session.get("future")
         if fut and not fut.done():
             fut.cancel()
-        prompt_msg = session.get("prompt_msg")
-        if prompt_msg:
-            try:
-                asyncio.create_task(prompt_msg.delete())
-            except Exception:
-                pass
 
 
 @Client.on_message(filters.private | filters.group, group=-16)
 async def _mb_token_listener(client: Client, message: Message):
+    if not message or not message.chat:
+        return
     chat_id = message.chat.id
     if chat_id not in _MB_WAITING_INPUT:
         return
@@ -488,7 +541,7 @@ async def _mb_token_listener(client: Client, message: Message):
     if (
         message.text
         and message.text.startswith("/")
-        and message.text.strip().lower() not in ["/cancel"]
+        and message.text.strip().lower() != "/cancel"
     ):
         cancel_mb_input(chat_id)
         return
@@ -503,7 +556,7 @@ async def _mb_token_listener(client: Client, message: Message):
         fut = session["future"]
         if not fut.done():
             fut.set_result(message)
-        message.stop_propagation()
+        raise StopPropagation
 
 
 async def wait_for_bot_token(
@@ -515,7 +568,6 @@ async def wait_for_bot_token(
     _MB_WAITING_INPUT[int(chat_id)] = {
         "future": future,
         "user_id": int(user_id),
-        "prompt_msg": prompt_msg,
     }
     try:
         return await asyncio.wait_for(future, timeout=timeout)
@@ -532,20 +584,18 @@ async def wait_for_bot_token(
 
 
 # ============================================================
-# 🎨 UI BUILDERS FOR /bots AND PAGINATED BOT LIST (UNLIMITED BOTS)
+# 🎨 UI BUILDERS (TEXT-ONLY BUTTONS — ZERO VISIBLE LINKS)
 # ============================================================
 async def build_main_bots_panel() -> Tuple[str, InlineKeyboardMarkup]:
     cfg = await load_multibot_config()
     enabled = bool(cfg.get("enabled", True))
     bots = cfg.get("bots", [])
     count = len(bots)
-    online_count = len(
-        [
-            b
-            for b in bots
-            if int(b.get("bot_id", 0)) in ACTIVE_WORKER_CLIENTS
-            and getattr(ACTIVE_WORKER_CLIENTS[int(b["bot_id"])], "is_connected", False)
-        ]
+    online_count = sum(
+        1
+        for b in bots
+        if int(b.get("bot_id", 0)) in ACTIVE_WORKER_CLIENTS
+        and getattr(ACTIVE_WORKER_CLIENTS[int(b["bot_id"])], "is_connected", False)
     )
 
     status_badge = (
@@ -573,48 +623,32 @@ async def build_main_bots_panel() -> Tuple[str, InlineKeyboardMarkup]:
         "• Saved permanently across your Multi-Database cluster (<code>/datadb</code>)."
     )
 
-    on_label = "✅ Multi Bot On" if enabled else "Multi Bot On"
-    off_label = "🚫 Off" if not enabled else "Off"
-
     buttons = [
         [
             create_btn(
-                on_label,
+                "✅ Multi Bot On" if enabled else "Multi Bot On",
                 callback_data="mb#on",
                 style=BTN_SUCCESS if enabled else None,
             ),
             create_btn(
-                off_label,
+                "🚫 Off" if not enabled else "Off",
                 callback_data="mb#off",
                 style=BTN_DANGER if not enabled else None,
             ),
         ],
         [
+            create_btn("➕ Add Bot", callback_data="mb#add", style=BTN_PRIMARY),
             create_btn(
-                "➕ Add Bot",
-                callback_data="mb#add",
-                style=BTN_PRIMARY,
-            ),
-            create_btn(
-                f"📋 Bot list ({count})",
-                callback_data="mb#list#0",
-                style=BTN_PRIMARY,
+                f"📋 Bot list ({count})", callback_data="mb#list#0", style=BTN_PRIMARY
             ),
         ],
         [
+            create_btn("➖ Remove Bot", callback_data="mb#list#0"),
             create_btn(
-                "➖ Remove Bot",
-                callback_data="mb#list#0",
-            ),
-            create_btn(
-                "🗑️ Remove All Bot",
-                callback_data="mb#remall_ask",
-                style=BTN_DANGER,
+                "🗑️ Remove All Bot", callback_data="mb#remall_ask", style=BTN_DANGER
             ),
         ],
-        [
-            create_btn("🔐 Close", callback_data="mb#close"),
-        ],
+        [create_btn("🔐 Close", callback_data="mb#close")],
     ]
     return text, InlineKeyboardMarkup(buttons)
 
@@ -627,7 +661,7 @@ async def build_bot_list_panel(page: int = 0) -> Tuple[str, InlineKeyboardMarkup
         text = (
             "📋 <b>Worker Bot List (0 Added)</b>\n"
             "━━━━━━━━━━━━━━━━━━━━━\n"
-            "<i>No worker bots added yet. Click <b>➕ Add Bot</b> to add unlimited bot tokens for ultra-fast parallel indexing!</i>"
+            "<i>No worker bots added yet. Click <b>➕ Add Bot</b> to add unlimited bot tokens!</i>"
         )
         buttons = [
             [
@@ -656,19 +690,16 @@ async def build_bot_list_panel(page: int = 0) -> Tuple[str, InlineKeyboardMarkup
         is_online = b_id in ACTIVE_WORKER_CLIENTS and getattr(
             ACTIVE_WORKER_CLIENTS[b_id], "is_connected", False
         )
-        dot = "🟢" if is_online else "⚪"
-        lines.append(f"{idx}. {dot} <b>{b_name}</b> (@{b_uname}) — <code>{b_id}</code>")
+        lines.append(
+            f"{idx}. {'🟢' if is_online else '⚪'} <b>{b_name}</b> (@{b_uname}) — <code>{b_id}</code>"
+        )
 
+        # Pure callback button (zero visible links inside buttons)
         buttons.append(
             [
                 create_btn(
                     f"🤖 {b.get('name', f'Bot {idx}')[:20]}",
-                    url=(
-                        f"https://t.me/{b.get('username', '')}"
-                        if b.get("username")
-                        else None
-                    ),
-                    callback_data=f"mb#info#{b_id}" if not b.get("username") else None,
+                    callback_data=f"mb#info#{b_id}",
                 ),
                 create_btn(
                     "Remove bot",
@@ -705,9 +736,7 @@ async def build_bot_list_panel(page: int = 0) -> Tuple[str, InlineKeyboardMarkup
     buttons.append(
         [
             create_btn(
-                "🗑️ Remove all bots",
-                callback_data="mb#remall_ask",
-                style=BTN_DANGER,
+                "🗑️ Remove all bots", callback_data="mb#remall_ask", style=BTN_DANGER
             )
         ]
     )
@@ -735,14 +764,13 @@ async def bots_command_handler(client: Client, message: Message):
     )
     if not await is_global_admin(uid):
         return await safe_reply_text(
-            message,
-            "❌ <b>Unauthorized:</b> Global Bot Admin only.",
+            message, "❌ <b>Unauthorized:</b> Global Bot Admin only."
         )
 
     cancel_mb_input(message.chat.id)
     cfg = await load_multibot_config()
     if cfg.get("enabled", True) and cfg.get("bots"):
-        asyncio.create_task(ensure_all_workers_started())
+        _spawn_bg(ensure_all_workers_started())
 
     text, markup = await build_main_bots_panel()
     await safe_reply_text(message, text, reply_markup=markup)
@@ -753,6 +781,8 @@ async def multibot_callback_handler(client: Client, query: CallbackQuery):
     uid = query.from_user.id if query.from_user else 0
     if not await is_global_admin(uid):
         return await safe_answer(query, "❌ Global Bot Admin only!", show_alert=True)
+    if not query.message:
+        return await safe_answer(query)
 
     chat_id = query.message.chat.id
     parts = query.data.split("#")
@@ -785,7 +815,7 @@ async def multibot_callback_handler(client: Client, query: CallbackQuery):
         text, markup = await build_main_bots_panel()
         return await safe_edit_text(query.message, text, reply_markup=markup)
 
-    if action in ["on", "off"]:
+    if action in ("on", "off"):
         new_state = action == "on"
         cfg = await load_multibot_config()
         cfg["enabled"] = new_state
@@ -809,6 +839,20 @@ async def multibot_callback_handler(client: Client, query: CallbackQuery):
 
     if action == "info":
         bot_id = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
+        cfg = await load_multibot_config()
+        bot_entry = next(
+            (b for b in cfg.get("bots", []) if int(b.get("bot_id", 0)) == bot_id), None
+        )
+        if bot_entry:
+            uname = f"@{bot_entry['username']}" if bot_entry.get("username") else "N/A"
+            is_on = bot_id in ACTIVE_WORKER_CLIENTS and getattr(
+                ACTIVE_WORKER_CLIENTS[bot_id], "is_connected", False
+            )
+            return await safe_answer(
+                query,
+                f"🤖 {bot_entry.get('name', 'Worker')}\nUsername: {uname}\nID: {bot_id}\nStatus: {'Online 🟢' if is_on else 'Offline ⚪'}",
+                show_alert=True,
+            )
         return await safe_answer(query, f"🤖 Worker Bot ID: {bot_id}", show_alert=True)
 
     if action == "del":
@@ -856,9 +900,7 @@ async def multibot_callback_handler(client: Client, query: CallbackQuery):
                         style=BTN_DANGER,
                     )
                 ],
-                [
-                    create_btn("⬅️ Cancel", callback_data="mb#main"),
-                ],
+                [create_btn("⬅️ Cancel", callback_data="mb#main")],
             ]
         )
         return await safe_edit_text(
@@ -889,7 +931,7 @@ async def multibot_callback_handler(client: Client, query: CallbackQuery):
             f"🤖 <b>Add Worker Bot(s) (Currently Added: {len(cur_bots)} • Unlimited)</b>\n"
             "━━━━━━━━━━━━━━━━━━━━━\n"
             "🔑 <b>Send the Bot Token(s) from @BotFather:</b>\n\n"
-            "• You can send <b>1 token</b> or <b>multiple tokens</b> (one per line) to add unlimited bots at once!\n"
+            "• You can send <b>1 token</b> or <b>multiple tokens</b> (one per line)!\n"
             "• Example: <code>123456789:AAHxyz...</code>\n\n"
             "⚠️ <i>Make sure the worker bot is an <b>Admin</b> in your File Channel!</i>",
             reply_markup=cancel_kb,
@@ -911,18 +953,16 @@ async def multibot_callback_handler(client: Client, query: CallbackQuery):
         except Exception:
             pass
 
-        found_tokens = re.findall(r"\b\d{7,12}:[A-Za-z0-9_-]{30,50}\b", raw_text)
+        found_tokens = list(
+            dict.fromkeys(re.findall(r"\b\d{7,12}:[A-Za-z0-9_-]{30,50}\b", raw_text))
+        )
         if not found_tokens:
             err_m = await safe_reply_text(
                 query.message,
                 "❌ <b>Invalid Bot Token format!</b>\nPlease send a valid token from @BotFather.",
             )
             if err_m:
-                await asyncio.sleep(5)
-                try:
-                    await err_m.delete()
-                except Exception:
-                    pass
+                _spawn_bg(_delete_after_delay(err_m, 5))
             return
 
         status_msg = await safe_reply_text(
@@ -942,6 +982,7 @@ async def multibot_callback_handler(client: Client, query: CallbackQuery):
                 failed_reasons.append("Cannot add Main Bot token as worker")
                 continue
 
+            temp_client = None
             try:
                 temp_client = Client(
                     name=f"verify_worker_{int(time.time() * 1000)}",
@@ -967,6 +1008,7 @@ async def multibot_callback_handler(client: Client, query: CallbackQuery):
                 ]
                 cfg["bots"].append(bot_entry)
 
+                await stop_single_worker(int(me.id))
                 if cfg.get("enabled", True):
                     ACTIVE_WORKER_CLIENTS[int(me.id)] = temp_client
                 else:
@@ -976,6 +1018,11 @@ async def multibot_callback_handler(client: Client, query: CallbackQuery):
                     f"<b>{html.escape(bot_entry['name'])}</b> (@{html.escape(bot_entry['username'])})"
                 )
             except Exception as e:
+                if temp_client is not None:
+                    try:
+                        await temp_client.stop()
+                    except Exception:
+                        pass
                 failed_reasons.append(str(e)[:60])
 
         await save_multibot_config(cleared_all=False)
@@ -992,7 +1039,7 @@ async def multibot_callback_handler(client: Client, query: CallbackQuery):
                     f"⚠️ <b>Skipped/Failed:</b> {', '.join(failed_reasons[:10])}"
                 )
             await safe_edit_text(status_msg, "\n\n".join(summary_lines))
-            asyncio.create_task(_delete_after_delay(status_msg, 8))
+            _spawn_bg(_delete_after_delay(status_msg, 8))
 
         text, markup = await build_main_bots_panel()
         await safe_edit_text(query.message, text, reply_markup=markup)
