@@ -5,10 +5,10 @@ import math
 import re
 import time
 from logging import INFO, getLogger
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from motor.motor_asyncio import AsyncIOMotorClient
-from pyrogram import Client, enums, filters
+from pyrogram import Client, StopPropagation, enums, filters
 from pyrogram.errors import (
     ChatWriteForbidden,
     Forbidden,
@@ -40,12 +40,22 @@ from database.ia_filterdb import (
     unregister_dynamic_db_entry,
 )
 
+try:
+    from pyrogram.types import LinkPreviewOptions
+except ImportError:
+    LinkPreviewOptions = None
+
 logger = getLogger(__name__)
 logger.setLevel(INFO)
 
+_BG_TASKS: Set[asyncio.Task] = set()
+
 # ============================================================
-# 🛡️ PYROGRAM v2.2.26 COMPATIBILITY & BUTTON HELPERS
+# 🛡️ PYROGRAM v2.2.26 COMPATIBILITY & TEXT-ONLY BUTTON BUILDER
 # ============================================================
+_REPLY_PARAMS = set(inspect.signature(Message.reply_text).parameters.keys())
+_EDIT_PARAMS = set(inspect.signature(Message.edit_text).parameters.keys())
+
 BTN_PRIMARY = None
 BTN_SUCCESS = None
 BTN_DANGER = None
@@ -60,22 +70,25 @@ try:
         BTN_DANGER = getattr(ButtonStyle, "DANGER", None)
         _SUPPORTS_BTN_STYLE = True
 except (ImportError, ValueError, TypeError):
-    BTN_PRIMARY = BTN_SUCCESS = BTN_DANGER = None
-    _SUPPORTS_BTN_STYLE = False
+    pass
+
+
+def _clean_button_label(raw_label: str) -> str:
+    lbl = re.sub(r"<[^>]+>", "", str(raw_label or "")).strip()
+    lbl = re.sub(r"(?i)https?://\S+|t\.me/\S+|www\.\S+", "", lbl).strip(" -|:")
+    return lbl or "Open"
 
 
 def create_btn(
     text: str,
-    url: Optional[str] = None,
-    callback_data: Optional[str] = None,
+    callback_data: str = "noop",
     style: Any = None,
 ) -> InlineKeyboardButton:
-    kwargs: Dict[str, Any] = {"text": str(text)}
-    if url:
-        kwargs["url"] = str(url).strip()
-    elif callback_data:
-        kwargs["callback_data"] = str(callback_data)[:64]
-
+    """Creates a pure text-only callback InlineKeyboardButton (zero links inside any button)."""
+    kwargs: Dict[str, Any] = {
+        "text": _clean_button_label(text),
+        "callback_data": str(callback_data)[:64],
+    }
     if _SUPPORTS_BTN_STYLE and style is not None:
         kwargs["style"] = style
     try:
@@ -83,6 +96,17 @@ def create_btn(
     except Exception:
         kwargs.pop("style", None)
         return InlineKeyboardButton(**kwargs)
+
+
+def _preview_off_kw(supported_params: set) -> Dict[str, Any]:
+    if "link_preview_options" in supported_params and LinkPreviewOptions is not None:
+        try:
+            return {"link_preview_options": LinkPreviewOptions(is_disabled=True)}
+        except Exception:
+            pass
+    if "disable_web_page_preview" in supported_params:
+        return {"disable_web_page_preview": True}
+    return {}
 
 
 async def safe_answer(
@@ -104,11 +128,14 @@ async def safe_reply_text(
     text: str,
     reply_markup: Optional[InlineKeyboardMarkup] = None,
 ) -> Optional[Message]:
+    if not message:
+        return None
     try:
         return await message.reply_text(
             text=text,
             reply_markup=reply_markup,
             parse_mode=enums.ParseMode.HTML,
+            **_preview_off_kw(_REPLY_PARAMS),
         )
     except (ChatWriteForbidden, Forbidden, UserIsBlocked, PeerIdInvalid):
         return None
@@ -122,17 +149,26 @@ async def safe_edit_text(
     text: str,
     reply_markup: Optional[InlineKeyboardMarkup] = None,
 ) -> Optional[Message]:
+    if not message:
+        return None
     try:
         return await message.edit_text(
             text=text,
             reply_markup=reply_markup,
             parse_mode=enums.ParseMode.HTML,
+            **_preview_off_kw(_EDIT_PARAMS),
         )
     except (MessageNotModified, MessageIdInvalid, ChatWriteForbidden, Forbidden):
         return None
     except Exception as e:
         logger.error(f"safe_edit_text error in datadb: {e}")
         return None
+
+
+def _spawn_bg(coro):
+    t = asyncio.create_task(coro)
+    _BG_TASKS.add(t)
+    t.add_done_callback(_BG_TASKS.discard)
 
 
 def get_admin_list() -> List[int]:
@@ -147,9 +183,7 @@ def get_admin_list() -> List[int]:
 
 
 async def is_global_admin(user_id: int) -> bool:
-    if not user_id:
-        return False
-    return int(user_id) in get_admin_list()
+    return bool(user_id and int(user_id) in get_admin_list())
 
 
 def get_size_str(bytes_size: int) -> str:
@@ -177,7 +211,6 @@ def _is_quota_err(exc: Exception) -> bool:
 
 
 async def _free_temp_space_on_db(target_db: Any):
-    """Frees temporary collections on a full 512MB DB so tiny config documents can be saved."""
     for temp_col in (
         "fsub_join_requests",
         "fsub_verified_users",
@@ -193,7 +226,6 @@ async def _free_temp_space_on_db(target_db: Any):
 
 
 def _preload_env_uris_if_present() -> List[Dict[str, str]]:
-    """Also picks up SECOND_DATABASE_URI / THIRD_DATABASE_URI from info.py if set."""
     env_entries: List[Dict[str, str]] = []
     for idx, attr_uri, attr_name, default_lbl in (
         (2, "SECOND_DATABASE_URI", "SECOND_DATABASE_NAME", "Env DB 2"),
@@ -221,46 +253,25 @@ def _preload_env_uris_if_present() -> List[Dict[str, str]]:
 
 
 async def load_datadb_config(force_refresh: bool = False) -> Dict[str, Any]:
-    """
-    Loads saved MongoDB URLs across Primary DB + all currently known DBs,
-    registers every URL in `ia_filterdb`, and checks newly registered DBs too
-    so even if DB 1 was 512MB full when you added URL #2, URL #2's copy is found!
-    """
     global _DATADB_CONFIG_LOADED
     async with _DATADB_LOCK:
         if _DATADB_CONFIG_LOADED and not force_refresh:
-            return {
-                "enabled": is_multi_db_enabled(),
-                "urls": list(DYNAMIC_DB_META),
-            }
+            return {"enabled": is_multi_db_enabled(), "urls": list(DYNAMIC_DB_META)}
 
-        merged_by_id: Dict[str, Dict[str, Any]] = {}
         latest_ts = -1.0
         enabled_state = is_multi_db_enabled()
 
-        # 1. Include any pre-configured env URIs first
         for e_item in _preload_env_uris_if_present():
-            merged_by_id[e_item["id"]] = e_item
             register_dynamic_db_entry(
                 e_item["uri"], custom_name=e_item["name"], db_name=e_item["db_name"]
             )
 
-        # 2. Keep any in-memory entries already registered
-        for m_item in list(DYNAMIC_DB_META):
-            if m_item.get("id") and m_item.get("uri"):
-                merged_by_id[m_item["id"]] = dict(m_item)
-
-        # 3. Iteratively scan Primary DB + any newly discovered dynamic DBs
-        scanned_uris = set()
-        for _pass in range(2):
-            current_dbs = get_all_configured_dbs(include_when_disabled=True)
-            for idx, target_db, _ in current_dbs:
-                if target_db is None:
+        scanned_ids = set()
+        for _ in range(2):
+            for idx, target_db, _ in get_all_configured_dbs(include_when_disabled=True):
+                if target_db is None or id(target_db) in scanned_ids:
                     continue
-                db_key = f"{id(target_db)}"
-                if db_key in scanned_uris:
-                    continue
-                scanned_uris.add(db_key)
+                scanned_ids.add(id(target_db))
 
                 try:
                     doc = await asyncio.wait_for(
@@ -273,15 +284,9 @@ async def load_datadb_config(force_refresh: bool = False) -> Dict[str, Any]:
                     if doc_ts >= latest_ts:
                         latest_ts = doc_ts
                         enabled_state = bool(doc.get("enabled", True))
-
-                    # If this latest doc explicitly cleared all URLs, respect it
-                    if (
-                        doc_ts >= latest_ts
-                        and doc.get("cleared_all")
-                        and not doc.get("urls")
-                    ):
-                        merged_by_id.clear()
-                        continue
+                        if doc.get("cleared_all") and not doc.get("urls"):
+                            clear_all_dynamic_db_entries()
+                            continue
 
                     for u_entry in doc.get("urls", []):
                         if not isinstance(u_entry, dict) or not u_entry.get("uri"):
@@ -289,52 +294,37 @@ async def load_datadb_config(force_refresh: bool = False) -> Dict[str, Any]:
                         u_str = str(u_entry["uri"]).strip()
                         if u_str == info.DATABASE_URI:
                             continue
-                        u_id = str(u_entry.get("id") or make_db_id(u_str))
-                        u_name = str(u_entry.get("name") or "").strip()
-                        u_db_name = str(
-                            u_entry.get("db_name") or info.DATABASE_NAME
-                        ).strip()
-                        reg = register_dynamic_db_entry(
-                            u_str, custom_name=u_name, db_name=u_db_name
+                        register_dynamic_db_entry(
+                            u_str,
+                            custom_name=str(u_entry.get("name") or "").strip(),
+                            db_name=str(
+                                u_entry.get("db_name") or info.DATABASE_NAME
+                            ).strip(),
                         )
-                        if reg:
-                            merged_by_id[u_id] = reg
                 except Exception as e:
                     mark_db_error(idx, e)
                     continue
 
         set_multi_db_enabled(enabled_state)
         _DATADB_CONFIG_LOADED = True
-        return {
-            "enabled": is_multi_db_enabled(),
-            "urls": list(DYNAMIC_DB_META),
-        }
+        return {"enabled": is_multi_db_enabled(), "urls": list(DYNAMIC_DB_META)}
 
 
 async def save_datadb_config(cleared_all: bool = False):
-    """
-    Saves the `/datadb` configuration redundantly across Primary DB AND every
-    connected dynamic DB so even if Primary DB is 512MB full, your URLs are
-    permanently stored in the newly added DBs!
-    """
-    now = time.time()
     payload = {
         "enabled": is_multi_db_enabled(),
         "urls": list(DYNAMIC_DB_META),
         "cleared_all": bool(cleared_all),
-        "updated_at": now,
+        "updated_at": time.time(),
     }
 
-    all_dbs = get_all_configured_dbs(include_when_disabled=True)
-    for idx, target_db, _ in all_dbs:
+    for idx, target_db, _ in get_all_configured_dbs(include_when_disabled=True):
         if target_db is None:
             continue
         try:
             await asyncio.wait_for(
                 target_db["datadb_config"].update_one(
-                    {"_id": "master_config"},
-                    {"$set": payload},
-                    upsert=True,
+                    {"_id": "master_config"}, {"$set": payload}, upsert=True
                 ),
                 timeout=6.0,
             )
@@ -343,9 +333,7 @@ async def save_datadb_config(cleared_all: bool = False):
                 try:
                     await _free_temp_space_on_db(target_db)
                     await target_db["datadb_config"].update_one(
-                        {"_id": "master_config"},
-                        {"$set": payload},
-                        upsert=True,
+                        {"_id": "master_config"}, {"$set": payload}, upsert=True
                     )
                     continue
                 except Exception as retry_err:
@@ -363,16 +351,12 @@ def cancel_datadb_input(chat_id: int):
         fut = session.get("future")
         if fut and not fut.done():
             fut.cancel()
-        prompt_msg = session.get("prompt_msg")
-        if prompt_msg:
-            try:
-                asyncio.create_task(prompt_msg.delete())
-            except Exception:
-                pass
 
 
 @Client.on_message(filters.private | filters.group, group=-17)
 async def _datadb_url_listener(client: Client, message: Message):
+    if not message or not message.chat:
+        return
     chat_id = message.chat.id
     if chat_id not in _DATADB_WAITING_INPUT:
         return
@@ -380,7 +364,7 @@ async def _datadb_url_listener(client: Client, message: Message):
     if (
         message.text
         and message.text.startswith("/")
-        and message.text.strip().lower() not in ["/cancel"]
+        and message.text.strip().lower() != "/cancel"
     ):
         cancel_datadb_input(chat_id)
         return
@@ -395,7 +379,7 @@ async def _datadb_url_listener(client: Client, message: Message):
         fut = session["future"]
         if not fut.done():
             fut.set_result(message)
-        message.stop_propagation()
+        raise StopPropagation
 
 
 async def wait_for_db_url(
@@ -407,7 +391,6 @@ async def wait_for_db_url(
     _DATADB_WAITING_INPUT[int(chat_id)] = {
         "future": future,
         "user_id": int(user_id),
-        "prompt_msg": prompt_msg,
     }
     try:
         return await asyncio.wait_for(future, timeout=timeout)
@@ -424,13 +407,12 @@ async def wait_for_db_url(
 
 
 # ============================================================
-# 🎨 UI BUILDERS FOR /datadb AND PAGINATED URL LIST (UNLIMITED)
+# 🎨 UI BUILDERS (PURE TEXT-ONLY BUTTONS)
 # ============================================================
 async def build_main_datadb_panel() -> Tuple[str, InlineKeyboardMarkup]:
     await load_datadb_config()
     enabled = is_multi_db_enabled()
-    urls = list(DYNAMIC_DB_META)
-    url_count = len(urls)
+    url_count = len(DYNAMIC_DB_META)
     total_clusters = 1 + (url_count if enabled else 0)
     total_capacity_mb = total_clusters * 512
 
@@ -458,48 +440,32 @@ async def build_main_datadb_panel() -> Tuple[str, InlineKeyboardMarkup]:
         "━━━━━━━━━━━━━━━━━━━━━\n"
         "💡 <b>How Unlimited Multi-DB Works:</b>\n"
         "• Click <b>Add url</b> and send any number of MongoDB Atlas URLs.\n"
-        "• When Database 1 reaches 512 MB, indexing & saving automatically overflow to URL #2, #3, #4, etc. without stopping!\n"
+        "• When Database 1 reaches 512 MB, indexing & saving automatically overflow to URL #2, #3, #4, etc.!\n"
         "• Auto-Filter searches across all connected databases simultaneously."
     )
-
-    on_label = "✅ Multi Database On" if enabled else "Multi Database On"
-    off_label = "🚫 Off" if not enabled else "Off"
 
     buttons = [
         [
             create_btn(
-                on_label,
+                "✅ Multi Database On" if enabled else "Multi Database On",
                 callback_data="ddb#on",
                 style=BTN_SUCCESS if enabled else None,
             ),
             create_btn(
-                off_label,
+                "🚫 Off" if not enabled else "Off",
                 callback_data="ddb#off",
                 style=BTN_DANGER if not enabled else None,
             ),
         ],
         [
+            create_btn("Add url", callback_data="ddb#add", style=BTN_PRIMARY),
             create_btn(
-                "Add url",
-                callback_data="ddb#add",
-                style=BTN_PRIMARY,
-            ),
-            create_btn(
-                f"url list ({url_count})",
-                callback_data="ddb#list#0",
-                style=BTN_PRIMARY,
+                f"url list ({url_count})", callback_data="ddb#list#0", style=BTN_PRIMARY
             ),
         ],
         [
-            create_btn(
-                "Remove url",
-                callback_data="ddb#list#0",
-            ),
-            create_btn(
-                "Remove All url",
-                callback_data="ddb#remall_ask",
-                style=BTN_DANGER,
-            ),
+            create_btn("Remove url", callback_data="ddb#list#0"),
+            create_btn("Remove All url", callback_data="ddb#remall_ask", style=BTN_DANGER),
         ],
         [
             create_btn("🔄 Refresh Stats", callback_data="ddb#main"),
@@ -520,13 +486,14 @@ async def build_url_list_panel(page: int = 0) -> Tuple[str, InlineKeyboardMarkup
             "🗄️ <b>Primary DB (DB 1):</b> <code>🟢 Active (info.DATABASE_URI)</code>\n\n"
             "<i>No extra MongoDB URLs added yet. Click <b>Add url</b> below to add unlimited MongoDB clusters!</i>"
         )
-        buttons = [
+        return text, InlineKeyboardMarkup(
             [
-                create_btn("Add url", callback_data="ddb#add", style=BTN_PRIMARY),
-                create_btn("⬅️ Back", callback_data="ddb#main"),
+                [
+                    create_btn("Add url", callback_data="ddb#add", style=BTN_PRIMARY),
+                    create_btn("⬅️ Back", callback_data="ddb#main"),
+                ]
             ]
-        ]
-        return text, InlineKeyboardMarkup(buttons)
+        )
 
     st = await get_all_dbs_stats()
     stats_by_idx = {d["index"]: d for d in st.get("all_dbs", [])}
@@ -538,32 +505,23 @@ async def build_url_list_panel(page: int = 0) -> Tuple[str, InlineKeyboardMarkup
     sliced_urls = urls[start_idx : start_idx + per_page]
 
     db1_info = stats_by_idx.get(1, {})
-    db1_files = db1_info.get("files", 0)
-    db1_used = get_size_str(db1_info.get("used_bytes", 0))
-
     lines = [
         f"📋 <b>Configured Database URLs ({len(urls)} Added • Page {page + 1}/{total_pages})</b>",
         "━━━━━━━━━━━━━━━━━━━━━",
-        f"🏠 <b>Primary DB #1:</b> <code>{db1_files:,} files</code> (<code>{db1_used} / 512 MB</code>)",
+        f"🏠 <b>Primary DB #1:</b> <code>{db1_info.get('files', 0):,} files</code> (<code>{get_size_str(db1_info.get('used_bytes', 0))} / 512 MB</code>)",
         "━━━━━━━━━━━━━━━━━━━━━",
     ]
     buttons: List[List[InlineKeyboardButton]] = []
 
     for idx, item in enumerate(sliced_urls, start=start_idx + 1):
-        db_num = idx + 1  # Because Primary DB is #1
+        db_num = idx + 1
         u_id = item.get("id", "")
         u_name = html.escape(str(item.get("name", f"URL #{idx}")))
         d_stat = stats_by_idx.get(db_num, {})
-        files_cnt = d_stat.get("files", 0)
-        used_str = get_size_str(d_stat.get("used_bytes", 0))
-        status_str = d_stat.get("status", "🟢 Connected")
-
         lines.append(
-            f"<b>{idx}. {u_name} (DB #{db_num})</b> — <code>{status_str}</code>\n"
-            f"   └ 📁 <code>{files_cnt:,} files</code> | 💾 <code>{used_str} / 512 MB</code>"
+            f"<b>{idx}. {u_name} (DB #{db_num})</b> — <code>{d_stat.get('status', '🟢 Connected')}</code>\n"
+            f"   └ 📁 <code>{d_stat.get('files', 0):,} files</code> | 💾 <code>{get_size_str(d_stat.get('used_bytes', 0))} / 512 MB</code>"
         )
-
-        # Exact requested button layout: Url name | Remove url
         buttons.append(
             [
                 create_btn(
@@ -599,13 +557,10 @@ async def build_url_list_panel(page: int = 0) -> Tuple[str, InlineKeyboardMarkup
             )
         buttons.append(nav_row)
 
-    # Bottom row: Remove all urls
     buttons.append(
         [
             create_btn(
-                "Remove all urls",
-                callback_data="ddb#remall_ask",
-                style=BTN_DANGER,
+                "Remove all urls", callback_data="ddb#remall_ask", style=BTN_DANGER
             )
         ]
     )
@@ -633,8 +588,7 @@ async def datadb_command_handler(client: Client, message: Message):
     )
     if not await is_global_admin(uid):
         return await safe_reply_text(
-            message,
-            "❌ <b>Unauthorized:</b> Global Bot Admin only.",
+            message, "❌ <b>Unauthorized:</b> Global Bot Admin only."
         )
 
     cancel_datadb_input(message.chat.id)
@@ -653,6 +607,8 @@ async def datadb_callback_handler(client: Client, query: CallbackQuery):
     uid = query.from_user.id if query.from_user else 0
     if not await is_global_admin(uid):
         return await safe_answer(query, "❌ Global Bot Admin only!", show_alert=True)
+    if not query.message:
+        return await safe_answer(query)
 
     chat_id = query.message.chat.id
     parts = query.data.split("#")
@@ -685,12 +641,11 @@ async def datadb_callback_handler(client: Client, query: CallbackQuery):
         text, markup = await build_main_datadb_panel()
         return await safe_edit_text(query.message, text, reply_markup=markup)
 
-    if action in ["on", "off"]:
+    if action in ("on", "off"):
         new_state = action == "on"
         await load_datadb_config()
         set_multi_db_enabled(new_state)
         await save_datadb_config()
-
         await safe_answer(
             query,
             f"🗄️ Multi-Database {'ENABLED' if new_state else 'DISABLED'}!",
@@ -719,13 +674,10 @@ async def datadb_callback_handler(client: Client, query: CallbackQuery):
     if action == "del":
         target_id = parts[2] if len(parts) > 2 else ""
         page = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else 0
-
-        removed_name = "URL"
-        for item in DYNAMIC_DB_META:
-            if item.get("id") == target_id:
-                removed_name = item.get("name", "URL")
-                break
-
+        removed_name = next(
+            (i.get("name", "URL") for i in DYNAMIC_DB_META if i.get("id") == target_id),
+            "URL",
+        )
         if unregister_dynamic_db_entry(target_id):
             await save_datadb_config(cleared_all=(len(DYNAMIC_DB_META) == 0))
             await safe_answer(query, f"🗑️ Removed {removed_name}!", show_alert=True)
@@ -740,7 +692,6 @@ async def datadb_callback_handler(client: Client, query: CallbackQuery):
             return await safe_answer(
                 query, "⚠️ No extra database URLs to remove!", show_alert=True
             )
-
         await safe_answer(query)
         confirm_kb = InlineKeyboardMarkup(
             [
@@ -751,9 +702,7 @@ async def datadb_callback_handler(client: Client, query: CallbackQuery):
                         style=BTN_DANGER,
                     )
                 ],
-                [
-                    create_btn("⬅️ Cancel", callback_data="ddb#main"),
-                ],
+                [create_btn("⬅️ Cancel", callback_data="ddb#main")],
             ]
         )
         return await safe_edit_text(
@@ -764,14 +713,12 @@ async def datadb_callback_handler(client: Client, query: CallbackQuery):
         )
 
     if action == "remall_confirm":
-        # First clear datadb_config on all dynamic DBs before unregistering them
         for _, target_db, _ in get_all_configured_dbs(include_when_disabled=True):
             if target_db is not None and target_db is not _primary_db:
                 try:
                     await target_db["datadb_config"].delete_many({})
                 except Exception:
                     pass
-
         clear_all_dynamic_db_entries()
         await save_datadb_config(cleared_all=True)
         await safe_answer(query, "🗑️ All Extra Database URLs Removed!", show_alert=True)
@@ -780,22 +727,18 @@ async def datadb_callback_handler(client: Client, query: CallbackQuery):
 
     if action == "add":
         await load_datadb_config()
-        cur_count = len(DYNAMIC_DB_META)
-
         await safe_answer(query)
         cancel_kb = InlineKeyboardMarkup(
             [[create_btn("❌ Cancel", callback_data="ddb#cancel_input")]]
         )
         prompt_msg = await safe_reply_text(
             query.message,
-            f"🗄️ <b>Add MongoDB URL(s) (Currently Added: {cur_count} • Unlimited)</b>\n"
+            f"🗄️ <b>Add MongoDB URL(s) (Currently Added: {len(DYNAMIC_DB_META)} • Unlimited)</b>\n"
             "━━━━━━━━━━━━━━━━━━━━━\n"
             "🔗 <b>Send your MongoDB Connection URI(s):</b>\n\n"
             "• You can send <b>1 URL</b> or <b>multiple URLs</b> (one per line)!\n"
             "• Optional custom name format:\n"
-            "  <code>MyDB2 | mongodb+srv://user:pass@cluster...</code>\n"
-            "• Or just send the raw URL directly:\n"
-            "  <code>mongodb+srv://user:pass@cluster0.xxxx.mongodb.net/?retryWrites=true&w=majority</code>",
+            "  <code>MyDB2 | mongodb+srv://user:pass@cluster...</code>",
             reply_markup=cancel_kb,
         )
 
@@ -810,22 +753,19 @@ async def datadb_callback_handler(client: Client, query: CallbackQuery):
             return
 
         raw_text = resp.text.strip()
-        # Delete the message containing sensitive MongoDB credentials immediately
         try:
             await resp.delete()
         except Exception:
             pass
 
-        lines = [ln.strip() for ln in raw_text.splitlines() if ln.strip()]
         candidates: List[Tuple[Optional[str], str]] = []
-        for ln in lines:
+        for ln in (x.strip() for x in raw_text.splitlines() if x.strip()):
             if "|" in ln:
                 c_name, c_uri = [x.strip() for x in ln.split("|", 1)]
                 if c_uri.startswith(("mongodb://", "mongodb+srv://")):
                     candidates.append((c_name, c_uri))
                     continue
-            uri_matches = re.findall(r"(mongodb(?:\+srv)?://\S+)", ln)
-            for um in uri_matches:
+            for um in re.findall(r"(mongodb(?:\+srv)?://\S+)", ln):
                 candidates.append((None, um.strip()))
 
         if not candidates:
@@ -834,11 +774,7 @@ async def datadb_callback_handler(client: Client, query: CallbackQuery):
                 "❌ <b>Invalid MongoDB URI!</b>\nMust start with <code>mongodb+srv://</code> or <code>mongodb://</code>.",
             )
             if err_m:
-                await asyncio.sleep(5)
-                try:
-                    await err_m.delete()
-                except Exception:
-                    pass
+                _spawn_bg(_delete_later(err_m, 5))
             return
 
         status_msg = await safe_reply_text(
@@ -853,11 +789,11 @@ async def datadb_callback_handler(client: Client, query: CallbackQuery):
             if uri_str == info.DATABASE_URI:
                 failed_reasons.append("Already set as Primary DATABASE_URI")
                 continue
-
             if any(x.get("uri") == uri_str for x in DYNAMIC_DB_META):
                 failed_reasons.append("URL already added")
                 continue
 
+            test_client = None
             try:
                 test_client = AsyncIOMotorClient(
                     uri_str,
@@ -875,10 +811,14 @@ async def datadb_callback_handler(client: Client, query: CallbackQuery):
                     failed_reasons.append("Could not register URI")
             except Exception as e:
                 failed_reasons.append(str(e)[:65])
+            finally:
+                if test_client is not None:
+                    try:
+                        test_client.close()
+                    except Exception:
+                        pass
 
-        # Save across all connected DBs (including the newly added ones!)
         await save_datadb_config(cleared_all=False)
-        # Also re-save multibot worker bots so the new DB gets a backup copy of worker bots too
         try:
             from plugins.multibot import save_multibot_config
 
@@ -898,7 +838,7 @@ async def datadb_callback_handler(client: Client, query: CallbackQuery):
                     f"⚠️ <b>Skipped/Failed:</b> {', '.join(failed_reasons[:5])}"
                 )
             await safe_edit_text(status_msg, "\n\n".join(summary))
-            asyncio.create_task(_delete_later(status_msg, 8))
+            _spawn_bg(_delete_later(status_msg, 8))
 
         text, markup = await build_main_datadb_panel()
         await safe_edit_text(query.message, text, reply_markup=markup)
