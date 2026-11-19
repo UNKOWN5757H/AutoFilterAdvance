@@ -1,8 +1,8 @@
 import asyncio
 import builtins
+import hashlib
 import html
 import inspect
-import random
 import re
 import time
 from logging import ERROR, getLogger
@@ -13,7 +13,6 @@ from pyrogram.errors import (
     ChatWriteForbidden,
     FloodWait,
     Forbidden,
-    MediaEmpty,
     MessageIdInvalid,
     MessageNotModified,
     PeerIdInvalid,
@@ -42,39 +41,24 @@ for _t_name, _t_obj in (
 
 import info
 from database.ia_filterdb import get_file_details
-from database.users_chats_db import db as _db
-from info import AUTH_CHANNEL, CUSTOM_FILE_CAPTION, PICS, REQ_CHANNEL
-from Script import script
+from info import AUTH_CHANNEL, REQ_CHANNEL
 from utils import get_size, is_subscribed, temp
 
 try:
-    from database.ia_filterdb import (
-        encode_file_id,
-        get_all_healthy_read_dbs,
-        get_writable_System_db,
-        mark_db_error,
-        update_cached_file_id,
-    )
+    from database.ia_filterdb import encode_file_id, update_cached_file_id
 except ImportError:
     encode_file_id = None
     update_cached_file_id = None
-    get_all_healthy_read_dbs = None
-    get_writable_System_db = None
-    mark_db_error = None
 
 try:
     from plugins.uibuttons import (
         DEFAULT_CLEAN_WORDS,
-        _invalidate_pm_filter_clean_cache,
         _normalize_pm_button_url,
         build_cleanwords_panel_ui,
         build_interactive_help_section,
-        cw_db,
-        format_script_text,
         get_clean_words_state,
         get_default_file_keyboard,
         get_deleted_file_notify_keyboard,
-        get_help_keyboard,
         get_pm_autoreply_keyboard,
         get_pm_settings,
         get_start_keyboard,
@@ -84,22 +68,18 @@ try:
         safe_parse_text_and_markup,
         save_clean_words_state,
         save_pm_settings,
+        start_and_help_cmd as _uibuttons_start_help_cmd,
+        upload_image_safely,
     )
-    from plugins.uibuttons import start_and_help_cmd as _uibuttons_start_help_cmd
-    from plugins.uibuttons import upload_image_safely
 except ImportError:
     from uibuttons import (
         DEFAULT_CLEAN_WORDS,
-        _invalidate_pm_filter_clean_cache,
         _normalize_pm_button_url,
         build_cleanwords_panel_ui,
         build_interactive_help_section,
-        cw_db,
-        format_script_text,
         get_clean_words_state,
         get_default_file_keyboard,
         get_deleted_file_notify_keyboard,
-        get_help_keyboard,
         get_pm_autoreply_keyboard,
         get_pm_settings,
         get_start_keyboard,
@@ -109,14 +89,68 @@ except ImportError:
         safe_parse_text_and_markup,
         save_clean_words_state,
         save_pm_settings,
+        start_and_help_cmd as _uibuttons_start_help_cmd,
+        upload_image_safely,
     )
-    from uibuttons import start_and_help_cmd as _uibuttons_start_help_cmd
-    from uibuttons import upload_image_safely
+
+# Share the exact same hidden-link registry with pm_filter.py
+try:
+    from plugins.pm_filter import (
+        register_hidden_link,
+        resolve_hidden_link,
+        sanitize_markup_hide_links,
+    )
+except ImportError:
+    try:
+        from pm_filter import (
+            register_hidden_link,
+            resolve_hidden_link,
+            sanitize_markup_hide_links,
+        )
+    except ImportError:
+        _LOCAL_HIDDEN_LINKS: Dict[str, str] = {}
+
+        def register_hidden_link(url: str) -> str:
+            clean_u = str(url or "").strip()
+            if clean_u and not clean_u.startswith(("http://", "https://", "tg://")):
+                clean_u = "https://" + clean_u.lstrip("/")
+            token = hashlib.md5(clean_u.encode("utf-8")).hexdigest()[:12]
+            if len(_LOCAL_HIDDEN_LINKS) >= 15000:
+                _LOCAL_HIDDEN_LINKS.pop(next(iter(_LOCAL_HIDDEN_LINKS)), None)
+            _LOCAL_HIDDEN_LINKS[token] = clean_u
+            return token
+
+        def resolve_hidden_link(token: str) -> Optional[str]:
+            return _LOCAL_HIDDEN_LINKS.get(str(token or "").strip())
+
+        def sanitize_markup_hide_links(
+            markup: Optional[InlineKeyboardMarkup],
+        ) -> Optional[InlineKeyboardMarkup]:
+            if not markup or not getattr(markup, "inline_keyboard", None):
+                return markup
+            rows = []
+            for row in markup.inline_keyboard:
+                new_row = []
+                for b in row:
+                    st = getattr(b, "style", None)
+                    if getattr(b, "url", None):
+                        new_row.append(create_btn(b.text, url=b.url, style=st))
+                    else:
+                        new_row.append(
+                            create_btn(
+                                b.text,
+                                callback_data=getattr(b, "callback_data", "noop"),
+                                style=st,
+                            )
+                        )
+                if new_row:
+                    rows.append(new_row)
+            return InlineKeyboardMarkup(rows) if rows else None
+
 
 logger = getLogger(__name__)
 logger.setLevel(ERROR)
 
-# Safe optional import for ForceSub
 try:
     from plugins.fsub import ForceSub
 except Exception as _fsub_err:
@@ -125,7 +159,7 @@ except Exception as _fsub_err:
 
 
 # ============================================================
-# 🛡️ PYROGRAM v2.2.26 (LAYER 230) COMPATIBILITY ENGINE
+# 🛡️ PYROGRAM v2.2.26 (LAYER 230) COMPATIBILITY & HIDDEN-LINK BUTTONS
 # ============================================================
 try:
     from pyrogram.types import LinkPreviewOptions
@@ -155,8 +189,13 @@ try:
         BTN_DANGER = getattr(ButtonStyle, "DANGER", None)
         _SUPPORTS_BTN_STYLE = True
 except (ImportError, ValueError, TypeError):
-    BTN_PRIMARY = BTN_SUCCESS = BTN_DANGER = None
-    _SUPPORTS_BTN_STYLE = False
+    pass
+
+
+def _clean_button_label(raw_label: str) -> str:
+    lbl = re.sub(r"<[^>]+>", "", str(raw_label or "")).strip()
+    lbl = re.sub(r"(?i)https?://\S+|t\.me/\S+|www\.\S+", "", lbl).strip(" -|:")
+    return lbl or "Open"
 
 
 def create_btn(
@@ -165,14 +204,16 @@ def create_btn(
     callback_data: Optional[str] = None,
     style: Any = None,
 ) -> InlineKeyboardButton:
-    kwargs: Dict[str, Any] = {"text": str(text)}
-    if url:
-        clean_u = str(url).strip()
-        if clean_u and not clean_u.startswith(("http://", "https://", "tg://")):
-            clean_u = "https://" + clean_u.lstrip("/")
-        kwargs["url"] = clean_u
-    elif callback_data:
+    """Creates an InlineKeyboardButton with ZERO visible links inside the button."""
+    kwargs: Dict[str, Any] = {"text": _clean_button_label(text)}
+    if callback_data:
         kwargs["callback_data"] = str(callback_data)[:64]
+    elif url:
+        token = register_hidden_link(url)
+        kwargs["callback_data"] = f"olink#{token}"
+    else:
+        kwargs["callback_data"] = "noop"
+
     if _SUPPORTS_BTN_STYLE and style is not None:
         kwargs["style"] = style
     try:
@@ -186,8 +227,12 @@ def _prepare_compat_kwargs(
     kwargs: dict, supported_params: set, disable_preview: Optional[bool] = None
 ) -> dict:
     clean_kw = dict(kwargs)
-    explicit_disable = clean_kw.pop("disable_web_page_preview", disable_preview)
+    if "reply_markup" in clean_kw and isinstance(
+        clean_kw["reply_markup"], InlineKeyboardMarkup
+    ):
+        clean_kw["reply_markup"] = sanitize_markup_hide_links(clean_kw["reply_markup"])
 
+    explicit_disable = clean_kw.pop("disable_web_page_preview", disable_preview)
     if explicit_disable is not None:
         if "disable_web_page_preview" in supported_params:
             clean_kw["disable_web_page_preview"] = bool(explicit_disable)
@@ -226,10 +271,13 @@ async def safe_reply_text(
     try:
         return await message.reply_text(safe_txt, **compat_kw)
     except TypeError:
-        compat_kw.pop("disable_web_page_preview", None)
-        compat_kw.pop("link_preview_options", None)
-        compat_kw.pop("reply_parameters", None)
-        compat_kw.pop("reply_to_message_id", None)
+        for k in (
+            "disable_web_page_preview",
+            "link_preview_options",
+            "reply_parameters",
+            "reply_to_message_id",
+        ):
+            compat_kw.pop(k, None)
         try:
             return await message.reply_text(safe_txt, **compat_kw)
         except Exception:
@@ -292,10 +340,13 @@ async def safe_send_message(
     try:
         return await client.send_message(chat_id=chat_id, text=safe_txt, **compat_kw)
     except TypeError:
-        compat_kw.pop("disable_web_page_preview", None)
-        compat_kw.pop("link_preview_options", None)
-        compat_kw.pop("reply_parameters", None)
-        compat_kw.pop("reply_to_message_id", None)
+        for k in (
+            "disable_web_page_preview",
+            "link_preview_options",
+            "reply_parameters",
+            "reply_to_message_id",
+        ):
+            compat_kw.pop(k, None)
         return await client.send_message(chat_id=chat_id, text=safe_txt, **compat_kw)
     except (ChatWriteForbidden, Forbidden, UserIsBlocked, PeerIdInvalid):
         return None
@@ -316,7 +367,6 @@ async def safe_answer(
     show_alert: bool = False,
     url: Optional[str] = None,
 ):
-    """Safely answers a CallbackQuery without ever raising QueryIdInvalid."""
     if not query:
         return
     try:
@@ -330,6 +380,61 @@ async def safe_answer(
         pass
 
 
+def _get_msg_uid(message: Message) -> int:
+    return (
+        message.from_user.id
+        if message.from_user
+        else getattr(message.sender_chat, "id", 0)
+    )
+
+
+async def _require_global_admin(message: Message) -> bool:
+    if await is_global_admin(_get_msg_uid(message)):
+        return True
+    await safe_reply_text(
+        message,
+        "❌ <b>Unauthorized:</b> Global Bot Admin only.",
+        parse_mode=enums.ParseMode.HTML,
+    )
+    return False
+
+
+# ============================================================
+# 🔗 HIDDEN BUTTON REDIRECT HANDLER (/start olink_<token>)
+# ============================================================
+@Client.on_message(filters.private & filters.command("start"), group=-16)
+async def hidden_olink_start_handler(client: Client, message: Message):
+    """
+    Handles `/start olink_<token>` deep-links triggered when users click any
+    hidden-link button (`olink#<token>`), without showing links inside buttons.
+    """
+    if len(message.command) < 2:
+        return
+    payload = message.command[1].strip()
+    if not payload.startswith("olink_"):
+        return
+
+    token = payload.split("_", 1)[1].strip()
+    target_url = resolve_hidden_link(token)
+    if not target_url:
+        await safe_reply_text(
+            message,
+            "⌛ <b>This link expired. Please try again from the group!</b>",
+            parse_mode=enums.ParseMode.HTML,
+        )
+        raise StopPropagation
+
+    sent = await safe_reply_text(
+        message,
+        f"🔗 <b>Tap here to open:</b> <a href='{html.escape(target_url)}'>Open Now</a>",
+        disable_web_page_preview=True,
+        parse_mode=enums.ParseMode.HTML,
+    )
+    if sent:
+        schedule_pm_auto_delete(client, message.chat.id, False, 60, sent, message)
+    raise StopPropagation
+
+
 # ============================================================
 # 🛡️ FAILSAFE /start & /help HANDLER (GROUP -14)
 # ============================================================
@@ -338,11 +443,6 @@ _HANDLED_START_MSGS: Set[Tuple[int, int]] = set()
 
 @Client.on_message(filters.command(["start", "help"]), group=-14)
 async def failsafe_start_and_help_router(client: Client, message: Message):
-    """
-    Guarantees that `/start` and `/help` ALWAYS respond even if `uibuttons.py`
-    was not registered in Pyrogram's plugin loader or encountered an error!
-    Also prevents duplicate execution if `uibuttons.py` already handled the message.
-    """
     if not message or not message.chat:
         return
     msg_key = (int(message.chat.id), int(message.id))
@@ -352,7 +452,6 @@ async def failsafe_start_and_help_router(client: Client, message: Message):
         _HANDLED_START_MSGS.clear()
     _HANDLED_START_MSGS.add(msg_key)
 
-    # Check if uibuttons.start_and_help_cmd is already registered in Pyrogram's dispatcher
     dispatcher = getattr(client, "dispatcher", None)
     if dispatcher and getattr(dispatcher, "groups", None):
         for grp_handlers in dispatcher.groups.values():
@@ -361,18 +460,13 @@ async def failsafe_start_and_help_router(client: Client, message: Message):
                 if cb and getattr(cb, "__name__", "") == "start_and_help_cmd":
                     return
 
-    # If uibuttons handler wasn't registered by Pyrogram, execute it directly here!
     try:
         await _uibuttons_start_help_cmd(client, message)
     except Exception as e:
         logger.error(f"Failsafe /start error: {e}")
-        uid = (
-            message.from_user.id
-            if message.from_user
-            else getattr(message.sender_chat, "id", 0)
-        )
+        uid = _get_msg_uid(message)
         mention = message.from_user.mention if message.from_user else "User"
-        kb = await get_start_keyboard(client, uid)
+        kb = sanitize_markup_hide_links(await get_start_keyboard(client, uid))
         await safe_reply_text(
             message,
             f"<b>Hello {mention}! 👋\n\nWelcome to {getattr(temp, 'B_NAME', 'MovieBot')}!</b>",
@@ -385,18 +479,10 @@ async def failsafe_start_and_help_router(client: Client, message: Message):
 # 💾 QUOTA-SAFE MULTI-DB HELPERS FOR CLEAN WORDS & PM BUTTONS
 # ============================================================
 async def safe_update_clean_words(words_list: List[str], use_default: bool = False):
-    """Delegates directly to uibuttons.save_clean_words_state so RAM + Multi-DB stay 100% synced."""
     await save_clean_words_state(words_list, use_default=use_default)
 
 
 def _parse_pm_button_args(raw_input: str) -> Tuple[Optional[str], Optional[str], str]:
-    """
-    Parses PM button input in any of these formats:
-    1. `Button Text | https://t.me/link | green`
-    2. `Button Text - https://t.me/link`
-    3. `[Button Text](https://t.me/link)`
-    4. `Button Text | @ChannelUsername`
-    """
     raw = str(raw_input or "").strip()
     if not raw:
         return None, None, "red"
@@ -421,12 +507,13 @@ def _parse_pm_button_args(raw_input: str) -> Tuple[Optional[str], Optional[str],
     if btn_color not in ["green", "red", "blue", "normal"]:
         btn_color = "red"
 
-    norm_url = _normalize_pm_button_url(btn_url)
-    return btn_text, norm_url, btn_color
+    return _clean_button_label(btn_text) if btn_text else None, _normalize_pm_button_url(
+        btn_url
+    ), btn_color
 
 
 # ============================================================
-# 📝 SAFE CUSTOM FILE CAPTION RENDERER (EXACT TEMPLATE, NO FORCED FILENAME)
+# 📝 SAFE CUSTOM FILE CAPTION RENDERER
 # ============================================================
 class _SafeCaptionMap(dict):
     def __missing__(self, key):
@@ -436,11 +523,6 @@ class _SafeCaptionMap(dict):
 def build_formatted_file_caption(
     title: str, size_str: str, raw_caption: str = ""
 ) -> str:
-    """
-    Renders `info.CUSTOM_FILE_CAPTION` exactly as configured:
-    - Does NOT force-prepend the filename if `{file_name}` is not in your custom caption!
-    - Supports `{file_name}`, `{filename}`, `{title}`, `{file_size}`, `{size}`, `{file_caption}`, `{caption}` if you choose to include them.
-    """
     clean_title = html.escape(str(title or "File").strip())
     clean_size = html.escape(str(size_str or "").strip())
     orig_cap = str(raw_caption or "").strip()
@@ -507,8 +589,7 @@ def build_formatted_file_caption(
 # ============================================================
 def get_html_text(message: Message) -> Optional[str]:
     if message.reply_to_message:
-        reply_msg = message.reply_to_message
-        raw = reply_msg.text or reply_msg.caption
+        raw = message.reply_to_message.text or message.reply_to_message.caption
         if raw:
             return getattr(raw, "html", str(raw))
     if message.text and len(message.command) > 1:
@@ -574,7 +655,7 @@ async def auto_delete_all_messages(
             getattr(info, "DEL_MSG", None)
             or "<b>Successfully deleted your file, if you want request again in group.</b>"
         )
-        markup = get_deleted_file_notify_keyboard()
+        markup = sanitize_markup_hide_links(get_deleted_file_notify_keyboard())
         try:
             await safe_send_message(
                 client,
@@ -600,7 +681,7 @@ def schedule_pm_auto_delete(
 
 
 # ============================================================
-# 🔧 SELF-HEALING MEDIA SENDER (FIXES [400 MEDIA_EMPTY] & PRESERVES CUSTOM CAPTION)
+# 🔧 SELF-HEALING MEDIA SENDER (NO VISIBLE LINKS IN FILE BUTTONS)
 # ============================================================
 async def _try_send_with_client(
     bot_client: Client,
@@ -611,15 +692,12 @@ async def _try_send_with_client(
     reply_markup: Any,
     protect: bool,
 ) -> Optional[Message]:
-    """
-    Tries sending a file_id using send_cached_media and type-specific fallbacks.
-    Also guarantees that `CUSTOM_FILE_CAPTION` and `reply_markup` are applied
-    even if Telegram's `send_cached_media` ignores caption on certain document types!
-    """
     if not fid:
         return None
 
+    reply_markup = sanitize_markup_hide_links(reply_markup)
     sent_msg: Optional[Message] = None
+
     try:
         sent_msg = await bot_client.send_cached_media(
             chat_id=chat_id,
@@ -748,7 +826,7 @@ async def _recover_and_send_media(
         if sent:
             return sent
 
-    # LAYER 2: Fetch fresh message from source channel if chat_id & msg_id are saved
+    # LAYER 2: Fetch fresh message from source channel
     if src_chat_id and src_msg_id:
         try:
             ch_msg = await main_bot.get_messages(int(src_chat_id), int(src_msg_id))
@@ -776,7 +854,7 @@ async def _recover_and_send_media(
         except Exception:
             pass
 
-    # LAYER 3: Worker Bot Relay (When a Worker Bot indexed the file and owns the file_id)
+    # LAYER 3: Worker Bot Relay
     try:
         from plugins.multibot import ensure_all_workers_started
 
@@ -899,10 +977,10 @@ async def send_requested_file(
     )
 
     f_caption = build_formatted_file_caption(title, size, raw_caption)
-
     default_btn = get_default_file_keyboard()
     final_caption, final_keyboard = safe_parse_text_and_markup(f_caption, default_btn)
-    protect = True if ident in ["filep", "checksubp"] else False
+    final_keyboard = sanitize_markup_hide_links(final_keyboard)
+    protect = ident in ["filep", "checksubp"]
 
     info_msg_txt = getattr(info, "INFO_MSG", None)
     info_img_val = getattr(info, "INFO_IMG", None)
@@ -949,7 +1027,7 @@ async def send_requested_file(
     if not msg:
         err_note = (
             "⚠️ <b>Could not deliver this file (Invalid/Expired Media ID).</b>\n\n"
-            "💡 <i>If you indexed this channel using Worker Bots, make sure your Worker Bots are also Admins in your LOG_CHANNEL or re-index with the updated indexer!</i>"
+            "💡 <i>Make sure your Worker Bots are Admins in your LOG_CHANNEL or re-index the channel!</i>"
         )
         if query:
             return await safe_answer(
@@ -968,32 +1046,31 @@ async def send_requested_file(
     if query:
         await safe_answer(query, "📥 File sent to your PM!")
 
-    if msg:
-        try:
-            delete_timer = parse_timer("FILE_AUTO_DELETE", 1800)
-            m, s = divmod(delete_timer, 60)
-            time_str = f"{m} Minutes {s} Seconds" if s > 0 else f"{m} Minutes"
+    try:
+        delete_timer = parse_timer("FILE_AUTO_DELETE", 1800)
+        m, s = divmod(delete_timer, 60)
+        time_str = f"{m} Minutes {s} Seconds" if s > 0 else f"{m} Minutes"
 
-            warn_text = (
-                f"<b>📢 Please Note\n\n"
-                f"✅ The above file will be autodeleted in {time_str} to avoid copyright issues.\n\n"
-                f"✅ Please forward this file to your saved messages and start downloading from there.\n\n"
-                f"Tᴇᴀᴍ: @KR_Picture</b>"
-            )
-            k = await safe_send_message(
-                client,
-                chat_id=user_id,
-                text=warn_text,
-                reply_to_message_id=msg.id,
-                parse_mode=enums.ParseMode.HTML,
-            )
+        warn_text = (
+            f"<b>📢 Please Note\n\n"
+            f"✅ The above file will be autodeleted in {time_str} to avoid copyright issues.\n\n"
+            f"✅ Please forward this file to your saved messages and start downloading from there.\n\n"
+            f"Tᴇᴀᴍ: @KR_Picture</b>"
+        )
+        k = await safe_send_message(
+            client,
+            chat_id=user_id,
+            text=warn_text,
+            reply_to_message_id=msg.id,
+            parse_mode=enums.ParseMode.HTML,
+        )
 
-            if delete_timer > 0:
-                schedule_pm_auto_delete(
-                    client, user_id, True, delete_timer, pre_info_msg, msg, k
-                )
-        except Exception as e:
-            logger.error(f"Auto-delete warning failed to send: {e}")
+        if delete_timer > 0:
+            schedule_pm_auto_delete(
+                client, user_id, True, delete_timer, pre_info_msg, msg, k
+            )
+    except Exception as e:
+        logger.error(f"Auto-delete warning failed to send: {e}")
 
 
 @Client.on_callback_query(filters.regex(r"^(file|checksub)"))
@@ -1032,54 +1109,31 @@ async def file_cb_handler(client: Client, query: CallbackQuery):
 
 
 # ============================================================
-# ⚙️ CLEAN FILENAME COMMANDS (ADMIN ONLY - QUOTA SAFE)
+# ⚙️ CLEAN FILENAME COMMANDS (ADMIN ONLY)
 # ============================================================
 @Client.on_message(
     filters.command(["listcleanfilename", "cleanfilenames", "cleanwords", "cleanfile"]),
     group=-15,
 )
 async def list_clean_words_cmd(client: Client, message: Message):
-    uid = (
-        message.from_user.id
-        if message.from_user
-        else getattr(message.sender_chat, "id", 0)
-    )
-    if not await is_global_admin(uid):
-        return await safe_reply_text(
-            message,
-            "❌ <b>Unauthorized:</b> Global Bot Admin only.",
-            parse_mode=enums.ParseMode.HTML,
-        )
-
+    if not await _require_global_admin(message):
+        return
     text, markup = await build_cleanwords_panel_ui()
     await safe_reply_text(
-        message,
-        text,
-        reply_markup=markup,
-        parse_mode=enums.ParseMode.HTML,
+        message, text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
     )
 
 
 @Client.on_message(filters.command("addcleanfilename"), group=-15)
 async def add_clean_words_cmd(client: Client, message: Message):
-    uid = (
-        message.from_user.id
-        if message.from_user
-        else getattr(message.sender_chat, "id", 0)
-    )
-    if not await is_global_admin(uid):
-        return await safe_reply_text(
-            message,
-            "❌ <b>Unauthorized:</b> Global Bot Admin only.",
-            parse_mode=enums.ParseMode.HTML,
-        )
+    if not await _require_global_admin(message):
+        return
 
     if len(message.command) < 2:
         text, markup = await build_cleanwords_panel_ui()
         return await safe_reply_text(
             message,
-            "⚠️ <b>Usage:</b> <code>/addcleanfilename word1, word2, @ChannelName</code>\n\n"
-            + text,
+            f"⚠️ <b>Usage:</b> <code>/addcleanfilename word1, word2, @ChannelName</code>\n\n{text}",
             reply_markup=markup,
             parse_mode=enums.ParseMode.HTML,
         )
@@ -1102,24 +1156,14 @@ async def add_clean_words_cmd(client: Client, message: Message):
 
 @Client.on_message(filters.command("setcleanfilename"), group=-15)
 async def set_clean_words(client: Client, message: Message):
-    uid = (
-        message.from_user.id
-        if message.from_user
-        else getattr(message.sender_chat, "id", 0)
-    )
-    if not await is_global_admin(uid):
-        return await safe_reply_text(
-            message,
-            "❌ <b>Unauthorized:</b> Global Bot Admin only.",
-            parse_mode=enums.ParseMode.HTML,
-        )
+    if not await _require_global_admin(message):
+        return
 
     if len(message.command) < 2:
         text, markup = await build_cleanwords_panel_ui()
         return await safe_reply_text(
             message,
-            "⚠️ <b>Usage:</b> <code>/setcleanfilename word1, word2, @ChannelName</code>\n\n"
-            + text,
+            f"⚠️ <b>Usage:</b> <code>/setcleanfilename word1, word2, @ChannelName</code>\n\n{text}",
             reply_markup=markup,
             parse_mode=enums.ParseMode.HTML,
         )
@@ -1138,17 +1182,8 @@ async def set_clean_words(client: Client, message: Message):
 
 @Client.on_message(filters.command("defaultcleanfilename"), group=-15)
 async def default_clean_words(client: Client, message: Message):
-    uid = (
-        message.from_user.id
-        if message.from_user
-        else getattr(message.sender_chat, "id", 0)
-    )
-    if not await is_global_admin(uid):
-        return await safe_reply_text(
-            message,
-            "❌ <b>Unauthorized:</b> Global Bot Admin only.",
-            parse_mode=enums.ParseMode.HTML,
-        )
+    if not await _require_global_admin(message):
+        return
 
     await safe_update_clean_words(list(DEFAULT_CLEAN_WORDS), use_default=True)
     text, markup = await build_cleanwords_panel_ui()
@@ -1162,17 +1197,8 @@ async def default_clean_words(client: Client, message: Message):
 
 @Client.on_message(filters.command("remcleanfilename"), group=-15)
 async def rem_clean_words(client: Client, message: Message):
-    uid = (
-        message.from_user.id
-        if message.from_user
-        else getattr(message.sender_chat, "id", 0)
-    )
-    if not await is_global_admin(uid):
-        return await safe_reply_text(
-            message,
-            "❌ <b>Unauthorized:</b> Global Bot Admin only.",
-            parse_mode=enums.ParseMode.HTML,
-        )
+    if not await _require_global_admin(message):
+        return
 
     await safe_update_clean_words([], use_default=False)
     text, markup = await build_cleanwords_panel_ui()
@@ -1189,17 +1215,8 @@ async def rem_clean_words(client: Client, message: Message):
 # ============================================================
 @Client.on_message(filters.command("setpmtext"), group=-15)
 async def set_pm_text(client: Client, message: Message):
-    uid = (
-        message.from_user.id
-        if message.from_user
-        else getattr(message.sender_chat, "id", 0)
-    )
-    if not await is_global_admin(uid):
-        return await safe_reply_text(
-            message,
-            "❌ <b>Unauthorized:</b> Global Bot Admin only.",
-            parse_mode=enums.ParseMode.HTML,
-        )
+    if not await _require_global_admin(message):
+        return
     try:
         text = get_html_text(message)
         if not text:
@@ -1220,17 +1237,8 @@ async def set_pm_text(client: Client, message: Message):
 
 @Client.on_message(filters.command("rempmtext"), group=-15)
 async def rem_pm_text(client: Client, message: Message):
-    uid = (
-        message.from_user.id
-        if message.from_user
-        else getattr(message.sender_chat, "id", 0)
-    )
-    if not await is_global_admin(uid):
-        return await safe_reply_text(
-            message,
-            "❌ <b>Unauthorized:</b> Global Bot Admin only.",
-            parse_mode=enums.ParseMode.HTML,
-        )
+    if not await _require_global_admin(message):
+        return
     await save_pm_settings(
         "text",
         "<b>🚫 Don't Message Here, Message Here Only!</b>\n\nI do not respond to direct messages in PM. Please join our official group to request and download movies.",
@@ -1244,17 +1252,8 @@ async def rem_pm_text(client: Client, message: Message):
 
 @Client.on_message(filters.command("setpmimage"), group=-15)
 async def set_pm_image(client: Client, message: Message):
-    uid = (
-        message.from_user.id
-        if message.from_user
-        else getattr(message.sender_chat, "id", 0)
-    )
-    if not await is_global_admin(uid):
-        return await safe_reply_text(
-            message,
-            "❌ <b>Unauthorized:</b> Global Bot Admin only.",
-            parse_mode=enums.ParseMode.HTML,
-        )
+    if not await _require_global_admin(message):
+        return
     target_photo_msg = (
         message.reply_to_message
         if (message.reply_to_message and message.reply_to_message.photo)
@@ -1280,8 +1279,7 @@ async def set_pm_image(client: Client, message: Message):
                 parse_mode=enums.ParseMode.HTML,
             )
     else:
-        file_id = target_photo_msg.photo.file_id
-        await save_pm_settings("image", file_id)
+        await save_pm_settings("image", target_photo_msg.photo.file_id)
         if status:
             await safe_edit_text(
                 status,
@@ -1292,17 +1290,8 @@ async def set_pm_image(client: Client, message: Message):
 
 @Client.on_message(filters.command("rempmimage"), group=-15)
 async def rem_pm_image(client: Client, message: Message):
-    uid = (
-        message.from_user.id
-        if message.from_user
-        else getattr(message.sender_chat, "id", 0)
-    )
-    if not await is_global_admin(uid):
-        return await safe_reply_text(
-            message,
-            "❌ <b>Unauthorized:</b> Global Bot Admin only.",
-            parse_mode=enums.ParseMode.HTML,
-        )
+    if not await _require_global_admin(message):
+        return
     await save_pm_settings("image", None)
     await safe_reply_text(
         message, "✅ <b>PM Image removed.</b>", parse_mode=enums.ParseMode.HTML
@@ -1311,17 +1300,8 @@ async def rem_pm_image(client: Client, message: Message):
 
 @Client.on_message(filters.command("setpmbutton"), group=-15)
 async def set_pm_button(client: Client, message: Message):
-    uid = (
-        message.from_user.id
-        if message.from_user
-        else getattr(message.sender_chat, "id", 0)
-    )
-    if not await is_global_admin(uid):
-        return await safe_reply_text(
-            message,
-            "❌ <b>Unauthorized:</b> Global Bot Admin only.",
-            parse_mode=enums.ParseMode.HTML,
-        )
+    if not await _require_global_admin(message):
+        return
     try:
         raw_arg = (
             message.text.split(None, 1)[1].strip()
@@ -1356,12 +1336,13 @@ async def set_pm_button(client: Client, message: Message):
         await save_pm_settings("button_url", btn_url)
         await save_pm_settings("button_color", btn_color)
 
-        preview_kb = get_pm_autoreply_keyboard(btn_text, btn_url, btn_color)
+        preview_kb = sanitize_markup_hide_links(
+            get_pm_autoreply_keyboard(btn_text, btn_url, btn_color)
+        )
         await safe_reply_text(
             message,
             f"✅ <b>PM Auto-Reply Button Updated!</b>\n\n"
             f"🔘 <b>Text:</b> <code>{html.escape(btn_text)}</code>\n"
-            f"🔗 <b>URL:</b> <code>{html.escape(btn_url)}</code>\n"
             f"🎨 <b>Color:</b> <code>{btn_color.upper()}</code>",
             reply_markup=preview_kb,
             parse_mode=enums.ParseMode.HTML,
@@ -1372,17 +1353,8 @@ async def set_pm_button(client: Client, message: Message):
 
 @Client.on_message(filters.command("rempmbutton"), group=-15)
 async def rem_pm_button(client: Client, message: Message):
-    uid = (
-        message.from_user.id
-        if message.from_user
-        else getattr(message.sender_chat, "id", 0)
-    )
-    if not await is_global_admin(uid):
-        return await safe_reply_text(
-            message,
-            "❌ <b>Unauthorized:</b> Global Bot Admin only.",
-            parse_mode=enums.ParseMode.HTML,
-        )
+    if not await _require_global_admin(message):
+        return
     await save_pm_settings("button_text", None)
     await save_pm_settings("button_url", None)
     await safe_reply_text(
@@ -1394,18 +1366,10 @@ async def rem_pm_button(client: Client, message: Message):
 
 @Client.on_message(filters.command(["pmautoreply", "pmreply"]), group=-15)
 async def toggle_pm_autoreply_cmd(client: Client, message: Message):
-    uid = (
-        message.from_user.id
-        if message.from_user
-        else getattr(message.sender_chat, "id", 0)
-    )
-    if not await is_global_admin(uid):
-        return await safe_reply_text(
-            message,
-            "❌ <b>Unauthorized:</b> Global Bot Admin only.",
-            parse_mode=enums.ParseMode.HTML,
-        )
+    if not await _require_global_admin(message):
+        return
 
+    uid = _get_msg_uid(message)
     settings = await get_pm_settings()
     cur = bool(settings.get("enabled", True))
     if len(message.command) > 1:
@@ -1439,6 +1403,27 @@ async def toggle_pm_autoreply_cmd(client: Client, message: Message):
 # ============================================================
 _PM_REPLIED_MSG_KEYS: Set[Tuple[int, int]] = set()
 _PM_USER_LAST_REPLY_TS: Dict[int, float] = {}
+_WAITING_INPUT_MODULES = (
+    ("plugins.multibot", "_MB_WAITING_INPUT"),
+    ("plugins.datadb", "_DATADB_WAITING_INPUT"),
+    ("plugins.post_handler", "_WAITING_REQUESTS"),
+    ("plugins.fsub", "_WAITING_REQUESTS"),
+    ("plugins.shortner", "_SHORTENER_WAITING_INPUT"),
+)
+
+
+def _is_chat_waiting_in_any_plugin(chat_id: int) -> bool:
+    if is_waiting_for_cmd_input(chat_id):
+        return True
+    for mod_name, attr_name in _WAITING_INPUT_MODULES:
+        try:
+            mod = __import__(mod_name, fromlist=[attr_name])
+            store = getattr(mod, attr_name, None)
+            if store and chat_id in store:
+                return True
+        except Exception:
+            continue
+    return False
 
 
 @Client.on_message(
@@ -1453,47 +1438,10 @@ async def pm_auto_reply(client: Client, message: Message):
     if raw_txt.startswith("/"):
         return
 
-    if is_waiting_for_cmd_input(message.chat.id):
+    if _is_chat_waiting_in_any_plugin(message.chat.id):
         return
 
-    try:
-        from plugins.multibot import _MB_WAITING_INPUT
-
-        if message.chat.id in _MB_WAITING_INPUT:
-            return
-    except Exception:
-        pass
-
-    try:
-        from plugins.datadb import _DATADB_WAITING_INPUT
-
-        if message.chat.id in _DATADB_WAITING_INPUT:
-            return
-    except Exception:
-        pass
-
-    try:
-        from plugins.post_handler import _WAITING_REQUESTS as _POST_WAIT
-
-        if message.chat.id in _POST_WAIT:
-            return
-    except Exception:
-        pass
-
-    try:
-        from plugins.fsub import _WAITING_REQUESTS as _FSUB_WAIT
-
-        if message.chat.id in _FSUB_WAIT:
-            return
-    except Exception:
-        pass
-
-    uid = (
-        message.from_user.id
-        if message.from_user
-        else getattr(message.sender_chat, "id", 0)
-    )
-
+    uid = _get_msg_uid(message)
     if getattr(info, "REPAIR_MODE", False) and not await is_global_admin(uid):
         return
     if message.from_user and await is_user_banned(uid):
@@ -1533,9 +1481,9 @@ async def pm_auto_reply(client: Client, message: Message):
     btn_color_str = str(settings.get("button_color", "red")).lower()
 
     default_markup = get_pm_autoreply_keyboard(btn_text, btn_url, btn_color_str)
-
     final_text, final_markup = safe_parse_text_and_markup(text, default_markup)
     final_text = final_text or text
+    final_markup = sanitize_markup_hide_links(final_markup)
 
     sent = None
     try:
