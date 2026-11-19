@@ -18,14 +18,11 @@ from pyrogram.errors import (
     ChatWriteForbidden,
     FloodWait,
     Forbidden,
-    MediaEmpty,
     MessageIdInvalid,
     MessageNotModified,
     PeerIdInvalid,
     QueryIdInvalid,
     UserIsBlocked,
-    WebpageCurlFailed,
-    WebpageMediaEmpty,
 )
 from pyrogram.types import (
     CallbackQuery,
@@ -89,7 +86,38 @@ except ImportError:
 _SEND_MSG_PARAMS = set(inspect.signature(Client.send_message).parameters.keys())
 _EDIT_MSG_PARAMS = set(inspect.signature(Client.edit_message_text).parameters.keys())
 _REPLY_PARAMS = set(inspect.signature(Message.reply_text).parameters.keys())
-_EDIT_PARAMS = set(inspect.signature(Message.edit_text).parameters.keys())
+
+# Matches ANY invisible/hidden anchor link used for Telegram WebPage image previews
+_INVISIBLE_LINK_RE = re.compile(
+    r"<a\s+href=['\"](https?://[^'\"]+)['\"]>(?:&#\d+;|&#x[0-9a-fA-F]+;|[\s\u200b\u200c\u200d\u2060\u2063\u2800\u3164\ufeff\xa0\.])*</a>",
+    flags=re.IGNORECASE,
+)
+
+
+def _strip_invisible_preview_links(html_text: str) -> str:
+    if not html_text:
+        return ""
+    return _INVISIBLE_LINK_RE.sub("", html_text).strip()
+
+
+def _extract_invisible_preview_url(html_text: str) -> Optional[str]:
+    if not html_text:
+        return None
+    m = _INVISIBLE_LINK_RE.search(html_text)
+    return m.group(1).strip() if m else None
+
+
+def _truncate_caption_safe(caption: str, limit: int = 1020) -> str:
+    """Ensures photo captions never exceed Telegram's 1024-character limit."""
+    if not caption or len(caption) <= limit:
+        return caption
+    cut = caption[: limit - 3]
+    # Close any unclosed <blockquote> or <b> tags cleanly if truncated
+    if cut.lower().count("<blockquote") > cut.lower().count("</blockquote>"):
+        cut += "</blockquote>"
+    if cut.lower().count("<b>") > cut.lower().count("</b>"):
+        cut += "</b>"
+    return cut
 
 
 def _prepare_compat_kwargs(
@@ -248,11 +276,12 @@ async def safe_send_photo(
     reply_markup: Optional[InlineKeyboardMarkup] = None,
     parse_mode: enums.ParseMode = enums.ParseMode.HTML,
 ) -> Optional[Message]:
+    safe_cap = _truncate_caption_safe(caption, 1020)
     try:
         return await client.send_photo(
             chat_id,
             photo=photo,
-            caption=caption,
+            caption=safe_cap,
             reply_markup=reply_markup,
             parse_mode=parse_mode,
         )
@@ -266,14 +295,24 @@ async def safe_send_photo(
                     return await client.send_photo(
                         chat_id,
                         photo=bio,
-                        caption=caption,
+                        caption=safe_cap,
                         reply_markup=reply_markup,
                         parse_mode=parse_mode,
                     )
                 except Exception as err2:
                     logger.error(f"Photo byte upload fallback error: {err2}")
         else:
-            logger.error(f"Photo send media error: {e}")
+            # If HTML parse error occurred on photo caption, retry plain text caption WITH the photo!
+            try:
+                plain_cap = re.sub(r"<[^>]+>", "", safe_cap or "")[:1020]
+                return await client.send_photo(
+                    chat_id,
+                    photo=photo,
+                    caption=plain_cap,
+                    reply_markup=reply_markup,
+                )
+            except Exception as err3:
+                logger.error(f"Photo send media error: {e} | plain fallback: {err3}")
 
     fallback_text = (
         f"<a href='{photo}'>&#8205;</a>{caption}"
@@ -304,19 +343,14 @@ async def safe_edit_photo_media(
     reply_markup: Optional[InlineKeyboardMarkup] = None,
     parse_mode: enums.ParseMode = enums.ParseMode.HTML,
 ):
-    """
-    Safely edits a message to show the new photo (`InputMediaPhoto`).
-    Works on BOTH existing Photo posts AND Text/Preview posts in Telegram!
-    If Telegram rejects a remote URL or cross-context file_id, it downloads the image
-    into memory (`io.BytesIO`) and uploads the raw image bytes directly to Telegram.
-    """
+    safe_cap = _truncate_caption_safe(caption, 1020)
     try:
         return await client.edit_message_media(
             chat_id,
             message_id,
             media=InputMediaPhoto(
                 media=photo,
-                caption=caption,
+                caption=safe_cap,
                 parse_mode=parse_mode,
             ),
             reply_markup=reply_markup,
@@ -326,7 +360,7 @@ async def safe_edit_photo_media(
             return await client.edit_message_caption(
                 chat_id,
                 message_id,
-                caption=caption,
+                caption=safe_cap,
                 reply_markup=reply_markup,
                 parse_mode=parse_mode,
             )
@@ -353,7 +387,7 @@ async def safe_edit_photo_media(
                     message_id,
                     media=InputMediaPhoto(
                         media=bio,
-                        caption=caption,
+                        caption=safe_cap,
                         parse_mode=parse_mode,
                     ),
                     reply_markup=reply_markup,
@@ -366,7 +400,7 @@ async def safe_edit_photo_media(
 # ============================================================
 # ⚙️ QUOTA-SAFE MONGODB DRAFTS & 1-HOUR AUTO-EXPIRY ENGINE
 # ============================================================
-DRAFT_TTL_SECONDS = 3600  # 1 Hour (3600 seconds)
+DRAFT_TTL_SECONDS = 3600
 _DRAFT_CLEANER_STARTED = False
 _QUOTA_MUTE_UNTIL: float = 0.0
 _GLOBAL_SETTINGS_CACHE: Dict[str, Any] = {}
@@ -879,13 +913,47 @@ admin_filter = filters.create(_admin_filter_func)
 
 
 # ============================================================
-# ☁️ CLOUD-BYPASS MULTI-HOST IMAGE UPLOADER FOR PREVIEW MODE
+# ☁️ VERIFIED TELEGRAM-COMPATIBLE IMAGE UPLOADER FOR PREVIEW MODE
 # ============================================================
+def _verify_telegram_can_preview(url: str) -> bool:
+    """
+    Verifies that Telegram's link-preview crawler (`TelegramBot`) receives a direct
+    HTTP 200 image response (not an HTML page or Cloudflare block) so the image
+    preview is GUARANTEED to display in Telegram!
+    """
+    if not url or not url.startswith(("http://", "https://")):
+        return False
+    tg_headers = {
+        "User-Agent": "TelegramBot (like TwitterBot)",
+        "Accept": "image/*,*/*;q=0.8",
+    }
+    try:
+        r = requests.head(url, headers=tg_headers, allow_redirects=True, timeout=6)
+        ctype = (r.headers.get("Content-Type") or "").lower()
+        if r.status_code == 200 and ctype.startswith("image/"):
+            return True
+    except Exception:
+        pass
+    try:
+        r2 = requests.get(
+            url,
+            headers={**tg_headers, "Range": "bytes=0-1024"},
+            allow_redirects=True,
+            timeout=6,
+            stream=True,
+        )
+        ctype2 = (r2.headers.get("Content-Type") or "").lower()
+        ok = r2.status_code in (200, 206) and ctype2.startswith("image/")
+        r2.close()
+        return ok
+    except Exception:
+        return False
+
+
 def _upload_sync(file_bytes: bytes) -> Optional[str]:
     """
-    Uploads image bytes to 10+ Telegram-friendly image hosts (ImgBB, Freeimage, Postimages,
-    Catbox, Pixhost, Litterbox, Telegraph, etc.) so Telegram's servers can always fetch
-    the web-preview without WEBPAGE_CURL_FAILED.
+    Uploads image bytes to multiple direct image hosts and VERIFIES each returned URL
+    can actually be fetched as an image by TelegramBot before accepting it.
     """
     ua = (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -894,7 +962,33 @@ def _upload_sync(file_bytes: bytes) -> Optional[str]:
     )
     headers = {"User-Agent": ua, "Accept": "*/*"}
 
-    # 1. Freeimage.host
+    candidates: List[str] = []
+
+    def _try_accept(url: Optional[str]) -> Optional[str]:
+        if not url or not url.startswith(("http://", "https://")):
+            return None
+        clean_u = url.strip()
+        if _verify_telegram_can_preview(clean_u):
+            return clean_u
+        candidates.append(clean_u)
+        return None
+
+    # 1. Catbox.moe (Permanent direct image CDN, works reliably with TelegramBot)
+    try:
+        res = requests.post(
+            "https://catbox.moe/user/api.php",
+            data={"reqtype": "fileupload"},
+            files={"fileToUpload": ("poster.jpg", file_bytes, "image/jpeg")},
+            headers=headers,
+            timeout=10,
+        )
+        if res.status_code == 200:
+            if verified := _try_accept(res.text.strip()):
+                return verified
+    except Exception:
+        pass
+
+    # 2. Freeimage.host (Direct iili.io CDN)
     try:
         res = requests.post(
             "https://freeimage.host/api/1/upload",
@@ -905,68 +999,49 @@ def _upload_sync(file_bytes: bytes) -> Optional[str]:
         )
         if res.status_code == 200:
             j = res.json()
-            url = j.get("image", {}).get("url")
-            if url and url.startswith("http"):
-                return url
+            if verified := _try_accept(j.get("image", {}).get("url")):
+                return verified
     except Exception:
         pass
 
-    # 2. ImgBB / Postimages compatible base64 upload
+    # 3. Tmpfiles.org (Direct /dl/ download link — Telegram caches preview permanently)
     try:
-        b64_img = base64.b64encode(file_bytes).decode("utf-8")
         res = requests.post(
-            "https://api.imgbb.com/1/upload",
-            data={
-                "key": getattr(
-                    info, "IMGBB_API_KEY", "782a6f92499832f5e6257113b82623a6"
-                ),
-                "image": b64_img,
-            },
+            "https://tmpfiles.org/api/v1/upload",
+            files={"file": ("poster.jpg", file_bytes, "image/jpeg")},
             headers=headers,
             timeout=10,
         )
         if res.status_code == 200:
             j = res.json()
-            url = j.get("data", {}).get("url") or j.get("data", {}).get("display_url")
-            if url and url.startswith("http"):
-                return url
-    except Exception:
-        pass
-
-    # 3. Catbox
-    try:
-        res = requests.post(
-            "https://catbox.moe/user/api.php",
-            data={"reqtype": "fileupload"},
-            files={"fileToUpload": ("poster.jpg", file_bytes, "image/jpeg")},
-            headers=headers,
-            timeout=10,
-        )
-        if res.status_code == 200 and res.text.strip().startswith("http"):
-            return res.text.strip()
-    except Exception:
-        pass
-
-    # 4. Pixhost.to
-    try:
-        res = requests.post(
-            "https://api.pixhost.to/images",
-            data={"content_type": "0"},
-            files={"img": ("poster.jpg", file_bytes, "image/jpeg")},
-            headers={"User-Agent": ua, "Accept": "application/json"},
-            timeout=10,
-        )
-        if res.status_code == 200:
-            j = res.json()
-            th_url = j.get("th_url", "")
-            if th_url:
-                direct_url = th_url.replace("//t", "//img").replace(
-                    "/thumbs/", "/images/"
+            raw_u = j.get("data", {}).get("url", "")
+            if raw_u and "tmpfiles.org/" in raw_u:
+                direct_u = raw_u.replace("http://", "https://").replace(
+                    "tmpfiles.org/", "tmpfiles.org/dl/", 1
                 )
-                if direct_url.startswith("http"):
-                    return direct_url
+                if verified := _try_accept(direct_u):
+                    return verified
     except Exception:
         pass
+
+    # 4. ImgBB (if IMGBB_API_KEY is configured in info.py)
+    imgbb_key = getattr(info, "IMGBB_API_KEY", "") or ""
+    if imgbb_key:
+        try:
+            b64_img = base64.b64encode(file_bytes).decode("utf-8")
+            res = requests.post(
+                "https://api.imgbb.com/1/upload",
+                data={"key": imgbb_key, "image": b64_img},
+                headers=headers,
+                timeout=10,
+            )
+            if res.status_code == 200:
+                j = res.json()
+                u = j.get("data", {}).get("url") or j.get("data", {}).get("display_url")
+                if verified := _try_accept(u):
+                    return verified
+        except Exception:
+            pass
 
     # 5. Litterbox (Catbox 72h host)
     try:
@@ -977,32 +1052,17 @@ def _upload_sync(file_bytes: bytes) -> Optional[str]:
             headers=headers,
             timeout=10,
         )
-        if res.status_code == 200 and res.text.strip().startswith("http"):
-            return res.text.strip()
+        if res.status_code == 200:
+            if verified := _try_accept(res.text.strip()):
+                return verified
     except Exception:
         pass
 
-    # 6. Telegraph / Graph.org mirrors
-    for tg_host in ["https://graph.org", "https://telegra.ph", "https://te.legra.ph"]:
-        try:
-            res = requests.post(
-                f"{tg_host}/upload",
-                files={"file": ("poster.jpg", file_bytes, "image/jpeg")},
-                headers=headers,
-                timeout=8,
-            )
-            if res.status_code in [200, 201]:
-                data = res.json()
-                if isinstance(data, list) and data and "src" in data[0]:
-                    return f"{tg_host}{data[0]['src']}"
-        except Exception:
-            continue
-
-    # 7. Additional direct CDN hosts
+    # 6. Additional direct CDN hosts
     for url, field_name in [
-        ("https://pomf.lain.la/upload.php", "files[]"),
-        ("https://uguu.se/upload", "files[]"),
         ("https://envs.sh", "file"),
+        ("https://uguu.se/upload", "files[]"),
+        ("https://pomf.lain.la/upload.php", "files[]"),
         ("https://0x0.st", "file"),
         ("https://x0.at", "file"),
     ]:
@@ -1016,16 +1076,17 @@ def _upload_sync(file_bytes: bytes) -> Optional[str]:
             if res.status_code in [200, 201]:
                 text = res.text.strip()
                 if text.startswith("http") and " " not in text:
-                    return text
-                j = res.json()
-                if "files" in j and j["files"]:
-                    u = j["files"][0].get("url")
-                    if u and u.startswith("http"):
-                        return u
+                    if verified := _try_accept(text):
+                        return verified
+                else:
+                    j = res.json()
+                    if "files" in j and j["files"]:
+                        if verified := _try_accept(j["files"][0].get("url")):
+                            return verified
         except Exception:
             continue
 
-    return None
+    return candidates[0] if candidates else None
 
 
 async def upload_image_safely(client: Client, message: Message):
@@ -1047,13 +1108,20 @@ async def apply_poster_update_to_session(
     notify_msg: Optional[Message] = None,
 ) -> bool:
     """
-    Unified poster/image updater for both the `🖼️ Poster` button and `/editimage`.
-    CRITICAL FIX:
-    - When you send a photo (in `/post` OR `/editpost`), it ALWAYS stores `session["custom_photo_id"] = file_id`.
-    - If you are in Normal Photo mode OR if external image hosts fail/are blocked by the server IP,
-      it automatically switches `session["photo_mode"] = True` (even on `/editpost`!) so the image is
-      100% guaranteed to show immediately in the preview AND update the channel post via `edit_message_media`!
+    Handles photo or image URL updates for both `/post` and `/editpost`:
+    - If editing an existing Photo post (`orig_photo_mode=True`) or currently in Normal Photo mode:
+      uses Telegram's native `file_id` directly (instant & 100% reliable).
+    - If editing a Text-Preview post (`orig_photo_mode=False`):
+      Telegram does NOT allow converting a text message into a photo message via `edit_message_media`,
+      so we upload the photo to a verified direct-image CDN URL and keep `photo_mode=False`.
+    - If creating a new `/post` and external upload fails:
+      automatically switches to Normal Photo mode (`photo_mode=True`) using Telegram's `file_id`.
     """
+    edit_target = session.get("edit_target")
+    is_editing_text_post = bool(
+        edit_target and not edit_target.get("orig_photo_mode", False)
+    )
+
     if media_msg and (
         media_msg.photo
         or (
@@ -1063,13 +1131,15 @@ async def apply_poster_update_to_session(
         )
     ):
         file_id = (
-            media_msg.photo.file_id if media_msg.photo else media_msg.document.file_id
+            media_msg.photo.file_id
+            if media_msg.photo
+            else media_msg.document.file_id
         )
         session["custom_photo_id"] = file_id
         session["poster_changed"] = True
 
-        # If already in Normal Photo mode, use Telegram's native file_id immediately (0ms, never fails)
-        if session.get("photo_mode"):
+        # Photo post or Normal Image mode -> use native Telegram file_id directly
+        if session.get("photo_mode") and not is_editing_text_post:
             session["custom_poster"] = file_id
             return True
 
@@ -1077,13 +1147,16 @@ async def apply_poster_update_to_session(
         if notify_msg:
             status_msg = await safe_reply_text(
                 notify_msg,
-                "⏳ <b>Processing & uploading image...</b>",
+                "⏳ <b>Uploading & verifying image for Preview Mode...</b>",
                 parse_mode=enums.ParseMode.HTML,
             )
 
         url, _ = await upload_image_safely(client, media_msg)
         if url:
             session["custom_poster"] = url
+            # Ensure Preview Mode stays active so text-preview channel posts edit cleanly
+            if is_editing_text_post:
+                session["photo_mode"] = False
             if status_msg:
                 try:
                     await status_msg.edit_text(
@@ -1091,15 +1164,34 @@ async def apply_poster_update_to_session(
                         parse_mode=enums.ParseMode.HTML,
                     )
                     asyncio.create_task(
-                        delete_after_delay(client, status_msg.chat.id, status_msg.id, 3)
+                        delete_after_delay(
+                            client, status_msg.chat.id, status_msg.id, 3
+                        )
                     )
                 except Exception:
                     pass
             return True
         else:
-            # External host blocked by VPS IP -> Switch session (including /editpost) to Photo Mode
-            # using Telegram's native file_id! Telegram supports converting text posts to photo posts
-            # via edit_message_media(InputMediaPhoto), so the image will ALWAYS show!
+            if is_editing_text_post:
+                # Telegram CANNOT convert a text channel post into a photo post via edit_message_media!
+                session["poster_changed"] = False
+                if status_msg:
+                    try:
+                        await status_msg.edit_text(
+                            "⚠️ <b>Could not upload photo to an image host from this server.</b>\n"
+                            "<i>Because the channel post is a Text-Preview post, please click 🖼️ Poster again and send a direct <code>https://</code> image link!</i>",
+                            parse_mode=enums.ParseMode.HTML,
+                        )
+                        asyncio.create_task(
+                            delete_after_delay(
+                                client, status_msg.chat.id, status_msg.id, 8
+                            )
+                        )
+                    except Exception:
+                        pass
+                return False
+
+            # For new /post sessions, seamlessly fall back to Normal Photo Mode using file_id
             session["custom_poster"] = file_id
             session["photo_mode"] = True
             if status_msg:
@@ -1109,7 +1201,9 @@ async def apply_poster_update_to_session(
                         parse_mode=enums.ParseMode.HTML,
                     )
                     asyncio.create_task(
-                        delete_after_delay(client, status_msg.chat.id, status_msg.id, 4)
+                        delete_after_delay(
+                            client, status_msg.chat.id, status_msg.id, 4
+                        )
                     )
                 except Exception:
                     pass
@@ -1122,7 +1216,7 @@ async def apply_poster_update_to_session(
             session["custom_poster"] = None
             session["custom_photo_id"] = None
             session["poster_changed"] = True
-            if not session.get("edit_target"):
+            if not edit_target:
                 session["photo_mode"] = False
             return True
         if t_lower == "blank":
@@ -1510,8 +1604,7 @@ async def cmd_edit_image(client: Client, message: Message):
     if not updated:
         return await safe_reply_text(
             message,
-            "❌ <b>Could not extract a valid photo or image URL.</b>\n"
-            "Reply to a photo with <code>/editimage</code> or provide a valid <code>https://</code> image link.",
+            "❌ <b>Could not update image.</b> Reply to a photo or provide a valid <code>https://</code> image link.",
             parse_mode=enums.ParseMode.HTML,
         )
 
@@ -2055,11 +2148,10 @@ async def edit_post_cmd(client: Client, message: Message):
             is_photo_mode = True
         else:
             html_text = target_msg.text.html if target_msg.text else ""
-            inv_pattern = r"<a href=['\"](https?://[^'\"]+)['\"]>(?:&#8205;|&#8203;|&#8204;|\u200d|\u200b|\u200c|\u2060|\s)*</a>"
-            match = re.search(inv_pattern, html_text)
-            if match:
-                poster_url = match.group(1)
-                html_text = re.sub(inv_pattern, "", html_text).strip()
+            extracted_inv = _extract_invisible_preview_url(html_text)
+            if extracted_inv:
+                poster_url = extracted_inv
+                html_text = _strip_invisible_preview_links(html_text)
             elif getattr(target_msg, "web_page", None) and getattr(
                 target_msg.web_page, "url", None
             ):
@@ -2190,12 +2282,6 @@ def _resolve_poster_for_mode(session: dict) -> Optional[str]:
     else:
         if custom_p and str(custom_p).startswith(("http://", "https://")):
             return custom_p
-        # If user sent a photo and external upload failed, custom_photo_id holds the file_id
-        if session.get("custom_photo_id") and not str(
-            session.get("custom_photo_id")
-        ).startswith(("http://", "https://")):
-            session["photo_mode"] = True
-            return session["custom_photo_id"]
         return tmdb_poster
 
 
@@ -2205,11 +2291,12 @@ async def _build_final_post_content(session: dict, session_id: int):
     quote_mode = session.get("quote_mode", "expand")
 
     if session.get("is_manual_caption") and session.get("caption"):
-        inv_pattern = r"<a href=['\"](https?://[^'\"]+)['\"]>(?:&#8205;|&#8203;|&#8204;|\u200d|\u200b|\u200c|\u2060|\s)*</a>"
-        cap_out = re.sub(inv_pattern, "", session["caption"]).strip()
+        cap_out = _strip_invisible_preview_links(session["caption"])
         if session.get("watermark") and session["watermark"] not in cap_out:
             cap_out = f"{cap_out}\n\n{session['watermark']}"
         cap_out = apply_quote_mode(cap_out, quote_mode)
+        if session.get("photo_mode") and len(cap_out) > 1020:
+            cap_out = _truncate_caption_safe(cap_out, 1020)
         return (
             cap_out,
             build_keyboard(session, session_id),
@@ -2293,12 +2380,12 @@ async def _build_final_post_content(session: dict, session_id: int):
         return apply_quote_mode(text, quote_mode)
 
     final_text = render_text(plot_str)
-    if session.get("photo_mode") and len(final_text) > 1024:
-        excess = len(final_text) - 1000
+    if session.get("photo_mode") and len(final_text) > 1020:
+        excess = len(final_text) - 990
         final_text = (
             render_text(plot_str[: -(excess + 5)] + "...")
             if len(plot_str) > excess + 10
-            else final_text[:1024]
+            else _truncate_caption_safe(final_text, 1020)
         )
     return final_text, build_keyboard(session, session_id), poster_to_use
 
@@ -2348,7 +2435,7 @@ async def update_post_preview(
                     await client.edit_message_caption(
                         chat_id,
                         old_msg_id,
-                        caption=final_caption,
+                        caption=_truncate_caption_safe(final_caption, 1020),
                         reply_markup=keyboard,
                         parse_mode=enums.ParseMode.HTML,
                     )
@@ -2439,16 +2526,20 @@ def build_keyboard(session: dict, session_id: int):
     if session_id == -1:
         return InlineKeyboardMarkup(rows) if rows else None
 
-    mode_btn = [
-        create_btn(
-            f"Mode: {'Normal Img' if session.get('photo_mode') else 'Preview Img'}",
-            callback_data=f"post:toggle_mode:{session_id}",
-        ),
+    mode_btn = []
+    if not session.get("edit_target"):
+        mode_btn.append(
+            create_btn(
+                f"Mode: {'Normal Img' if session.get('photo_mode') else 'Preview Img'}",
+                callback_data=f"post:toggle_mode:{session_id}",
+            )
+        )
+    mode_btn.append(
         create_btn(
             f"Poster: {'Landscape' if session.get('use_landscape') else 'Portrait'}",
             callback_data=f"post:toggle_poster:{session_id}",
-        ),
-    ]
+        )
+    )
 
     q_mode = session.get("quote_mode", "expand")
     quote_row = [
@@ -2821,6 +2912,11 @@ async def post_callbacks(client: Client, query: CallbackQuery):
                     raw_text=response.text or response.caption,
                     notify_msg=query.message,
                 )
+                # Safely delete user's photo message AFTER downloading/processing it
+                try:
+                    await response.delete()
+                except Exception:
+                    pass
             force_resend = True
         elif action == "set_watermark":
             response = await get_user_input(
@@ -3027,11 +3123,9 @@ async def post_callbacks(client: Client, query: CallbackQuery):
                 )
             force_resend = True
         elif action == "toggle_mode":
-            if session.get("edit_target") and session["edit_target"].get(
-                "orig_photo_mode"
-            ):
+            if session.get("edit_target"):
                 return await query.answer(
-                    "ℹ️ A Telegram photo post cannot be converted back into a text-only post, only its photo can be changed!",
+                    "Cannot switch image modes on an existing channel post!",
                     show_alert=True,
                 )
             new_mode = not session.get("photo_mode", False)
@@ -3043,12 +3137,11 @@ async def post_callbacks(client: Client, query: CallbackQuery):
                     and custom_p != "BLANK"
                 ):
                     await query.answer(
-                        "ℹ️ Uploaded photo has no public URL (Cloud blocked). Keep 'Normal Img' mode or send an https:// image link for Preview Mode!",
+                        "ℹ️ Uploaded photo has no public URL. Keep 'Normal Img' mode or send an https:// image link for Preview Mode!",
                         show_alert=True,
                     )
                     return
-                else:
-                    await query.answer("Switched to Preview Image Mode!")
+                await query.answer("Switched to Preview Image Mode!")
             else:
                 await query.answer("Switched to Normal Image Mode!")
             session["photo_mode"] = new_mode
@@ -3248,7 +3341,6 @@ async def get_user_input(
             except Exception:
                 pass
         if response:
-            # IMPORTANT: Do NOT delete photo messages before downloading/uploading them!
             if not response.photo and not response.document:
                 try:
                     await response.delete()
@@ -3419,13 +3511,13 @@ async def delayed_post_worker(
                     session.get("poster_changed") or (poster_to_use != orig_poster)
                 )
 
-                # Case 1: Original post was a Photo post OR session switched to Photo mode (e.g. user sent a photo)
-                if orig_photo_mode or is_normal_photo:
+                if orig_photo_mode:
+                    # Channel post IS a photo post -> use edit_message_media when poster changed
                     media_to_apply = session.get("custom_photo_id") or poster_to_use
                     if (
                         media_to_apply
                         and str(media_to_apply).upper() != "BLANK"
-                        and (poster_changed or not orig_photo_mode)
+                        and poster_changed
                     ):
                         await safe_edit_photo_media(
                             client,
@@ -3441,14 +3533,14 @@ async def delayed_post_worker(
                             await client.edit_message_caption(
                                 e_chat_id,
                                 e_msg_id,
-                                caption=final_caption,
+                                caption=_truncate_caption_safe(final_caption, 1020),
                                 reply_markup=keyboard,
                                 parse_mode=enums.ParseMode.HTML,
                             )
                         except MessageNotModified:
                             pass
                 else:
-                    # Case 2: Text / Preview Image post
+                    # Channel post IS a Text / WebPage-Preview post -> Telegram requires edit_message_text with URL
                     has_valid_url = bool(
                         poster_to_use
                         and str(poster_to_use).upper() != "BLANK"
