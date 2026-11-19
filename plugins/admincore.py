@@ -149,7 +149,10 @@ def _prepare_compat_kwargs(
     explicit_disable = clean_kw.pop("disable_web_page_preview", disable_preview)
 
     if explicit_disable is not None:
-        if "link_preview_options" in supported_params and LinkPreviewOptions is not None:
+        if (
+            "link_preview_options" in supported_params
+            and LinkPreviewOptions is not None
+        ):
             try:
                 clean_kw["link_preview_options"] = LinkPreviewOptions(
                     is_disabled=bool(explicit_disable)
@@ -402,7 +405,11 @@ async def safe_make_active(user_id: str, group_id: str):
         except Exception:
             pass
     for col, q, upd in (
-        (_get_writable_col("CONNECTION", _std_conn_col), {"_id": uid}, {"active_group": gid}),
+        (
+            _get_writable_col("CONNECTION", _std_conn_col),
+            {"_id": uid},
+            {"active_group": gid},
+        ),
         (
             _get_writable_col("active_connections", _active_conn_col),
             {"user_id": uid},
@@ -533,7 +540,11 @@ async def safe_if_active(user_id: str, group_id: str) -> bool:
             pass
     for col, q, f_key in (
         (_get_writable_col("CONNECTION", _std_conn_col), {"_id": uid}, "active_group"),
-        (_get_writable_col("active_connections", _active_conn_col), {"user_id": uid}, "group_id"),
+        (
+            _get_writable_col("active_connections", _active_conn_col),
+            {"user_id": uid},
+            "group_id",
+        ),
     ):
         if col is not None:
             try:
@@ -830,7 +841,11 @@ async def optimize_db_cmd(client: Client, message: Message):
         if _BOT_DB is not None:
             for col_n, spec, label in (
                 ("active_connections", [("user_id", 1)], "Connections"),
-                ("fsub_join_requests", [("user_id", 1), ("chat_id", 1)], "FSub Requests"),
+                (
+                    "fsub_join_requests",
+                    [("user_id", 1), ("chat_id", 1)],
+                    "FSub Requests",
+                ),
             ):
                 try:
                     res = await _BOT_DB[col_n].create_index(spec)
@@ -1562,7 +1577,9 @@ async def _build_db_stats_text() -> str:
     if callable(get_all_dbs_stats):
         st = await get_all_dbs_stats()
         all_dbs_list = st.get("all_dbs") or [
-            st[k] for k in ("db1", "db2", "db3") if st.get(k) and st[k].get("configured")
+            st[k]
+            for k in ("db1", "db2", "db3")
+            if st.get(k) and st[k].get("configured")
         ]
 
         total_files = st.get("total_files", 0)
