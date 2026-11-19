@@ -39,15 +39,15 @@ logger.setLevel(INFO)
 # 🔗 SAFE IMPORTS FOR DATABASE & MULTI-BOT WORKER POOL
 # ============================================================
 try:
-    from database.ia_filterdb import Media as _Media
-    from database.ia_filterdb import free_up_mongodb_storage as _free_up_mongodb_storage
     from database.ia_filterdb import (
+        Media as _Media,
+        free_up_mongodb_storage as _free_up_mongodb_storage,
         get_all_healthy_read_dbs,
         get_writable_System_db,
         mark_db_error,
+        save_batch as _db_save_batch,
+        save_file,
     )
-    from database.ia_filterdb import save_batch as _db_save_batch
-    from database.ia_filterdb import save_file
 except ImportError:
     _Media = None
     _free_up_mongodb_storage = None
@@ -73,9 +73,18 @@ except ImportError:
         return False
 
 
+try:
+    from pyrogram.types import LinkPreviewOptions
+except ImportError:
+    LinkPreviewOptions = None
+
+
 # ============================================================
-# 🛡️ PYROGRAM COMPATIBILITY & SAFE UI HELPERS
+# 🛡️ PYROGRAM COMPATIBILITY & TEXT-ONLY BUTTON BUILDER
 # ============================================================
+_REPLY_PARAMS = set(inspect.signature(Message.reply_text).parameters.keys())
+_EDIT_PARAMS = set(inspect.signature(Message.edit_text).parameters.keys())
+
 BTN_PRIMARY = BTN_SUCCESS = BTN_DANGER = None
 _SUPPORTS_BTN_STYLE = False
 
@@ -91,18 +100,22 @@ except (ImportError, ValueError, TypeError):
     pass
 
 
+def _clean_button_label(raw_label: str) -> str:
+    lbl = re.sub(r"<[^>]+>", "", str(raw_label or "")).strip()
+    lbl = re.sub(r"(?i)https?://\S+|t\.me/\S+|www\.\S+", "", lbl).strip(" -|:")
+    return lbl or "Open"
+
+
 def create_btn(
     text: str,
-    url: Optional[str] = None,
-    callback_data: Optional[str] = None,
+    callback_data: str = "noop",
     style: Any = None,
 ) -> InlineKeyboardButton:
-    kwargs: Dict[str, Any] = {"text": str(text)}
-    if url:
-        kwargs["url"] = str(url).strip()
-    elif callback_data:
-        kwargs["callback_data"] = str(callback_data)[:64]
-
+    """Creates a pure text-only callback InlineKeyboardButton (zero links inside any button)."""
+    kwargs: Dict[str, Any] = {
+        "text": _clean_button_label(text),
+        "callback_data": str(callback_data)[:64],
+    }
     if _SUPPORTS_BTN_STYLE and style is not None:
         kwargs["style"] = style
     try:
@@ -110,6 +123,17 @@ def create_btn(
     except Exception:
         kwargs.pop("style", None)
         return InlineKeyboardButton(**kwargs)
+
+
+def _preview_off_kw(supported_params: set) -> Dict[str, Any]:
+    if "link_preview_options" in supported_params and LinkPreviewOptions is not None:
+        try:
+            return {"link_preview_options": LinkPreviewOptions(is_disabled=True)}
+        except Exception:
+            pass
+    if "disable_web_page_preview" in supported_params:
+        return {"disable_web_page_preview": True}
+    return {}
 
 
 async def safe_answer(
@@ -133,21 +157,19 @@ async def safe_reply_text(
 ) -> Optional[Message]:
     if not message:
         return None
+    kw = {
+        "text": text,
+        "reply_markup": reply_markup,
+        "parse_mode": enums.ParseMode.HTML,
+        **_preview_off_kw(_REPLY_PARAMS),
+    }
     try:
-        return await message.reply_text(
-            text=text,
-            reply_markup=reply_markup,
-            parse_mode=enums.ParseMode.HTML,
-        )
+        return await message.reply_text(**kw)
     except FloodWait as e:
         if e.value <= 15:
             await asyncio.sleep(e.value + 1)
             try:
-                return await message.reply_text(
-                    text=text,
-                    reply_markup=reply_markup,
-                    parse_mode=enums.ParseMode.HTML,
-                )
+                return await message.reply_text(**kw)
             except Exception:
                 return None
         return None
@@ -165,21 +187,19 @@ async def safe_edit_text(
 ) -> Optional[Message]:
     if not message:
         return None
+    kw = {
+        "text": text,
+        "reply_markup": reply_markup,
+        "parse_mode": enums.ParseMode.HTML,
+        **_preview_off_kw(_EDIT_PARAMS),
+    }
     try:
-        return await message.edit_text(
-            text=text,
-            reply_markup=reply_markup,
-            parse_mode=enums.ParseMode.HTML,
-        )
+        return await message.edit_text(**kw)
     except FloodWait as e:
         if e.value <= 15:
             await asyncio.sleep(e.value + 1)
             try:
-                return await message.edit_text(
-                    text=text,
-                    reply_markup=reply_markup,
-                    parse_mode=enums.ParseMode.HTML,
-                )
+                return await message.edit_text(**kw)
             except Exception:
                 return None
         return None
@@ -205,8 +225,19 @@ async def is_global_admin(user_id: int) -> bool:
     return bool(user_id and int(user_id) in get_admin_list())
 
 
+async def _require_global_admin(message: Message) -> bool:
+    uid = (
+        message.from_user.id
+        if message.from_user
+        else getattr(message.sender_chat, "id", 0)
+    )
+    if await is_global_admin(uid):
+        return True
+    await safe_reply_text(message, "❌ <b>Unauthorized:</b> Global Bot Admin only.")
+    return False
+
+
 def _is_waiting_for_other_plugin_input(chat_id: int) -> bool:
-    """Prevents the forward-catcher from hijacking interactive inputs in /bots, /datadb, /post, or /fsub."""
     cid = int(chat_id)
     if is_waiting_for_cmd_input(cid):
         return True
@@ -215,6 +246,8 @@ def _is_waiting_for_other_plugin_input(chat_id: int) -> bool:
         ("plugins.datadb", "_DATADB_WAITING_INPUT"),
         ("plugins.post_handler", "_WAITING_REQUESTS"),
         ("plugins.fsub", "_WAITING_REQUESTS"),
+        ("plugins.shortner", "_SHORTENER_WAITING_INPUT"),
+        ("plugins.genlink", "_WAITING_INPUT"),
     ):
         try:
             mod = __import__(mod_name, fromlist=[dict_name])
@@ -227,7 +260,7 @@ def _is_waiting_for_other_plugin_input(chat_id: int) -> bool:
 
 
 # ============================================================
-# 💾 CHECKPOINT, AUTO-INDEX STATE & QUOTA-SAFE BULK WRITE ENGINE
+# 💾 CHECKPOINT, LIVE AUTO-INDEX STATE & BULK WRITE ENGINE
 # ============================================================
 _idx_col = None
 try:
@@ -246,13 +279,11 @@ INDEX_LOCK = asyncio.Lock()
 _ACTIVE_INDEX_TASK: Optional[asyncio.Task] = None
 _RESUME_MEMORY_CACHE: Dict[int, Dict[str, Any]] = {}
 
-# Clean runtime state for Live Auto-Index (seeded from info.py, zero extra DB collections needed)
 _AUTO_INDEX_ENABLED: bool = bool(getattr(info, "AUTO_INDEX", True))
 _DYNAMIC_INDEX_CHANNELS: Set[int] = set()
 
 
 def _get_configured_index_channels() -> Set[int]:
-    """Combines static channels from info.py and any runtime channels added via /addindexchannel or /index."""
     channels_set: Set[int] = set(_DYNAMIC_INDEX_CHANNELS)
     for attr in (
         "CHANNELS",
@@ -275,6 +306,58 @@ def _get_configured_index_channels() -> Set[int]:
     return channels_set
 
 
+# Helpers exported for uibuttons.py Help Menu integration
+async def get_auto_index_config() -> Dict[str, Any]:
+    return {
+        "is_enabled": _AUTO_INDEX_ENABLED,
+        "channels": sorted(_get_configured_index_channels()),
+    }
+
+
+async def set_auto_index_enabled(state: bool):
+    global _AUTO_INDEX_ENABLED
+    _AUTO_INDEX_ENABLED = bool(state)
+
+
+async def get_all_allowed_auto_index_channels() -> List[int]:
+    return sorted(_get_configured_index_channels())
+
+
+def _build_auto_index_panel(cfg: Dict[str, Any]) -> Tuple[str, InlineKeyboardMarkup]:
+    enabled = bool(cfg.get("is_enabled", True))
+    channels = cfg.get("channels", [])
+    ch_text = (
+        "\n".join(f"• <code>{c}</code>" for c in channels)
+        if channels
+        else "<i>All Admin Channels (Unrestricted)</i>"
+    )
+    text = (
+        f"📡 <b>Live Channel Auto-Index Manager</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"⚙️ <b>Status:</b> <code>{'🟢 ON (Enabled)' if enabled else '🔴 OFF (Disabled)'}</code>\n"
+        f"📢 <b>Monitored DB Channels ({len(channels)}):</b>\n{ch_text}\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"💡 <i>Commands: <code>/autoindex on|off</code>, <code>/addindexchannel -100xxx</code>, <code>/rmindexchannel -100xxx</code></i>"
+    )
+    kb = InlineKeyboardMarkup(
+        [
+            [
+                create_btn(
+                    f"{'✅ ' if enabled else ''}🟢 Auto-Index ON",
+                    callback_data="hact#autoidx_on",
+                    style=BTN_SUCCESS if enabled else None,
+                ),
+                create_btn(
+                    f"{'🚫 ' if not enabled else ''}🔴 Auto-Index OFF",
+                    callback_data="hact#autoidx_off",
+                    style=BTN_DANGER if not enabled else None,
+                ),
+            ]
+        ]
+    )
+    return text, kb
+
+
 def _get_writable_idx_col():
     if callable(get_writable_System_db):
         try:
@@ -294,10 +377,9 @@ async def save_index_checkpoint(
     worker_cursors: Optional[Dict[str, int]] = None,
 ):
     cid = int(chat_id)
-    cur_id = int(current_msg_id)
     data: Dict[str, Any] = {
         "chat_id": cid,
-        "current_msg_id": cur_id,
+        "current_msg_id": int(current_msg_id),
         "last_msg_id": int(last_msg_id),
         "media_filter": str(media_filter),
         "updated_at": time.time(),
@@ -309,7 +391,10 @@ async def save_index_checkpoint(
     target_col = _get_writable_idx_col()
     if target_col is not None:
         try:
-            await target_col.update_one({"_id": cid}, {"$set": data}, upsert=True)
+            await asyncio.wait_for(
+                target_col.update_one({"_id": cid}, {"$set": data}, upsert=True),
+                timeout=3.0,
+            )
         except Exception:
             pass
 
@@ -322,7 +407,9 @@ async def get_index_checkpoint(chat_id: int) -> Optional[Dict[str, Any]]:
     if callable(get_all_healthy_read_dbs):
         for idx, target_db in get_all_healthy_read_dbs():
             try:
-                doc = await target_db["index_checkpoints"].find_one({"_id": cid})
+                doc = await asyncio.wait_for(
+                    target_db["index_checkpoints"].find_one({"_id": cid}), timeout=2.5
+                )
                 if doc:
                     _RESUME_MEMORY_CACHE[cid] = doc
                     return doc
@@ -332,7 +419,9 @@ async def get_index_checkpoint(chat_id: int) -> Optional[Dict[str, Any]]:
                 continue
     elif _idx_col is not None:
         try:
-            doc = await _idx_col.find_one({"_id": cid})
+            doc = await asyncio.wait_for(
+                _idx_col.find_one({"_id": cid}), timeout=2.5
+            )
             if doc:
                 _RESUME_MEMORY_CACHE[cid] = doc
                 return doc
@@ -347,12 +436,14 @@ async def clear_index_checkpoint(chat_id: int):
     if callable(get_all_healthy_read_dbs):
         for _, target_db in get_all_healthy_read_dbs():
             try:
-                await target_db["index_checkpoints"].delete_one({"_id": cid})
+                await asyncio.wait_for(
+                    target_db["index_checkpoints"].delete_one({"_id": cid}), timeout=2.5
+                )
             except Exception:
                 pass
     elif _idx_col is not None:
         try:
-            await _idx_col.delete_one({"_id": cid})
+            await asyncio.wait_for(_idx_col.delete_one({"_id": cid}), timeout=2.5)
         except Exception:
             pass
 
@@ -368,7 +459,6 @@ def _is_quota_exceeded_error(err: Exception) -> bool:
 
 
 def _invalidate_search_caches():
-    """Clears in-memory search caches in pm_filter.py when new files are indexed."""
     try:
         from plugins.pm_filter import (
             FUZZY_TITLES_CACHE,
@@ -384,10 +474,6 @@ def _invalidate_search_caches():
 
 
 async def fast_save_media_batch(media_list: list) -> Tuple[int, int, int, bool]:
-    """
-    Saves a batch of media objects at maximum speed across Primary DB + all /datadb URLs.
-    Returns: (saved_count, duplicate_count, error_count, all_dbs_quota_full)
-    """
     if not media_list:
         return 0, 0, 0, False
 
@@ -417,9 +503,7 @@ async def fast_save_media_batch(media_list: list) -> Tuple[int, int, int, bool]:
     if not callable(save_file):
         return 0, 0, len(media_list), False
 
-    saved = 0
-    dups = 0
-    errs = 0
+    saved = dups = errs = 0
     quota_full = False
 
     for i in range(0, len(media_list), 50):
@@ -457,16 +541,11 @@ async def fast_save_media_batch(media_list: list) -> Tuple[int, int, int, bool]:
 
 
 # ============================================================
-# 🛠️ MEDIA FILTER EXTRACTOR (SAVES chat_id + msg_id FOR SELF-HEALING)
+# 🛠️ MEDIA EXTRACTOR & LINK PARSER
 # ============================================================
 def extract_media_from_message(
     message: Message, media_filter: str = "all", override_chat_id: Optional[int] = None
 ):
-    """
-    Extracts the media object and attaches `chat_id` and `msg_id` so even if a
-    Worker Bot indexes the file, the Main Bot can fetch a fresh `file_id` directly
-    from the source channel without ever getting [400 MEDIA_EMPTY]!
-    """
     if not message or getattr(message, "empty", False) or not message.media:
         return None, "empty"
 
@@ -523,24 +602,20 @@ def format_eta(seconds: float) -> str:
 def parse_channel_link_or_forward(
     message: Message,
 ) -> Tuple[Optional[Any], Optional[int]]:
-    """Extracts (chat_id_or_username, last_msg_id) from a link, caption, or forwarded message."""
     target = message.reply_to_message if message.reply_to_message else message
     if not target:
         return None, None
 
     text_to_check = target.text or target.caption or ""
     if text_to_check:
-        regex = re.compile(
-            r"(?:https?://)?(?:t\.me/|telegram\.me/|telegram\.dog/)(?:c/)?(\d+|[a-zA-Z0-9_]+)/(\d+)"
+        match = re.search(
+            r"(?:https?://)?(?:t\.me/|telegram\.me/|telegram\.dog/)(?:c/)?(\d+|[a-zA-Z0-9_]+)/(\d+)",
+            text_to_check,
         )
-        match = regex.search(text_to_check)
         if match:
             chat_id_raw = match.group(1)
             last_msg_id = int(match.group(2))
-            if chat_id_raw.isdigit():
-                chat_id = int("-100" + chat_id_raw)
-            else:
-                chat_id = chat_id_raw
+            chat_id = int("-100" + chat_id_raw) if chat_id_raw.isdigit() else chat_id_raw
             return chat_id, last_msg_id
 
         parts = text_to_check.strip().split()
@@ -564,7 +639,7 @@ def parse_channel_link_or_forward(
 
 
 # ============================================================
-# 📡 LIVE CHANNEL AUTO-INDEXER & SIMPLE CONTROLS
+# 📡 LIVE CHANNEL AUTO-INDEXER & CONTROLS
 # ============================================================
 @Client.on_message(
     filters.channel & (filters.document | filters.video | filters.audio),
@@ -599,60 +674,69 @@ async def live_auto_index_edited_channel_files(client: Client, message: Message)
 
 
 @Client.on_message(
-    filters.command(
-        [
-            "autoindex",
-            "enableautoindex",
-            "disableautoindex",
-            "addindexchannel",
-            "rmindexchannel",
-        ]
+    filters.command(["addindexchannel"]) & filters.incoming,
+    group=-2,
+)
+async def add_index_channel_cmd(client: Client, message: Message):
+    if not await _require_global_admin(message):
+        return
+    if len(message.command) < 2:
+        return await safe_reply_text(
+            message, "⚙️ <b>Usage:</b> <code>/addindexchannel -1001234567890</code>"
+        )
+    raw = message.command[1].strip()
+    try:
+        cid = int(raw) if raw.lstrip("-").isdigit() else (await client.get_chat(raw)).id
+    except Exception as e:
+        return await safe_reply_text(
+            message, f"❌ <b>Invalid Channel:</b> <code>{html.escape(str(e))}</code>"
+        )
+    _DYNAMIC_INDEX_CHANNELS.add(int(cid))
+    text, kb = _build_auto_index_panel(await get_auto_index_config())
+    await safe_reply_text(
+        message, f"✅ <b>Added DB Channel <code>{cid}</code>!</b>\n\n{text}", kb
     )
+
+
+@Client.on_message(
+    filters.command(["rmindexchannel"]) & filters.incoming,
+    group=-2,
+)
+async def rm_index_channel_cmd(client: Client, message: Message):
+    if not await _require_global_admin(message):
+        return
+    if len(message.command) < 2 or not message.command[1].strip().lstrip("-").isdigit():
+        return await safe_reply_text(
+            message, "⚙️ <b>Usage:</b> <code>/rmindexchannel -1001234567890</code>"
+        )
+    cid = int(message.command[1].strip())
+    _DYNAMIC_INDEX_CHANNELS.discard(cid)
+    text, kb = _build_auto_index_panel(await get_auto_index_config())
+    await safe_reply_text(
+        message, f"🗑️ <b>Removed DB Channel <code>{cid}</code>!</b>\n\n{text}", kb
+    )
+
+
+@Client.on_message(
+    filters.command(["autoindex", "enableautoindex", "disableautoindex"])
     & filters.incoming,
     group=-2,
 )
 async def auto_index_cmd_handler(client: Client, message: Message):
     global _AUTO_INDEX_ENABLED
-    uid = (
-        message.from_user.id
-        if message.from_user
-        else getattr(message.sender_chat, "id", 0)
-    )
-    if not await is_global_admin(uid):
-        return await safe_reply_text(
-            message, "❌ <b>Unauthorized:</b> Global Bot Admin only."
-        )
+    if not await _require_global_admin(message):
+        return
 
     cmd = message.command[0].lower()
     if cmd == "enableautoindex":
         _AUTO_INDEX_ENABLED = True
     elif cmd == "disableautoindex":
         _AUTO_INDEX_ENABLED = False
-    elif cmd == "addindexchannel":
-        if (
-            len(message.command) < 2
-            or not message.command[1].strip().lstrip("-").isdigit()
-        ):
-            return await safe_reply_text(
-                message,
-                "⚙️ <b>Usage:</b> <code>/addindexchannel -1001234567890</code>",
-            )
-        _DYNAMIC_INDEX_CHANNELS.add(int(message.command[1].strip()))
-    elif cmd == "rmindexchannel":
-        if (
-            len(message.command) < 2
-            or not message.command[1].strip().lstrip("-").isdigit()
-        ):
-            return await safe_reply_text(
-                message,
-                "⚙️ <b>Usage:</b> <code>/rmindexchannel -1001234567890</code>",
-            )
-        _DYNAMIC_INDEX_CHANNELS.discard(int(message.command[1].strip()))
     elif len(message.command) > 1:
         arg = message.command[1].strip().lower()
-        if arg in ["on", "enable", "true", "1", "yes"]:
+        if arg in ("on", "enable", "true", "1", "yes"):
             _AUTO_INDEX_ENABLED = True
-        elif arg in ["off", "disable", "false", "0", "no"]:
+        elif arg in ("off", "disable", "false", "0", "no"):
             _AUTO_INDEX_ENABLED = False
         elif arg.lstrip("-").isdigit():
             _DYNAMIC_INDEX_CHANNELS.add(int(arg))
@@ -660,37 +744,19 @@ async def auto_index_cmd_handler(client: Client, message: Message):
     else:
         _AUTO_INDEX_ENABLED = not _AUTO_INDEX_ENABLED
 
-    channels = sorted(_get_configured_index_channels())
-    ch_text = (
-        ", ".join(f"<code>{c}</code>" for c in channels)
-        if channels
-        else "<code>All Admin Channels</code>"
-    )
-    status_str = "🟢 ON (Enabled)" if _AUTO_INDEX_ENABLED else "🔴 OFF (Disabled)"
-    await safe_reply_text(
-        message,
-        f"📡 <b>Live Channel Auto-Index:</b> <code>{status_str}</code>\n"
-        f"📢 <b>Monitored Channels:</b> {ch_text}\n\n"
-        f"💡 <i>Commands: <code>/autoindex on|off</code>, <code>/addindexchannel -100xxx</code>, <code>/rmindexchannel -100xxx</code></i>",
-    )
+    text, kb = _build_auto_index_panel(await get_auto_index_config())
+    await safe_reply_text(message, text, kb)
 
 
 # ============================================================
-# 🧹 /freedb COMMAND (FREES UP WASTED MONGODB SPACE INSTANTLY)
+# 🧹 /freedb & ⏩ SKIP COMMANDS
 # ============================================================
 @Client.on_message(
     filters.command(["freedb", "compactdb", "cleanquota"]) & filters.incoming, group=-2
 )
 async def freedb_command_handler(client: Client, message: Message):
-    uid = (
-        message.from_user.id
-        if message.from_user
-        else getattr(message.sender_chat, "id", 0)
-    )
-    if not await is_global_admin(uid):
-        return await safe_reply_text(
-            message, "❌ <b>Unauthorized:</b> Global Bot Admin only."
-        )
+    if not await _require_global_admin(message):
+        return
 
     status_msg = await safe_reply_text(
         message,
@@ -730,20 +796,10 @@ async def freedb_command_handler(client: Client, message: Message):
         )
 
 
-# ============================================================
-# ⏩ /setskip, /deleteskip, /currentskip COMMANDS
-# ============================================================
 @Client.on_message(filters.command("setskip") & filters.incoming, group=-2)
 async def set_skip_number(client: Client, message: Message):
-    uid = (
-        message.from_user.id
-        if message.from_user
-        else getattr(message.sender_chat, "id", 0)
-    )
-    if not await is_global_admin(uid):
-        return await safe_reply_text(
-            message, "❌ <b>Unauthorized:</b> Global Bot Admin only."
-        )
+    if not await _require_global_admin(message):
+        return
 
     if len(message.command) < 2 or not message.command[1].lstrip("-").isdigit():
         return await safe_reply_text(
@@ -762,32 +818,16 @@ async def set_skip_number(client: Client, message: Message):
 
 @Client.on_message(filters.command("deleteskip") & filters.incoming, group=-2)
 async def delete_skip_number(client: Client, message: Message):
-    uid = (
-        message.from_user.id
-        if message.from_user
-        else getattr(message.sender_chat, "id", 0)
-    )
-    if not await is_global_admin(uid):
-        return await safe_reply_text(
-            message, "❌ <b>Unauthorized:</b> Global Bot Admin only."
-        )
-
+    if not await _require_global_admin(message):
+        return
     temp.CURRENT = 0
     await safe_reply_text(message, "✅ <b>Skip number reset to:</b> <code>0</code>")
 
 
 @Client.on_message(filters.command("currentskip") & filters.incoming, group=-2)
 async def current_skip_number(client: Client, message: Message):
-    uid = (
-        message.from_user.id
-        if message.from_user
-        else getattr(message.sender_chat, "id", 0)
-    )
-    if not await is_global_admin(uid):
-        return await safe_reply_text(
-            message, "❌ <b>Unauthorized:</b> Global Bot Admin only."
-        )
-
+    if not await _require_global_admin(message):
+        return
     cur = int(getattr(temp, "CURRENT", 0) or 0)
     await safe_reply_text(
         message, f"⏩ <b>Current Skip Message ID:</b> <code>{cur}</code>"
@@ -852,13 +892,7 @@ async def _prompt_index_confirmation(
                 style=BTN_SUCCESS,
             )
         ],
-        [
-            create_btn(
-                "❌ Cancel",
-                callback_data="index#close",
-                style=BTN_DANGER,
-            )
-        ],
+        [create_btn("❌ Cancel", callback_data="index#close", style=BTN_DANGER)],
     ]
 
     await safe_reply_text(
@@ -883,15 +917,8 @@ async def _prompt_index_confirmation(
     group=-2,
 )
 async def index_command(client: Client, message: Message):
-    uid = (
-        message.from_user.id
-        if message.from_user
-        else getattr(message.sender_chat, "id", 0)
-    )
-    if not await is_global_admin(uid):
-        return await safe_reply_text(
-            message, "❌ <b>Unauthorized:</b> Global Bot Admin only."
-        )
+    if not await _require_global_admin(message):
+        return
 
     cmd = message.command[0].lower()
     media_filter = {
@@ -919,15 +946,8 @@ async def index_command(client: Client, message: Message):
 
 @Client.on_message(filters.command("resumeindex") & filters.incoming, group=-2)
 async def resume_index_command(client: Client, message: Message):
-    uid = (
-        message.from_user.id
-        if message.from_user
-        else getattr(message.sender_chat, "id", 0)
-    )
-    if not await is_global_admin(uid):
-        return await safe_reply_text(
-            message, "❌ <b>Unauthorized:</b> Global Bot Admin only."
-        )
+    if not await _require_global_admin(message):
+        return
 
     if len(message.command) < 2:
         if _RESUME_MEMORY_CACHE:
@@ -1006,7 +1026,7 @@ async def auto_channel_forward_index_prompt(client: Client, message: Message):
 
 
 # ============================================================
-# 🚀 DISTRIBUTED MULTI-BOT PARALLEL INDEXING ENGINE (10 LAKH+ FILES)
+# 🚀 DISTRIBUTED MULTI-BOT PARALLEL INDEXING ENGINE
 # ============================================================
 @Client.on_callback_query(filters.regex(r"^index#"), group=-2)
 async def index_callback_handler(bot: Client, query: CallbackQuery):
@@ -1014,6 +1034,8 @@ async def index_callback_handler(bot: Client, query: CallbackQuery):
     uid = query.from_user.id if query.from_user else 0
     if not await is_global_admin(uid):
         return await safe_answer(query, "❌ Admin only!", show_alert=True)
+    if not query.message:
+        return await safe_answer(query)
 
     parts = query.data.split("#")
     ident = parts[1] if len(parts) > 1 else "close"
@@ -1072,10 +1094,6 @@ async def index_callback_handler(bot: Client, query: CallbackQuery):
 async def _verify_worker_channel_access(
     clients: List[Client], chat_id: int
 ) -> Tuple[List[Client], List[str]]:
-    """
-    Verifies which bots in the pool can read messages in the target channel
-    and warms up their peer cache concurrently so `get_messages` never raises PeerIdInvalid.
-    """
     usable_clients: List[Client] = []
     skipped_bots: List[str] = []
 
@@ -1125,7 +1143,6 @@ async def run_distributed_indexing(
         except Exception:
             pass
 
-        # Ensure all dynamic /datadb URLs are loaded before indexing starts
         try:
             from plugins.datadb import load_datadb_config
 
@@ -1133,7 +1150,6 @@ async def run_distributed_indexing(
         except Exception:
             pass
 
-        # 1. Discover all active bots (Main Bot + Unlimited Worker Bots from /bots)
         candidate_clients = await get_indexing_clients(main_bot)
         usable_clients, skipped_bots = await _verify_worker_channel_access(
             candidate_clients, chat_id
@@ -1155,7 +1171,6 @@ async def run_distributed_indexing(
             )
             return
 
-        # Check if we have per-worker resume cursors from an interrupted run
         saved_cp = await get_index_checkpoint(int(chat_id))
         saved_worker_cursors: Dict[str, int] = (
             saved_cp.get("worker_cursors", {})
@@ -1179,7 +1194,6 @@ async def run_distributed_indexing(
                 if getattr(client_obj, "me", None) and client_obj.me.username
                 else f"Bot #{idx + 1}"
             )
-            # If resuming with the same worker label and its cursor is within its slice, resume from there
             if b_uname in saved_worker_cursors:
                 resumed_start = int(saved_worker_cursors[b_uname]) + 1
                 if w_start < resumed_start <= w_end + 1:
@@ -1245,7 +1259,7 @@ async def run_distributed_indexing(
                 msg_ids = list(range(chunk_start, chunk_end + 1))
 
                 messages = None
-                for attempt in range(4):
+                for _ in range(4):
                     if temp.CANCEL or stats["quota_full"]:
                         break
                     try:
@@ -1255,10 +1269,6 @@ async def run_distributed_indexing(
                         )
                         break
                     except FloodWait as e:
-                        if e.value > 120:
-                            logger.warning(
-                                f"Worker {b_label} hit long FloodWait ({e.value}s)"
-                            )
                         await asyncio.sleep(min(e.value + 2, 60))
                     except asyncio.TimeoutError:
                         await asyncio.sleep(2)
@@ -1316,7 +1326,6 @@ async def run_distributed_indexing(
                 ] = f"{chunk_end:,} / {w_end:,} ({pct:.1f}%)"
                 stats["worker_cursors"][b_label] = chunk_end
 
-                # Track the safe contiguous progress from the first worker + all worker cursors
                 first_worker_label = bot_ranges[0][3]
                 if b_label == first_worker_label and (
                     done_by_worker % 2000 == 0 or chunk_end == w_end
