@@ -98,7 +98,10 @@ def _prepare_compat_kwargs(
     explicit_disable = clean_kw.pop("disable_web_page_preview", disable_preview)
 
     if explicit_disable is not None:
-        if "link_preview_options" in supported_params and LinkPreviewOptions is not None:
+        if (
+            "link_preview_options" in supported_params
+            and LinkPreviewOptions is not None
+        ):
             try:
                 clean_kw["link_preview_options"] = LinkPreviewOptions(
                     is_disabled=bool(explicit_disable)
@@ -282,7 +285,11 @@ async def fetch_all_users_safely() -> List[dict]:
 
 def extract_chat_id_and_title(chat_doc: dict) -> Tuple[Optional[int], str]:
     raw_id = next(
-        (chat_doc.get(k) for k in ("id", "chat_id", "_id", "group_id") if chat_doc.get(k) is not None),
+        (
+            chat_doc.get(k)
+            for k in ("id", "chat_id", "_id", "group_id")
+            if chat_doc.get(k) is not None
+        ),
         None,
     )
     cid = None
@@ -303,7 +310,11 @@ def extract_chat_id_and_title(chat_doc: dict) -> Tuple[Optional[int], str]:
 
 def extract_user_id_and_name(user_doc: dict) -> Tuple[Optional[int], str]:
     raw_id = next(
-        (user_doc.get(k) for k in ("id", "user_id", "_id") if user_doc.get(k) is not None),
+        (
+            user_doc.get(k)
+            for k in ("id", "user_id", "_id")
+            if user_doc.get(k) is not None
+        ),
         None,
     )
     uid = None
