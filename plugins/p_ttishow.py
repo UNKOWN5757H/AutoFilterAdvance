@@ -1,16 +1,16 @@
 import asyncio
+import hashlib
 import html
 import inspect
 import re
 from logging import ERROR, getLogger
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from motor.motor_asyncio import AsyncIOMotorClient
-from pyrogram import Client, enums, filters
+from pyrogram import Client, StopPropagation, enums, filters
 from pyrogram.errors import (
     ChatAdminRequired,
     ChatWriteForbidden,
-    FloodWait,
     Forbidden,
     MessageIdInvalid,
     MessageNotModified,
@@ -35,11 +35,57 @@ try:
 except ImportError:
     get_group_welcome = None
 
+# Share hidden-link registry with pm_filter.py so ZERO links appear inside any button
+try:
+    from plugins.pm_filter import register_hidden_link, sanitize_markup_hide_links
+except ImportError:
+    try:
+        from pm_filter import register_hidden_link, sanitize_markup_hide_links
+    except ImportError:
+        _LOCAL_HIDDEN_LINKS: Dict[str, str] = {}
+
+        def register_hidden_link(url: str) -> str:
+            clean_u = str(url or "").strip()
+            if clean_u and not clean_u.startswith(("http://", "https://", "tg://")):
+                clean_u = "https://" + clean_u.lstrip("/")
+            token = hashlib.md5(clean_u.encode("utf-8")).hexdigest()[:12]
+            if len(_LOCAL_HIDDEN_LINKS) >= 15000:
+                _LOCAL_HIDDEN_LINKS.pop(next(iter(_LOCAL_HIDDEN_LINKS)), None)
+            _LOCAL_HIDDEN_LINKS[token] = clean_u
+            return token
+
+        def sanitize_markup_hide_links(
+            markup: Optional[InlineKeyboardMarkup],
+        ) -> Optional[InlineKeyboardMarkup]:
+            if not markup or not getattr(markup, "inline_keyboard", None):
+                return markup
+            rows = []
+            for row in markup.inline_keyboard:
+                new_row = []
+                for b in row:
+                    st = getattr(b, "style", None)
+                    if getattr(b, "url", None):
+                        new_row.append(create_btn(b.text, url=b.url, style=st))
+                    else:
+                        new_row.append(
+                            create_btn(
+                                b.text,
+                                callback_data=getattr(b, "callback_data", "noop"),
+                                style=st,
+                            )
+                        )
+                if new_row:
+                    rows.append(new_row)
+            return InlineKeyboardMarkup(rows) if rows else None
+
+
 logger = getLogger(__name__)
 logger.setLevel(ERROR)
 
+_BG_TASKS: Set[asyncio.Task] = set()
+
 # ============================================================
-# 🛡️ PYROGRAM v2.2.26 (LAYER 230) COMPATIBILITY ENGINE
+# 🛡️ PYROGRAM v2.2.26 COMPATIBILITY & HIDDEN-LINK BUTTONS
 # ============================================================
 try:
     from pyrogram.types import LinkPreviewOptions
@@ -54,26 +100,73 @@ except ImportError:
 _REPLY_PARAMS = set(inspect.signature(Message.reply_text).parameters.keys())
 _EDIT_PARAMS = set(inspect.signature(Message.edit_text).parameters.keys())
 
+BTN_PRIMARY = None
+BTN_SUCCESS = None
+BTN_DANGER = None
+_SUPPORTS_BTN_STYLE = False
+
+try:
+    from pyrogram.enums import ButtonStyle
+
+    if "style" in inspect.signature(InlineKeyboardButton.__init__).parameters:
+        BTN_PRIMARY = getattr(ButtonStyle, "PRIMARY", None)
+        BTN_SUCCESS = getattr(ButtonStyle, "SUCCESS", None)
+        BTN_DANGER = getattr(ButtonStyle, "DANGER", None)
+        _SUPPORTS_BTN_STYLE = True
+except (ImportError, ValueError, TypeError):
+    pass
+
+
+def _clean_button_label(raw_label: str) -> str:
+    lbl = re.sub(r"<[^>]+>", "", str(raw_label or "")).strip()
+    lbl = re.sub(r"(?i)https?://\S+|t\.me/\S+|www\.\S+", "", lbl).strip(" -|:")
+    return lbl or "Open"
+
+
+def create_btn(
+    text: str,
+    url: Optional[str] = None,
+    callback_data: Optional[str] = None,
+    style: Any = None,
+) -> InlineKeyboardButton:
+    """Creates an InlineKeyboardButton with ZERO visible links inside the button."""
+    kwargs: Dict[str, Any] = {"text": _clean_button_label(text)}
+    if callback_data:
+        kwargs["callback_data"] = str(callback_data)[:64]
+    elif url:
+        kwargs["callback_data"] = f"olink#{register_hidden_link(url)}"
+    else:
+        kwargs["callback_data"] = "noop"
+
+    if _SUPPORTS_BTN_STYLE and style is not None:
+        kwargs["style"] = style
+    try:
+        return InlineKeyboardButton(**kwargs)
+    except Exception:
+        kwargs.pop("style", None)
+        return InlineKeyboardButton(**kwargs)
+
 
 def _prepare_compat_kwargs(
-    kwargs: dict, supported_params: set, disable_preview: Optional[bool] = None
+    kwargs: dict, supported_params: set, disable_preview: Optional[bool] = True
 ) -> dict:
     clean_kw = dict(kwargs)
-    explicit_disable = clean_kw.pop("disable_web_page_preview", disable_preview)
+    if "reply_markup" in clean_kw and isinstance(
+        clean_kw["reply_markup"], InlineKeyboardMarkup
+    ):
+        clean_kw["reply_markup"] = sanitize_markup_hide_links(clean_kw["reply_markup"])
 
+    explicit_disable = clean_kw.pop("disable_web_page_preview", disable_preview)
     if explicit_disable is not None:
-        if "disable_web_page_preview" in supported_params:
-            clean_kw["disable_web_page_preview"] = bool(explicit_disable)
-        elif (
-            "link_preview_options" in supported_params
-            and LinkPreviewOptions is not None
-        ):
+        if "link_preview_options" in supported_params and LinkPreviewOptions is not None:
             try:
                 clean_kw["link_preview_options"] = LinkPreviewOptions(
                     is_disabled=bool(explicit_disable)
                 )
             except Exception:
                 pass
+        elif "disable_web_page_preview" in supported_params:
+            clean_kw["disable_web_page_preview"] = bool(explicit_disable)
 
     if "reply_to_message_id" in clean_kw:
         rep_id = clean_kw.pop("reply_to_message_id")
@@ -92,16 +185,21 @@ def _prepare_compat_kwargs(
 async def safe_reply_text(
     message: Message, text: str, disable_web_page_preview: bool = True, **kwargs
 ) -> Optional[Message]:
+    if not message:
+        return None
     compat_kw = _prepare_compat_kwargs(
         kwargs, _REPLY_PARAMS, disable_preview=disable_web_page_preview
     )
     try:
         return await message.reply_text(text, **compat_kw)
     except TypeError:
-        compat_kw.pop("disable_web_page_preview", None)
-        compat_kw.pop("link_preview_options", None)
-        compat_kw.pop("reply_parameters", None)
-        compat_kw.pop("reply_to_message_id", None)
+        for k in (
+            "disable_web_page_preview",
+            "link_preview_options",
+            "reply_parameters",
+            "reply_to_message_id",
+        ):
+            compat_kw.pop(k, None)
         return await message.reply_text(text, **compat_kw)
     except (ChatWriteForbidden, Forbidden, UserIsBlocked, PeerIdInvalid):
         return None
@@ -110,17 +208,22 @@ async def safe_reply_text(
 async def safe_edit_text(
     message: Message, text: str, disable_web_page_preview: bool = True, **kwargs
 ) -> Optional[Message]:
+    if not message:
+        return None
     compat_kw = _prepare_compat_kwargs(
         kwargs, _EDIT_PARAMS, disable_preview=disable_web_page_preview
     )
     try:
         return await message.edit_text(text, **compat_kw)
+    except (MessageNotModified, MessageIdInvalid, ChatWriteForbidden, Forbidden):
+        return None
     except TypeError:
         compat_kw.pop("disable_web_page_preview", None)
         compat_kw.pop("link_preview_options", None)
-        return await message.edit_text(text, **compat_kw)
-    except (MessageNotModified, MessageIdInvalid, ChatWriteForbidden, Forbidden):
-        return None
+        try:
+            return await message.edit_text(text, **compat_kw)
+        except Exception:
+            return None
 
 
 async def safe_answer(
@@ -138,47 +241,16 @@ async def safe_answer(
 
 
 # ============================================================
-# 🎨 SAFE TELEGRAM BUTTON STYLE DETECTION
+# ⚙️ TIMEOUT-SAFE WELCOME DB FALLBACK
 # ============================================================
-BTN_PRIMARY = None
-BTN_SECONDARY = None
-BTN_SUCCESS = None
-BTN_DANGER = None
-_SUPPORTS_BTN_STYLE = False
-
-try:
-    from pyrogram.enums import ButtonStyle
-
-    if "style" in inspect.signature(InlineKeyboardButton.__init__).parameters:
-        BTN_PRIMARY = getattr(ButtonStyle, "PRIMARY", None)
-        BTN_SECONDARY = getattr(ButtonStyle, "SECONDARY", None)
-        BTN_SUCCESS = getattr(ButtonStyle, "SUCCESS", None)
-        BTN_DANGER = getattr(ButtonStyle, "DANGER", None)
-        _SUPPORTS_BTN_STYLE = True
-except (ImportError, ValueError, TypeError):
-    BTN_PRIMARY = BTN_SECONDARY = BTN_SUCCESS = BTN_DANGER = None
-    _SUPPORTS_BTN_STYLE = False
-
-
-def create_btn(text, url=None, callback_data=None, style=None):
-    kwargs: Dict[str, Any] = {"text": str(text)}
-    if url:
-        kwargs["url"] = str(url).strip()
-    elif callback_data:
-        kwargs["callback_data"] = str(callback_data)[:64]
-    if _SUPPORTS_BTN_STYLE and style is not None:
-        kwargs["style"] = style
-    try:
-        return InlineKeyboardButton(**kwargs)
-    except Exception:
-        kwargs.pop("style", None)
-        return InlineKeyboardButton(**kwargs)
-
-
-# Fallback MongoDB connection for welcome settings if needed
 _g_welcome_db = None
 try:
-    _DB_CLIENT = AsyncIOMotorClient(info.DATABASE_URI)
+    _DB_CLIENT = AsyncIOMotorClient(
+        info.DATABASE_URI,
+        serverSelectionTimeoutMS=4000,
+        connectTimeoutMS=4000,
+        socketTimeoutMS=8000,
+    )
     _BOT_DB = _DB_CLIENT[info.DATABASE_NAME]
     _g_welcome_db = _BOT_DB["group_welcome_settings"]
 except Exception as e:
@@ -195,7 +267,9 @@ async def safe_get_group_welcome(chat_id: int) -> dict:
             pass
     if _g_welcome_db is not None:
         try:
-            doc = await _g_welcome_db.find_one({"_id": int(chat_id)})
+            doc = await asyncio.wait_for(
+                _g_welcome_db.find_one({"_id": int(chat_id)}), timeout=2.0
+            )
             return doc or {}
         except Exception:
             pass
@@ -208,7 +282,7 @@ class SafeFormatDict(dict):
 
 
 # ============================================================
-# 👑 SMART AUTHORIZATION ENGINE (GLOBAL + CHAT + ANONYMOUS)
+# 👑 SMART AUTHORIZATION ENGINE
 # ============================================================
 def get_admin_list() -> List[int]:
     raw_admins = getattr(info, "ADMINS", [])
@@ -222,7 +296,7 @@ def get_admin_list() -> List[int]:
 
 
 async def is_global_admin(user_id: int) -> bool:
-    return int(user_id) in get_admin_list() if user_id else False
+    return bool(user_id and int(user_id) in get_admin_list())
 
 
 async def is_message_global_admin(message: Message) -> bool:
@@ -234,6 +308,17 @@ async def is_message_global_admin(message: Message) -> bool:
     return False
 
 
+async def _require_global_admin(message: Message) -> bool:
+    if await is_message_global_admin(message):
+        return True
+    await safe_reply_text(
+        message,
+        "❌ <b>Unauthorized:</b> Global Bot Admin only.",
+        parse_mode=enums.ParseMode.HTML,
+    )
+    return False
+
+
 async def is_user_admin(client: Client, message: Message) -> bool:
     if await is_message_global_admin(message):
         return True
@@ -242,13 +327,11 @@ async def is_user_admin(client: Client, message: Message) -> bool:
         enums.ChatType.GROUP,
         enums.ChatType.SUPERGROUP,
     ]:
-        # Group anonymous admin or linked discussion channel
         if message.sender_chat:
             if message.sender_chat.id == message.chat.id:
                 return True
             if getattr(message, "is_automatic_forward", False):
                 return True
-
         if message.from_user:
             try:
                 member = await client.get_chat_member(
@@ -260,12 +343,11 @@ async def is_user_admin(client: Client, message: Message) -> bool:
                 ]
             except Exception:
                 pass
-
     return False
 
 
 # ============================================================
-# 🛡️ ADMIN GROUP GATEKEEPER & LINK PROTECTOR
+# 🛡️ FAST GROUP GATEKEEPER & LINK PROTECTOR (ZERO WASTED API CALLS)
 # ============================================================
 TELEGRAM_LINK_PATTERN = re.compile(
     r"(https?://)?(www\.)?(t(elegram)?\.(me|dog)|telegram\.org)/(joinchat/|\+|[a-zA-Z0-9_]+)",
@@ -274,21 +356,17 @@ TELEGRAM_LINK_PATTERN = re.compile(
 
 
 def is_external_channel_forward(message: Message) -> bool:
-    """Detects channel forwards across both standard Pyrogram and Layer 230+."""
     if getattr(message, "is_automatic_forward", False):
         return False
-
     if (
         getattr(message, "forward_from_chat", None)
         and message.forward_from_chat.type == enums.ChatType.CHANNEL
     ):
         return True
-
     origin = getattr(message, "forward_origin", None)
     if origin and getattr(origin, "chat", None):
         if origin.chat.type == enums.ChatType.CHANNEL:
             return True
-
     return False
 
 
@@ -300,44 +378,43 @@ async def _delete_warning_later(msg: Message, delay: int = 8):
         pass
 
 
+def _schedule_delete(msg: Optional[Message], delay: int = 8):
+    if not msg:
+        return
+    t = asyncio.create_task(_delete_warning_later(msg, delay))
+    _BG_TASKS.add(t)
+    t.add_done_callback(_BG_TASKS.discard)
+
+
 @Client.on_message(filters.group & ~filters.service & ~filters.bot, group=-4)
 async def group_gatekeeper_and_link_protector(bot: Client, message: Message):
-    # Bypass protector for Global Admins, Group Admins, and Anonymous Admins
+    text = message.text or message.caption or ""
+    has_tg_link = bool(text and TELEGRAM_LINK_PATTERN.search(text))
+    is_ch_fwd = not has_tg_link and is_external_channel_forward(message)
+
+    # Fast-path: return immediately if no violation (avoids calling get_chat_member on every message!)
+    if not has_tg_link and not is_ch_fwd:
+        return
+
     if await is_user_admin(bot, message):
         return
 
-    text = message.text or message.caption or ""
     mention = message.from_user.mention if message.from_user else "User"
+    warn_text = (
+        f"⚠️ <b>Link Deleted!</b> {mention}, unauthorized links are not permitted in this group."
+        if has_tg_link
+        else f"⚠️ <b>Channel Forward Blocked!</b> {mention}, forwarding messages from external channels is prohibited."
+    )
 
-    # 1. Check for unauthorized Telegram channel / invite links
-    if text and TELEGRAM_LINK_PATTERN.search(text):
-        try:
-            await message.delete()
-            warning = await bot.send_message(
-                message.chat.id,
-                f"⚠️ <b>Link Deleted!</b> {mention}, unauthorized links are not permitted in this group.",
-                parse_mode=enums.ParseMode.HTML,
-            )
-            asyncio.create_task(_delete_warning_later(warning, 8))
-            message.stop_propagation()
-        except Exception:
-            pass
-        return
-
-    # 2. Check for spammed forward headers from external channels
-    if is_external_channel_forward(message):
-        try:
-            await message.delete()
-            warning = await bot.send_message(
-                message.chat.id,
-                f"⚠️ <b>Channel Forward Blocked!</b> {mention}, forwarding messages from external channels is prohibited.",
-                parse_mode=enums.ParseMode.HTML,
-            )
-            asyncio.create_task(_delete_warning_later(warning, 8))
-            message.stop_propagation()
-        except Exception:
-            pass
-        return
+    try:
+        await message.delete()
+        warning = await bot.send_message(
+            message.chat.id, warn_text, parse_mode=enums.ParseMode.HTML
+        )
+        _schedule_delete(warning, 8)
+    except Exception:
+        pass
+    raise StopPropagation
 
 
 # ============================================================
@@ -345,7 +422,6 @@ async def group_gatekeeper_and_link_protector(bot: Client, message: Message):
 # ============================================================
 @Client.on_message(filters.command("start") & filters.private, group=-3)
 async def start_about_interceptor(bot: Client, message: Message):
-    """Handles ?start=about deep-link from the group welcome message so it never shows 'No such file exists'."""
     if len(message.command) == 2 and message.command[1].strip().lower() == "about":
         mention = message.from_user.mention if message.from_user else "User"
         bname = temp.B_NAME or (await bot.get_me()).first_name or "MovieBot"
@@ -364,6 +440,7 @@ async def start_about_interceptor(bot: Client, message: Message):
             ]
         )
         final_text, final_kb = parse_text_and_markup(raw_text, kb)
+        final_kb = sanitize_markup_hide_links(final_kb)
         img = getattr(info, "ABOUT_IMG", None)
         if img:
             try:
@@ -373,8 +450,9 @@ async def start_about_interceptor(bot: Client, message: Message):
                     reply_markup=final_kb,
                     parse_mode=enums.ParseMode.HTML,
                 )
-                message.stop_propagation()
-                return
+                raise StopPropagation
+            except StopPropagation:
+                raise
             except Exception:
                 pass
         await safe_reply_text(
@@ -383,7 +461,7 @@ async def start_about_interceptor(bot: Client, message: Message):
             reply_markup=final_kb,
             parse_mode=enums.ParseMode.HTML,
         )
-        message.stop_propagation()
+        raise StopPropagation
 
 
 @Client.on_message(filters.new_chat_members & filters.group, group=-3)
@@ -401,7 +479,6 @@ async def save_group(bot: Client, message: Message):
 
     new_member_ids = [u.id for u in message.new_chat_members]
 
-    # 1. If the Bot itself was added to the group
     if bot_id in new_member_ids:
         chat_doc = await _db.get_chat(message.chat.id)
         if not chat_doc:
@@ -480,15 +557,13 @@ async def save_group(bot: Client, message: Message):
             pass
         return
 
-    # 2. Regular Users Joined -> Check Welcome Settings
     w_settings = await safe_get_group_welcome(message.chat.id)
     settings = await get_settings(message.chat.id) or {}
-
-    if "welcome" in w_settings:
-        is_welcome_on = bool(w_settings.get("welcome"))
-    else:
-        is_welcome_on = bool(settings.get("welcome", True))
-
+    is_welcome_on = (
+        bool(w_settings.get("welcome"))
+        if "welcome" in w_settings
+        else bool(settings.get("welcome", True))
+    )
     if not is_welcome_on:
         return
 
@@ -502,6 +577,8 @@ async def save_group(bot: Client, message: Message):
 
     if not hasattr(temp, "MELCOW"):
         temp.MELCOW = {}
+    elif len(temp.MELCOW) > 2000:
+        temp.MELCOW.clear()
 
     for user in message.new_chat_members:
         if user.is_bot:
@@ -519,6 +596,7 @@ async def save_group(bot: Client, message: Message):
             )
         )
         final_text, final_markup = parse_text_and_markup(formatted_raw)
+        final_markup = sanitize_markup_hide_links(final_markup)
 
         old_msg = temp.MELCOW.get(message.chat.id)
         if old_msg:
@@ -556,12 +634,8 @@ async def save_group(bot: Client, message: Message):
 # ============================================================
 @Client.on_message(filters.command("disable") & filters.incoming, group=-2)
 async def disable_chat(bot: Client, message: Message):
-    if not await is_message_global_admin(message):
-        return await safe_reply_text(
-            message,
-            "❌ <b>Unauthorized:</b> Global Bot Admin only.",
-            parse_mode=enums.ParseMode.HTML,
-        )
+    if not await _require_global_admin(message):
+        return
 
     if len(message.command) == 1:
         return await safe_reply_text(
@@ -584,15 +658,14 @@ async def disable_chat(bot: Client, message: Message):
     chat_info = await _db.get_chat(chat_id)
     if not chat_info:
         try:
-            chat_obj = await bot.get_chat(chat_id)
-            chat_title = chat_obj.title or str(chat_id)
+            chat_title = (await bot.get_chat(chat_id)).title or str(chat_id)
         except Exception:
             chat_title = str(chat_id)
         await _db.add_chat(chat_id, chat_title)
         chat_info = await _db.get_chat(chat_id)
 
-    if chat_info and chat_info.get("is_disabled"):
-        btn = [
+    btn = InlineKeyboardMarkup(
+        [
             [
                 create_btn(
                     "✅ Re-Enable Chat",
@@ -601,12 +674,15 @@ async def disable_chat(bot: Client, message: Message):
                 )
             ]
         ]
+    )
+
+    if chat_info and chat_info.get("is_disabled"):
         return await safe_reply_text(
             message,
             f"🚷 <b>This chat is already disabled.</b>\n"
             f"🆔 <b>Chat ID:</b> <code>{chat_id}</code>\n"
             f"📝 <b>Reason:</b> <code>{html.escape(str(chat_info.get('reason', 'Unknown')))}</code>",
-            reply_markup=InlineKeyboardMarkup(btn),
+            reply_markup=btn,
             parse_mode=enums.ParseMode.HTML,
         )
 
@@ -616,19 +692,10 @@ async def disable_chat(bot: Client, message: Message):
     if chat_id not in temp.BANNED_CHATS:
         temp.BANNED_CHATS.append(chat_id)
 
-    btn = [
-        [
-            create_btn(
-                "✅ Re-Enable Chat",
-                callback_data=f"ptti#enable#{chat_id}",
-                style=BTN_SUCCESS,
-            )
-        ]
-    ]
     await safe_reply_text(
         message,
         f"✅ <b>Chat <code>{chat_id}</code> has been disabled!</b>\n📝 <b>Reason:</b> <code>{html.escape(reason)}</code>",
-        reply_markup=InlineKeyboardMarkup(btn),
+        reply_markup=btn,
         parse_mode=enums.ParseMode.HTML,
     )
     try:
@@ -639,12 +706,8 @@ async def disable_chat(bot: Client, message: Message):
 
 @Client.on_message(filters.command("enable") & filters.incoming, group=-2)
 async def enable_chat(bot: Client, message: Message):
-    if not await is_message_global_admin(message):
-        return await safe_reply_text(
-            message,
-            "❌ <b>Unauthorized:</b> Global Bot Admin only.",
-            parse_mode=enums.ParseMode.HTML,
-        )
+    if not await _require_global_admin(message):
+        return
 
     if len(message.command) == 1:
         return await safe_reply_text(
@@ -681,19 +744,21 @@ async def enable_chat(bot: Client, message: Message):
     if hasattr(temp, "BANNED_CHATS") and chat_id in temp.BANNED_CHATS:
         temp.BANNED_CHATS.remove(chat_id)
 
-    btn = [
+    btn = InlineKeyboardMarkup(
         [
-            create_btn(
-                "🚫 Disable Again",
-                callback_data=f"ptti#disable#{chat_id}",
-                style=BTN_DANGER,
-            )
+            [
+                create_btn(
+                    "🚫 Disable Again",
+                    callback_data=f"ptti#disable#{chat_id}",
+                    style=BTN_DANGER,
+                )
+            ]
         ]
-    ]
+    )
     await safe_reply_text(
         message,
         f"✅ <b>Chat <code>{chat_id}</code> has been successfully re-enabled!</b>",
-        reply_markup=InlineKeyboardMarkup(btn),
+        reply_markup=btn,
         parse_mode=enums.ParseMode.HTML,
     )
 
@@ -702,12 +767,8 @@ async def enable_chat(bot: Client, message: Message):
     filters.command(["disabled", "bannedchats"]) & filters.incoming, group=-2
 )
 async def list_disabled_chats(bot: Client, message: Message):
-    if not await is_message_global_admin(message):
-        return await safe_reply_text(
-            message,
-            "❌ <b>Unauthorized:</b> Global Bot Admin only.",
-            parse_mode=enums.ParseMode.HTML,
-        )
+    if not await _require_global_admin(message):
+        return
 
     raw_chats = await _db.get_all_chats()
     all_chats = (
@@ -762,12 +823,8 @@ async def list_disabled_chats(bot: Client, message: Message):
 
 @Client.on_message(filters.command("invite") & filters.incoming, group=-2)
 async def gen_invite_link_cmd(bot: Client, message: Message):
-    if not await is_message_global_admin(message):
-        return await safe_reply_text(
-            message,
-            "❌ <b>Unauthorized:</b> Global Bot Admin only.",
-            parse_mode=enums.ParseMode.HTML,
-        )
+    if not await _require_global_admin(message):
+        return
 
     if len(message.command) < 2:
         return await safe_reply_text(
@@ -812,9 +869,11 @@ async def ptti_callbacks(bot: Client, query: CallbackQuery):
     uid = query.from_user.id if query.from_user else 0
     if not await is_global_admin(uid):
         return await safe_answer(query, "❌ Unauthorized: Admin only.", show_alert=True)
+    if not query.message:
+        return await safe_answer(query)
 
     parts = query.data.split("#")
-    action = parts[1]
+    action = parts[1] if len(parts) > 1 else "close"
 
     if action == "close":
         await safe_answer(query)
@@ -824,25 +883,31 @@ async def ptti_callbacks(bot: Client, query: CallbackQuery):
             pass
         return
 
-    chat_id = int(parts[2])
+    try:
+        chat_id = int(parts[2])
+    except (IndexError, ValueError):
+        return await safe_answer(query, "⚠️ Invalid chat ID!", show_alert=True)
+
     if action == "enable":
         await _db.re_enable_chat(chat_id)
         if hasattr(temp, "BANNED_CHATS") and chat_id in temp.BANNED_CHATS:
             temp.BANNED_CHATS.remove(chat_id)
         await safe_answer(query, "✅ Chat Re-Enabled!", show_alert=True)
-        btn = [
+        btn = InlineKeyboardMarkup(
             [
-                create_btn(
-                    "🚫 Disable Chat",
-                    callback_data=f"ptti#disable#{chat_id}",
-                    style=BTN_DANGER,
-                )
+                [
+                    create_btn(
+                        "🚫 Disable Chat",
+                        callback_data=f"ptti#disable#{chat_id}",
+                        style=BTN_DANGER,
+                    )
+                ]
             ]
-        ]
+        )
         await safe_edit_text(
             query.message,
             f"✅ <b>Chat <code>{chat_id}</code> has been re-enabled!</b>",
-            reply_markup=InlineKeyboardMarkup(btn),
+            reply_markup=btn,
             parse_mode=enums.ParseMode.HTML,
         )
 
@@ -853,19 +918,21 @@ async def ptti_callbacks(bot: Client, query: CallbackQuery):
         if chat_id not in temp.BANNED_CHATS:
             temp.BANNED_CHATS.append(chat_id)
         await safe_answer(query, "🚫 Chat Disabled!", show_alert=True)
-        btn = [
+        btn = InlineKeyboardMarkup(
             [
-                create_btn(
-                    "✅ Re-Enable Chat",
-                    callback_data=f"ptti#enable#{chat_id}",
-                    style=BTN_SUCCESS,
-                )
+                [
+                    create_btn(
+                        "✅ Re-Enable Chat",
+                        callback_data=f"ptti#enable#{chat_id}",
+                        style=BTN_SUCCESS,
+                    )
+                ]
             ]
-        ]
+        )
         await safe_edit_text(
             query.message,
             f"🚷 <b>Chat <code>{chat_id}</code> has been disabled!</b>",
-            reply_markup=InlineKeyboardMarkup(btn),
+            reply_markup=btn,
             parse_mode=enums.ParseMode.HTML,
         )
         try:
