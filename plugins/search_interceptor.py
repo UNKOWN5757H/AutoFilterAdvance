@@ -144,9 +144,7 @@ def create_btn(
         return InlineKeyboardButton(**kwargs)
 
 
-def _prepare_reply_kwargs(
-    kwargs: dict, disable_preview: Optional[bool] = True
-) -> dict:
+def _prepare_reply_kwargs(kwargs: dict, disable_preview: Optional[bool] = True) -> dict:
     clean_kw = dict(kwargs)
     if "reply_markup" in clean_kw and isinstance(
         clean_kw["reply_markup"], InlineKeyboardMarkup
