@@ -68,9 +68,9 @@ try:
         safe_parse_text_and_markup,
         save_clean_words_state,
         save_pm_settings,
-        start_and_help_cmd as _uibuttons_start_help_cmd,
-        upload_image_safely,
     )
+    from plugins.uibuttons import start_and_help_cmd as _uibuttons_start_help_cmd
+    from plugins.uibuttons import upload_image_safely
 except ImportError:
     from uibuttons import (
         DEFAULT_CLEAN_WORDS,
@@ -89,9 +89,9 @@ except ImportError:
         safe_parse_text_and_markup,
         save_clean_words_state,
         save_pm_settings,
-        start_and_help_cmd as _uibuttons_start_help_cmd,
-        upload_image_safely,
     )
+    from uibuttons import start_and_help_cmd as _uibuttons_start_help_cmd
+    from uibuttons import upload_image_safely
 
 # Share the exact same hidden-link registry with pm_filter.py
 try:
@@ -507,9 +507,11 @@ def _parse_pm_button_args(raw_input: str) -> Tuple[Optional[str], Optional[str],
     if btn_color not in ["green", "red", "blue", "normal"]:
         btn_color = "red"
 
-    return _clean_button_label(btn_text) if btn_text else None, _normalize_pm_button_url(
-        btn_url
-    ), btn_color
+    return (
+        _clean_button_label(btn_text) if btn_text else None,
+        _normalize_pm_button_url(btn_url),
+        btn_color,
+    )
 
 
 # ============================================================
