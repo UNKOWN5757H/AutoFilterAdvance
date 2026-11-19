@@ -3,6 +3,7 @@ import html
 import inspect
 import io
 import math
+import re
 from datetime import datetime, timezone
 from logging import ERROR, getLogger
 from typing import Any, Dict, List, Optional, Tuple
@@ -33,7 +34,7 @@ logger = getLogger(__name__)
 logger.setLevel(ERROR)
 
 # ============================================================
-# 🛡️ PYROGRAM v2.2.26 (LAYER 230) COMPATIBILITY ENGINE
+# 🛡️ PYROGRAM v2.2.26 COMPATIBILITY & TEXT-ONLY BUTTON BUILDER
 # ============================================================
 try:
     from pyrogram.types import LinkPreviewOptions
@@ -48,26 +49,64 @@ except ImportError:
 _REPLY_PARAMS = set(inspect.signature(Message.reply_text).parameters.keys())
 _EDIT_PARAMS = set(inspect.signature(Message.edit_text).parameters.keys())
 
+BTN_PRIMARY = None
+BTN_SUCCESS = None
+BTN_DANGER = None
+_SUPPORTS_BTN_STYLE = False
+
+try:
+    from pyrogram.enums import ButtonStyle
+
+    if "style" in inspect.signature(InlineKeyboardButton.__init__).parameters:
+        BTN_PRIMARY = getattr(ButtonStyle, "PRIMARY", None)
+        BTN_SUCCESS = getattr(ButtonStyle, "SUCCESS", None)
+        BTN_DANGER = getattr(ButtonStyle, "DANGER", None)
+        _SUPPORTS_BTN_STYLE = True
+except (ImportError, ValueError, TypeError):
+    pass
+
+
+def _clean_button_label(raw_label: str) -> str:
+    lbl = re.sub(r"<[^>]+>", "", str(raw_label or "")).strip()
+    lbl = re.sub(r"(?i)https?://\S+|t\.me/\S+|www\.\S+", "", lbl).strip(" -|:")
+    return lbl or "Open"
+
+
+def create_btn(
+    text: str,
+    callback_data: str = "noop",
+    style: Any = None,
+) -> InlineKeyboardButton:
+    """Creates a pure text-only callback InlineKeyboardButton (zero links inside any button)."""
+    kwargs: Dict[str, Any] = {
+        "text": _clean_button_label(text),
+        "callback_data": str(callback_data)[:64],
+    }
+    if _SUPPORTS_BTN_STYLE and style is not None:
+        kwargs["style"] = style
+    try:
+        return InlineKeyboardButton(**kwargs)
+    except Exception:
+        kwargs.pop("style", None)
+        return InlineKeyboardButton(**kwargs)
+
 
 def _prepare_compat_kwargs(
-    kwargs: dict, supported_params: set, disable_preview: Optional[bool] = None
+    kwargs: dict, supported_params: set, disable_preview: Optional[bool] = True
 ) -> dict:
     clean_kw = dict(kwargs)
     explicit_disable = clean_kw.pop("disable_web_page_preview", disable_preview)
 
     if explicit_disable is not None:
-        if "disable_web_page_preview" in supported_params:
-            clean_kw["disable_web_page_preview"] = bool(explicit_disable)
-        elif (
-            "link_preview_options" in supported_params
-            and LinkPreviewOptions is not None
-        ):
+        if "link_preview_options" in supported_params and LinkPreviewOptions is not None:
             try:
                 clean_kw["link_preview_options"] = LinkPreviewOptions(
                     is_disabled=bool(explicit_disable)
                 )
             except Exception:
                 pass
+        elif "disable_web_page_preview" in supported_params:
+            clean_kw["disable_web_page_preview"] = bool(explicit_disable)
 
     if "reply_to_message_id" in clean_kw:
         rep_id = clean_kw.pop("reply_to_message_id")
@@ -86,16 +125,21 @@ def _prepare_compat_kwargs(
 async def safe_reply_text(
     message: Message, text: str, disable_web_page_preview: bool = True, **kwargs
 ) -> Optional[Message]:
+    if not message:
+        return None
     compat_kw = _prepare_compat_kwargs(
         kwargs, _REPLY_PARAMS, disable_preview=disable_web_page_preview
     )
     try:
         return await message.reply_text(text, **compat_kw)
     except TypeError:
-        compat_kw.pop("disable_web_page_preview", None)
-        compat_kw.pop("link_preview_options", None)
-        compat_kw.pop("reply_parameters", None)
-        compat_kw.pop("reply_to_message_id", None)
+        for k in (
+            "disable_web_page_preview",
+            "link_preview_options",
+            "reply_parameters",
+            "reply_to_message_id",
+        ):
+            compat_kw.pop(k, None)
         return await message.reply_text(text, **compat_kw)
     except (ChatWriteForbidden, Forbidden, UserIsBlocked, PeerIdInvalid):
         return None
@@ -104,6 +148,8 @@ async def safe_reply_text(
 async def safe_edit_text(
     message: Message, text: str, disable_web_page_preview: bool = True, **kwargs
 ) -> Optional[Message]:
+    if not message:
+        return None
     compat_kw = _prepare_compat_kwargs(
         kwargs, _EDIT_PARAMS, disable_preview=disable_web_page_preview
     )
@@ -121,27 +167,30 @@ async def safe_edit_text(
 
 
 async def safe_answer(
-    query: CallbackQuery,
-    text: Optional[str] = None,
-    show_alert: bool = False,
+    query: CallbackQuery, text: Optional[str] = None, show_alert: bool = False
 ):
     if not query:
         return
     try:
-        kwargs: Dict[str, Any] = {"show_alert": show_alert}
         if text is not None:
-            kwargs["text"] = str(text)[:200]
-        await query.answer(**kwargs)
+            await query.answer(str(text)[:200], show_alert=show_alert)
+        else:
+            await query.answer(show_alert=show_alert)
     except (QueryIdInvalid, Exception):
         pass
 
 
 # ============================================================
-# 🗄️ SAFE DATABASE CURSOR & FALLBACK ENGINE
+# 🗄️ TIMEOUT-SAFE DATABASE CURSOR & FALLBACK ENGINE
 # ============================================================
 _RAW_DB = None
 try:
-    _DB_CLIENT = AsyncIOMotorClient(info.DATABASE_URI)
+    _DB_CLIENT = AsyncIOMotorClient(
+        info.DATABASE_URI,
+        serverSelectionTimeoutMS=4000,
+        connectTimeoutMS=4000,
+        socketTimeoutMS=8000,
+    )
     _RAW_DB = _DB_CLIENT[info.DATABASE_NAME]
 except Exception as e:
     logger.error(f"Failed to init fallback DB client in channel.py: {e}")
@@ -164,10 +213,11 @@ async def _consume_cursor_or_iterable(obj: Any) -> List[dict]:
 
 
 async def fetch_all_chats_safely() -> List[dict]:
-    """Reliably fetches all chats from _db or fallback MongoDB collections."""
     try:
         if hasattr(_db, "get_all_chats"):
-            res = await _consume_cursor_or_iterable(_db.get_all_chats())
+            res = await asyncio.wait_for(
+                _consume_cursor_or_iterable(_db.get_all_chats()), timeout=8.0
+            )
             if res:
                 return res
     except Exception as e:
@@ -175,7 +225,9 @@ async def fetch_all_chats_safely() -> List[dict]:
 
     try:
         if hasattr(_db, "grp"):
-            res = await _consume_cursor_or_iterable(_db.grp.find({}))
+            res = await asyncio.wait_for(
+                _consume_cursor_or_iterable(_db.grp.find({})), timeout=8.0
+            )
             if res:
                 return res
     except Exception:
@@ -184,7 +236,9 @@ async def fetch_all_chats_safely() -> List[dict]:
     if _RAW_DB is not None:
         for col_name in ("groups", "chats", "grp", "Chat"):
             try:
-                docs = await _RAW_DB[col_name].find({}).to_list(length=None)
+                docs = await asyncio.wait_for(
+                    _RAW_DB[col_name].find({}).to_list(length=None), timeout=6.0
+                )
                 if docs:
                     return docs
             except Exception:
@@ -193,10 +247,11 @@ async def fetch_all_chats_safely() -> List[dict]:
 
 
 async def fetch_all_users_safely() -> List[dict]:
-    """Reliably fetches all users from _db or fallback MongoDB collections."""
     try:
         if hasattr(_db, "get_all_users"):
-            res = await _consume_cursor_or_iterable(_db.get_all_users())
+            res = await asyncio.wait_for(
+                _consume_cursor_or_iterable(_db.get_all_users()), timeout=10.0
+            )
             if res:
                 return res
     except Exception as e:
@@ -204,7 +259,9 @@ async def fetch_all_users_safely() -> List[dict]:
 
     try:
         if hasattr(_db, "col"):
-            res = await _consume_cursor_or_iterable(_db.col.find({}))
+            res = await asyncio.wait_for(
+                _consume_cursor_or_iterable(_db.col.find({})), timeout=10.0
+            )
             if res:
                 return res
     except Exception:
@@ -213,7 +270,9 @@ async def fetch_all_users_safely() -> List[dict]:
     if _RAW_DB is not None:
         for col_name in ("users", "user", "col", "User"):
             try:
-                docs = await _RAW_DB[col_name].find({}).to_list(length=None)
+                docs = await asyncio.wait_for(
+                    _RAW_DB[col_name].find({}).to_list(length=None), timeout=8.0
+                )
                 if docs:
                     return docs
             except Exception:
@@ -222,11 +281,10 @@ async def fetch_all_users_safely() -> List[dict]:
 
 
 def extract_chat_id_and_title(chat_doc: dict) -> Tuple[Optional[int], str]:
-    raw_id = None
-    for k in ("id", "chat_id", "_id", "group_id"):
-        if chat_doc.get(k) is not None:
-            raw_id = chat_doc.get(k)
-            break
+    raw_id = next(
+        (chat_doc.get(k) for k in ("id", "chat_id", "_id", "group_id") if chat_doc.get(k) is not None),
+        None,
+    )
     cid = None
     if raw_id is not None:
         try:
@@ -244,11 +302,10 @@ def extract_chat_id_and_title(chat_doc: dict) -> Tuple[Optional[int], str]:
 
 
 def extract_user_id_and_name(user_doc: dict) -> Tuple[Optional[int], str]:
-    raw_id = None
-    for k in ("id", "user_id", "_id"):
-        if user_doc.get(k) is not None:
-            raw_id = user_doc.get(k)
-            break
+    raw_id = next(
+        (user_doc.get(k) for k in ("id", "user_id", "_id") if user_doc.get(k) is not None),
+        None,
+    )
     uid = None
     if raw_id is not None:
         try:
@@ -266,7 +323,7 @@ def extract_user_id_and_name(user_doc: dict) -> Tuple[Optional[int], str]:
 
 
 # ============================================================
-# 👑 FULL POWER ADMIN CHECKER (GLOBAL + CHAT + ANONYMOUS)
+# 👑 FULL POWER ADMIN CHECKER
 # ============================================================
 def get_admin_list() -> List[int]:
     raw_admins = getattr(info, "ADMINS", [])
@@ -286,7 +343,6 @@ async def is_user_admin(client: Client, message: Message) -> bool:
 
     if message.from_user and message.from_user.id in admin_list:
         return True
-
     if message.sender_chat and message.sender_chat.id in admin_list:
         return True
 
@@ -296,7 +352,6 @@ async def is_user_admin(client: Client, message: Message) -> bool:
     ]:
         if message.sender_chat and message.sender_chat.id == message.chat.id:
             return True
-
         if message.from_user:
             try:
                 member = await client.get_chat_member(
@@ -308,37 +363,60 @@ async def is_user_admin(client: Client, message: Message) -> bool:
                 ]
             except Exception:
                 pass
-
     return False
 
 
 async def is_callback_user_admin(client: Client, query: CallbackQuery) -> bool:
     if not query or not query.from_user:
         return False
-
-    user_id = query.from_user.id
-    if user_id in get_admin_list():
+    if query.from_user.id in get_admin_list():
         return True
-
     if (
         query.message
         and query.message.chat
-        and query.message.chat.type
-        in [
-            enums.ChatType.GROUP,
-            enums.ChatType.SUPERGROUP,
-        ]
+        and query.message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]
     ):
         try:
-            member = await client.get_chat_member(query.message.chat.id, user_id)
+            member = await client.get_chat_member(
+                query.message.chat.id, query.from_user.id
+            )
             return member.status in [
                 enums.ChatMemberStatus.ADMINISTRATOR,
                 enums.ChatMemberStatus.OWNER,
             ]
         except Exception:
             pass
-
     return False
+
+
+async def _require_admin(client: Client, message: Message) -> bool:
+    if await is_user_admin(client, message):
+        return True
+    await safe_reply_text(
+        message,
+        "❌ <b>Unauthorized:</b> Admin access required.",
+        parse_mode=enums.ParseMode.HTML,
+    )
+    return False
+
+
+async def _remove_chat_from_dbs(cid: int):
+    try:
+        if hasattr(_db, "delete_chat"):
+            await _db.delete_chat(cid)
+        if hasattr(_db, "grp"):
+            await _db.grp.delete_many({"$or": [{"id": cid}, {"chat_id": cid}]})
+    except Exception:
+        pass
+
+    if _RAW_DB is not None:
+        for col_name in ("groups", "chats", "grp"):
+            try:
+                await _RAW_DB[col_name].delete_many(
+                    {"$or": [{"id": cid}, {"chat_id": cid}, {"_id": cid}]}
+                )
+            except Exception:
+                pass
 
 
 # ============================================================
@@ -366,13 +444,12 @@ async def _fetch_single_channel_meta(
             invite_link = chat_obj.invite_link
 
         member_self = await client.get_chat_member(cid, "me")
-        if member_self.status in [
-            enums.ChatMemberStatus.ADMINISTRATOR,
-            enums.ChatMemberStatus.OWNER,
-        ]:
-            status_tag = "👑 Admin"
-        else:
-            status_tag = "👤 Member"
+        status_tag = (
+            "👑 Admin"
+            if member_self.status
+            in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]
+            else "👤 Member"
+        )
 
     try:
         await asyncio.wait_for(_query_tg(), timeout=4.0)
@@ -407,7 +484,7 @@ async def build_channels_dashboard(
         return (
             "⚠️ <b>No connected channels or groups found in database.</b>",
             InlineKeyboardMarkup(
-                [[InlineKeyboardButton("🔐 Close", callback_data="chan_close")]]
+                [[create_btn("🔐 Close", callback_data="chan_close")]]
             ),
         )
 
@@ -441,35 +518,33 @@ async def build_channels_dashboard(
         )
         buttons.append(
             [
-                InlineKeyboardButton(
-                    f"📢 {meta['raw_title']}", callback_data=f"chan_info:{cid}"
+                create_btn(
+                    f"📢 {meta['raw_title']}",
+                    callback_data=f"chan_info:{cid}",
+                    style=BTN_PRIMARY,
                 ),
-                InlineKeyboardButton(
-                    "🚪 Leave", callback_data=f"chan_leave:{cid}:{page}"
+                create_btn(
+                    "🚪 Leave",
+                    callback_data=f"chan_leave:{cid}:{page}",
+                    style=BTN_DANGER,
                 ),
             ]
         )
 
     nav_row: List[InlineKeyboardButton] = []
     if page > 1:
-        nav_row.append(
-            InlineKeyboardButton("⬅️ Prev", callback_data=f"chan_page:{page - 1}")
-        )
+        nav_row.append(create_btn("⬅️ Prev", callback_data=f"chan_page:{page - 1}"))
     nav_row.append(
-        InlineKeyboardButton(
-            f"📄 {page}/{total_pages}", callback_data=f"chan_page:{page}"
-        )
+        create_btn(f"📄 {page}/{total_pages}", callback_data=f"chan_page:{page}")
     )
     if page < total_pages:
-        nav_row.append(
-            InlineKeyboardButton("Next ➡️", callback_data=f"chan_page:{page + 1}")
-        )
+        nav_row.append(create_btn("Next ➡️", callback_data=f"chan_page:{page + 1}"))
     buttons.append(nav_row)
 
     buttons.append(
         [
-            InlineKeyboardButton("🔄 Refresh", callback_data=f"chan_page:{page}"),
-            InlineKeyboardButton("🔐 Close", callback_data="chan_close"),
+            create_btn("🔄 Refresh", callback_data=f"chan_page:{page}"),
+            create_btn("🔐 Close", callback_data="chan_close"),
         ]
     )
     return text, InlineKeyboardMarkup(buttons)
@@ -480,12 +555,8 @@ async def build_channels_dashboard(
     group=-2,
 )
 async def channels_dashboard_cmd(client: Client, message: Message):
-    if not await is_user_admin(client, message):
-        return await safe_reply_text(
-            message,
-            "❌ <b>Unauthorized:</b> Admin access required.",
-            parse_mode=enums.ParseMode.HTML,
-        )
+    if not await _require_admin(client, message):
+        return
 
     status = await safe_reply_text(
         message,
@@ -518,6 +589,8 @@ async def channels_page_cb(client: Client, query: CallbackQuery):
         return await safe_answer(
             query, "❌ Unauthorized: Admins only!", show_alert=True
         )
+    if not query.message:
+        return await safe_answer(query)
 
     page = int(query.matches[0].group(1))
     await safe_answer(query, "Updating dashboard...")
@@ -540,6 +613,8 @@ async def channels_leave_cb(client: Client, query: CallbackQuery):
         return await safe_answer(
             query, "❌ Unauthorized: Admins only!", show_alert=True
         )
+    if not query.message:
+        return await safe_answer(query)
 
     cid = int(query.matches[0].group(1))
     page = int(query.matches[0].group(2))
@@ -548,26 +623,9 @@ async def channels_leave_cb(client: Client, query: CallbackQuery):
         await client.leave_chat(cid)
     except Exception:
         pass
-
-    try:
-        if hasattr(_db, "delete_chat"):
-            await _db.delete_chat(cid)
-        if hasattr(_db, "grp"):
-            await _db.grp.delete_many({"$or": [{"id": cid}, {"chat_id": cid}]})
-    except Exception:
-        pass
-
-    if _RAW_DB is not None:
-        for col_name in ("groups", "chats", "grp"):
-            try:
-                await _RAW_DB[col_name].delete_many(
-                    {"$or": [{"id": cid}, {"chat_id": cid}, {"_id": cid}]}
-                )
-            except Exception:
-                pass
+    await _remove_chat_from_dbs(cid)
 
     await safe_answer(query, f"✅ Left and removed chat {cid}", show_alert=True)
-
     try:
         text, markup = await build_channels_dashboard(client, page=page)
         await safe_edit_text(
@@ -609,15 +667,16 @@ async def channels_close_cb(client: Client, query: CallbackQuery):
             query, "❌ Unauthorized: Admins only!", show_alert=True
         )
     await safe_answer(query, "Closed!")
-    try:
-        await query.message.delete()
-    except Exception:
-        pass
-    if query.message and query.message.reply_to_message:
+    if query.message:
         try:
-            await query.message.reply_to_message.delete()
+            await query.message.delete()
         except Exception:
             pass
+        if query.message.reply_to_message:
+            try:
+                await query.message.reply_to_message.delete()
+            except Exception:
+                pass
 
 
 # ============================================================
@@ -628,12 +687,8 @@ async def channels_close_cb(client: Client, query: CallbackQuery):
     group=-2,
 )
 async def leave_channel_cmd(client: Client, message: Message):
-    if not await is_user_admin(client, message):
-        return await safe_reply_text(
-            message,
-            "❌ <b>Unauthorized:</b> Admin access required.",
-            parse_mode=enums.ParseMode.HTML,
-        )
+    if not await _require_admin(client, message):
+        return
 
     if len(message.command) < 2:
         return await safe_reply_text(
@@ -642,9 +697,8 @@ async def leave_channel_cmd(client: Client, message: Message):
             parse_mode=enums.ParseMode.HTML,
         )
 
-    raw_arg = message.command[1].strip()
     try:
-        chat_id_int = int(raw_arg)
+        chat_id_int = int(message.command[1].strip())
     except ValueError:
         return await safe_reply_text(
             message,
@@ -653,9 +707,6 @@ async def leave_channel_cmd(client: Client, message: Message):
         )
 
     chat_title = "Unknown Chat"
-    tg_status = "⚠️ Not inside chat"
-    db_status = "⚠️ Not inside DB"
-
     try:
         chat = await client.get_chat(chat_id_int)
         chat_title = chat.title or "Unknown Chat"
@@ -669,23 +720,7 @@ async def leave_channel_cmd(client: Client, message: Message):
         tg_status = f"⚠️ Could not leave Telegram chat: {html.escape(str(e))}"
 
     try:
-        if hasattr(_db, "delete_chat"):
-            await _db.delete_chat(chat_id_int)
-        if hasattr(_db, "grp"):
-            await _db.grp.delete_many(
-                {"$or": [{"id": chat_id_int}, {"chat_id": chat_id_int}]}
-            )
-        if _RAW_DB is not None:
-            for col_name in ("groups", "chats", "grp"):
-                await _RAW_DB[col_name].delete_many(
-                    {
-                        "$or": [
-                            {"id": chat_id_int},
-                            {"chat_id": chat_id_int},
-                            {"_id": chat_id_int},
-                        ]
-                    }
-                )
+        await _remove_chat_from_dbs(chat_id_int)
         db_status = "✅ Removed from Database."
     except Exception as e:
         db_status = f"❌ DB Remove Error: {html.escape(str(e))}"
@@ -723,17 +758,13 @@ async def _send_export_document(
     except TypeError:
         bio.seek(0)
         await message.reply_document(
-            document=bio,
-            caption=caption,
-            parse_mode=enums.ParseMode.HTML,
+            document=bio, caption=caption, parse_mode=enums.ParseMode.HTML
         )
     except FloodWait as e:
         await asyncio.sleep(e.value + 1)
         bio.seek(0)
         await message.reply_document(
-            document=bio,
-            caption=caption,
-            parse_mode=enums.ParseMode.HTML,
+            document=bio, caption=caption, parse_mode=enums.ParseMode.HTML
         )
     if status_msg:
         try:
@@ -747,12 +778,8 @@ async def _send_export_document(
     group=-2,
 )
 async def export_users_cmd(bot: Client, message: Message):
-    if not await is_user_admin(bot, message):
-        return await safe_reply_text(
-            message,
-            "❌ <b>Unauthorized:</b> Admin access required.",
-            parse_mode=enums.ParseMode.HTML,
-        )
+    if not await _require_admin(bot, message):
+        return
 
     status = await safe_reply_text(
         message,
@@ -761,24 +788,14 @@ async def export_users_cmd(bot: Client, message: Message):
     )
     try:
         users = await fetch_all_users_safely()
-        if not users:
-            if status:
-                return await safe_edit_text(
-                    status,
-                    "⚠️ <b>No users found in the database.</b>",
-                    parse_mode=enums.ParseMode.HTML,
-                )
-            return
-
-        lines: List[str] = []
-        for u in users:
-            uid, name = extract_user_id_and_name(u)
-            if uid is not None:
-                lines.append(f"{uid} - {name}")
-
+        lines = [
+            f"{uid} - {name}"
+            for uid, name in (extract_user_id_and_name(u) for u in users)
+            if uid is not None
+        ]
         if not lines:
             if status:
-                return await safe_edit_text(
+                await safe_edit_text(
                     status,
                     "⚠️ <b>No valid user records found in the database.</b>",
                     parse_mode=enums.ParseMode.HTML,
@@ -809,12 +826,8 @@ async def export_users_cmd(bot: Client, message: Message):
     group=-2,
 )
 async def export_groups_cmd(bot: Client, message: Message):
-    if not await is_user_admin(bot, message):
-        return await safe_reply_text(
-            message,
-            "❌ <b>Unauthorized:</b> Admin access required.",
-            parse_mode=enums.ParseMode.HTML,
-        )
+    if not await _require_admin(bot, message):
+        return
 
     status = await safe_reply_text(
         message,
@@ -823,18 +836,7 @@ async def export_groups_cmd(bot: Client, message: Message):
     )
     try:
         chats = await fetch_all_chats_safely()
-        if not chats:
-            if status:
-                return await safe_edit_text(
-                    status,
-                    "⚠️ <b>No groups found in the database.</b>",
-                    parse_mode=enums.ParseMode.HTML,
-                )
-            return
-
-        normal_groups = 0
-        supergroups = 0
-        lines: List[str] = []
+        normal_groups, supergroups, lines = 0, 0, []
 
         for c in chats:
             cid, title = extract_chat_id_and_title(c)
@@ -848,7 +850,7 @@ async def export_groups_cmd(bot: Client, message: Message):
 
         if not lines:
             if status:
-                return await safe_edit_text(
+                await safe_edit_text(
                     status,
                     "⚠️ <b>No valid group records found in the database.</b>",
                     parse_mode=enums.ParseMode.HTML,
@@ -880,12 +882,8 @@ async def export_groups_cmd(bot: Client, message: Message):
     group=-2,
 )
 async def export_channels_cmd(bot: Client, message: Message):
-    if not await is_user_admin(bot, message):
-        return await safe_reply_text(
-            message,
-            "❌ <b>Unauthorized:</b> Admin access required.",
-            parse_mode=enums.ParseMode.HTML,
-        )
+    if not await _require_admin(bot, message):
+        return
 
     status = await safe_reply_text(
         message,
@@ -894,15 +892,15 @@ async def export_channels_cmd(bot: Client, message: Message):
     )
     try:
         chats = await fetch_all_chats_safely()
-        lines: List[str] = []
-        for c in chats:
-            cid, title = extract_chat_id_and_title(c)
-            if cid is not None and str(cid).startswith("-100"):
-                lines.append(f"{cid} - {title}")
+        lines = [
+            f"{cid} - {title}"
+            for cid, title in (extract_chat_id_and_title(c) for c in chats)
+            if cid is not None and str(cid).startswith("-100")
+        ]
 
         if not lines:
             if status:
-                return await safe_edit_text(
+                await safe_edit_text(
                     status,
                     "⚠️ <b>No channels/supergroups found in the database.</b>",
                     parse_mode=enums.ParseMode.HTML,
