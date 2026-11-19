@@ -103,7 +103,10 @@ def _prepare_compat_kwargs(
     explicit_disable = clean_kw.pop("disable_web_page_preview", disable_preview)
 
     if explicit_disable is not None:
-        if "link_preview_options" in supported_params and LinkPreviewOptions is not None:
+        if (
+            "link_preview_options" in supported_params
+            and LinkPreviewOptions is not None
+        ):
             try:
                 clean_kw["link_preview_options"] = LinkPreviewOptions(
                     is_disabled=bool(explicit_disable)
@@ -290,7 +293,9 @@ async def get_fa_config(chat_id: int, force_refresh: bool = False) -> Dict[str, 
 
     if cfg_col is not None:
         try:
-            doc = await asyncio.wait_for(cfg_col.find_one({"chat_id": cid}), timeout=2.0)
+            doc = await asyncio.wait_for(
+                cfg_col.find_one({"chat_id": cid}), timeout=2.0
+            )
         except Exception:
             doc = None
 
