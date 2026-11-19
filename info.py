@@ -106,7 +106,9 @@ CHANNELS = _safe_int_list("CHANNELS", "-1002055023335")
 auth_users = _safe_int_list("AUTH_USERS", "2098589219")
 AUTH_USERS = (auth_users + ADMINS) if auth_users else []
 auth_grp = environ.get("AUTH_GROUP", "").strip()
-AUTH_GROUPS = [int(ch) for ch in auth_grp.split() if id_pattern.match(ch)] if auth_grp else None
+AUTH_GROUPS = (
+    [int(ch) for ch in auth_grp.split() if id_pattern.match(ch)] if auth_grp else None
+)
 
 # ============================================================
 # 💾 MULTI-DATABASE CONFIGURATION
@@ -190,7 +192,9 @@ SPELL_CHECK_REPLY = is_enabled(environ.get("SPELL_CHECK_REPLY", "True"), True)
 MAX_LIST_ELM = environ.get("MAX_LIST_ELM", None)
 INDEX_REQ_CHANNEL = _safe_int("INDEX_REQ_CHANNEL", LOG_CHANNEL)
 FILE_STORE_CHANNEL = [
-    x for x in _safe_int_list("FILE_STORE_CHANNEL", "-1002961955349") if isinstance(x, int)
+    x
+    for x in _safe_int_list("FILE_STORE_CHANNEL", "-1002961955349")
+    if isinstance(x, int)
 ]
 MELCOW_NEW_USERS = is_enabled(environ.get("MELCOW_NEW_USERS", "False"), False)
 PROTECT_CONTENT = is_enabled(environ.get("PROTECT_CONTENT", "False"), False)
