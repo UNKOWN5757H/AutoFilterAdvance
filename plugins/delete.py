@@ -35,10 +35,7 @@ from utils import save_group_settings, temp
 # 🛡️ SAFE OPTIONAL IMPORTS (MULTI-DB & HIDDEN-LINK REGISTRY)
 # ============================================================
 try:
-    from database.ia_filterdb import (
-        get_all_configured_dbs,
-        get_writable_System_db,
-    )
+    from database.ia_filterdb import get_all_configured_dbs, get_writable_System_db
 except ImportError:
     get_all_configured_dbs = None
     get_writable_System_db = None
@@ -175,7 +172,10 @@ def _prepare_compat_kwargs(
 
     explicit_disable = clean_kw.pop("disable_web_page_preview", disable_preview)
     if explicit_disable is not None:
-        if "link_preview_options" in supported_params and LinkPreviewOptions is not None:
+        if (
+            "link_preview_options" in supported_params
+            and LinkPreviewOptions is not None
+        ):
             try:
                 clean_kw["link_preview_options"] = LinkPreviewOptions(
                     is_disabled=bool(explicit_disable)
@@ -783,7 +783,12 @@ async def delete_single_file(bot: Client, message: Message):
                     {"_id": arg_str},
                     {"file_id": arg_str},
                     {"file_name": arg_str},
-                    {"file_name": {"$regex": f"^{re.escape(arg_str)}$", "$options": "i"}},
+                    {
+                        "file_name": {
+                            "$regex": f"^{re.escape(arg_str)}$",
+                            "$options": "i",
+                        }
+                    },
                 ]
             }
             for media_col in media_cols:
@@ -832,7 +837,13 @@ async def delete_single_file(bot: Client, message: Message):
         deleted_total = 0
         for media_col in media_cols:
             res = await media_col.delete_many(
-                {"$or": [{"_id": file_id}, {"file_id": file_id}, {"_id": media.file_id}]}
+                {
+                    "$or": [
+                        {"_id": file_id},
+                        {"file_id": file_id},
+                        {"_id": media.file_id},
+                    ]
+                }
             )
             deleted_total += res.deleted_count
 
