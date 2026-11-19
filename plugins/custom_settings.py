@@ -28,10 +28,7 @@ except ImportError:
     _std_active_connection = None
 
 try:
-    from database.ia_filterdb import (
-        get_all_healthy_read_dbs,
-        get_writable_System_db,
-    )
+    from database.ia_filterdb import get_all_healthy_read_dbs, get_writable_System_db
 except ImportError:
     get_all_healthy_read_dbs = None
     get_writable_System_db = None
@@ -83,7 +80,10 @@ def _prepare_compat_kwargs(
 
     explicit_disable = clean_kw.pop("disable_web_page_preview", disable_preview)
     if explicit_disable is not None:
-        if "link_preview_options" in supported_params and LinkPreviewOptions is not None:
+        if (
+            "link_preview_options" in supported_params
+            and LinkPreviewOptions is not None
+        ):
             try:
                 clean_kw["link_preview_options"] = LinkPreviewOptions(
                     is_disabled=bool(explicit_disable)
@@ -428,9 +428,7 @@ async def get_target_chat(client: Client, message: Message) -> Optional[int]:
     return message.chat.id
 
 
-async def _resolve_admin_target_chat(
-    client: Client, message: Message
-) -> Optional[int]:
+async def _resolve_admin_target_chat(client: Client, message: Message) -> Optional[int]:
     target_chat_id = await get_target_chat(client, message)
     if not target_chat_id:
         await safe_reply_text(
