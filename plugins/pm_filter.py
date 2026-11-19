@@ -1,6 +1,7 @@
 import ast
 import asyncio
 import difflib
+import hashlib
 import html
 import inspect
 import math
@@ -107,20 +108,6 @@ except ImportError:
 
         def get_stopwords():
             return []
-
-
-try:
-    from plugins.shortner import is_shortener_active, shorten_single_url
-except ImportError:
-    try:
-        from shortner import is_shortener_active, shorten_single_url
-    except ImportError:
-
-        async def is_shortener_active() -> bool:
-            return False
-
-        async def shorten_single_url(url: str, cfg=None) -> str:
-            return url
 
 
 logger = getLogger(__name__)
@@ -260,10 +247,11 @@ def strip_stylish_fonts(text: str) -> str:
 
 
 # ============================================================
-# 🔗 CUSTOM EXTRA BUTTON LINKS
+# 🔗 CUSTOM EXTRA BUTTON LINKS (HIDDEN BEHIND CALLBACK BUTTONS)
 # ============================================================
 EXTRA_BTN_1_URL = getattr(info, "EXTRA_BTN_1_URL", "https://t.me/+lcTawsnhdi0zYWE1")
 EXTRA_BTN_2_URL = getattr(info, "EXTRA_BTN_2_URL", "https://t.me/linkz_ki_duniyaa")
+LATEST_UPDATES_URL = getattr(info, "LATEST_UPDATES_URL", "https://t.me/+8Mw-Y-fYN6hiZWZl")
 
 # ============================================================
 # 🌐 LANGUAGES & 🎞️ QUALITIES CONFIGURATION
@@ -581,7 +569,7 @@ def generate_phonetic_variants(translit_str: str) -> List[str]:
 
 
 # ============================================================
-# 🛡️ PYROGRAM v2.2.26 COMPATIBILITY & SAFE SEND HELPERS
+# 🛡️ PYROGRAM v2.2.26 COMPATIBILITY & HIDDEN-LINK BUTTON ENGINE
 # ============================================================
 try:
     from pyrogram.types import LinkPreviewOptions
@@ -612,45 +600,6 @@ except (ImportError, ValueError, TypeError):
     pass
 
 
-def _normalize_style(style: Any) -> Any:
-    if style is None or not _SUPPORTS_BTN_STYLE:
-        return None
-    if hasattr(style, "value"):
-        return style
-    if isinstance(style, int):
-        return {
-            1: BTN_PRIMARY,
-            3: BTN_SUCCESS,
-            4: BTN_DANGER,
-        }.get(style, None)
-    return style
-
-
-def create_btn(
-    text: str,
-    url: Optional[str] = None,
-    callback_data: Optional[str] = None,
-    style: Any = None,
-) -> InlineKeyboardButton:
-    kwargs: Dict[str, Any] = {"text": str(text)}
-    if url:
-        kwargs["url"] = str(url).strip()
-    elif callback_data:
-        kwargs["callback_data"] = str(callback_data)[:64]
-
-    norm_style = _normalize_style(style)
-    if norm_style is not None:
-        kwargs["style"] = norm_style
-    try:
-        return InlineKeyboardButton(**kwargs)
-    except Exception:
-        kwargs.pop("style", None)
-        return InlineKeyboardButton(**kwargs)
-
-
-# ============================================================
-# ⚡ ULTRA-FAST IN-MEMORY CACHE SYSTEM (ZERO DB LATENCY)
-# ============================================================
 class TTLCache:
     def __init__(self, maxsize: int = 2000, ttl: int = 1800):
         self._data: Dict[str, Tuple[float, Any]] = {}
@@ -688,26 +637,105 @@ SUGGESTIONS_CACHE = TTLCache(maxsize=2000, ttl=1800)
 DYM_QUERY_CACHE = TTLCache(maxsize=2000, ttl=1800)
 FUZZY_TITLES_CACHE = TTLCache(maxsize=10, ttl=1800)
 RESTRICTED_WRITE_CHATS = TTLCache(maxsize=500, ttl=300)
-SHORT_URL_CACHE = TTLCache(maxsize=10000, ttl=21600)
+
+# Shared hidden-link registry: maps short callback tokens -> target URLs
+# so NO InlineKeyboardButton ever embeds a visible `url=` inside the button!
+HIDDEN_LINKS_STORE: Dict[str, str] = {}
+_HIDDEN_LINKS_MAX = 15000
 
 
-async def _get_fast_short_url(long_url: str) -> str:
-    cached = SHORT_URL_CACHE.get(long_url)
-    if cached:
-        return cached
+def register_hidden_link(url: str) -> str:
+    clean_u = str(url or "").strip()
+    if clean_u and not clean_u.startswith(("http://", "https://", "tg://")):
+        clean_u = "https://" + clean_u.lstrip("/")
+    token = hashlib.md5(clean_u.encode("utf-8")).hexdigest()[:12]
+    if len(HIDDEN_LINKS_STORE) >= _HIDDEN_LINKS_MAX:
+        HIDDEN_LINKS_STORE.pop(next(iter(HIDDEN_LINKS_STORE)), None)
+    HIDDEN_LINKS_STORE[token] = clean_u
+    return token
+
+
+def resolve_hidden_link(token: str) -> Optional[str]:
+    return HIDDEN_LINKS_STORE.get(str(token or "").strip())
+
+
+def _clean_button_label(raw_label: str) -> str:
+    """Strips any HTML tags or raw URLs from button text so ONLY clean text is displayed."""
+    lbl = re.sub(r"<[^>]+>", "", str(raw_label or "")).strip()
+    lbl = re.sub(r"(?i)https?://\S+|t\.me/\S+|www\.\S+", "", lbl).strip(" -|:")
+    return lbl or "Open"
+
+
+def _normalize_style(style: Any) -> Any:
+    if style is None or not _SUPPORTS_BTN_STYLE:
+        return None
+    if hasattr(style, "value"):
+        return style
+    if isinstance(style, int):
+        return {
+            1: BTN_PRIMARY,
+            3: BTN_SUCCESS,
+            4: BTN_DANGER,
+        }.get(style, None)
+    return style
+
+
+def create_btn(
+    text: str,
+    url: Optional[str] = None,
+    callback_data: Optional[str] = None,
+    style: Any = None,
+) -> InlineKeyboardButton:
+    """
+    Creates an InlineKeyboardButton with ZERO visible links inside the button!
+    If `url` is passed, it is automatically converted into a hidden `olink#<token>`
+    callback button so Telegram displays ONLY the button text (no arrow icon, no link popup).
+    """
+    clean_text = _clean_button_label(text)
+    kwargs: Dict[str, Any] = {"text": clean_text}
+
+    if callback_data:
+        kwargs["callback_data"] = str(callback_data)[:64]
+    elif url:
+        token = register_hidden_link(url)
+        kwargs["callback_data"] = f"olink#{token}"
+    else:
+        kwargs["callback_data"] = "noop"
+
+    norm_style = _normalize_style(style)
+    if norm_style is not None:
+        kwargs["style"] = norm_style
     try:
-        short_u = await asyncio.wait_for(shorten_single_url(long_url), timeout=3.5)
-        if (
-            short_u
-            and isinstance(short_u, str)
-            and short_u.strip().startswith(("http://", "https://", "tg://"))
-        ):
-            clean_s = short_u.strip()
-            SHORT_URL_CACHE.set(long_url, clean_s)
-            return clean_s
+        return InlineKeyboardButton(**kwargs)
     except Exception:
-        pass
-    return long_url
+        kwargs.pop("style", None)
+        return InlineKeyboardButton(**kwargs)
+
+
+def sanitize_markup_hide_links(
+    markup: Optional[InlineKeyboardMarkup],
+) -> Optional[InlineKeyboardMarkup]:
+    """Converts any `url=` buttons inside an InlineKeyboardMarkup into hidden `olink#` buttons."""
+    if not markup or not getattr(markup, "inline_keyboard", None):
+        return markup
+    new_rows: List[List[InlineKeyboardButton]] = []
+    for row in markup.inline_keyboard:
+        new_row: List[InlineKeyboardButton] = []
+        for b in row:
+            st = getattr(b, "style", None)
+            if getattr(b, "url", None):
+                new_row.append(create_btn(text=b.text, url=b.url, style=st))
+            else:
+                new_row.append(
+                    create_btn(
+                        text=b.text,
+                        callback_data=getattr(b, "callback_data", "noop"),
+                        style=st,
+                    )
+                )
+        if new_row:
+            new_rows.append(new_row)
+    return InlineKeyboardMarkup(new_rows) if new_rows else None
 
 
 async def safe_reply_text(
@@ -718,6 +746,7 @@ async def safe_reply_text(
 ) -> Optional[Message]:
     if not msg:
         return None
+    reply_markup = sanitize_markup_hide_links(reply_markup)
     try:
         return await msg.reply_text(
             text=text,
@@ -771,6 +800,7 @@ async def safe_reply_photo_or_text(
 ) -> Optional[Message]:
     if not msg:
         return None
+    reply_markup = sanitize_markup_hide_links(reply_markup)
     if photo and str(photo).strip().lower() not in ["none", "null", "false", ""]:
         try:
             return await msg.reply_photo(
@@ -797,14 +827,17 @@ async def safe_answer(
     query: CallbackQuery,
     text: Optional[str] = None,
     show_alert: bool = False,
+    url: Optional[str] = None,
 ):
     if not query:
         return
     try:
+        kwargs: Dict[str, Any] = {"show_alert": show_alert}
         if text is not None:
-            await query.answer(str(text)[:200], show_alert=show_alert)
-        else:
-            await query.answer(show_alert=show_alert)
+            kwargs["text"] = str(text)[:200]
+        if url is not None:
+            kwargs["url"] = url
+        await query.answer(**kwargs)
     except (QueryIdInvalid, Exception):
         pass
 
@@ -1222,9 +1255,7 @@ async def safe_save_filter(
     }
 
     for target_key in {gid_str, "global"}:
-        if target_key not in _RAM_FILTERS_STORE:
-            _RAM_FILTERS_STORE[target_key] = {}
-        _RAM_FILTERS_STORE[target_key][kw_clean] = dict(
+        _RAM_FILTERS_STORE.setdefault(target_key, {})[kw_clean] = dict(
             doc_payload, group_id=target_key
         )
 
@@ -1436,7 +1467,7 @@ def build_effective_search_query(base_query: str, state: dict) -> str:
 
 
 # ============================================================
-# 🔮 ULTRA-FAST SEARCH, FALLBACK DB ENGINE & DEDUPLICATION
+# 🔮 PRECISION SEARCH, MULTI-DB FALLBACK & DEDUPLICATION ENGINE
 # ============================================================
 _ROMAN_TO_DIGIT = (
     (re.compile(r"(?i)\bpart\s+i\b"), "part 1"),
@@ -1473,7 +1504,7 @@ def sanitize_search_query(text: str, allow_translit: bool = True) -> str:
     for pat, repl in _ROMAN_TO_DIGIT:
         raw_q = pat.sub(repl, raw_q)
 
-    # Split glued letters and numbers like "kgf2" -> "kgf 2" (except resolution/season tokens)
+    # Split glued letters and digits like "kgf2" -> "kgf 2"
     raw_q = re.sub(r"\b([a-z]{3,})(\d)\b", r"\1 \2", raw_q)
 
     basic_q = re.sub(r"[^a-zA-Z0-9]", " ", raw_q)
@@ -1524,20 +1555,16 @@ async def _direct_collection_search(
     if not words:
         return [], 0, 0
 
-    # Flexible token matching: allows words in any order or separated by dots/underscores/spaces
-    def _build_mongo_filter(word_list: List[str]):
-        and_clauses = []
-        for w in word_list:
-            w_reg = re.compile(rf"(?:^|[^a-zA-Z0-9]){re.escape(w)}", re.IGNORECASE)
-            if getattr(info, "USE_CAPTION_FILTER", False):
-                and_clauses.append({"$or": [{"file_name": w_reg}, {"caption": w_reg}]})
-            else:
-                and_clauses.append({"file_name": w_reg})
-        return {"$and": and_clauses} if len(and_clauses) > 1 else and_clauses[0]
+    and_clauses = []
+    for w in words:
+        w_reg = re.compile(rf"(?:^|[^a-zA-Z0-9]){re.escape(w)}", re.IGNORECASE)
+        if getattr(info, "USE_CAPTION_FILTER", False):
+            and_clauses.append({"$or": [{"file_name": w_reg}, {"caption": w_reg}]})
+        else:
+            and_clauses.append({"file_name": w_reg})
+    mongo_filter = {"$and": and_clauses} if len(and_clauses) > 1 else and_clauses[0]
 
-    mongo_filter = _build_mongo_filter(words)
     results = []
-
     if callable(get_all_healthy_read_dbs):
         for idx, target_db in get_all_healthy_read_dbs():
             try:
@@ -1609,7 +1636,6 @@ async def safe_search_db(query: str, max_results: int = 10, offset: int = 0):
     if res and res[0]:
         return res
 
-    # Fallback to flexible multi-token direct search if strict order regex returned 0 results
     return await _direct_collection_search(
         query, max_results=max_results, offset=offset
     )
@@ -1673,7 +1699,9 @@ def _deduplicate_files(files: list, clean_words: list) -> list:
             f.get("file_size", 0) if isinstance(f, dict) else getattr(f, "file_size", 0)
         )
         norm_name = _normalize_dedup_name(raw_name, clean_words)
-        dedup_key = (norm_name, fsize)
+        # Bucket file size to nearest 16KB to eliminate near-identical re-uploads
+        size_bucket = fsize // 16384
+        dedup_key = (norm_name, size_bucket)
 
         if norm_name and dedup_key in seen_name_size:
             continue
@@ -1691,8 +1719,8 @@ def _score_file_relevance(file_obj, query_str: str) -> Tuple[int, int, int, int]
     """
     Precision file ranking:
     1. Exact movie title boundary match + Kannada language priority
-    2. All query words matched as whole tokens
-    3. Year match bonus (if user included a year)
+    2. Exact word-boundary match of all tokens & year bonus
+    3. Penalty when extra words appear before the movie title
     4. Larger/higher-quality file size tie-breaker
     """
     raw_fname = str(
@@ -1712,32 +1740,41 @@ def _score_file_relevance(file_obj, query_str: str) -> Tuple[int, int, int, int]
     clean_fname = re.sub(r"\s+", " ", clean_fname).strip()
 
     q_lower = query_str.lower().strip()
+    year_m = re.search(r"\b(19\d{2}|20\d{2})\b", q_lower)
+    q_year = year_m.group(1) if year_m else ""
     q_no_year = re.sub(r"\b(19\d{2}|20\d{2})\b", "", q_lower).strip()
     q_no_year = re.sub(r"\s+", " ", q_no_year) or q_lower
-    tokens = [t for t in q_lower.split() if t]
+    tokens = [t for t in q_no_year.split() if t]
 
     title_match_score = 0
     if extracted_title == q_lower or extracted_title == q_no_year:
-        title_match_score += 200
+        title_match_score += 250
     elif extracted_title.startswith(q_no_year + " ") or clean_fname.startswith(
-        q_lower + " "
+        q_no_year + " "
     ):
-        title_match_score += 140
+        title_match_score += 170
     elif re.search(rf"\b{re.escape(q_no_year)}\b", extracted_title):
-        title_match_score += 100
-    elif q_lower in clean_fname:
+        title_match_score += 110
+    elif q_no_year in clean_fname:
+        title_match_score += 65
+
+    if q_year and re.search(rf"\b{q_year}\b", clean_fname):
         title_match_score += 60
 
     matched_tokens = sum(
         1 for t in tokens if re.search(rf"\b{re.escape(t)}\b", clean_fname)
     )
     if tokens and matched_tokens == len(tokens):
-        title_match_score += 80
+        title_match_score += 90
     else:
         title_match_score += matched_tokens * 20
 
+    # Mild penalty if the movie title has extra unrelated prefix words (e.g. "Making Of ...")
+    if extracted_title and not extracted_title.startswith(q_no_year[:3]):
+        title_match_score -= 30
+
     is_kan = 1 if _is_kannada_file(file_obj) else 0
-    kannada_priority = 1 if (is_kan and title_match_score >= 60) else 0
+    kannada_priority = 1 if (is_kan and title_match_score >= 80) else 0
 
     return (kannada_priority, title_match_score, is_kan, fsize)
 
@@ -1753,7 +1790,7 @@ async def smart_filtered_search(
     deduped = POOL_SEARCH_CACHE.get(pool_cache_key)
 
     if deduped is None:
-        pool_limit = 120 if (lang_code or qual_val) else 80
+        pool_limit = 140 if (lang_code or qual_val) else 90
         pool, _, _ = await safe_search_db(base_query, max_results=pool_limit, offset=0)
 
         if not pool and (lang_code or qual_val):
@@ -1825,8 +1862,8 @@ async def get_cached_db_titles() -> List[str]:
                     await target_db[info.COLLECTION_NAME]
                     .find({}, {"file_name": 1})
                     .sort("_id", -1)
-                    .limit(2500)
-                    .to_list(length=2500)
+                    .limit(3000)
+                    .to_list(length=3000)
                 )
                 for d in sample_docs:
                     fn = d.get("file_name", "")
@@ -1845,8 +1882,8 @@ async def get_cached_db_titles() -> List[str]:
             sample_docs = (
                 await media_col.find({}, {"file_name": 1})
                 .sort("_id", -1)
-                .limit(2500)
-                .to_list(length=2500)
+                .limit(3000)
+                .to_list(length=3000)
             )
             for d in sample_docs:
                 fn = d.get("file_name", "")
@@ -1867,11 +1904,7 @@ async def get_cached_db_titles() -> List[str]:
 # 💡 UPGRADED "DID YOU MEAN?" MULTI-CHOICE SUGGESTIONS FINDER
 # ============================================================
 def _phonetic_key(s: str) -> str:
-    """
-    Indian-English phonetic normalizer so common spelling variations
-    (e.g. Kantara/Kanthara, Kaatera/Katera, Pushpa/Puspa, Bhairathi/Bairati, Vicky/Viki)
-    produce identical phonetic keys.
-    """
+    """Indian-English phonetic normalizer (Kantara==Kanthara, Kaatera==Katera, Pushpa==Puspa)."""
     s = re.sub(r"[^a-z0-9]", "", s.lower())
     if not s:
         return ""
@@ -1904,20 +1937,14 @@ def _consonant_skeleton(s: str) -> str:
     return p[0] + re.sub(r"[aeiou]", "", p[1:])
 
 
-def _char_ngrams(s: str, n: int = 2) -> set:
-    s_pad = f" {s} "
-    if len(s_pad) < n:
-        return {s_pad}
-    return {s_pad[i : i + n] for i in range(len(s_pad) - n + 1)}
-
-
-def _dice_ngram_similarity(a: str, b: str) -> float:
+def _dice_ngram_similarity(a: str, b: str, n: int = 2) -> float:
     if not a or not b:
         return 0.0
     if a == b:
         return 1.0
-    na = _char_ngrams(a, 2)
-    nb = _char_ngrams(b, 2)
+    pa, pb = f" {a} ", f" {b} "
+    na = {pa[i : i + n] for i in range(max(1, len(pa) - n + 1))}
+    nb = {pb[i : i + n] for i in range(max(1, len(pb) - n + 1))}
     return (2.0 * len(na & nb)) / (len(na) + len(nb))
 
 
@@ -1925,14 +1952,10 @@ async def get_did_you_mean_suggestions(
     query: str, max_suggestions: int = 6, allow_translit: bool = True
 ) -> List[str]:
     """
-    Multi-stage "Did You Mean?" engine:
-    1. Live MongoDB prefix/substring/token regex discovery so titles outside the 2500-title cache are also found.
-    2. Hybrid 5-signal similarity scoring:
-       - Full SequenceMatcher ratio
-       - Indian-English Phonetic Key similarity (Kantara == Kanthara, Kaatera == Katera)
-       - Consonant Skeleton similarity (handles missing/swapped vowels)
-       - Character Bigram Dice similarity (handles transposed letters)
-       - Token-level best word match + prefix bonus
+    Upgraded Multi-Stage "Did You Mean?" Engine:
+    1. Live DB prefix + consonant-skeleton regex discovery across ALL healthy clusters.
+    2. 6-signal similarity ranking (Sequence, Phonetic, Consonant Skeleton, Bigram Dice,
+       Trigram Dice, and Token-Level Alignment) + Prefix/Substring bonuses.
     """
     clean_q = sanitize_search_query(query, allow_translit=allow_translit)
     if not clean_q:
@@ -1946,26 +1969,30 @@ async def get_did_you_mean_suggestions(
 
     candidate_pool = set(await get_cached_db_titles())
 
-    # Live DB fuzzy prefix lookup for any token >= 3 chars to discover titles not yet in cache
-    prefix_patterns = []
+    # Live DB fuzzy prefix + consonant discovery so older titles not in RAM cache are found
+    live_patterns = []
     for tok in q_tokens[:2]:
         if len(tok) >= 3:
-            prefix_patterns.append(re.escape(tok[:3]))
+            live_patterns.append(re.escape(tok[:3]))
             p_tok = _phonetic_key(tok)
             if len(p_tok) >= 3 and p_tok[:3] != tok[:3]:
-                prefix_patterns.append(re.escape(p_tok[:3]))
+                live_patterns.append(re.escape(p_tok[:3]))
+            skel = _consonant_skeleton(tok)
+            if len(skel) >= 3:
+                live_patterns.append(".*".join(re.escape(c) for c in skel[:4]))
 
-    if prefix_patterns and callable(get_all_healthy_read_dbs):
+    if live_patterns and callable(get_all_healthy_read_dbs):
         live_reg = re.compile(
-            r"(?:^|[^a-zA-Z0-9])(" + "|".join(prefix_patterns) + r")", re.IGNORECASE
+            r"(?:^|[^a-zA-Z0-9])(" + "|".join(dict.fromkeys(live_patterns)) + r")",
+            re.IGNORECASE,
         )
-        for idx, target_db in get_all_healthy_read_dbs():
+        for _, target_db in get_all_healthy_read_dbs():
             try:
                 docs = (
                     await target_db[info.COLLECTION_NAME]
                     .find({"file_name": live_reg}, {"file_name": 1})
-                    .limit(120)
-                    .to_list(length=120)
+                    .limit(150)
+                    .to_list(length=150)
                 )
                 for d in docs:
                     ct = _extract_clean_movie_title(d.get("file_name", ""))
@@ -1979,41 +2006,32 @@ async def get_did_you_mean_suggestions(
 
     q_phon = _phonetic_key(q_no_year)
     q_skel = _consonant_skeleton(q_no_year)
-
     scored_candidates: List[Tuple[float, str]] = []
 
     for title in candidate_pool:
         t_lower = title.lower().strip()
         if not t_lower:
             continue
-
         t_tokens = t_lower.split()
         if not t_tokens:
             continue
 
-        # 1. Standard character sequence ratio
         seq_ratio = difflib.SequenceMatcher(None, q_no_year, t_lower).ratio()
-
-        # 2. Phonetic similarity (Indian-English spelling tolerant)
         t_phon = _phonetic_key(t_lower)
         phon_ratio = (
             difflib.SequenceMatcher(None, q_phon, t_phon).ratio()
             if (q_phon and t_phon)
             else 0.0
         )
-
-        # 3. Consonant skeleton similarity
         t_skel = _consonant_skeleton(t_tokens[0] if len(q_tokens) == 1 else t_lower)
         skel_ratio = (
             difflib.SequenceMatcher(None, q_skel, t_skel).ratio()
             if (q_skel and t_skel)
             else 0.0
         )
+        bi_ratio = _dice_ngram_similarity(q_no_year, t_lower, 2)
+        tri_ratio = _dice_ngram_similarity(q_no_year, t_lower, 3)
 
-        # 4. Bigram Dice similarity
-        ngram_ratio = _dice_ngram_similarity(q_no_year, t_lower)
-
-        # 5. Token-level alignment (matches single misspelled word against multi-word movie titles)
         token_scores = []
         for qt in q_tokens:
             qt_p = _phonetic_key(qt)
@@ -2028,9 +2046,8 @@ async def get_did_you_mean_suggestions(
                 )
                 best_tok = max(best_tok, r_raw, r_ph * 0.98)
             token_scores.append(best_tok)
-        avg_token_score = sum(token_scores) / len(token_scores) if token_scores else 0.0
+        avg_tok = sum(token_scores) / len(token_scores) if token_scores else 0.0
 
-        # Bonuses for prefix/substring overlap
         bonus = 0.0
         if len(q_no_year) >= 3 and (
             t_lower.startswith(q_no_year[:3])
@@ -2038,27 +2055,31 @@ async def get_did_you_mean_suggestions(
         ):
             bonus += 0.12
         if len(q_no_year) >= 3 and (q_no_year in t_lower or t_lower in q_no_year):
-            bonus += 0.14
+            bonus += 0.15
 
         final_score = (
             max(
                 seq_ratio,
-                phon_ratio * 0.97,
-                skel_ratio * 0.91,
-                ngram_ratio * 0.94,
-                avg_token_score * 0.93,
+                phon_ratio * 0.98,
+                skel_ratio * 0.92,
+                bi_ratio * 0.94,
+                tri_ratio * 0.95,
+                avg_tok * 0.94,
             )
             + bonus
         )
 
-        threshold = 0.50 if len(q_no_year) >= 4 else 0.58
+        threshold = 0.48 if len(q_no_year) >= 4 else 0.56
         if final_score >= threshold:
             scored_candidates.append((final_score, t_lower))
 
-    scored_candidates.sort(key=lambda x: (round(x[0], 3), -len(x[1])), reverse=True)
+    scored_candidates.sort(
+        key=lambda x: (round(x[0], 3), -abs(len(x[1]) - len(q_no_year))),
+        reverse=True,
+    )
 
     unique_suggestions: List[str] = []
-    seen_phonetic_roots = set()
+    seen_roots = set()
 
     for _, cand in scored_candidates:
         if len(unique_suggestions) >= max_suggestions:
@@ -2066,9 +2087,9 @@ async def get_did_you_mean_suggestions(
         root_norm = re.sub(r"\b(?:part|chapter|vol|volume)?\s*\d+\b", "", cand).strip()
         root_norm = re.sub(r"\s+", " ", root_norm) or cand
         phon_root = _phonetic_key(root_norm)
-        if not phon_root or phon_root in seen_phonetic_roots:
+        if not phon_root or phon_root in seen_roots:
             continue
-        seen_phonetic_roots.add(phon_root)
+        seen_roots.add(phon_root)
         unique_suggestions.append(cand)
 
     return unique_suggestions
@@ -2120,7 +2141,6 @@ async def god_tier_search(
 
     default_state = {"lang": None, "qual": None, "from_dym": False}
 
-    # 1. Try Indic transliteration variants first
     if translit_variants:
         for variant in translit_variants:
             v_clean = sanitize_search_query(variant, allow_translit=False)
@@ -2134,14 +2154,12 @@ async def god_tier_search(
 
     is_short_query = len(clean_query) <= 2
 
-    # 2. Exact sanitized query
     files, offset, total = await smart_filtered_search(
         clean_query, default_state, max_results=10, offset=0
     )
     if files:
         return files, offset, total, clean_query, was_transliterated
 
-    # 3. Alphanumeric raw query fallback
     raw_alnum = re.sub(r"[^a-zA-Z0-9]", " ", strip_stylish_fonts(query).lower())
     raw_alnum = re.sub(r"\s+", " ", raw_alnum).strip()
     if raw_alnum and raw_alnum != clean_query:
@@ -2151,7 +2169,6 @@ async def god_tier_search(
         if files:
             return files, offset, total, raw_alnum, was_transliterated
 
-    # 4. Strip year and retry (e.g. "Kantara 2022" -> "Kantara")
     no_year_query = re.sub(r"\b(19\d{2}|20\d{2})\b", "", clean_query).strip()
     no_year_query = re.sub(r"\s+", " ", no_year_query)
     if no_year_query and no_year_query != clean_query and len(no_year_query) > 2:
@@ -2161,7 +2178,16 @@ async def god_tier_search(
         if files:
             return files, offset, total, no_year_query, was_transliterated
 
-    # 5. Phonetic English variant retry (e.g. "Kanthara" -> "Kantara", "Kaatera" -> "Katera")
+    # Sequel/Chapter flexible fallback (e.g. "kgf chapter 2" -> "kgf 2")
+    no_chapter = re.sub(r"\b(?:chapter|part|vol|volume)\b", "", no_year_query or clean_query).strip()
+    no_chapter = re.sub(r"\s+", " ", no_chapter)
+    if no_chapter and no_chapter not in (clean_query, no_year_query) and len(no_chapter) > 2:
+        files, offset, total = await smart_filtered_search(
+            no_chapter, default_state, max_results=10, offset=0
+        )
+        if files:
+            return files, offset, total, no_chapter, True
+
     for p_var in generate_phonetic_variants(no_year_query or clean_query):
         if p_var != clean_query and len(p_var) > 2:
             files, offset, total = await smart_filtered_search(
@@ -2170,14 +2196,13 @@ async def god_tier_search(
             if files:
                 return files, offset, total, p_var, True
 
-    # 6. High-confidence fuzzy auto-correction (cutoff >= 0.78; lower confidence goes to "Did You Mean?" buttons)
     if is_short_query or not allow_fuzzy:
         return [], 0, 0, query, False
 
     try:
         db_titles = await get_cached_db_titles()
         target_q = no_year_query or clean_query
-        if matches := difflib.get_close_matches(target_q, db_titles, n=1, cutoff=0.78):
+        if matches := difflib.get_close_matches(target_q, db_titles, n=1, cutoff=0.82):
             corrected_query = matches[0]
             c_files, c_offset, c_total = await smart_filtered_search(
                 corrected_query, default_state, max_results=10, offset=0
@@ -2191,7 +2216,7 @@ async def god_tier_search(
 
 
 # ============================================================
-# 🧩 KEYBOARD BUILDER FOR AUTO-FILTER RESULTS (NO LINKS IN FILE BUTTONS!)
+# 🧩 KEYBOARD BUILDER (EVERY BUTTON HIDES LINKS — TEXT ONLY!)
 # ============================================================
 async def build_result_buttons(
     files: list,
@@ -2203,11 +2228,6 @@ async def build_result_buttons(
     bot_username: str,
     current_offset: int = 0,
 ) -> List[List[InlineKeyboardButton]]:
-    """
-    Builds search result buttons using `callback_data` (`fget#...`) instead of `url=...`
-    so the buttons ONLY show the button text (no hidden link preview, no 'Open Link?' URL popup,
-    and no arrow icon on the file buttons!).
-    """
     pre = "filep" if settings.get("file_secure", False) else "file"
     clean_words = await get_clean_words()
     state = get_filter_state(key)
@@ -2219,11 +2239,12 @@ async def build_result_buttons(
     lang_btn_text = f"🔊 {active_lang}" if active_lang else "🔊"
     qual_btn_text = f"🎥 {active_qual}" if active_qual else "🎥"
 
+    # Every button uses `create_btn` -> ZERO `url=` embedded in any button!
     btn = [
         [
             create_btn(
                 text="🎖️Lᴀᴛᴇsᴛ Mᴏᴠɪᴇ Uᴘᴅᴀᴛᴇs🎖️",
-                url="https://t.me/+8Mw-Y-fYN6hiZWZl",
+                url=LATEST_UPDATES_URL,
                 style=BTN_PRIMARY,
             )
         ],
@@ -2280,7 +2301,6 @@ async def build_result_buttons(
 
         display_name = clean_filename(raw_name, clean_words)
         size_str = get_size(file_size)
-        # Pure callback_data button: hides the URL inside the button so only button text is shown!
         cb_payload = f"fget#{pre}#{file_id}"
 
         if settings.get("button", False):
@@ -2368,19 +2388,13 @@ async def build_result_buttons(
 
 
 # ============================================================
-# ⚡ FILE BUTTON CLICK HANDLER (NO URL INSIDE BUTTON, DIRECT REDIRECT)
+# ⚡ HIDDEN LINK & FILE BUTTON CLICK HANDLERS
 # ============================================================
-@Client.on_callback_query(filters.regex(r"^(fget#|shrtget#)"), group=-2)
-async def file_button_click_callback(bot: Client, query: CallbackQuery):
-    """
-    Handles clicks on file buttons (`fget#...`).
-    Because file buttons use `callback_data` instead of `url`, no link is visible inside the button.
-    When clicked, it seamlessly redirects the user straight to the bot deep-link (`t.me/bot?start=...`).
-    """
-    try:
-        _, pre, file_id = query.data.split("#", 2)
-    except ValueError:
-        return await safe_answer(query, "⚠️ Invalid file!", show_alert=True)
+@Client.on_callback_query(filters.regex(r"^(fget#|shrtget#|olink#|noop$)"), group=-2)
+async def hidden_button_click_callback(bot: Client, query: CallbackQuery):
+    data = query.data
+    if data == "noop":
+        return await safe_answer(query)
 
     if not getattr(temp, "U_NAME", None):
         me = await bot.get_me()
@@ -2389,11 +2403,26 @@ async def file_button_click_callback(bot: Client, query: CallbackQuery):
         temp.ME = me.id
     bot_username = temp.U_NAME or "bot"
 
-    deep_link = f"https://t.me/{bot_username}?start={pre}_{file_id}"
+    if data.startswith("olink#"):
+        token = data.split("#", 1)[1]
+        target_url = resolve_hidden_link(token)
+        if not target_url:
+            return await safe_answer(query, "⌛ Button expired. Please search again!", show_alert=True)
+
+        # Bot deep-links open directly; external/channel links open seamlessly via bot /start redirect
+        if f"t.me/{bot_username.lower()}?start=" in target_url.lower():
+            return await safe_answer(query, url=target_url)
+
+        redirect_url = f"https://t.me/{bot_username}?start=olink_{token}"
+        return await safe_answer(query, url=redirect_url)
+
     try:
-        return await query.answer(url=deep_link)
-    except Exception:
-        return await safe_answer(query)
+        _, pre, file_id = data.split("#", 2)
+    except ValueError:
+        return await safe_answer(query, "⚠️ Invalid file!", show_alert=True)
+
+    deep_link = f"https://t.me/{bot_username}?start={pre}_{file_id}"
+    return await safe_answer(query, url=deep_link)
 
 
 # ============================================================
@@ -2402,14 +2431,7 @@ async def file_button_click_callback(bot: Client, query: CallbackQuery):
 def _get_deleted_file_notify_keyboard() -> InlineKeyboardMarkup:
     req_grp_url = getattr(info, "GRP_LNK", "https://t.me/Sandalwood_Kannada_Group")
     return InlineKeyboardMarkup(
-        [
-            [
-                create_btn(
-                    "Movie Request 📝",
-                    url=req_grp_url,
-                )
-            ]
-        ]
+        [[create_btn("Movie Request 📝", url=req_grp_url)]]
     )
 
 
@@ -2558,7 +2580,7 @@ async def auto_filter(client: Client, msg: Message):
         if not search:
             return
 
-        if search.lower() in [
+        if search.lower() in {
             "hello",
             "hey",
             "hlo",
@@ -2579,7 +2601,7 @@ async def auto_filter(client: Client, msg: Message):
             "gm",
             "gn",
             "good morning",
-        ]:
+        }:
             return
 
         (autotranslate_on, multichoice_on), b_set, settings = await asyncio.gather(
@@ -2716,7 +2738,7 @@ async def auto_filter(client: Client, msg: Message):
         try:
             final_caption, final_markup = parse_text_and_markup(cap, default_markup)
             final_caption = final_caption or cap
-            final_markup = final_markup or default_markup
+            final_markup = sanitize_markup_hide_links(final_markup or default_markup)
         except Exception:
             final_caption, final_markup = cap, default_markup
 
@@ -2740,7 +2762,7 @@ async def auto_filter(client: Client, msg: Message):
 
 
 # ============================================================
-# ⚡ UNIFIED GROUP & PM MESSAGE HANDLER (ZERO COOLDOWN BLOCKING)
+# ⚡ UNIFIED GROUP & PM MESSAGE HANDLER
 # ============================================================
 @Client.on_message(
     (filters.group | filters.private) & filters.text & filters.incoming, group=1
@@ -2763,16 +2785,13 @@ async def give_filter(client: Client, message: Message):
 
     if message.chat.type == enums.ChatType.PRIVATE:
         try:
-            matched_manual = await manual_filters(client, message)
-            if matched_manual:
-                return
+            await manual_filters(client, message)
         except Exception as e:
             logger.error(f"PM manual_filters error: {e}")
         return
 
     try:
-        matched_manual = await manual_filters(client, message)
-        if matched_manual:
+        if await manual_filters(client, message):
             return
         await auto_filter(client, message)
     except Exception as e:
@@ -2821,17 +2840,15 @@ async def autotranslate_cmd_handler(client: Client, message: Message):
         new_state = True
     elif cmd == "diautotranslate":
         new_state = False
+    elif len(message.command) > 1:
+        arg = message.command[1].strip().lower()
+        new_state = (
+            True
+            if arg in ["on", "enable", "true", "yes", "1"]
+            else False if arg in ["off", "disable", "false", "no", "0"] else not cur_trans
+        )
     else:
-        if len(message.command) > 1:
-            arg = message.command[1].strip().lower()
-            if arg in ["on", "enable", "true", "yes", "1"]:
-                new_state = True
-            elif arg in ["off", "disable", "false", "no", "0"]:
-                new_state = False
-            else:
-                new_state = not cur_trans
-        else:
-            new_state = not cur_trans
+        new_state = not cur_trans
 
     await set_feature_flag("autotranslate", new_state)
     status_badge = "🟢 ENABLED" if new_state else "🔴 DISABLED"
@@ -2866,17 +2883,15 @@ async def multichoice_cmd_handler(client: Client, message: Message):
         new_state = True
     elif cmd == "dimultichoice":
         new_state = False
+    elif len(message.command) > 1:
+        arg = message.command[1].strip().lower()
+        new_state = (
+            True
+            if arg in ["on", "enable", "true", "yes", "1"]
+            else False if arg in ["off", "disable", "false", "no", "0"] else not cur_mc
+        )
     else:
-        if len(message.command) > 1:
-            arg = message.command[1].strip().lower()
-            if arg in ["on", "enable", "true", "yes", "1"]:
-                new_state = True
-            elif arg in ["off", "disable", "false", "no", "0"]:
-                new_state = False
-            else:
-                new_state = not cur_mc
-        else:
-            new_state = not cur_mc
+        new_state = not cur_mc
 
     await set_feature_flag("multichoice", new_state)
     status_badge = "🟢 ENABLED" if new_state else "🔴 DISABLED"
@@ -2950,8 +2965,7 @@ async def pm_feature_toggle_callback(bot: Client, query: CallbackQuery):
     group=-2,
 )
 async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
-    data = query.data
-    parts = data.split("#")
+    parts = query.data.split("#")
     action = parts[0]
 
     try:
@@ -3088,8 +3102,7 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
 
     if action == "flang":
         cur_lang = state.get("lang")
-        btn_rows = []
-        row = []
+        btn_rows, row = [], []
         for lang_name, lang_code in LANGUAGES_LIST:
             label = f"✅ {lang_name}" if cur_lang == lang_code else lang_name
             row.append(
@@ -3103,16 +3116,9 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
                 row = []
         if row:
             btn_rows.append(row)
-
         btn_rows.append(
-            [
-                create_btn(
-                    text="⬅️ Back",
-                    callback_data=f"freset#{req}#{key}",
-                )
-            ]
+            [create_btn(text="⬅️ Back", callback_data=f"freset#{req}#{key}")]
         )
-
         try:
             await query.edit_message_reply_markup(
                 reply_markup=InlineKeyboardMarkup(btn_rows)
@@ -3123,8 +3129,7 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
 
     if action == "fqual":
         cur_qual = state.get("qual")
-        btn_rows = []
-        row = []
+        btn_rows, row = [], []
         for qual_val in QUALITIES_LIST:
             label = f"✅ {qual_val}" if cur_qual == qual_val else qual_val
             row.append(
@@ -3138,16 +3143,9 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
                 row = []
         if row:
             btn_rows.append(row)
-
         btn_rows.append(
-            [
-                create_btn(
-                    text="⬅️ Back",
-                    callback_data=f"freset#{req}#{key}",
-                )
-            ]
+            [create_btn(text="⬅️ Back", callback_data=f"freset#{req}#{key}")]
         )
-
         try:
             await query.edit_message_reply_markup(
                 reply_markup=InlineKeyboardMarkup(btn_rows)
@@ -3233,10 +3231,12 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
     if new_qual:
         active_filters.append(new_qual)
 
-    if active_filters:
-        await safe_answer(query, f"✅ Filtered by: {' + '.join(active_filters)}")
-    else:
-        await safe_answer(query, "⬅️ Restored normal filter results!")
+    await safe_answer(
+        query,
+        f"✅ Filtered by: {' + '.join(active_filters)}"
+        if active_filters
+        else "⬅️ Restored normal filter results!",
+    )
 
 
 # ============================================================
@@ -3370,7 +3370,7 @@ async def pagination_handler(bot: Client, query: CallbackQuery):
 
 
 # ============================================================
-# 🎨 KEYBOARD AND BUTTON PARSERS (MANUAL FILTERS)
+# 🎨 KEYBOARD AND BUTTON PARSERS (MANUAL FILTERS — LINKS HIDDEN)
 # ============================================================
 def _clean_extracted_url(raw_url: str) -> str:
     u = str(raw_url or "").strip()
@@ -3384,15 +3384,6 @@ def _clean_extracted_url(raw_url: str) -> str:
         if "." in u or u.startswith("t.me/"):
             u = "https://" + u.lstrip("/")
     return u
-
-
-def _clean_button_label(raw_label: str) -> str:
-    """
-    Ensures button text never displays raw HTTP/Telegram links inside the button label.
-    """
-    lbl = re.sub(r"<[^>]+>", "", str(raw_label or "")).strip()
-    lbl = re.sub(r"(?i)https?://\S+|t\.me/\S+|www\.\S+", "", lbl).strip(" -|:")
-    return lbl or "Click Here"
 
 
 def build_keyboard(btn_str: str):
@@ -3421,11 +3412,7 @@ def build_keyboard(btn_str: str):
                         if not clean_u.startswith(("http://", "https://", "tg://")):
                             continue
                         btn_row.append(
-                            create_btn(
-                                text=lbl_val,
-                                url=clean_u,
-                                style=style_val,
-                            )
+                            create_btn(text=lbl_val, url=clean_u, style=style_val)
                         )
                     elif cb_val:
                         btn_row.append(
@@ -3436,7 +3423,14 @@ def build_keyboard(btn_str: str):
                             )
                         )
                 elif isinstance(b, InlineKeyboardButton):
-                    btn_row.append(b)
+                    if getattr(b, "url", None):
+                        btn_row.append(
+                            create_btn(
+                                text=b.text, url=b.url, style=getattr(b, "style", None)
+                            )
+                        )
+                    else:
+                        btn_row.append(b)
             if btn_row:
                 button_layout.append(btn_row)
         return button_layout if button_layout else None
@@ -3609,27 +3603,38 @@ def _parse_filter_command_input(message: Message) -> Tuple[str, str]:
 # ============================================================
 # 🎯 FILTER COMMANDS
 # ============================================================
-@Client.on_message(filters.command(["filter", "addfilter"]), group=-15)
-async def add_filter_cmd(client: Client, message: Message):
+async def _resolve_admin_chat(
+    client: Client, message: Message
+) -> Tuple[Optional[Any], bool]:
     target_chat_id = await get_target_chat(client, message)
     if not target_chat_id:
         if await verify_admin(client, message, None):
-            target_chat_id = "global"
-        else:
-            return await safe_reply_text(
-                message,
-                "⚠️ <b>No active connection!</b>\nPlease run <code>/connect &lt;group_id&gt;</code> first.",
-                parse_mode=enums.ParseMode.HTML,
-            )
+            return "global", True
+        await safe_reply_text(
+            message,
+            "⚠️ <b>No active connection!</b>\nPlease run <code>/connect &lt;group_id&gt;</code> first.",
+            parse_mode=enums.ParseMode.HTML,
+        )
+        return None, False
 
     if target_chat_id != "global" and not await verify_admin(
         client, message, target_chat_id
     ):
-        return await safe_reply_text(
+        await safe_reply_text(
             message,
             f"❌ <b>You are not authorized for chat:</b> <code>{target_chat_id}</code>",
             parse_mode=enums.ParseMode.HTML,
         )
+        return None, False
+
+    return target_chat_id, True
+
+
+@Client.on_message(filters.command(["filter", "addfilter"]), group=-15)
+async def add_filter_cmd(client: Client, message: Message):
+    target_chat_id, ok = await _resolve_admin_chat(client, message)
+    if not ok:
+        return
 
     keyword, inline_arg_text = _parse_filter_command_input(message)
     replied = message.reply_to_message
@@ -3648,8 +3653,7 @@ async def add_filter_cmd(client: Client, message: Message):
     if not replied and not inline_arg_text:
         return await safe_reply_text(
             message,
-            "⚠️ <b>Reply to a message (text or media) or provide filter text after the keyword.</b>\n"
-            f"⚙️ <b>Example:</b> Reply to a post with <code>/filter {html.escape(keyword)}</code>",
+            "⚠️ <b>Reply to a message (text or media) or provide filter text after the keyword.</b>",
             parse_mode=enums.ParseMode.HTML,
         )
 
@@ -3671,7 +3675,6 @@ async def add_filter_cmd(client: Client, message: Message):
     existing_btns = _extract_existing_inline_buttons(replied)
     all_btns = existing_btns + parsed_btns
     final_btn_str = str(all_btns) if all_btns else "[]"
-
     fileid, media_type = _extract_replied_media(replied)
 
     if not text and fileid == "None" and not all_btns:
@@ -3717,42 +3720,16 @@ async def add_filter_cmd(client: Client, message: Message):
     group=-15,
 )
 async def add_or_edit_filter_button_cmd(client: Client, message: Message):
-    target_chat_id = await get_target_chat(client, message)
-    if not target_chat_id:
-        if await verify_admin(client, message, None):
-            target_chat_id = "global"
-        else:
-            return await safe_reply_text(
-                message,
-                "⚠️ <b>No active connection!</b>\nPlease run <code>/connect &lt;group_id&gt;</code> first.",
-                parse_mode=enums.ParseMode.HTML,
-            )
-    if target_chat_id != "global" and not await verify_admin(
-        client, message, target_chat_id
-    ):
-        return await safe_reply_text(
-            message,
-            f"❌ <b>You are not authorized for chat:</b> <code>{target_chat_id}</code>",
-            parse_mode=enums.ParseMode.HTML,
-        )
+    target_chat_id, ok = await _resolve_admin_chat(client, message)
+    if not ok:
+        return
 
-    if len(message.command) < 2 or (
-        "|" not in message.text and "-" not in message.text and "[" not in message.text
-    ):
-        return await safe_reply_text(
-            message,
-            "⚙️ <b>Usage:</b>\n"
-            "<code>/addfilterbutton &lt;keyword&gt; Button Text - https://t.me/link</code>\n"
-            "or\n"
-            "<code>/addfilterbutton &lt;keyword&gt; [Button Text](https://t.me/link)</code>",
-            parse_mode=enums.ParseMode.HTML,
-        )
-
-    parts = message.text.split(None, 2)
+    parts = (message.text or "").split(None, 2)
     if len(parts) < 3:
         return await safe_reply_text(
             message,
-            "⚠️ <b>Provide both the filter keyword and button format!</b>",
+            "⚙️ <b>Usage:</b>\n"
+            "<code>/addfilterbutton &lt;keyword&gt; Button Text - https://t.me/link</code>",
             parse_mode=enums.ParseMode.HTML,
         )
 
@@ -3787,7 +3764,7 @@ async def add_or_edit_filter_button_cmd(client: Client, message: Message):
     if not new_btns:
         return await safe_reply_text(
             message,
-            "❌ <b>Invalid button URL format.</b>\nExample: <code>/addfilterbutton 418 Download Now - https://t.me/link</code>",
+            "❌ <b>Invalid button URL format.</b>",
             parse_mode=enums.ParseMode.HTML,
         )
 
@@ -3798,12 +3775,11 @@ async def add_or_edit_filter_button_cmd(client: Client, message: Message):
         except Exception:
             existing_btns = []
 
-    combined = existing_btns + new_btns
     await safe_save_filter(
         target_chat_id,
         keyword,
         reply_text,
-        str(combined),
+        str(existing_btns + new_btns),
         fileid,
         alert,
         media_type=media_type,
@@ -3817,24 +3793,9 @@ async def add_or_edit_filter_button_cmd(client: Client, message: Message):
 
 @Client.on_message(filters.command("filterimage"), group=-15)
 async def edit_filter_image_cmd(client: Client, message: Message):
-    target_chat_id = await get_target_chat(client, message)
-    if not target_chat_id:
-        if await verify_admin(client, message, None):
-            target_chat_id = "global"
-        else:
-            return await safe_reply_text(
-                message,
-                "⚠️ <b>No active connection!</b>\nPlease run <code>/connect &lt;group_id&gt;</code> first.",
-                parse_mode=enums.ParseMode.HTML,
-            )
-    if target_chat_id != "global" and not await verify_admin(
-        client, message, target_chat_id
-    ):
-        return await safe_reply_text(
-            message,
-            f"❌ <b>You are not authorized for chat:</b> <code>{target_chat_id}</code>",
-            parse_mode=enums.ParseMode.HTML,
-        )
+    target_chat_id, ok = await _resolve_admin_chat(client, message)
+    if not ok:
+        return
 
     if not message.reply_to_message:
         return await safe_reply_text(
@@ -3853,7 +3814,6 @@ async def edit_filter_image_cmd(client: Client, message: Message):
     reply_text, btn, alert, old_fileid, _ = await safe_find_filter(
         target_chat_id, keyword
     )
-
     if not reply_text and (not old_fileid or old_fileid == "None"):
         return await safe_reply_text(
             message,
@@ -3886,24 +3846,9 @@ async def edit_filter_image_cmd(client: Client, message: Message):
     group=-15,
 )
 async def edit_filter_colour_cmd(client: Client, message: Message):
-    target_chat_id = await get_target_chat(client, message)
-    if not target_chat_id:
-        if await verify_admin(client, message, None):
-            target_chat_id = "global"
-        else:
-            return await safe_reply_text(
-                message,
-                "⚠️ <b>No active connection!</b>\nPlease run <code>/connect &lt;group_id&gt;</code> first.",
-                parse_mode=enums.ParseMode.HTML,
-            )
-    if target_chat_id != "global" and not await verify_admin(
-        client, message, target_chat_id
-    ):
-        return await safe_reply_text(
-            message,
-            f"❌ <b>You are not authorized for chat:</b> <code>{target_chat_id}</code>",
-            parse_mode=enums.ParseMode.HTML,
-        )
+    target_chat_id, ok = await _resolve_admin_chat(client, message)
+    if not ok:
+        return
 
     args = message.command
     if len(args) < 4:
@@ -3961,7 +3906,7 @@ async def edit_filter_colour_cmd(client: Client, message: Message):
 
     count, found = 0, False
     for r_idx, row in enumerate(button_data):
-        for c_idx, b in enumerate(row):
+        for c_idx, _ in enumerate(row):
             count += 1
             if count == btn_num:
                 button_data[r_idx][c_idx]["style"] = color_map[color_str]
@@ -3997,24 +3942,9 @@ async def edit_filter_colour_cmd(client: Client, message: Message):
 
 @Client.on_message(filters.command(["delfilter", "stop"]), group=-15)
 async def del_filter_cmd(client: Client, message: Message):
-    target_chat_id = await get_target_chat(client, message)
-    if not target_chat_id:
-        if await verify_admin(client, message, None):
-            target_chat_id = "global"
-        else:
-            return await safe_reply_text(
-                message,
-                "⚠️ <b>No active connection!</b>\nPlease run <code>/connect &lt;group_id&gt;</code> first.",
-                parse_mode=enums.ParseMode.HTML,
-            )
-    if target_chat_id != "global" and not await verify_admin(
-        client, message, target_chat_id
-    ):
-        return await safe_reply_text(
-            message,
-            f"❌ <b>You are not authorized for chat:</b> <code>{target_chat_id}</code>",
-            parse_mode=enums.ParseMode.HTML,
-        )
+    target_chat_id, ok = await _resolve_admin_chat(client, message)
+    if not ok:
+        return
 
     if len(message.command) < 2:
         return await safe_reply_text(
@@ -4035,24 +3965,9 @@ async def del_filter_cmd(client: Client, message: Message):
 
 @Client.on_message(filters.command(["delall", "deleteall"]), group=-15)
 async def del_all_filters_cmd(client: Client, message: Message):
-    target_chat_id = await get_target_chat(client, message)
-    if not target_chat_id:
-        if await verify_admin(client, message, None):
-            target_chat_id = "global"
-        else:
-            return await safe_reply_text(
-                message,
-                "⚠️ <b>No active connection!</b>\nPlease run <code>/connect &lt;group_id&gt;</code> first.",
-                parse_mode=enums.ParseMode.HTML,
-            )
-    if target_chat_id != "global" and not await verify_admin(
-        client, message, target_chat_id
-    ):
-        return await safe_reply_text(
-            message,
-            f"❌ <b>You are not authorized for chat:</b> <code>{target_chat_id}</code>",
-            parse_mode=enums.ParseMode.HTML,
-        )
+    target_chat_id, ok = await _resolve_admin_chat(client, message)
+    if not ok:
+        return
 
     buttons = [
         [
@@ -4076,24 +3991,9 @@ async def del_all_filters_cmd(client: Client, message: Message):
     group=-15,
 )
 async def list_filters_cmd(client: Client, message: Message):
-    target_chat_id = await get_target_chat(client, message)
-    if not target_chat_id:
-        if await verify_admin(client, message, None):
-            target_chat_id = "global"
-        else:
-            return await safe_reply_text(
-                message,
-                "⚠️ <b>No active connection!</b>\nPlease run <code>/connect &lt;group_id&gt;</code> first.",
-                parse_mode=enums.ParseMode.HTML,
-            )
-    if target_chat_id != "global" and not await verify_admin(
-        client, message, target_chat_id
-    ):
-        return await safe_reply_text(
-            message,
-            f"❌ <b>You are not authorized for chat:</b> <code>{target_chat_id}</code>",
-            parse_mode=enums.ParseMode.HTML,
-        )
+    target_chat_id, ok = await _resolve_admin_chat(client, message)
+    if not ok:
+        return
 
     keywords = await safe_get_all_filters(target_chat_id)
     if not keywords:
@@ -4114,7 +4014,7 @@ async def list_filters_cmd(client: Client, message: Message):
 
 
 # ============================================================
-# 📤 4-LAYER MULTI-MEDIA FILTER DISPATCHER (LAYER 230 SAFE)
+# 📤 MULTI-MEDIA FILTER DISPATCHER (LAYER 230 SAFE)
 # ============================================================
 def _get_reply_kwargs(func: Any, reply_id: Optional[int]) -> dict:
     if not reply_id:
@@ -4142,6 +4042,7 @@ async def send_filter_media(
     if RESTRICTED_WRITE_CHATS.get(str(chat_id)):
         return None
 
+    reply_markup = sanitize_markup_hide_links(reply_markup)
     method_map = {
         "photo": (client.send_photo, "photo"),
         "video": (client.send_video, "video"),
@@ -4260,6 +4161,7 @@ async def safe_send_text_filter(
     if RESTRICTED_WRITE_CHATS.get(str(chat_id)):
         return None
 
+    reply_markup = sanitize_markup_hide_links(reply_markup)
     kw = {
         "chat_id": chat_id,
         "text": text,
