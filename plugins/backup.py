@@ -3,10 +3,11 @@ import gzip
 import html
 import inspect
 import os
+import re
 import time
 from datetime import datetime
 from logging import ERROR, getLogger
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from bson.json_util import dumps, loads
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -33,15 +34,79 @@ logger = getLogger(__name__)
 logger.setLevel(ERROR)
 
 # ============================================================
-# 🛡️ PYROGRAM v2.2.26 (LAYER 230) COMPATIBILITY ENGINE
+# 🛡️ PYROGRAM v2.2.26 COMPATIBILITY & TEXT-ONLY BUTTONS
 # ============================================================
+try:
+    from pyrogram.types import LinkPreviewOptions
+except ImportError:
+    LinkPreviewOptions = None
+
 _REPLY_PARAMS = set(inspect.signature(Message.reply_text).parameters.keys())
 _EDIT_PARAMS = set(inspect.signature(Message.edit_text).parameters.keys())
 
+BTN_PRIMARY = None
+BTN_SUCCESS = None
+BTN_DANGER = None
+_SUPPORTS_BTN_STYLE = False
+
+try:
+    from pyrogram.enums import ButtonStyle
+
+    if "style" in inspect.signature(InlineKeyboardButton.__init__).parameters:
+        BTN_PRIMARY = getattr(ButtonStyle, "PRIMARY", None)
+        BTN_SUCCESS = getattr(ButtonStyle, "SUCCESS", None)
+        BTN_DANGER = getattr(ButtonStyle, "DANGER", None)
+        _SUPPORTS_BTN_STYLE = True
+except (ImportError, ValueError, TypeError):
+    pass
+
+
+def _clean_button_label(raw_label: str) -> str:
+    lbl = re.sub(r"<[^>]+>", "", str(raw_label or "")).strip()
+    lbl = re.sub(r"(?i)https?://\S+|t\.me/\S+|www\.\S+", "", lbl).strip(" -|:")
+    return lbl or "Open"
+
+
+def create_btn(
+    text: str,
+    callback_data: str = "noop",
+    style: Any = None,
+) -> InlineKeyboardButton:
+    """Creates a pure text-only callback InlineKeyboardButton (zero links inside any button)."""
+    kwargs: Dict[str, Any] = {
+        "text": _clean_button_label(text),
+        "callback_data": str(callback_data)[:64],
+    }
+    if _SUPPORTS_BTN_STYLE and style is not None:
+        kwargs["style"] = style
+    try:
+        return InlineKeyboardButton(**kwargs)
+    except Exception:
+        kwargs.pop("style", None)
+        return InlineKeyboardButton(**kwargs)
+
+
+def _prepare_kwargs(kwargs: dict, supported_params: set) -> dict:
+    clean_kw = dict(kwargs)
+    disable_prev = clean_kw.pop("disable_web_page_preview", True)
+    if "link_preview_options" in supported_params and LinkPreviewOptions is not None:
+        try:
+            clean_kw["link_preview_options"] = LinkPreviewOptions(
+                is_disabled=bool(disable_prev)
+            )
+        except Exception:
+            pass
+    elif "disable_web_page_preview" in supported_params:
+        clean_kw["disable_web_page_preview"] = bool(disable_prev)
+    return clean_kw
+
 
 async def safe_reply_text(message: Message, text: str, **kwargs):
+    if not message:
+        return None
+    compat_kw = _prepare_kwargs(kwargs, _REPLY_PARAMS)
     try:
-        return await message.reply_text(text, **kwargs)
+        return await message.reply_text(text, **compat_kw)
     except (ChatWriteForbidden, Forbidden, UserIsBlocked, PeerIdInvalid):
         return None
     except Exception as e:
@@ -50,8 +115,11 @@ async def safe_reply_text(message: Message, text: str, **kwargs):
 
 
 async def safe_edit_text(message: Message, text: str, **kwargs):
+    if not message:
+        return None
+    compat_kw = _prepare_kwargs(kwargs, _EDIT_PARAMS)
     try:
-        return await message.edit_text(text, **kwargs)
+        return await message.edit_text(text, **compat_kw)
     except (MessageNotModified, MessageIdInvalid, ChatWriteForbidden, Forbidden):
         return None
     except Exception:
@@ -75,17 +143,21 @@ async def safe_answer(
 # ============================================================
 # ⚙️ MONGODB CONNECTION & SCHEDULER STATE
 # ============================================================
-_DB_CLIENT = None
 _BOT_DB = None
 try:
-    _DB_CLIENT = AsyncIOMotorClient(info.DATABASE_URI)
+    _DB_CLIENT = AsyncIOMotorClient(
+        info.DATABASE_URI,
+        serverSelectionTimeoutMS=4000,
+        connectTimeoutMS=4000,
+        socketTimeoutMS=8000,
+    )
     _BOT_DB = _DB_CLIENT[info.DATABASE_NAME]
 except Exception as e:
     logger.error(f"Failed to init Backup DB: {e}")
 
 BACKUP_INTERVAL = 86400  # 24 hours
-last_backup_time = None
-next_backup_time = None
+last_backup_time: Optional[float] = None
+next_backup_time: Optional[float] = None
 scheduler_running = False
 _scheduler_task: Optional[asyncio.Task] = None
 
@@ -108,9 +180,7 @@ def get_admin_list() -> List[int]:
 
 
 async def is_global_admin(user_id: int) -> bool:
-    if not user_id:
-        return False
-    return int(user_id) in get_admin_list()
+    return bool(user_id and int(user_id) in get_admin_list())
 
 
 async def quick_admin_check(client: Client, message: Message) -> bool:
@@ -149,11 +219,7 @@ async def is_callback_admin(client: Client, query: CallbackQuery) -> bool:
     if (
         query.message
         and query.message.chat
-        and query.message.chat.type
-        in [
-            enums.ChatType.GROUP,
-            enums.ChatType.SUPERGROUP,
-        ]
+        and query.message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]
     ):
         try:
             member = await client.get_chat_member(
@@ -172,10 +238,7 @@ async def is_callback_admin(client: Client, query: CallbackQuery) -> bool:
 # ⚡ NON-BLOCKING BACKUP & RESTORE ENGINE
 # ============================================================
 def _write_backup_file_sync(backup_data: dict, base_filename: str) -> str:
-    """Serializes BSON data off the event loop and auto-compresses if over 48MB."""
-    json_str = dumps(backup_data, indent=2)
-    encoded = json_str.encode("utf-8")
-
+    encoded = dumps(backup_data, indent=2).encode("utf-8")
     if len(encoded) > MAX_RAW_JSON_BYTES:
         gz_name = f"{base_filename}.json.gz"
         with gzip.open(gz_name, "wb", compresslevel=6) as f:
@@ -189,7 +252,6 @@ def _write_backup_file_sync(backup_data: dict, base_filename: str) -> str:
 
 
 def _read_backup_file_sync(file_path: str) -> dict:
-    """Reads either .json or .json.gz backup files off the main event loop."""
     if file_path.endswith(".gz"):
         with gzip.open(file_path, "rt", encoding="utf-8") as f:
             return loads(f.read())
@@ -198,7 +260,6 @@ def _read_backup_file_sync(file_path: str) -> dict:
 
 
 async def generate_backup_file(exclude_media: bool = False) -> Tuple[str, int, int]:
-    """Generates a backup file and returns (file_path, total_collections, total_docs)."""
     if _BOT_DB is None:
         raise RuntimeError("Database connection is not initialized.")
 
@@ -206,7 +267,6 @@ async def generate_backup_file(exclude_media: bool = False) -> Tuple[str, int, i
     backup_data = {}
     total_colls = 0
     total_docs = 0
-
     media_col_name = getattr(info, "COLLECTION_NAME", "Telegram_files").lower()
 
     for coll_name in collections:
@@ -287,13 +347,11 @@ async def auto_backup_task(bot: Client):
 # ============================================================
 async def _build_backup_dashboard() -> Tuple[str, InlineKeyboardMarkup]:
     db_name = html.escape(str(getattr(info, "DATABASE_NAME", "Unknown")))
-    colls_count = 0
-    total_docs = 0
-    size_mb = 0.0
+    colls_count, total_docs, size_mb = 0, 0, 0.0
 
     if _BOT_DB is not None:
         try:
-            stats = await _BOT_DB.command("dbstats")
+            stats = await asyncio.wait_for(_BOT_DB.command("dbstats"), timeout=3.0)
             colls_count = stats.get("collections", 0)
             total_docs = stats.get("objects", 0)
             size_mb = stats.get("dataSize", 0) / (1024 * 1024)
@@ -306,9 +364,11 @@ async def _build_backup_dashboard() -> Tuple[str, InlineKeyboardMarkup]:
         m, s = divmod(r, 60)
         sched_str = f"🟢 Active (Next in {h}h {m}m {s}s)"
         sched_btn_text = "🛑 Stop Auto-Backup"
+        sched_style = BTN_DANGER
     else:
         sched_str = "🔴 Disabled"
         sched_btn_text = "⏰ Enable 24h Auto-Backup"
+        sched_style = BTN_SUCCESS
 
     text = (
         f"💾 <b>Database Backup & Restore Center</b>\n"
@@ -325,18 +385,22 @@ async def _build_backup_dashboard() -> Tuple[str, InlineKeyboardMarkup]:
     buttons = InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("📥 Full Backup", callback_data="db_bk:full"),
-                InlineKeyboardButton("⚡ Settings Only", callback_data="db_bk:light"),
-            ],
-            [
-                InlineKeyboardButton(
-                    "📊 Collection Stats", callback_data="db_bk:stats"
+                create_btn(
+                    "📥 Full Backup", callback_data="db_bk:full", style=BTN_PRIMARY
                 ),
-                InlineKeyboardButton(sched_btn_text, callback_data="db_bk:sched"),
+                create_btn(
+                    "⚡ Settings Only", callback_data="db_bk:light", style=BTN_PRIMARY
+                ),
             ],
             [
-                InlineKeyboardButton("🔄 Refresh", callback_data="db_bk:refresh"),
-                InlineKeyboardButton("🔐 Close", callback_data="db_bk:close"),
+                create_btn("📊 Collection Stats", callback_data="db_bk:stats"),
+                create_btn(
+                    sched_btn_text, callback_data="db_bk:sched", style=sched_style
+                ),
+            ],
+            [
+                create_btn("🔄 Refresh", callback_data="db_bk:refresh"),
+                create_btn("🔐 Close", callback_data="db_bk:close"),
             ],
         ]
     )
@@ -372,11 +436,11 @@ async def db_backup_cmd(bot: Client, message: Message):
             parse_mode=enums.ParseMode.HTML,
         )
 
-    exclude_media = len(message.command) > 1 and message.command[1].strip().lower() in [
+    exclude_media = len(message.command) > 1 and message.command[1].strip().lower() in (
         "light",
         "settings",
         "config",
-    ]
+    )
     status_msg = await safe_reply_text(
         message,
         "⏳ <b>Generating database backup...</b>",
@@ -435,6 +499,13 @@ async def db_restore_cmd(bot: Client, message: Message):
             parse_mode=enums.ParseMode.HTML,
         )
 
+    if _BOT_DB is None:
+        return await safe_reply_text(
+            message,
+            "❌ <b>Database connection is not initialized.</b>",
+            parse_mode=enums.ParseMode.HTML,
+        )
+
     target_msg = (
         message.reply_to_message
         if (message.reply_to_message and message.reply_to_message.document)
@@ -448,8 +519,7 @@ async def db_restore_cmd(bot: Client, message: Message):
             parse_mode=enums.ParseMode.HTML,
         )
 
-    doc = target_msg.document
-    fname = (doc.file_name or "").lower()
+    fname = (target_msg.document.file_name or "").lower()
     if not (fname.endswith(".json") or fname.endswith(".json.gz")):
         return await safe_reply_text(
             message,
@@ -470,17 +540,16 @@ async def db_restore_cmd(bot: Client, message: Message):
         if not isinstance(backup_data, dict):
             raise ValueError("Backup file root must be a JSON object of collections.")
 
-        restored_colls = 0
-        restored_docs = 0
-
+        restored_colls, restored_docs = 0, 0
         for coll_name, docs in backup_data.items():
             if coll_name.startswith("system.") or not isinstance(docs, list):
                 continue
             await _BOT_DB[coll_name].delete_many({})
             if docs:
                 for i in range(0, len(docs), 1000):
-                    batch = docs[i : i + 1000]
-                    await _BOT_DB[coll_name].insert_many(batch, ordered=False)
+                    await _BOT_DB[coll_name].insert_many(
+                        docs[i : i + 1000], ordered=False
+                    )
                 restored_docs += len(docs)
             restored_colls += 1
 
@@ -508,25 +577,27 @@ async def db_restore_cmd(bot: Client, message: Message):
 
 
 async def _build_detailed_dbstats_text() -> str:
+    if _BOT_DB is None:
+        raise RuntimeError("Database connection is not initialized.")
     stats = await _BOT_DB.command("dbstats")
     colls = await _BOT_DB.list_collection_names()
     total_size_mb = stats.get("dataSize", 0) / (1024 * 1024)
     db_name = html.escape(str(getattr(info, "DATABASE_NAME", "Unknown")))
 
-    text = (
-        f"📊 <b>Database Statistics</b>\n\n"
-        f"🗄️ <b>Database:</b> <code>{db_name}</code>\n"
-        f"📦 <b>Collections Count:</b> <code>{stats.get('collections', 0)}</code>\n"
-        f"📄 <b>Total Documents:</b> <code>{stats.get('objects', 0)}</code>\n"
-        f"💾 <b>Data Size:</b> <code>{total_size_mb:.2f} MB</code>\n\n"
-        f"📁 <b>Collection Breakdown:</b>\n"
-    )
+    lines = [
+        "📊 <b>Database Statistics</b>\n",
+        f"🗄️ <b>Database:</b> <code>{db_name}</code>",
+        f"📦 <b>Collections Count:</b> <code>{stats.get('collections', 0)}</code>",
+        f"📄 <b>Total Documents:</b> <code>{stats.get('objects', 0)}</code>",
+        f"💾 <b>Data Size:</b> <code>{total_size_mb:.2f} MB</code>\n",
+        "📁 <b>Collection Breakdown:</b>",
+    ]
     for coll in sorted(colls):
         if coll.startswith("system."):
             continue
         count = await _BOT_DB[coll].count_documents({})
-        text += f"  • <code>{html.escape(coll)}</code>: <code>{count}</code> docs\n"
-    return text
+        lines.append(f"  • <code>{html.escape(coll)}</code>: <code>{count}</code> docs")
+    return "\n".join(lines)
 
 
 @Client.on_message(filters.command("dbstats") & filters.incoming, group=-2)
@@ -543,10 +614,8 @@ async def db_stats_cmd(bot: Client, message: Message):
         markup = InlineKeyboardMarkup(
             [
                 [
-                    InlineKeyboardButton(
-                        "💾 Backup Panel", callback_data="db_bk:refresh"
-                    ),
-                    InlineKeyboardButton("🔐 Close", callback_data="db_bk:close"),
+                    create_btn("💾 Backup Panel", callback_data="db_bk:refresh"),
+                    create_btn("🔐 Close", callback_data="db_bk:close"),
                 ]
             ]
         )
@@ -571,11 +640,11 @@ async def db_schedule_cmd(bot: Client, message: Message):
             parse_mode=enums.ParseMode.HTML,
         )
 
-    if len(message.command) > 1 and message.command[1].lower() in [
+    if len(message.command) > 1 and message.command[1].lower() in (
         "off",
         "stop",
         "disable",
-    ]:
+    ):
         scheduler_running = False
         if _scheduler_task and not _scheduler_task.done():
             _scheduler_task.cancel()
@@ -605,8 +674,10 @@ async def db_schedule_cmd(bot: Client, message: Message):
             reply_markup=InlineKeyboardMarkup(
                 [
                     [
-                        InlineKeyboardButton(
-                            "🛑 Stop Auto-Backup", callback_data="db_bk:sched"
+                        create_btn(
+                            "🛑 Stop Auto-Backup",
+                            callback_data="db_bk:sched",
+                            style=BTN_DANGER,
                         )
                     ]
                 ]
@@ -629,18 +700,22 @@ async def backup_panel_callbacks(bot: Client, query: CallbackQuery):
     global _scheduler_task, scheduler_running
     if not await is_callback_admin(bot, query):
         return await safe_answer(query, "❌ Unauthorized: Admin only!", show_alert=True)
+    if not query.message:
+        return await safe_answer(query)
 
     action = query.matches[0].group(1)
     try:
         if action == "close":
             await safe_answer(query, "Closed!")
-            return await query.message.delete()
+            try:
+                await query.message.delete()
+            except Exception:
+                pass
+            return
 
         if action in ("full", "light"):
             exclude_media = action == "light"
-            await safe_answer(
-                query, "⏳ Generating backup file, please wait...", show_alert=False
-            )
+            await safe_answer(query, "⏳ Generating backup file, please wait...")
             file_path = None
             try:
                 file_path, colls_cnt, docs_cnt = await generate_backup_file(
@@ -679,10 +754,10 @@ async def backup_panel_callbacks(bot: Client, query: CallbackQuery):
             buttons = InlineKeyboardMarkup(
                 [
                     [
-                        InlineKeyboardButton(
+                        create_btn(
                             "🔙 Back to Backup Panel", callback_data="db_bk:refresh"
                         ),
-                        InlineKeyboardButton("🔐 Close", callback_data="db_bk:close"),
+                        create_btn("🔐 Close", callback_data="db_bk:close"),
                     ]
                 ]
             )
@@ -704,7 +779,6 @@ async def backup_panel_callbacks(bot: Client, query: CallbackQuery):
             else:
                 _scheduler_task = asyncio.create_task(auto_backup_task(bot))
                 await safe_answer(query, "✅ 24h Auto-Backup Enabled!", show_alert=True)
-
         else:
             await safe_answer(query, "Refreshed!")
 
