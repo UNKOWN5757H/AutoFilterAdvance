@@ -1,16 +1,17 @@
 import asyncio
 import base64
+import hashlib
 import html
 import inspect
 import json
 import os
 import re
 import time
-from logging import ERROR, INFO, getLogger
-from typing import Any, Dict, List, Optional, Tuple, Union
+from logging import INFO, getLogger
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from motor.motor_asyncio import AsyncIOMotorClient
-from pyrogram import Client, enums, filters
+from pyrogram import Client, StopPropagation, enums, filters
 from pyrogram.errors import (
     ChannelInvalid,
     ChannelPrivate,
@@ -33,31 +34,80 @@ from pyrogram.types import (
 )
 
 import info
-from database.ia_filterdb import Media, get_file_details, unpack_new_file_id
-from plugins.fsub import ForceSub
+from database.ia_filterdb import get_file_details, unpack_new_file_id
 from utils import get_size, parse_text_and_markup, temp
 
+# ============================================================
+# 🛡️ SAFE OPTIONAL IMPORTS (MULTI-DB, FSUB & HIDDEN LINKS)
+# ============================================================
 try:
-    from database.ia_filterdb import save_file
+    from database.ia_filterdb import get_writable_System_db, save_file
 except ImportError:
+    get_writable_System_db = None
     save_file = None
+
+try:
+    from plugins.fsub import ForceSub
+except Exception:
+    ForceSub = None
 
 try:
     from plugins.uibuttons import (
         get_default_file_keyboard as _get_default_file_keyboard,
-    )
-    from plugins.uibuttons import (
         get_deleted_file_notify_keyboard as _get_deleted_file_notify_keyboard,
     )
 except Exception:
     _get_default_file_keyboard = None
     _get_deleted_file_notify_keyboard = None
 
+try:
+    from plugins.pm_filter import register_hidden_link, sanitize_markup_hide_links
+except ImportError:
+    try:
+        from pm_filter import register_hidden_link, sanitize_markup_hide_links
+    except ImportError:
+        _LOCAL_HIDDEN_LINKS: Dict[str, str] = {}
+
+        def register_hidden_link(url: str) -> str:
+            clean_u = str(url or "").strip()
+            if clean_u and not clean_u.startswith(("http://", "https://", "tg://")):
+                clean_u = "https://" + clean_u.lstrip("/")
+            token = hashlib.md5(clean_u.encode("utf-8")).hexdigest()[:12]
+            if len(_LOCAL_HIDDEN_LINKS) >= 15000:
+                _LOCAL_HIDDEN_LINKS.pop(next(iter(_LOCAL_HIDDEN_LINKS)), None)
+            _LOCAL_HIDDEN_LINKS[token] = clean_u
+            return token
+
+        def sanitize_markup_hide_links(
+            markup: Optional[InlineKeyboardMarkup],
+        ) -> Optional[InlineKeyboardMarkup]:
+            if not markup or not getattr(markup, "inline_keyboard", None):
+                return markup
+            rows = []
+            for row in markup.inline_keyboard:
+                new_row = []
+                for b in row:
+                    st = getattr(b, "style", None)
+                    if getattr(b, "url", None):
+                        new_row.append(create_btn(b.text, url=b.url, style=st))
+                    else:
+                        new_row.append(
+                            create_btn(
+                                b.text,
+                                callback_data=getattr(b, "callback_data", "noop"),
+                                style=st,
+                            )
+                        )
+                if new_row:
+                    rows.append(new_row)
+            return InlineKeyboardMarkup(rows) if rows else None
+
+
 logger = getLogger(__name__)
 logger.setLevel(INFO)
 
 # ============================================================
-# 🛡️ PYROGRAM v2.2.26 (LAYER 230) COMPATIBILITY ENGINE
+# 🛡️ PYROGRAM v2.2.26 COMPATIBILITY & HIDDEN-LINK BUTTONS
 # ============================================================
 try:
     from pyrogram.types import LinkPreviewOptions
@@ -73,26 +123,73 @@ _SEND_MSG_PARAMS = set(inspect.signature(Client.send_message).parameters.keys())
 _REPLY_PARAMS = set(inspect.signature(Message.reply_text).parameters.keys())
 _EDIT_PARAMS = set(inspect.signature(Message.edit_text).parameters.keys())
 
+BTN_PRIMARY = None
+BTN_SUCCESS = None
+BTN_DANGER = None
+_SUPPORTS_BTN_STYLE = False
+
+try:
+    from pyrogram.enums import ButtonStyle
+
+    if "style" in inspect.signature(InlineKeyboardButton.__init__).parameters:
+        BTN_PRIMARY = getattr(ButtonStyle, "PRIMARY", None)
+        BTN_SUCCESS = getattr(ButtonStyle, "SUCCESS", None)
+        BTN_DANGER = getattr(ButtonStyle, "DANGER", None)
+        _SUPPORTS_BTN_STYLE = True
+except (ImportError, ValueError, TypeError):
+    pass
+
+
+def _clean_button_label(raw_label: str) -> str:
+    lbl = re.sub(r"<[^>]+>", "", str(raw_label or "")).strip()
+    lbl = re.sub(r"(?i)https?://\S+|t\.me/\S+|www\.\S+", "", lbl).strip(" -|:")
+    return lbl or "Open"
+
+
+def create_btn(
+    text: str,
+    url: Optional[str] = None,
+    callback_data: Optional[str] = None,
+    style: Any = None,
+) -> InlineKeyboardButton:
+    """Creates an InlineKeyboardButton with ZERO visible links inside the button."""
+    kwargs: Dict[str, Any] = {"text": _clean_button_label(text)}
+    if callback_data:
+        kwargs["callback_data"] = str(callback_data)[:64]
+    elif url:
+        kwargs["callback_data"] = f"olink#{register_hidden_link(url)}"
+    else:
+        kwargs["callback_data"] = "noop"
+
+    if _SUPPORTS_BTN_STYLE and style is not None:
+        kwargs["style"] = style
+    try:
+        return InlineKeyboardButton(**kwargs)
+    except Exception:
+        kwargs.pop("style", None)
+        return InlineKeyboardButton(**kwargs)
+
 
 def _prepare_compat_kwargs(
-    kwargs: dict, supported_params: set, disable_preview: Optional[bool] = None
+    kwargs: dict, supported_params: set, disable_preview: Optional[bool] = True
 ) -> dict:
     clean_kw = dict(kwargs)
-    explicit_disable = clean_kw.pop("disable_web_page_preview", disable_preview)
+    if "reply_markup" in clean_kw and isinstance(
+        clean_kw["reply_markup"], InlineKeyboardMarkup
+    ):
+        clean_kw["reply_markup"] = sanitize_markup_hide_links(clean_kw["reply_markup"])
 
+    explicit_disable = clean_kw.pop("disable_web_page_preview", disable_preview)
     if explicit_disable is not None:
-        if "disable_web_page_preview" in supported_params:
-            clean_kw["disable_web_page_preview"] = bool(explicit_disable)
-        elif (
-            "link_preview_options" in supported_params
-            and LinkPreviewOptions is not None
-        ):
+        if "link_preview_options" in supported_params and LinkPreviewOptions is not None:
             try:
                 clean_kw["link_preview_options"] = LinkPreviewOptions(
                     is_disabled=bool(explicit_disable)
                 )
             except Exception:
                 pass
+        elif "disable_web_page_preview" in supported_params:
+            clean_kw["disable_web_page_preview"] = bool(explicit_disable)
 
     if "reply_to_message_id" in clean_kw:
         rep_id = clean_kw.pop("reply_to_message_id")
@@ -111,16 +208,21 @@ def _prepare_compat_kwargs(
 async def safe_reply_text(
     message: Message, text: str, disable_web_page_preview: bool = True, **kwargs
 ) -> Optional[Message]:
+    if not message:
+        return None
     compat_kw = _prepare_compat_kwargs(
         kwargs, _REPLY_PARAMS, disable_preview=disable_web_page_preview
     )
     try:
         return await message.reply_text(text, **compat_kw)
     except TypeError:
-        compat_kw.pop("disable_web_page_preview", None)
-        compat_kw.pop("link_preview_options", None)
-        compat_kw.pop("reply_parameters", None)
-        compat_kw.pop("reply_to_message_id", None)
+        for k in (
+            "disable_web_page_preview",
+            "link_preview_options",
+            "reply_parameters",
+            "reply_to_message_id",
+        ):
+            compat_kw.pop(k, None)
         return await message.reply_text(text, **compat_kw)
     except (ChatWriteForbidden, Forbidden, UserIsBlocked, PeerIdInvalid):
         return None
@@ -129,17 +231,22 @@ async def safe_reply_text(
 async def safe_edit_text(
     message: Message, text: str, disable_web_page_preview: bool = True, **kwargs
 ) -> Optional[Message]:
+    if not message:
+        return None
     compat_kw = _prepare_compat_kwargs(
         kwargs, _EDIT_PARAMS, disable_preview=disable_web_page_preview
     )
     try:
         return await message.edit_text(text, **compat_kw)
+    except (MessageNotModified, MessageIdInvalid, ChatWriteForbidden, Forbidden):
+        return None
     except TypeError:
         compat_kw.pop("disable_web_page_preview", None)
         compat_kw.pop("link_preview_options", None)
-        return await message.edit_text(text, **compat_kw)
-    except (MessageNotModified, MessageIdInvalid, ChatWriteForbidden, Forbidden):
-        return None
+        try:
+            return await message.edit_text(text, **compat_kw)
+        except Exception:
+            return None
 
 
 async def safe_send_message(
@@ -155,10 +262,13 @@ async def safe_send_message(
     try:
         return await client.send_message(chat_id=chat_id, text=text, **compat_kw)
     except TypeError:
-        compat_kw.pop("disable_web_page_preview", None)
-        compat_kw.pop("link_preview_options", None)
-        compat_kw.pop("reply_parameters", None)
-        compat_kw.pop("reply_to_message_id", None)
+        for k in (
+            "disable_web_page_preview",
+            "link_preview_options",
+            "reply_parameters",
+            "reply_to_message_id",
+        ):
+            compat_kw.pop(k, None)
         return await client.send_message(chat_id=chat_id, text=text, **compat_kw)
     except (ChatWriteForbidden, Forbidden, UserIsBlocked, PeerIdInvalid):
         return None
@@ -179,52 +289,19 @@ async def safe_answer(
 
 
 # ============================================================
-# 🎨 SAFE TELEGRAM BUTTON STYLE DETECTION
-# ============================================================
-BTN_PRIMARY = None
-BTN_SECONDARY = None
-BTN_SUCCESS = None
-BTN_DANGER = None
-_SUPPORTS_BTN_STYLE = False
-
-try:
-    from pyrogram.enums import ButtonStyle
-
-    if "style" in inspect.signature(InlineKeyboardButton.__init__).parameters:
-        BTN_PRIMARY = getattr(ButtonStyle, "PRIMARY", None)
-        BTN_SECONDARY = getattr(ButtonStyle, "SECONDARY", None)
-        BTN_SUCCESS = getattr(ButtonStyle, "SUCCESS", None)
-        BTN_DANGER = getattr(ButtonStyle, "DANGER", None)
-        _SUPPORTS_BTN_STYLE = True
-except (ImportError, ValueError, TypeError):
-    BTN_PRIMARY = BTN_SECONDARY = BTN_SUCCESS = BTN_DANGER = None
-    _SUPPORTS_BTN_STYLE = False
-
-
-def create_btn(text, url=None, callback_data=None, style=None):
-    kwargs: Dict[str, Any] = {"text": str(text)}
-    if url:
-        kwargs["url"] = str(url).strip()
-    elif callback_data:
-        kwargs["callback_data"] = str(callback_data)[:64]
-    if _SUPPORTS_BTN_STYLE and style is not None:
-        kwargs["style"] = style
-    try:
-        return InlineKeyboardButton(**kwargs)
-    except Exception:
-        kwargs.pop("style", None)
-        return InlineKeyboardButton(**kwargs)
-
-
-# ============================================================
-# ⚙️ MONGODB STORAGE FOR LINKS & BATCHES (ZERO-FAIL FALLBACK)
+# ⚙️ QUOTA-SAFE MONGODB STORAGE FOR LINKS & BATCHES
 # ============================================================
 _genlink_db = None
 _batch_db = None
 _active_db = None
 
 try:
-    _DB_CLIENT = AsyncIOMotorClient(info.DATABASE_URI)
+    _DB_CLIENT = AsyncIOMotorClient(
+        info.DATABASE_URI,
+        serverSelectionTimeoutMS=4000,
+        connectTimeoutMS=4000,
+        socketTimeoutMS=8000,
+    )
     _BOT_DB = _DB_CLIENT[info.DATABASE_NAME]
     _genlink_db = _BOT_DB["genlink_files"]
     _batch_db = _BOT_DB["genlink_batches"]
@@ -232,14 +309,24 @@ try:
 except Exception as e:
     logger.error(f"Failed to init genlink DB: {e}")
 
-# Strong references for auto-delete tasks
-AUTO_DELETE_TASKS = set()
-BATCH_CANCEL = {}
-_WAITING_INPUT = {}
+AUTO_DELETE_TASKS: Set[asyncio.Task] = set()
+BATCH_CANCEL: Dict[int, bool] = {}
+_WAITING_INPUT: Dict[int, Dict[str, Any]] = {}
+
+
+def _get_writable_col(col_name: str, fallback_col: Any):
+    if callable(get_writable_System_db):
+        try:
+            w_db = get_writable_System_db()
+            if w_db is not None:
+                return w_db[col_name]
+        except Exception:
+            pass
+    return fallback_col
 
 
 # ============================================================
-# 👑 SMART AUTHORIZATION ENGINE (GLOBAL + CHAT + ANONYMOUS)
+# 👑 SMART AUTHORIZATION ENGINE
 # ============================================================
 def get_admin_list() -> List[int]:
     raw_admins = getattr(info, "ADMINS", [])
@@ -253,7 +340,7 @@ def get_admin_list() -> List[int]:
 
 
 async def is_global_admin(user_id: int) -> bool:
-    return int(user_id) in get_admin_list() if user_id else False
+    return bool(user_id and int(user_id) in get_admin_list())
 
 
 async def is_user_admin(client: Client, message: Message) -> bool:
@@ -263,7 +350,6 @@ async def is_user_admin(client: Client, message: Message) -> bool:
 
     if message.from_user and message.from_user.id in admin_list:
         return True
-
     if message.sender_chat and message.sender_chat.id in admin_list:
         return True
 
@@ -273,7 +359,6 @@ async def is_user_admin(client: Client, message: Message) -> bool:
     ]:
         if message.sender_chat and message.sender_chat.id == message.chat.id:
             return True
-
         if message.from_user:
             try:
                 member = await client.get_chat_member(
@@ -290,20 +375,22 @@ async def is_user_admin(client: Client, message: Message) -> bool:
         message.chat
         and message.chat.type == enums.ChatType.PRIVATE
         and message.from_user
+        and _active_db is not None
     ):
-        if _active_db is not None:
-            try:
-                doc = await _active_db.find_one({"user_id": str(message.from_user.id)})
-                if doc and doc.get("group_id"):
-                    member = await client.get_chat_member(
-                        int(doc["group_id"]), message.from_user.id
-                    )
-                    return member.status in [
-                        enums.ChatMemberStatus.ADMINISTRATOR,
-                        enums.ChatMemberStatus.OWNER,
-                    ]
-            except Exception:
-                pass
+        try:
+            doc = await asyncio.wait_for(
+                _active_db.find_one({"user_id": str(message.from_user.id)}), timeout=2.0
+            )
+            if doc and doc.get("group_id"):
+                member = await client.get_chat_member(
+                    int(doc["group_id"]), message.from_user.id
+                )
+                return member.status in [
+                    enums.ChatMemberStatus.ADMINISTRATOR,
+                    enums.ChatMemberStatus.OWNER,
+                ]
+        except Exception:
+            pass
 
     return False
 
@@ -312,19 +399,19 @@ async def is_cb_admin(client: Client, query: CallbackQuery) -> bool:
     uid = query.from_user.id if query.from_user else 0
     if await is_global_admin(uid):
         return True
-    if query.message and query.message.chat:
-        if query.message.chat.type in [
-            enums.ChatType.GROUP,
-            enums.ChatType.SUPERGROUP,
-        ]:
-            try:
-                member = await client.get_chat_member(query.message.chat.id, uid)
-                return member.status in [
-                    enums.ChatMemberStatus.ADMINISTRATOR,
-                    enums.ChatMemberStatus.OWNER,
-                ]
-            except Exception:
-                pass
+    if (
+        query.message
+        and query.message.chat
+        and query.message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]
+    ):
+        try:
+            member = await client.get_chat_member(query.message.chat.id, uid)
+            return member.status in [
+                enums.ChatMemberStatus.ADMINISTRATOR,
+                enums.ChatMemberStatus.OWNER,
+            ]
+        except Exception:
+            pass
     return False
 
 
@@ -348,13 +435,15 @@ def is_file_store_channel(chat_id: int) -> bool:
 # ============================================================
 @Client.on_message(filters.private | filters.group, group=-14)
 async def genlink_listener(client: Client, message: Message):
+    if not message or not message.chat:
+        return
     chat_id = message.chat.id
     if chat_id not in _WAITING_INPUT:
         return
     if (
         message.text
         and message.text.startswith("/")
-        and message.text.strip().lower() not in ["/cancel"]
+        and message.text.strip().lower() != "/cancel"
     ):
         return
 
@@ -363,12 +452,12 @@ async def genlink_listener(client: Client, message: Message):
         if message.from_user
         else getattr(message.sender_chat, "id", 0)
     )
-    session = _WAITING_INPUT[chat_id]
-    if uid == session["user_id"] or uid == chat_id:
+    session = _WAITING_INPUT.get(chat_id)
+    if session and (uid == session["user_id"] or uid == chat_id):
         fut = session["future"]
         if not fut.done():
             fut.set_result(message)
-        message.stop_propagation()
+        raise StopPropagation
 
 
 async def wait_for_input(
@@ -399,7 +488,7 @@ def get_auto_delete_timer(
 ) -> int:
     try:
         global_switch = getattr(info, "AUTO_DELETE", True)
-        if str(global_switch).strip().lower() in ["false", "off", "0", "no"]:
+        if str(global_switch).strip().lower() in ("false", "off", "0", "no"):
             return 0
         raw_val = getattr(
             info,
@@ -449,7 +538,7 @@ async def _auto_delete_worker(
             getattr(info, "DEL_MSG", None)
             or "<b>Successfully deleted your file, if you want request again in group.</b>"
         )
-        markup = (
+        markup = sanitize_markup_hide_links(
             _get_deleted_file_notify_keyboard()
             if callable(_get_deleted_file_notify_keyboard)
             else InlineKeyboardMarkup(
@@ -488,9 +577,38 @@ def schedule_auto_delete(
     task.add_done_callback(AUTO_DELETE_TASKS.discard)
 
 
+async def _send_autodelete_warning_and_schedule(
+    bot: Client, user_id: int, chat_id: int, sent_messages: List[Message]
+):
+    if not sent_messages:
+        return
+    delete_timer = get_auto_delete_timer("FILE_AUTO_DELETE", 1800)
+    if delete_timer <= 0:
+        return
+
+    time_str = format_duration(delete_timer)
+    count = len(sent_messages)
+    noun = f"{count} files" if count > 1 else "file"
+    pronoun = "these files" if count > 1 else "this file"
+    warn_text = (
+        f"<b>📢 Please Note\n\n"
+        f"✅ The above {noun} will be autodeleted in {time_str} to avoid copyright issues.\n\n"
+        f"✅ Please forward {pronoun} to your saved messages and start downloading from there.\n\n"
+        f"Tᴇᴀᴍ: @KR_Picture</b>"
+    )
+    warn_msg = await safe_send_message(
+        bot,
+        chat_id=user_id,
+        text=warn_text,
+        reply_to_message_id=sent_messages[-1].id,
+        parse_mode=enums.ParseMode.HTML,
+    )
+    schedule_auto_delete(bot, chat_id, True, delete_timer, *sent_messages, warn_msg)
+
+
 def format_media_caption(
     title: str, size_bytes: int, raw_caption: str = ""
-) -> Tuple[str, InlineKeyboardMarkup]:
+) -> Tuple[str, Optional[InlineKeyboardMarkup]]:
     size_str = get_size(int(size_bytes or 0))
     f_caption = str(raw_caption or "")
     custom_cap = getattr(info, "CUSTOM_FILE_CAPTION", None)
@@ -506,8 +624,8 @@ def format_media_caption(
             pass
 
     if not f_caption:
-        f_caption = f"<b>{title or 'File'}</b>"
-    elif not f_caption.strip().startswith("<b>"):
+        f_caption = f"<b>{html.escape(title or 'File')}</b>"
+    elif not f_caption.strip().startswith("<"):
         f_caption = f"<b>{f_caption}</b>"
 
     if getattr(info, "CAPTION_PLUS", None):
@@ -528,7 +646,8 @@ def format_media_caption(
             ]
         )
     )
-    return parse_text_and_markup(f_caption, default_kb)
+    final_cap, final_kb = parse_text_and_markup(f_caption, default_kb)
+    return final_cap, sanitize_markup_hide_links(final_kb)
 
 
 async def send_any_media(
@@ -539,6 +658,7 @@ async def send_any_media(
     reply_markup: Optional[InlineKeyboardMarkup] = None,
     protect: bool = False,
 ):
+    reply_markup = sanitize_markup_hide_links(reply_markup)
     try:
         return await bot.send_cached_media(
             chat_id=chat_id,
@@ -553,14 +673,16 @@ async def send_any_media(
         return await send_any_media(
             bot, chat_id, file_id, caption, reply_markup, protect
         )
+    except (UserIsBlocked, PeerIdInvalid, Forbidden):
+        return None
     except Exception:
-        for send_fn, kw in [
+        for send_fn, kw in (
             (bot.send_document, "document"),
             (bot.send_video, "video"),
             (bot.send_photo, "photo"),
             (bot.send_audio, "audio"),
             (bot.send_animation, "animation"),
-        ]:
+        ):
             try:
                 return await send_fn(
                     **{
@@ -572,6 +694,8 @@ async def send_any_media(
                         "parse_mode": enums.ParseMode.HTML,
                     }
                 )
+            except (UserIsBlocked, PeerIdInvalid, Forbidden):
+                return None
             except Exception:
                 continue
     return None
@@ -584,13 +708,13 @@ async def _create_single_link_from_msg(
     bot: Client, command_msg: Message, target_msg: Message, is_protect: bool
 ):
     file_type = target_msg.media
-    if not file_type or file_type not in [
+    if not file_type or file_type not in (
         enums.MessageMediaType.VIDEO,
         enums.MessageMediaType.AUDIO,
         enums.MessageMediaType.DOCUMENT,
         enums.MessageMediaType.PHOTO,
         enums.MessageMediaType.ANIMATION,
-    ]:
+    ):
         return await safe_reply_text(
             command_msg,
             "⚠️ <b>Invalid Media:</b> Please reply to or send a Video, Document, Audio, Photo, or GIF.",
@@ -622,33 +746,35 @@ async def _create_single_link_from_msg(
         else (target_msg.caption or "")
     )
 
-    # 1. Save in dedicated genlink_files DB so it NEVER says "No such file exists"
-    if _genlink_db is not None:
+    gl_col = _get_writable_col("genlink_files", _genlink_db)
+    if gl_col is not None:
         try:
-            await _genlink_db.update_one(
-                {"_id": str(unpacked_id)},
-                {
-                    "$set": {
-                        "file_id": str(unpacked_id),
-                        "full_file_id": str(raw_file_id),
-                        "file_name": str(file_name),
-                        "file_size": int(file_size),
-                        "caption": str(caption_html),
-                        "file_type": str(file_type.value),
-                        "timestamp": time.time(),
-                    }
-                },
-                upsert=True,
+            await asyncio.wait_for(
+                gl_col.update_one(
+                    {"_id": str(unpacked_id)},
+                    {
+                        "$set": {
+                            "file_id": str(unpacked_id),
+                            "full_file_id": str(raw_file_id),
+                            "file_name": str(file_name),
+                            "file_size": int(file_size),
+                            "caption": str(caption_html),
+                            "file_type": str(file_type.value),
+                            "timestamp": time.time(),
+                        }
+                    },
+                    upsert=True,
+                ),
+                timeout=3.0,
             )
         except Exception as e:
             logger.error(f"genlink DB save error: {e}")
 
-    # 2. Also index into ia_filterdb if it's a video/document/audio so standard search & commands find it
-    if save_file is not None and file_type in [
+    if save_file is not None and file_type in (
         enums.MessageMediaType.VIDEO,
         enums.MessageMediaType.AUDIO,
         enums.MessageMediaType.DOCUMENT,
-    ]:
+    ):
         try:
             media_obj.file_type = file_type.value
             media_obj.caption = caption_html
@@ -660,6 +786,7 @@ async def _create_single_link_from_msg(
     bot_username = temp.U_NAME or (await bot.get_me()).username
     share_link = f"https://t.me/{bot_username}?start={prefix}_{unpacked_id}"
 
+    # Pure hidden-link buttons (shows only button text, zero visible URL inside buttons)
     buttons = [
         [
             create_btn("🔗 Open Link", url=share_link, style=BTN_SUCCESS),
@@ -677,7 +804,7 @@ async def _create_single_link_from_msg(
         f"📄 <b>File:</b> <code>{html.escape(str(file_name))}</code>\n"
         f"📦 <b>Size:</b> <code>{get_size(file_size)}</code>\n"
         f"🔒 <b>Protected:</b> <code>{'Yes' if is_protect else 'No'}</code>\n\n"
-        f"🔗 <b>Link:</b>\n{share_link}",
+        f"🔗 <b>Link:</b>\n<code>{share_link}</code>",
         reply_markup=InlineKeyboardMarkup(buttons),
         disable_web_page_preview=True,
         parse_mode=enums.ParseMode.HTML,
@@ -744,7 +871,6 @@ LINK_REGEX = re.compile(
 def extract_chat_and_msg_id(
     msg_or_text,
 ) -> Tuple[Optional[Union[int, str]], Optional[int]]:
-    """Extracts (chat_id, message_id) from either a Telegram link or a forwarded channel message."""
     if isinstance(msg_or_text, Message):
         if (
             getattr(msg_or_text, "forward_from_chat", None)
@@ -879,7 +1005,6 @@ async def gen_link_batch(bot: Client, message: Message):
     bot_username = temp.U_NAME or (await bot.get_me()).username
     start_id, end_id = min(f_msg_id, l_msg_id), max(f_msg_id, l_msg_id)
 
-    # Fast DSTORE link if configured as FILE_STORE_CHANNEL
     if is_file_store_channel(chat_id):
         string = f"{start_id}_{end_id}_{chat_id}_{cmd}"
         b_64 = base64.urlsafe_b64encode(string.encode("ascii")).decode().rstrip("=")
@@ -899,7 +1024,7 @@ async def gen_link_batch(bot: Client, message: Message):
             f"✅ <b>Batch File Store Link Generated!</b>\n\n"
             f"📢 <b>Channel:</b> <code>{html.escape(chat.title or str(chat_id))}</code>\n"
             f"🔢 <b>Range:</b> <code>{start_id}</code> to <code>{end_id}</code>\n\n"
-            f"🔗 <b>Link:</b>\n{dstore_link}",
+            f"🔗 <b>Link:</b>\n<code>{dstore_link}</code>",
             reply_markup=InlineKeyboardMarkup(buttons),
             disable_web_page_preview=True,
             parse_mode=enums.ParseMode.HTML,
@@ -933,7 +1058,7 @@ async def gen_link_batch(bot: Client, message: Message):
         if BATCH_CANCEL.get(message.chat.id):
             BATCH_CANCEL.pop(message.chat.id, None)
             if sts:
-                return await safe_edit_text(
+                await safe_edit_text(
                     sts,
                     "⛔ <b>Batch generation cancelled.</b>",
                     parse_mode=enums.ParseMode.HTML,
@@ -992,7 +1117,7 @@ async def gen_link_batch(bot: Client, message: Message):
     BATCH_CANCEL.pop(message.chat.id, None)
     if not outlist:
         if sts:
-            return await safe_edit_text(
+            await safe_edit_text(
                 sts,
                 "❌ <b>No downloadable media found</b> within the provided message range.",
                 parse_mode=enums.ParseMode.HTML,
@@ -1005,7 +1130,6 @@ async def gen_link_batch(bot: Client, message: Message):
         else (message.sender_chat.id if message.sender_chat else chat_id)
     )
     batch_file_path = f"batchmode_{req_id}_{int(time.time())}.json"
-
     with open(batch_file_path, "w+", encoding="utf-8") as out:
         json.dump(outlist, out)
 
@@ -1056,23 +1180,26 @@ async def gen_link_batch(bot: Client, message: Message):
         batch_id = f"{abs(int(chat_id))}_{start_id}_{end_id}"
         raw_doc_id = None
 
-    # Save batch list in MongoDB so it works instantaneously and never expires
-    if _batch_db is not None:
+    b_col = _get_writable_col("genlink_batches", _batch_db)
+    if b_col is not None:
         try:
-            await _batch_db.update_one(
-                {"_id": str(batch_id)},
-                {
-                    "$set": {
-                        "files": outlist,
-                        "raw_doc_id": raw_doc_id,
-                        "chat_id": int(chat_id),
-                        "start_id": start_id,
-                        "end_id": end_id,
-                        "protect": is_protect,
-                        "timestamp": time.time(),
-                    }
-                },
-                upsert=True,
+            await asyncio.wait_for(
+                b_col.update_one(
+                    {"_id": str(batch_id)},
+                    {
+                        "$set": {
+                            "files": outlist,
+                            "raw_doc_id": raw_doc_id,
+                            "chat_id": int(chat_id),
+                            "start_id": start_id,
+                            "end_id": end_id,
+                            "protect": is_protect,
+                            "timestamp": time.time(),
+                        }
+                    },
+                    upsert=True,
+                ),
+                timeout=4.0,
             )
         except Exception as e:
             logger.error(f"Batch DB save error: {e}")
@@ -1096,7 +1223,7 @@ async def gen_link_batch(bot: Client, message: Message):
             f"📢 <b>Channel:</b> <code>{html.escape(chat.title or str(chat_id))}</code>\n"
             f"📂 <b>Files Included:</b> <code>{og_msg}</code>\n"
             f"🔒 <b>Protected:</b> <code>{'Yes' if is_protect else 'No'}</code>\n\n"
-            f"🔗 <b>Link:</b>\n{batch_link}",
+            f"🔗 <b>Link:</b>\n<code>{batch_link}</code>",
             reply_markup=InlineKeyboardMarkup(buttons),
             disable_web_page_preview=True,
             parse_mode=enums.ParseMode.HTML,
@@ -1138,11 +1265,10 @@ async def genlink_callbacks(bot: Client, query: CallbackQuery):
 # 🚀 DEEP-LINK INTERCEPTOR FOR BATCH-, DSTORE-, BASE64 & GENLINK FILES
 # ============================================================
 def _try_decode_base64_payload(payload: str) -> Optional[str]:
-    """Decodes legacy base64-encoded start payloads if valid."""
     if (
         not payload
-        or payload.startswith(("file_", "filep_", "search_", "BATCH-", "DSTORE-"))
-        or payload in ["help", "about", "subscribe", "error", "okay", "hehe"]
+        or payload.startswith(("file_", "filep_", "search_", "olink_", "BATCH-", "DSTORE-"))
+        or payload in ("help", "about", "subscribe", "error", "okay", "hehe")
     ):
         return None
     try:
@@ -1158,7 +1284,6 @@ def _try_decode_base64_payload(payload: str) -> Optional[str]:
 async def deliver_genlink_payload(
     bot: Client, user_id: int, chat_id: int, payload: str
 ) -> bool:
-    """Delivers BATCH-, DSTORE-, or unindexed genlink files and schedules auto-deletion."""
     decoded = _try_decode_base64_payload(payload)
     if decoded:
         payload = decoded
@@ -1168,15 +1293,17 @@ async def deliver_genlink_payload(
         batch_id = payload.split("BATCH-", 1)[1]
         files_list = None
 
-        if _batch_db is not None:
+        b_col = _get_writable_col("genlink_batches", _batch_db)
+        if b_col is not None:
             try:
-                doc = await _batch_db.find_one({"_id": str(batch_id)})
+                doc = await asyncio.wait_for(
+                    b_col.find_one({"_id": str(batch_id)}), timeout=3.0
+                )
                 if doc and doc.get("files"):
                     files_list = doc["files"]
             except Exception:
                 pass
 
-        # Fallback to downloading legacy Batch.json if not in MongoDB
         if not files_list:
             try:
                 file_path = await bot.download_media(batch_id)
@@ -1208,13 +1335,14 @@ async def deliver_genlink_payload(
             fid = item.get("file_id")
             if not fid:
                 continue
-            title = item.get("title") or "File"
-            size = item.get("size") or 0
-            raw_cap = item.get("caption") or ""
-            protect = bool(item.get("protect", False))
-
-            final_cap, final_kb = format_media_caption(title, size, raw_cap)
-            sent = await send_any_media(bot, user_id, fid, final_cap, final_kb, protect)
+            final_cap, final_kb = format_media_caption(
+                item.get("title") or "File",
+                item.get("size") or 0,
+                item.get("caption") or "",
+            )
+            sent = await send_any_media(
+                bot, user_id, fid, final_cap, final_kb, bool(item.get("protect", False))
+            )
             if sent:
                 sent_messages.append(sent)
             await asyncio.sleep(0.8)
@@ -1225,26 +1353,7 @@ async def deliver_genlink_payload(
             except Exception:
                 pass
 
-        if sent_messages:
-            delete_timer = get_auto_delete_timer("FILE_AUTO_DELETE", 1800)
-            if delete_timer > 0:
-                time_str = format_duration(delete_timer)
-                warn_text = (
-                    f"<b>📢 Please Note\n\n"
-                    f"✅ The above {len(sent_messages)} files will be autodeleted in {time_str} to avoid copyright issues.\n\n"
-                    f"✅ Please forward these files to your saved messages and start downloading from there.\n\n"
-                    f"Tᴇᴀᴍ: @KR_Picture</b>"
-                )
-                warn_msg = await safe_send_message(
-                    bot,
-                    chat_id=user_id,
-                    text=warn_text,
-                    reply_to_message_id=sent_messages[-1].id,
-                    parse_mode=enums.ParseMode.HTML,
-                )
-                schedule_auto_delete(
-                    bot, chat_id, True, delete_timer, *sent_messages, warn_msg
-                )
+        await _send_autodelete_warning_and_schedule(bot, user_id, chat_id, sent_messages)
         return True
 
     # 2. Handle DSTORE-<b64>
@@ -1298,14 +1407,16 @@ async def deliver_genlink_payload(
                 media_obj = getattr(m, m.media.value, None)
                 if not media_obj:
                     continue
-                title = getattr(media_obj, "file_name", "") or f"File_{m.id}"
-                size = getattr(media_obj, "file_size", 0) or 0
                 raw_cap = (
                     m.caption.html
                     if m.caption and hasattr(m.caption, "html")
                     else (m.caption or "")
                 )
-                final_cap, final_kb = format_media_caption(title, size, raw_cap)
+                final_cap, final_kb = format_media_caption(
+                    getattr(media_obj, "file_name", "") or f"File_{m.id}",
+                    getattr(media_obj, "file_size", 0) or 0,
+                    raw_cap,
+                )
                 sent = await send_any_media(
                     bot, user_id, media_obj.file_id, final_cap, final_kb, protect
                 )
@@ -1319,38 +1430,22 @@ async def deliver_genlink_payload(
             except Exception:
                 pass
 
-        if sent_messages:
-            delete_timer = get_auto_delete_timer("FILE_AUTO_DELETE", 1800)
-            if delete_timer > 0:
-                time_str = format_duration(delete_timer)
-                warn_text = (
-                    f"<b>📢 Please Note\n\n"
-                    f"✅ The above {len(sent_messages)} files will be autodeleted in {time_str} to avoid copyright issues.\n\n"
-                    f"✅ Please forward these files to your saved messages and start downloading from there.\n\n"
-                    f"Tᴇᴀᴍ: @KR_Picture</b>"
-                )
-                warn_msg = await safe_send_message(
-                    bot,
-                    chat_id=user_id,
-                    text=warn_text,
-                    reply_to_message_id=sent_messages[-1].id,
-                    parse_mode=enums.ParseMode.HTML,
-                )
-                schedule_auto_delete(
-                    bot, chat_id, True, delete_timer, *sent_messages, warn_msg
-                )
+        await _send_autodelete_warning_and_schedule(bot, user_id, chat_id, sent_messages)
         return True
 
-    # 3. Handle single file link if stored in _genlink_db (or decoded base64 file_ link)
+    # 3. Handle single file link stored in _genlink_db (or decoded base64 file_ link)
     if payload.startswith(("file_", "filep_")):
         prefix, fid = payload.split("_", 1)
         protect = prefix == "filep"
 
         db_files = await get_file_details(fid)
         gen_doc = None
-        if not db_files and _genlink_db is not None:
+        gl_col = _get_writable_col("genlink_files", _genlink_db)
+        if not db_files and gl_col is not None:
             try:
-                gen_doc = await _genlink_db.find_one({"_id": str(fid)})
+                gen_doc = await asyncio.wait_for(
+                    gl_col.find_one({"_id": str(fid)}), timeout=2.5
+                )
             except Exception:
                 gen_doc = None
 
@@ -1383,35 +1478,16 @@ async def deliver_genlink_payload(
                     else getattr(f_obj, "caption", "")
                 )
             else:
-                full_fid = fid
-                title = "File"
-                size = 0
-                raw_cap = ""
+                full_fid, title, size, raw_cap = fid, "File", 0, ""
 
             final_cap, final_kb = format_media_caption(title, size, raw_cap)
             sent = await send_any_media(
                 bot, user_id, full_fid, final_cap, final_kb, protect
             )
             if sent:
-                delete_timer = get_auto_delete_timer("FILE_AUTO_DELETE", 1800)
-                if delete_timer > 0:
-                    time_str = format_duration(delete_timer)
-                    warn_text = (
-                        f"<b>📢 Please Note\n\n"
-                        f"✅ The above file will be autodeleted in {time_str} to avoid copyright issues.\n\n"
-                        f"✅ Please forward this file to your saved messages and start downloading from there.\n\n"
-                        f"Tᴇᴀᴍ: @KR_Picture</b>"
-                    )
-                    warn_msg = await safe_send_message(
-                        bot,
-                        chat_id=user_id,
-                        text=warn_text,
-                        reply_to_message_id=sent.id,
-                        parse_mode=enums.ParseMode.HTML,
-                    )
-                    schedule_auto_delete(
-                        bot, chat_id, True, delete_timer, sent, warn_msg
-                    )
+                await _send_autodelete_warning_and_schedule(
+                    bot, user_id, chat_id, [sent]
+                )
                 return True
 
     return False
@@ -1421,12 +1497,14 @@ async def deliver_genlink_payload(
     filters.command("start") & filters.private & filters.incoming, group=-3
 )
 async def genlink_start_interceptor(bot: Client, message: Message):
-    if len(message.command) < 2:
+    if len(message.command) < 2 or not message.from_user:
         return
 
     cmd_data = message.command[1].strip()
-    decoded = _try_decode_base64_payload(cmd_data)
+    if cmd_data.startswith("olink_"):
+        return
 
+    decoded = _try_decode_base64_payload(cmd_data)
     is_batch_or_dstore = cmd_data.startswith(("BATCH-", "DSTORE-")) or (
         decoded and decoded.startswith(("BATCH-", "DSTORE-"))
     )
@@ -1435,24 +1513,28 @@ async def genlink_start_interceptor(bot: Client, message: Message):
     if not is_batch_or_dstore:
         if decoded and decoded.startswith(("file_", "filep_")):
             is_genlink_single = True
-        elif cmd_data.startswith(("file_", "filep_")) and _genlink_db is not None:
-            _, fid = cmd_data.split("_", 1)
-            if not await get_file_details(fid):
-                doc = await _genlink_db.find_one({"_id": str(fid)})
-                if doc:
-                    is_genlink_single = True
+        elif cmd_data.startswith(("file_", "filep_")):
+            gl_col = _get_writable_col("genlink_files", _genlink_db)
+            if gl_col is not None:
+                _, fid = cmd_data.split("_", 1)
+                if not await get_file_details(fid):
+                    try:
+                        if await asyncio.wait_for(
+                            gl_col.find_one({"_id": str(fid)}), timeout=2.0
+                        ):
+                            is_genlink_single = True
+                    except Exception:
+                        pass
 
     if not (is_batch_or_dstore or is_genlink_single):
         return
 
-    # Verify ForceSub before delivering batch or file
-    status = await ForceSub(bot, message, file_id=cmd_data, mode="checksub")
-    if not status:
-        message.stop_propagation()
-        return
+    if callable(ForceSub):
+        status = await ForceSub(bot, message, file_id=cmd_data, mode="checksub")
+        if not status:
+            raise StopPropagation
 
-    handled = await deliver_genlink_payload(
+    if await deliver_genlink_payload(
         bot, message.from_user.id, message.chat.id, cmd_data
-    )
-    if handled:
-        message.stop_propagation()
+    ):
+        raise StopPropagation
