@@ -99,7 +99,10 @@ def _prepare_compat_kwargs(
     explicit_disable = clean_kw.pop("disable_web_page_preview", disable_preview)
 
     if explicit_disable is not None:
-        if "link_preview_options" in supported_params and LinkPreviewOptions is not None:
+        if (
+            "link_preview_options" in supported_params
+            and LinkPreviewOptions is not None
+        ):
             try:
                 clean_kw["link_preview_options"] = LinkPreviewOptions(
                     is_disabled=bool(explicit_disable)
@@ -123,9 +126,7 @@ def _prepare_compat_kwargs(
     return clean_kw
 
 
-async def safe_reply_text(
-    message: Message, text: str, **kwargs
-) -> Optional[Message]:
+async def safe_reply_text(message: Message, text: str, **kwargs) -> Optional[Message]:
     if not message:
         return None
     compat_kw = _prepare_compat_kwargs(kwargs, _REPLY_PARAMS)
@@ -144,9 +145,7 @@ async def safe_reply_text(
         return None
 
 
-async def safe_edit_text(
-    message: Message, text: str, **kwargs
-) -> Optional[Message]:
+async def safe_edit_text(message: Message, text: str, **kwargs) -> Optional[Message]:
     if not message:
         return None
     compat_kw = _prepare_compat_kwargs(kwargs, _EDIT_PARAMS)
