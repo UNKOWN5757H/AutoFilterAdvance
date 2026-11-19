@@ -792,7 +792,9 @@ async def shortener_callback_handler(client: Client, query: CallbackQuery):
     if action == "clear_cache":
         cleared = len(_SHORT_URL_CACHE)
         _SHORT_URL_CACHE.clear()
-        await safe_answer(query, f"🧹 Cleared {cleared} cached link(s)!", show_alert=True)
+        await safe_answer(
+            query, f"🧹 Cleared {cleared} cached link(s)!", show_alert=True
+        )
         text, markup = await build_shortener_panel()
         return await safe_edit_text(query.message, text, markup)
 
