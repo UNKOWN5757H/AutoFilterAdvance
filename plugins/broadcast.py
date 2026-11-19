@@ -1,11 +1,12 @@
 import asyncio
 import datetime
+import hashlib
 import html
 import inspect
 import re
 import time
 from logging import ERROR, getLogger
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from motor.motor_asyncio import AsyncIOMotorClient
 from pyrogram import Client, enums, filters
@@ -33,25 +34,147 @@ from pyrogram.types import (
 import info
 from database.users_chats_db import db as _db
 
-# Safe optional import for plugin_db
 try:
     from database.plugin_dbs import plugin_db as _plugin_db
 except ImportError:
     _plugin_db = None
 
+try:
+    from database.ia_filterdb import get_writable_System_db
+except Exception:
+    get_writable_System_db = None
+
+# Share hidden-link registry with pm_filter.py so zero links appear inside buttons
+try:
+    from plugins.pm_filter import register_hidden_link, sanitize_markup_hide_links
+except ImportError:
+    try:
+        from pm_filter import register_hidden_link, sanitize_markup_hide_links
+    except ImportError:
+        _LOCAL_HIDDEN_LINKS: Dict[str, str] = {}
+
+        def register_hidden_link(url: str) -> str:
+            clean_u = str(url or "").strip()
+            if clean_u and not clean_u.startswith(("http://", "https://", "tg://")):
+                clean_u = "https://" + clean_u.lstrip("/")
+            token = hashlib.md5(clean_u.encode("utf-8")).hexdigest()[:12]
+            if len(_LOCAL_HIDDEN_LINKS) >= 15000:
+                _LOCAL_HIDDEN_LINKS.pop(next(iter(_LOCAL_HIDDEN_LINKS)), None)
+            _LOCAL_HIDDEN_LINKS[token] = clean_u
+            return token
+
+        def sanitize_markup_hide_links(
+            markup: Optional[InlineKeyboardMarkup],
+        ) -> Optional[InlineKeyboardMarkup]:
+            if not markup or not getattr(markup, "inline_keyboard", None):
+                return markup
+            rows = []
+            for row in markup.inline_keyboard:
+                new_row = []
+                for b in row:
+                    st = getattr(b, "style", None)
+                    if getattr(b, "url", None):
+                        new_row.append(create_btn(b.text, url=b.url, style=st))
+                    else:
+                        new_row.append(
+                            create_btn(
+                                b.text,
+                                callback_data=getattr(b, "callback_data", "noop"),
+                                style=st,
+                            )
+                        )
+                if new_row:
+                    rows.append(new_row)
+            return InlineKeyboardMarkup(rows) if rows else None
+
+
 logger = getLogger(__name__)
 logger.setLevel(ERROR)
 
 # ============================================================
-# 🛡️ PYROGRAM v2.2.26 (LAYER 230) COMPATIBILITY ENGINE
+# 🛡️ PYROGRAM v2.2.26 COMPATIBILITY & HIDDEN-LINK BUTTONS
 # ============================================================
+try:
+    from pyrogram.types import LinkPreviewOptions
+except ImportError:
+    LinkPreviewOptions = None
+
 _REPLY_PARAMS = set(inspect.signature(Message.reply_text).parameters.keys())
 _EDIT_PARAMS = set(inspect.signature(Message.edit_text).parameters.keys())
 
+BTN_PRIMARY = None
+BTN_SUCCESS = None
+BTN_DANGER = None
+_SUPPORTS_BTN_STYLE = False
+
+try:
+    from pyrogram.enums import ButtonStyle
+
+    if "style" in inspect.signature(InlineKeyboardButton.__init__).parameters:
+        BTN_PRIMARY = getattr(ButtonStyle, "PRIMARY", None)
+        BTN_SUCCESS = getattr(ButtonStyle, "SUCCESS", None)
+        BTN_DANGER = getattr(ButtonStyle, "DANGER", None)
+        _SUPPORTS_BTN_STYLE = True
+except (ImportError, ValueError, TypeError):
+    pass
+
+
+def _clean_button_label(raw_label: str) -> str:
+    lbl = re.sub(r"<[^>]+>", "", str(raw_label or "")).strip()
+    lbl = re.sub(r"(?i)https?://\S+|t\.me/\S+|www\.\S+", "", lbl).strip(" -|:")
+    return lbl or "Open"
+
+
+def create_btn(
+    text: str,
+    url: Optional[str] = None,
+    callback_data: Optional[str] = None,
+    style: Any = None,
+) -> InlineKeyboardButton:
+    """Creates an InlineKeyboardButton with ZERO visible links inside the button."""
+    kwargs: Dict[str, Any] = {"text": _clean_button_label(text)}
+    if callback_data:
+        kwargs["callback_data"] = str(callback_data)[:64]
+    elif url:
+        kwargs["callback_data"] = f"olink#{register_hidden_link(url)}"
+    else:
+        kwargs["callback_data"] = "noop"
+
+    if _SUPPORTS_BTN_STYLE and style is not None:
+        kwargs["style"] = style
+    try:
+        return InlineKeyboardButton(**kwargs)
+    except Exception:
+        kwargs.pop("style", None)
+        return InlineKeyboardButton(**kwargs)
+
+
+def _prepare_kwargs(kwargs: dict, supported_params: set) -> dict:
+    clean_kw = dict(kwargs)
+    if "reply_markup" in clean_kw and isinstance(
+        clean_kw["reply_markup"], InlineKeyboardMarkup
+    ):
+        clean_kw["reply_markup"] = sanitize_markup_hide_links(clean_kw["reply_markup"])
+
+    disable_prev = clean_kw.pop("disable_web_page_preview", True)
+    if "link_preview_options" in supported_params and LinkPreviewOptions is not None:
+        try:
+            clean_kw["link_preview_options"] = LinkPreviewOptions(
+                is_disabled=bool(disable_prev)
+            )
+        except Exception:
+            pass
+    elif "disable_web_page_preview" in supported_params:
+        clean_kw["disable_web_page_preview"] = bool(disable_prev)
+    return clean_kw
+
 
 async def safe_reply_text(message: Message, text: str, **kwargs):
+    if not message:
+        return None
+    compat_kw = _prepare_kwargs(kwargs, _REPLY_PARAMS)
     try:
-        return await message.reply_text(text, **kwargs)
+        return await message.reply_text(text, **compat_kw)
     except (ChatWriteForbidden, Forbidden, UserIsBlocked, PeerIdInvalid):
         return None
     except Exception as e:
@@ -60,8 +183,11 @@ async def safe_reply_text(message: Message, text: str, **kwargs):
 
 
 async def safe_edit_text(message: Message, text: str, **kwargs):
+    if not message:
+        return None
+    compat_kw = _prepare_kwargs(kwargs, _EDIT_PARAMS)
     try:
-        return await message.edit_text(text, **kwargs)
+        return await message.edit_text(text, **compat_kw)
     except (MessageNotModified, MessageIdInvalid, ChatWriteForbidden, Forbidden):
         return None
     except Exception:
@@ -88,7 +214,12 @@ async def safe_answer(
 _broadcast_col = None
 _promo_col = None
 try:
-    _DB_CLIENT = AsyncIOMotorClient(info.DATABASE_URI)
+    _DB_CLIENT = AsyncIOMotorClient(
+        info.DATABASE_URI,
+        serverSelectionTimeoutMS=4000,
+        connectTimeoutMS=4000,
+        socketTimeoutMS=8000,
+    )
     _BOT_DB = _DB_CLIENT[info.DATABASE_NAME]
     _broadcast_col = _BOT_DB["broadcast_tasks"]
     _promo_col = _BOT_DB["promotional_links"]
@@ -98,9 +229,7 @@ except Exception as e:
 DELETE_DELAY = int(getattr(info, "BROADCAST_DELETE_TIME", 24 * 3600))
 
 worker_started = False
-_WORKER_TASK = None
-
-# Cancellation & live status tracking for /listbroadcast
+_WORKER_TASK: Optional[asyncio.Task] = None
 _CANCEL_USER_BCAST = False
 _CANCEL_GROUP_BCAST = False
 
@@ -126,8 +255,18 @@ _BCAST_STATUS: Dict[str, dict] = {
 }
 
 
+def _get_writable_col(col_name: str, fallback_col: Any):
+    if callable(get_writable_System_db):
+        try:
+            w_db = get_writable_System_db()
+            if w_db is not None:
+                return w_db[col_name]
+        except Exception:
+            pass
+    return fallback_col
+
+
 def _invalidate_pm_filter_promo_cache():
-    """Invalidates pm_filter's 60-second promo cache immediately when promos are added/deleted."""
     try:
         import plugins.pm_filter as _pmf
 
@@ -137,7 +276,7 @@ def _invalidate_pm_filter_promo_cache():
 
 
 # ============================================================
-# 👑 FULL POWER ADMIN CHECKER (GLOBAL + CHAT + ANONYMOUS)
+# 👑 FULL POWER ADMIN CHECKER
 # ============================================================
 def get_admin_list() -> List[int]:
     raw_admins = getattr(info, "ADMINS", [])
@@ -166,7 +305,6 @@ async def is_user_admin(client: Client, message: Message) -> bool:
     ]:
         if message.sender_chat and message.sender_chat.id == message.chat.id:
             return True
-
         if message.from_user:
             try:
                 member = await client.get_chat_member(
@@ -178,7 +316,6 @@ async def is_user_admin(client: Client, message: Message) -> bool:
                 ]
             except Exception:
                 pass
-
     return False
 
 
@@ -214,20 +351,31 @@ def get_progress_bar(current: int, total: int) -> str:
 
 
 # ============================================================
-# 📢 UNBREAKABLE PROMO STORAGE HELPERS (MULTI-DB SYNC)
+# 📢 PROMO STORAGE HELPERS (MULTI-DB SYNC + HIDDEN LINKS)
 # ============================================================
 async def safe_add_promo(text: str, url: str):
+    clean_lbl = _clean_button_label(text)
     if _plugin_db is not None and hasattr(_plugin_db, "add_promo"):
         try:
-            await _plugin_db.add_promo(text, url)
+            await _plugin_db.add_promo(clean_lbl, url)
         except Exception:
             pass
-    if _promo_col is not None:
+    col = _get_writable_col("promotional_links", _promo_col)
+    if col is not None:
         try:
-            await _promo_col.update_one(
-                {"url": url},
-                {"$set": {"text": text, "url": url, "updated_at": int(time.time())}},
-                upsert=True,
+            await asyncio.wait_for(
+                col.update_one(
+                    {"url": url},
+                    {
+                        "$set": {
+                            "text": clean_lbl,
+                            "url": url,
+                            "updated_at": int(time.time()),
+                        }
+                    },
+                    upsert=True,
+                ),
+                timeout=2.5,
             )
         except Exception:
             pass
@@ -242,9 +390,12 @@ async def safe_del_promo(url: str) -> bool:
                 deleted = True
         except Exception:
             pass
-    if _promo_col is not None:
+    col = _get_writable_col("promotional_links", _promo_col)
+    if col is not None:
         try:
-            res = await _promo_col.delete_many({"$or": [{"url": url}, {"text": url}]})
+            res = await asyncio.wait_for(
+                col.delete_many({"$or": [{"url": url}, {"text": url}]}), timeout=2.5
+            )
             if res.deleted_count > 0:
                 deleted = True
         except Exception:
@@ -273,13 +424,12 @@ async def safe_get_all_promos() -> List[dict]:
                 except Exception:
                     pass
 
-    if _promo_col is not None:
+    col = _get_writable_col("promotional_links", _promo_col)
+    if col is not None:
         try:
-            cursor = _promo_col.find({})
-            docs = await cursor.to_list(length=100)
+            docs = await asyncio.wait_for(col.find({}).to_list(length=100), timeout=2.5)
             for d in docs:
-                u = d.get("url")
-                t = d.get("text")
+                u, t = d.get("url"), d.get("text")
                 if u and t and u not in seen_urls:
                     seen_urls.add(u)
                     promos.append({"text": str(t), "url": str(u)})
@@ -290,8 +440,9 @@ async def safe_get_all_promos() -> List[dict]:
 
 
 async def get_promo_buttons() -> List[InlineKeyboardButton]:
+    """Returns hidden-link promo buttons (text only, zero visible links)."""
     promos = await safe_get_all_promos()
-    return [InlineKeyboardButton(p["text"], url=p["url"]) for p in promos]
+    return [create_btn(p["text"], url=p["url"]) for p in promos]
 
 
 def _merge_reply_markup_with_promos(
@@ -299,16 +450,17 @@ def _merge_reply_markup_with_promos(
     promo_btns: List[InlineKeyboardButton],
 ) -> Optional[InlineKeyboardMarkup]:
     rows = []
-    existing_urls = set()
-    if base_markup and getattr(base_markup, "inline_keyboard", None):
-        for r in base_markup.inline_keyboard:
+    existing_cbs = set()
+    sanitized_base = sanitize_markup_hide_links(base_markup)
+    if sanitized_base and getattr(sanitized_base, "inline_keyboard", None):
+        for r in sanitized_base.inline_keyboard:
             rows.append(list(r))
             for b in r:
-                if getattr(b, "url", None):
-                    existing_urls.add(b.url)
+                if getattr(b, "callback_data", None):
+                    existing_cbs.add(b.callback_data)
 
     for p_btn in promo_btns:
-        if p_btn.url not in existing_urls:
+        if p_btn.callback_data not in existing_cbs:
             rows.append([p_btn])
 
     return InlineKeyboardMarkup(rows) if rows else None
@@ -318,15 +470,13 @@ def _merge_reply_markup_with_promos(
 # 🕰️ PERSISTENT BACKGROUND WORKER
 # ============================================================
 async def bcast_cleaner_worker(bot: Client):
-    """Permanently checks DB for expired broadcast messages to delete."""
-    if _broadcast_col is None:
+    col = _get_writable_col("broadcast_tasks", _broadcast_col)
+    if col is None:
         return
     while True:
         try:
             now = time.time()
-            cursor = _broadcast_col.find({"delete_at": {"$lte": now}})
-            docs = await cursor.to_list(length=100)
-
+            docs = await col.find({"delete_at": {"$lte": now}}).to_list(length=100)
             for doc in docs:
                 try:
                     await bot.delete_messages(
@@ -334,7 +484,7 @@ async def bcast_cleaner_worker(bot: Client):
                     )
                 except Exception:
                     pass
-                await _broadcast_col.delete_one({"_id": doc["_id"]})
+                await col.delete_one({"_id": doc["_id"]})
         except Exception:
             pass
         await asyncio.sleep(60)
@@ -360,7 +510,9 @@ async def send_and_schedule_delete(
 ):
     try:
         sent_msg = None
-        markup_to_use = custom_markup or message.reply_markup
+        markup_to_use = sanitize_markup_hide_links(
+            custom_markup or message.reply_markup
+        )
 
         # LAYER 1: Copy
         try:
@@ -467,14 +619,18 @@ async def send_and_schedule_delete(
                 except Exception:
                     pass
 
-            if _broadcast_col is not None and DELETE_DELAY > 0:
-                await _broadcast_col.insert_one(
-                    {
-                        "chat_id": chat_id,
-                        "message_id": sent_msg.id,
-                        "delete_at": time.time() + DELETE_DELAY,
-                    }
-                )
+            col = _get_writable_col("broadcast_tasks", _broadcast_col)
+            if col is not None and DELETE_DELAY > 0:
+                try:
+                    await col.insert_one(
+                        {
+                            "chat_id": chat_id,
+                            "message_id": sent_msg.id,
+                            "delete_at": time.time() + DELETE_DELAY,
+                        }
+                    )
+                except Exception:
+                    pass
             return 200, None
         return 500, "Unknown Error"
 
@@ -501,7 +657,6 @@ async def send_and_schedule_delete(
 
 
 def _extract_broadcast_target_msg(message: Message) -> Optional[Message]:
-    """Supports both replying to a message AND interactive button dispatch from uibuttons.py."""
     if message.reply_to_message:
         return message.reply_to_message
     if message.text and len(getattr(message, "command", [])) > 1:
@@ -542,11 +697,19 @@ async def user_broadcast(bot: Client, message: Message):
 
     _CANCEL_USER_BCAST = False
     pin_mode = message.command[0].lower() == "pinbroadcast" or (
-        len(message.command) > 1 and message.command[1].lower() in ["pin", "-pin"]
+        len(message.command) > 1 and message.command[1].lower() in ("pin", "-pin")
     )
 
     cancel_kb = InlineKeyboardMarkup(
-        [[InlineKeyboardButton("🛑 Stop Broadcast", callback_data="bcast_cancel:user")]]
+        [
+            [
+                create_btn(
+                    "🛑 Stop Broadcast",
+                    callback_data="bcast_cancel:user",
+                    style=BTN_DANGER,
+                )
+            ]
+        ]
     )
     status_msg = await safe_reply_text(
         message,
@@ -564,7 +727,7 @@ async def user_broadcast(bot: Client, message: Message):
         )
     except Exception as e:
         if status_msg:
-            return await safe_edit_text(
+            await safe_edit_text(
                 status_msg,
                 f"❌ <b>Database Error:</b> <code>{html.escape(str(e))}</code>",
                 parse_mode=enums.ParseMode.HTML,
@@ -574,7 +737,7 @@ async def user_broadcast(bot: Client, message: Message):
     total_users = len(users)
     if total_users == 0:
         if status_msg:
-            return await safe_edit_text(
+            await safe_edit_text(
                 status_msg,
                 "⚠️ <b>No users found in the database.</b>",
                 parse_mode=enums.ParseMode.HTML,
@@ -610,7 +773,7 @@ async def user_broadcast(bot: Client, message: Message):
             if _CANCEL_USER_BCAST:
                 time_taken = datetime.timedelta(seconds=int(time.time() - start_time))
                 if status_msg:
-                    return await safe_edit_text(
+                    await safe_edit_text(
                         status_msg,
                         f"🛑 <b>User Broadcast Cancelled by Admin!</b>\n\n"
                         f"🕒 <b>Elapsed:</b> <code>{time_taken}</code>\n"
@@ -623,11 +786,6 @@ async def user_broadcast(bot: Client, message: Message):
                 return
 
             raw_uid = user.get("id") or user.get("user_id")
-            if not raw_uid:
-                done += 1
-                failed += 1
-                continue
-
             try:
                 user_id = int(raw_uid)
             except (ValueError, TypeError):
@@ -726,16 +884,18 @@ async def group_broadcast(bot: Client, message: Message):
         )
 
     _CANCEL_GROUP_BCAST = False
-    pin_mode = len(message.command) > 1 and message.command[1].lower() in [
+    pin_mode = len(message.command) > 1 and message.command[1].lower() in (
         "pin",
         "-pin",
-    ]
+    )
 
     cancel_kb = InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton(
-                    "🛑 Stop Broadcast", callback_data="bcast_cancel:group"
+                create_btn(
+                    "🛑 Stop Broadcast",
+                    callback_data="bcast_cancel:group",
+                    style=BTN_DANGER,
                 )
             ]
         ]
@@ -756,7 +916,7 @@ async def group_broadcast(bot: Client, message: Message):
         )
     except Exception as e:
         if status_msg:
-            return await safe_edit_text(
+            await safe_edit_text(
                 status_msg,
                 f"❌ <b>Database Error:</b> <code>{html.escape(str(e))}</code>",
                 parse_mode=enums.ParseMode.HTML,
@@ -766,7 +926,7 @@ async def group_broadcast(bot: Client, message: Message):
     total_chats = len(chats)
     if total_chats == 0:
         if status_msg:
-            return await safe_edit_text(
+            await safe_edit_text(
                 status_msg,
                 "⚠️ <b>No groups found in the database.</b>",
                 parse_mode=enums.ParseMode.HTML,
@@ -802,7 +962,7 @@ async def group_broadcast(bot: Client, message: Message):
             if _CANCEL_GROUP_BCAST:
                 time_taken = datetime.timedelta(seconds=int(time.time() - start_time))
                 if status_msg:
-                    return await safe_edit_text(
+                    await safe_edit_text(
                         status_msg,
                         f"🛑 <b>Group Broadcast Cancelled by Admin!</b>\n\n"
                         f"🕒 <b>Elapsed:</b> <code>{time_taken}</code>\n"
@@ -815,11 +975,6 @@ async def group_broadcast(bot: Client, message: Message):
                 return
 
             raw_cid = chat.get("id") or chat.get("chat_id")
-            if not raw_cid:
-                done += 1
-                failed += 1
-                continue
-
             try:
                 chat_id = int(raw_cid)
             except (ValueError, TypeError):
@@ -833,7 +988,7 @@ async def group_broadcast(bot: Client, message: Message):
 
             if status == 200:
                 success += 1
-            elif status == 400 and reason in ["Left", "Blocked/Deleted"]:
+            elif status == 400 and reason in ("Left", "Blocked/Deleted"):
                 left += 1
                 try:
                     await _db.disable_chat(chat_id, "Bot Removed")
@@ -844,12 +999,7 @@ async def group_broadcast(bot: Client, message: Message):
 
             done += 1
             _BCAST_STATUS["group"].update(
-                {
-                    "done": done,
-                    "success": success,
-                    "left": left,
-                    "failed": failed,
-                }
+                {"done": done, "success": success, "left": left, "failed": failed}
             )
 
             if done % 15 == 0 or done == total_chats:
@@ -900,9 +1050,12 @@ async def _build_broadcast_status_ui() -> Tuple[str, InlineKeyboardMarkup]:
     g_st = _BCAST_STATUS["group"]
 
     pending_deletes = 0
-    if _broadcast_col is not None:
+    col = _get_writable_col("broadcast_tasks", _broadcast_col)
+    if col is not None:
         try:
-            pending_deletes = await _broadcast_col.count_documents({})
+            pending_deletes = await asyncio.wait_for(
+                col.count_documents({}), timeout=2.0
+            )
         except Exception:
             pass
 
@@ -930,23 +1083,27 @@ async def _build_broadcast_status_ui() -> Tuple[str, InlineKeyboardMarkup]:
     if u_st["running"]:
         rows.append(
             [
-                InlineKeyboardButton(
-                    "🛑 Stop User Broadcast", callback_data="bcast_cancel:user"
+                create_btn(
+                    "🛑 Stop User Broadcast",
+                    callback_data="bcast_cancel:user",
+                    style=BTN_DANGER,
                 )
             ]
         )
     if g_st["running"]:
         rows.append(
             [
-                InlineKeyboardButton(
-                    "🛑 Stop Group Broadcast", callback_data="bcast_cancel:group"
+                create_btn(
+                    "🛑 Stop Group Broadcast",
+                    callback_data="bcast_cancel:group",
+                    style=BTN_DANGER,
                 )
             ]
         )
     rows.append(
         [
-            InlineKeyboardButton("🔄 Refresh", callback_data="bcast_stat:refresh"),
-            InlineKeyboardButton("🔐 Close", callback_data="bcast_stat:close"),
+            create_btn("🔄 Refresh", callback_data="bcast_stat:refresh"),
+            create_btn("🔐 Close", callback_data="bcast_stat:close"),
         ]
     )
     return text, InlineKeyboardMarkup(rows)
@@ -979,11 +1136,17 @@ async def cancel_or_status_broadcast_cb(client: Client, query: CallbackQuery):
         return await safe_answer(
             query, "❌ Unauthorized: Admins only!", show_alert=True
         )
+    if not query.message:
+        return await safe_answer(query)
 
     data = query.data
     if data == "bcast_stat:close":
         await safe_answer(query, "Closed!")
-        return await query.message.delete()
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+        return
 
     if data == "bcast_stat:refresh":
         await safe_answer(query, "Refreshed!")
@@ -1034,7 +1197,7 @@ def _parse_promo_args(raw_args: str) -> Tuple[Optional[str], Optional[str]]:
     if btn_url.startswith("t.me/"):
         btn_url = f"https://{btn_url}"
 
-    return btn_text, btn_url
+    return _clean_button_label(btn_text), btn_url
 
 
 async def _build_promos_panel() -> Tuple[str, InlineKeyboardMarkup]:
@@ -1046,29 +1209,30 @@ async def _build_promos_panel() -> Tuple[str, InlineKeyboardMarkup]:
             '<code>/addpromo "Button Text" https://t.me/your_channel</code>'
         )
         markup = InlineKeyboardMarkup(
-            [[InlineKeyboardButton("🔐 Close", callback_data="promo_ctl:close")]]
+            [[create_btn("🔐 Close", callback_data="promo_ctl:close")]]
         )
         return text, markup
 
-    text = "📢 <b>Current Promotional Links:</b>\n\n"
+    text = "📢 <b>Current Promotional Buttons:</b>\n\n"
     buttons = []
     for i, p in enumerate(promos, 1):
         p_text = html.escape(p["text"])
-        p_url = html.escape(p["url"])
-        text += f"<b>{i}. Text:</b> <code>{p_text}</code>\n<b>🔗 URL:</b> {p_url}\n\n"
+        text += f"<b>{i}.</b> <code>{p_text}</code>\n"
         buttons.append(
             [
-                InlineKeyboardButton(f"🔗 {p['text'][:24]}", url=p["url"]),
-                InlineKeyboardButton(
-                    f"🗑️ Delete #{i}", callback_data=f"promo_ctl:del:{i - 1}"
+                create_btn(p["text"][:24], url=p["url"], style=BTN_PRIMARY),
+                create_btn(
+                    f"🗑️ Delete #{i}",
+                    callback_data=f"promo_ctl:del:{i - 1}",
+                    style=BTN_DANGER,
                 ),
             ]
         )
 
     buttons.append(
         [
-            InlineKeyboardButton("🧹 Clear All", callback_data="promo_ctl:clear_all"),
-            InlineKeyboardButton("🔐 Close", callback_data="promo_ctl:close"),
+            create_btn("🧹 Clear All", callback_data="promo_ctl:clear_all"),
+            create_btn("🔐 Close", callback_data="promo_ctl:close"),
         ]
     )
     return text, InlineKeyboardMarkup(buttons)
@@ -1099,10 +1263,9 @@ async def add_promo_handler(bot: Client, message: Message):
     await safe_reply_text(
         message,
         f"✅ <b>Promo Added Successfully!</b>\n\n"
-        f"<b>Text:</b> <code>{html.escape(btn_text)}</code>\n"
-        f"<b>URL:</b> {html.escape(btn_url)}",
+        f"🔘 <b>Button Text:</b> <code>{html.escape(btn_text)}</code>",
         reply_markup=InlineKeyboardMarkup(
-            [[InlineKeyboardButton(btn_text, url=btn_url)]]
+            [[create_btn(btn_text, url=btn_url, style=BTN_SUCCESS)]]
         ),
         parse_mode=enums.ParseMode.HTML,
     )
@@ -1130,17 +1293,16 @@ async def del_promo_handler(bot: Client, message: Message):
     if btn_url.startswith("t.me/"):
         btn_url = f"https://{btn_url}"
 
-    deleted = await safe_del_promo(btn_url)
-    if deleted:
+    if await safe_del_promo(btn_url):
         await safe_reply_text(
             message,
-            f"🗑️ <b>Promo deleted successfully!</b>\n\n<b>Target:</b> {html.escape(btn_url)}",
+            f"🗑️ <b>Promo deleted successfully!</b>\n\n<b>Target:</b> <code>{html.escape(btn_url)}</code>",
             parse_mode=enums.ParseMode.HTML,
         )
     else:
         await safe_reply_text(
             message,
-            f"❌ <b>Promo not found!</b>\n\nCould not find any promo matching: {html.escape(btn_url)}",
+            f"❌ <b>Promo not found!</b>\n\nCould not find any promo matching: <code>{html.escape(btn_url)}</code>",
             parse_mode=enums.ParseMode.HTML,
         )
 
@@ -1159,10 +1321,7 @@ async def list_promo_handler(bot: Client, message: Message):
 
     text, markup = await _build_promos_panel()
     await safe_reply_text(
-        message,
-        text,
-        reply_markup=markup,
-        parse_mode=enums.ParseMode.HTML,
+        message, text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
     )
 
 
@@ -1175,16 +1334,21 @@ async def promo_callbacks(client: Client, query: CallbackQuery):
         return await safe_answer(
             query, "❌ Unauthorized: Admins only!", show_alert=True
         )
+    if not query.message:
+        return await safe_answer(query)
 
     action = query.matches[0].group(1)
     try:
         if action == "close":
             await safe_answer(query, "Closed!")
-            return await query.message.delete()
+            try:
+                await query.message.delete()
+            except Exception:
+                pass
+            return
 
         if action == "clear_all":
-            promos = await safe_get_all_promos()
-            for p in promos:
+            for p in await safe_get_all_promos():
                 await safe_del_promo(p["url"])
             await safe_answer(query, "🧹 All promos cleared!", show_alert=True)
 
@@ -1192,18 +1356,14 @@ async def promo_callbacks(client: Client, query: CallbackQuery):
             idx = int(action.split(":")[1])
             promos = await safe_get_all_promos()
             if 0 <= idx < len(promos):
-                target_url = promos[idx]["url"]
-                await safe_del_promo(target_url)
+                await safe_del_promo(promos[idx]["url"])
                 await safe_answer(query, "🗑️ Promo deleted!", show_alert=True)
             else:
                 await safe_answer(query, "⚠️ Promo already removed!", show_alert=True)
 
         text, markup = await _build_promos_panel()
         await safe_edit_text(
-            query.message,
-            text,
-            reply_markup=markup,
-            parse_mode=enums.ParseMode.HTML,
+            query.message, text, reply_markup=markup, parse_mode=enums.ParseMode.HTML
         )
     except Exception as e:
         logger.error(f"Promo callback error: {e}")
