@@ -163,7 +163,10 @@ def _prepare_compat_kwargs(
 
     explicit_disable = clean_kw.pop("disable_web_page_preview", disable_preview)
     if explicit_disable is not None:
-        if "link_preview_options" in supported_params and LinkPreviewOptions is not None:
+        if (
+            "link_preview_options" in supported_params
+            and LinkPreviewOptions is not None
+        ):
             try:
                 clean_kw["link_preview_options"] = LinkPreviewOptions(
                     is_disabled=bool(explicit_disable)
@@ -936,9 +939,7 @@ async def imdb_search(client: Client, message: Message):
                 label = (
                     f"{type_icon} {title} ({year})" if year else f"{type_icon} {title}"
                 )
-                buttons.append(
-                    [create_btn(label[:60], callback_data=f"imdb#{m_id}")]
-                )
+                buttons.append([create_btn(label[:60], callback_data=f"imdb#{m_id}")])
 
         if not buttons:
             if wait_msg:
