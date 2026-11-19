@@ -1,5 +1,6 @@
 import asyncio
 import difflib
+import hashlib
 import html
 import inspect
 import re
@@ -39,7 +40,7 @@ logger = getLogger(__name__)
 logger.setLevel(ERROR)
 
 # ============================================================
-# 🛡️ PYROGRAM v2.2.26 (LAYER 230) COMPATIBILITY ENGINE
+# 🛡️ SAFE OPTIONAL IMPORTS (HIDDEN-LINK REGISTRY & COMPAT)
 # ============================================================
 try:
     from pyrogram.types import LinkPreviewOptions
@@ -51,29 +52,126 @@ try:
 except ImportError:
     ReplyParameters = None
 
+try:
+    from plugins.pm_filter import register_hidden_link, sanitize_markup_hide_links
+except ImportError:
+    try:
+        from pm_filter import register_hidden_link, sanitize_markup_hide_links
+    except ImportError:
+        _LOCAL_HIDDEN_LINKS: Dict[str, str] = {}
+
+        def register_hidden_link(url: str) -> str:
+            clean_u = str(url or "").strip()
+            if clean_u and not clean_u.startswith(("http://", "https://", "tg://")):
+                clean_u = "https://" + clean_u.lstrip("/")
+            token = hashlib.md5(clean_u.encode("utf-8")).hexdigest()[:12]
+            if len(_LOCAL_HIDDEN_LINKS) >= 15000:
+                _LOCAL_HIDDEN_LINKS.pop(next(iter(_LOCAL_HIDDEN_LINKS)), None)
+            _LOCAL_HIDDEN_LINKS[token] = clean_u
+            return token
+
+        def sanitize_markup_hide_links(
+            markup: Optional[InlineKeyboardMarkup],
+        ) -> Optional[InlineKeyboardMarkup]:
+            if not markup or not getattr(markup, "inline_keyboard", None):
+                return markup
+            rows = []
+            for row in markup.inline_keyboard:
+                new_row = []
+                for b in row:
+                    st = getattr(b, "style", None)
+                    if getattr(b, "url", None):
+                        new_row.append(create_btn(b.text, url=b.url, style=st))
+                    else:
+                        new_row.append(
+                            create_btn(
+                                b.text,
+                                callback_data=getattr(b, "callback_data", "noop"),
+                                style=st,
+                            )
+                        )
+                if new_row:
+                    rows.append(new_row)
+            return InlineKeyboardMarkup(rows) if rows else None
+
+
+# ============================================================
+# 🎨 BUTTON BUILDER (ZERO VISIBLE LINKS INSIDE EVERY BUTTON)
+# ============================================================
+BTN_PRIMARY = None
+BTN_SUCCESS = None
+BTN_DANGER = None
+_SUPPORTS_BTN_STYLE = False
+
+try:
+    from pyrogram.enums import ButtonStyle
+
+    if "style" in inspect.signature(InlineKeyboardButton.__init__).parameters:
+        BTN_PRIMARY = getattr(ButtonStyle, "PRIMARY", None)
+        BTN_SUCCESS = getattr(ButtonStyle, "SUCCESS", None)
+        BTN_DANGER = getattr(ButtonStyle, "DANGER", None)
+        _SUPPORTS_BTN_STYLE = True
+except (ImportError, ValueError, TypeError):
+    pass
+
+
+def _clean_button_label(raw_label: str) -> str:
+    lbl = re.sub(r"<[^>]+>", "", str(raw_label or "")).strip()
+    lbl = re.sub(r"(?i)https?://\S+|t\.me/\S+|www\.\S+", "", lbl).strip(" -|:")
+    return lbl or "Open"
+
+
+def create_btn(
+    text: str,
+    url: Optional[str] = None,
+    callback_data: Optional[str] = None,
+    style: Any = None,
+) -> InlineKeyboardButton:
+    """Creates an InlineKeyboardButton with ZERO visible links inside the button."""
+    kwargs: Dict[str, Any] = {"text": _clean_button_label(text)}
+    if callback_data:
+        kwargs["callback_data"] = str(callback_data)[:64]
+    elif url:
+        kwargs["callback_data"] = f"olink#{register_hidden_link(url)}"
+    else:
+        kwargs["callback_data"] = "noop"
+
+    if _SUPPORTS_BTN_STYLE and style is not None:
+        kwargs["style"] = style
+    try:
+        return InlineKeyboardButton(**kwargs)
+    except Exception:
+        kwargs.pop("style", None)
+        return InlineKeyboardButton(**kwargs)
+
+
+# ============================================================
+# 🛡️ PYROGRAM v2.2.26 (LAYER 230) COMPATIBILITY HELPERS
+# ============================================================
 _REPLY_PARAMS = set(inspect.signature(Message.reply_text).parameters.keys())
 _EDIT_PARAMS = set(inspect.signature(Message.edit_text).parameters.keys())
 
 
 def _prepare_compat_kwargs(
-    kwargs: dict, supported_params: set, disable_preview: Optional[bool] = None
+    kwargs: dict, supported_params: set, disable_preview: Optional[bool] = True
 ) -> dict:
     clean_kw = dict(kwargs)
-    explicit_disable = clean_kw.pop("disable_web_page_preview", disable_preview)
+    if "reply_markup" in clean_kw and isinstance(
+        clean_kw["reply_markup"], InlineKeyboardMarkup
+    ):
+        clean_kw["reply_markup"] = sanitize_markup_hide_links(clean_kw["reply_markup"])
 
+    explicit_disable = clean_kw.pop("disable_web_page_preview", disable_preview)
     if explicit_disable is not None:
-        if "disable_web_page_preview" in supported_params:
-            clean_kw["disable_web_page_preview"] = bool(explicit_disable)
-        elif (
-            "link_preview_options" in supported_params
-            and LinkPreviewOptions is not None
-        ):
+        if "link_preview_options" in supported_params and LinkPreviewOptions is not None:
             try:
                 clean_kw["link_preview_options"] = LinkPreviewOptions(
                     is_disabled=bool(explicit_disable)
                 )
             except Exception:
                 pass
+        elif "disable_web_page_preview" in supported_params:
+            clean_kw["disable_web_page_preview"] = bool(explicit_disable)
 
     if "reply_to_message_id" in clean_kw:
         rep_id = clean_kw.pop("reply_to_message_id")
@@ -92,16 +190,21 @@ def _prepare_compat_kwargs(
 async def safe_reply_text(
     message: Message, text: str, disable_web_page_preview: bool = True, **kwargs
 ) -> Optional[Message]:
+    if not message:
+        return None
     compat_kw = _prepare_compat_kwargs(
         kwargs, _REPLY_PARAMS, disable_preview=disable_web_page_preview
     )
     try:
         return await message.reply_text(text, **compat_kw)
     except TypeError:
-        compat_kw.pop("disable_web_page_preview", None)
-        compat_kw.pop("link_preview_options", None)
-        compat_kw.pop("reply_parameters", None)
-        compat_kw.pop("reply_to_message_id", None)
+        for k in (
+            "disable_web_page_preview",
+            "link_preview_options",
+            "reply_parameters",
+            "reply_to_message_id",
+        ):
+            compat_kw.pop(k, None)
         return await message.reply_text(text, **compat_kw)
     except (ChatWriteForbidden, Forbidden, UserIsBlocked, PeerIdInvalid):
         return None
@@ -110,17 +213,22 @@ async def safe_reply_text(
 async def safe_edit_text(
     message: Message, text: str, disable_web_page_preview: bool = True, **kwargs
 ) -> Optional[Message]:
+    if not message:
+        return None
     compat_kw = _prepare_compat_kwargs(
         kwargs, _EDIT_PARAMS, disable_preview=disable_web_page_preview
     )
     try:
         return await message.edit_text(text, **compat_kw)
+    except (MessageNotModified, MessageIdInvalid, ChatWriteForbidden, Forbidden):
+        return None
     except TypeError:
         compat_kw.pop("disable_web_page_preview", None)
         compat_kw.pop("link_preview_options", None)
-        return await message.edit_text(text, **compat_kw)
-    except (MessageNotModified, MessageIdInvalid, ChatWriteForbidden, Forbidden):
-        return None
+        try:
+            return await message.edit_text(text, **compat_kw)
+        except Exception:
+            return None
 
 
 async def safe_answer(
@@ -157,7 +265,9 @@ class SafeDict(dict):
 Image.MAX_IMAGE_PIXELS = None
 warnings.simplefilter("ignore", Image.DecompressionBombWarning)
 
-# --- TMDB Configuration & Fast In-Memory Cache ---
+# ============================================================
+# ⚡ TMDB CONFIG & SMART TTL CACHE
+# ============================================================
 TMDB_BEARER_TOKEN = (
     "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI2ZGU3YTIyZGU1YjE5YTFjNmUyZGU5ZWEyMzE2ZmQxMCIs"
     "Im5iZiI6MTc0NTMyMjQ2Mi41MzMsInN1YiI6IjY4MDc4MWRlYzVjODAzNWZiMDhhNjExNCIsInNjb3"
@@ -181,15 +291,21 @@ def _cache_get(key: str) -> Optional[Any]:
 
 
 def _cache_set(key: str, val: Any, ttl: int = 1800):
+    now = time.time()
     if len(_TMDB_CACHE) >= 1000:
-        _TMDB_CACHE.clear()
-    _TMDB_CACHE[key] = (time.time() + ttl, val)
+        expired = [k for k, (exp, _) in list(_TMDB_CACHE.items()) if now >= exp]
+        for k in expired:
+            _TMDB_CACHE.pop(k, None)
+        if len(_TMDB_CACHE) >= 1000:
+            for k in list(_TMDB_CACHE.keys())[:200]:
+                _TMDB_CACHE.pop(k, None)
+    _TMDB_CACHE[key] = (now + ttl, val)
 
 
 async def get_session() -> aiohttp.ClientSession:
     global _session
     if _session is None or _session.closed:
-        _session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15))
+        _session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=12))
     return _session
 
 
@@ -206,23 +322,43 @@ def _resize_image_sync(data: bytes, size=(860, 1200)) -> BytesIO:
     return out
 
 
-async def fetch_image(url: str, size=(860, 1200)):
-    if not IMAGE_FETCH or not url:
+async def fetch_image(url: str, size=(860, 1200), force_download: bool = False):
+    if not url:
+        return None
+    if not IMAGE_FETCH and not force_download:
         return url
     try:
         session = await get_session()
-        async with session.get(url) as response:
+        async with session.get(url, ssl=False) as response:
             if response.status != 200:
                 return None
             data = await response.read()
+            if not data:
+                return None
             return await asyncio.to_thread(_resize_image_sync, data, size)
     except Exception as e:
         logger.error(f"Error in fetch_image: {e}")
     return None
 
 
+def _truncate_html_caption(caption: str, limit: int = 1020) -> str:
+    if not caption or len(caption) <= limit:
+        return caption
+    cut = caption[: limit - 3]
+    # Avoid cutting in the middle of an HTML tag
+    last_lt = cut.rfind("<")
+    last_gt = cut.rfind(">")
+    if last_lt > last_gt:
+        cut = cut[:last_lt]
+    cut = cut.rstrip() + "..."
+    for tag in ("b", "i", "code", "blockquote"):
+        if cut.lower().count(f"<{tag}") > cut.lower().count(f"</{tag}>"):
+            cut += f"</{tag}>"
+    return cut
+
+
 # ============================================================
-# 👑 FULL POWER ADMIN CHECKER (GLOBAL + CHAT + ANONYMOUS)
+# 👑 FULL POWER ADMIN CHECKER
 # ============================================================
 def get_admin_list() -> List[int]:
     raw_admins = getattr(info, "ADMINS", [])
@@ -242,7 +378,6 @@ async def is_user_admin(client: Client, message: Message) -> bool:
 
     if message.from_user and message.from_user.id in admin_list:
         return True
-
     if message.sender_chat and message.sender_chat.id in admin_list:
         return True
 
@@ -269,8 +404,7 @@ async def is_user_admin(client: Client, message: Message) -> bool:
 async def cb_user_admin(client: Client, query: CallbackQuery) -> bool:
     if not query or not query.from_user:
         return False
-    admin_list = get_admin_list()
-    if query.from_user.id in admin_list:
+    if query.from_user.id in get_admin_list():
         return True
     if (
         query.message
@@ -294,12 +428,7 @@ async def _admin_filter_func(_, client: Client, message: Message) -> bool:
     return await is_user_admin(client, message)
 
 
-async def _cb_admin_filter_func(_, client: Client, query: CallbackQuery) -> bool:
-    return await cb_user_admin(client, query)
-
-
 admin_filter = filters.create(_admin_filter_func)
-cb_admin_filter = filters.create(_cb_admin_filter_func)
 
 
 # ============================================================
@@ -323,7 +452,7 @@ def _sanitize_and_extract(query: str):
     if year:
         q = q.replace(year_match.group(1), "")
     q = re.sub(
-        r"(?i)\b(hdrip|web-dl|webrip|bluray|brrip|dvdrip|dvdscr|tsrip|camrip|hdtc|hevc|x264|x265|1080p|720p|480p|2160p|4k|hindi|kannada|telugu|tamil|malayalam|english|movie|series|season\s*\d+|ep\s*\d+)\b",
+        r"(?i)\b(hdrip|web-?dl|webrip|bluray|brrip|dvdrip|dvdscr|tsrip|camrip|hdtc|hevc|x264|x265|1080p|720p|480p|2160p|4k|hindi|kannada|telugu|tamil|malayalam|english|movie|series|season\s*\d+|ep\s*\d+)\b",
         "",
         q,
     )
@@ -366,29 +495,27 @@ async def _fetch_media_details(media_type: str, media_id: int, api_key=None):
 
 
 async def _search_candidates(query: str, api_key=None, limit: int = 10):
-    """Searches TMDB and returns a ranked list of candidate dicts."""
     clean_title, year = _sanitize_and_extract(query)
     cache_key = f"cand:{clean_title.lower()}:{year}:{limit}"
     cached = _cache_get(cache_key)
     if cached is not None:
         return cached
 
+    tokens = clean_title.split()
     queries_to_try = list(
         dict.fromkeys(
-            [
+            q
+            for q in (
                 clean_title,
-                (
-                    " ".join(clean_title.split()[:2])
-                    if len(clean_title.split()) > 2
-                    else ""
-                ),
-                clean_title.split()[0] if len(clean_title.split()) > 1 else "",
-            ]
+                " ".join(tokens[:2]) if len(tokens) > 2 else "",
+                tokens[0] if len(tokens) > 1 else "",
+            )
+            if q
         )
     )
 
     multi_results = []
-    for target_query in [q for q in queries_to_try if q]:
+    for target_query in queries_to_try:
         params = {
             "query": target_query,
             "language": "en-US",
@@ -566,7 +693,7 @@ def _format_details_output(query: str, media_type: str, media_id: int, details: 
         )
         or "N/A",
         "writer": _list_to_str_tmdb(
-            [p for p in crew if p.get("job") in ["Screenplay", "Writer", "Story"]],
+            [p for p in crew if p.get("job") in ("Screenplay", "Writer", "Story")],
             key="name",
         )
         or "N/A",
@@ -614,7 +741,6 @@ def _format_details_output(query: str, media_type: str, media_id: int, details: 
 
 
 async def _fetch_tmdb_by_id(raw_id: str, api_key=None):
-    """Fetches TMDB media details directly by 'movie:123', 'tv:123', 'tt1234567', or numeric ID."""
     s_id = str(raw_id).strip()
 
     if ":" in s_id:
@@ -629,7 +755,7 @@ async def _fetch_tmdb_by_id(raw_id: str, api_key=None):
             params={"external_source": "imdb_id"},
             api_key=api_key,
         )
-        for mtype, key in [("movie", "movie_results"), ("tv", "tv_results")]:
+        for mtype, key in (("movie", "movie_results"), ("tv", "tv_results")):
             results = find_res.get(key, [])
             if results:
                 mid = results[0]["id"]
@@ -658,12 +784,6 @@ async def _fetch_tmdb_data(query: str, api_key=None):
 
 
 async def get_poster(query, bulk=False, id=False, file=None):
-    """
-    Universal poster & metadata fetcher:
-    - id=True: Fetches exact media details by ID ('movie:123', 'tv:123', 'tt1234567', or numeric ID).
-    - bulk=True: Returns up to 10 matching search candidates for interactive selection.
-    - default: Returns full details dict for the top match.
-    """
     try:
         api_key = TMDB_API_KEY or None
         if id:
@@ -697,7 +817,7 @@ async def get_movie_detailsx(query, id=False, file=None):
     except (ValueError, TypeError):
         parsed_rating = None
 
-    details = {
+    details: Dict[str, Any] = {
         "title": data.get("title") or data.get("localized_title"),
         "year": data.get("year") if data.get("year") != "N/A" else None,
         "release_date": (
@@ -717,39 +837,28 @@ async def get_movie_detailsx(query, id=False, file=None):
         "tmdb_id": data.get("tmdb_id"),
     }
 
-    for key in ("genres", "languages", "countries"):
-        val = data.get(key)
-        details[key] = (
-            [s.strip() for s in val.split(",") if s.strip()]
-            if val and val != "N/A"
-            else []
-        )
-    for role in (
+    for key in (
+        "genres",
+        "languages",
+        "countries",
         "director",
         "writer",
         "producer",
         "composer",
         "cinematographer",
         "cast",
+        "distributors",
     ):
-        val = data.get(role)
-        details[role] = (
+        val = data.get(key)
+        details[key] = (
             [s.strip() for s in val.split(",") if s.strip()]
             if val and val != "N/A"
             else []
         )
-    dist = data.get("distributors")
-    details["distributors"] = (
-        [d.strip() for d in dist.split(",") if d.strip()]
-        if dist and dist != "N/A"
-        else []
-    )
 
-    posters, original_language, poster_url = (
-        data.get("images", {}).get("posters", {}),
-        data.get("images", {}).get("original_language"),
-        data.get("poster_url"),
-    )
+    posters = data.get("images", {}).get("posters", {})
+    original_language = data.get("images", {}).get("original_language")
+    poster_url = data.get("poster_url")
     if not poster_url:
         for key in ("en", original_language, "xx"):
             if posters.get(key):
@@ -759,11 +868,15 @@ async def get_movie_detailsx(query, id=False, file=None):
         poster_url.replace("/original/", "/w1280/") if poster_url else None
     )
 
-    backdrops, backdrop_url = data.get("images", {}).get("backdrops", {}), None
-    for key in ("en", original_language, "xx", "no_lang"):
-        if backdrops.get(key):
-            backdrop_url = backdrops[key][0]
-            break
+    backdrops = data.get("images", {}).get("backdrops", {})
+    backdrop_url = next(
+        (
+            backdrops[k][0]
+            for k in ("en", original_language, "xx", "no_lang")
+            if backdrops.get(k)
+        ),
+        None,
+    )
     details["backdrop_url"] = (
         backdrop_url.replace("/original/", "/w1280/") if backdrop_url else None
     )
@@ -794,7 +907,7 @@ async def imdb_search(client: Client, message: Message):
         movies = await get_poster(query, bulk=True)
         if not movies:
             if wait_msg:
-                return await safe_edit_text(
+                await safe_edit_text(
                     wait_msg,
                     "❌ <b>No results found for your query.</b>",
                     parse_mode=enums.ParseMode.HTML,
@@ -824,24 +937,19 @@ async def imdb_search(client: Client, message: Message):
                     f"{type_icon} {title} ({year})" if year else f"{type_icon} {title}"
                 )
                 buttons.append(
-                    [
-                        InlineKeyboardButton(
-                            label[:60],
-                            callback_data=f"imdb#{m_id}",
-                        )
-                    ]
+                    [create_btn(label[:60], callback_data=f"imdb#{m_id}")]
                 )
 
         if not buttons:
             if wait_msg:
-                return await safe_edit_text(
+                await safe_edit_text(
                     wait_msg,
                     "❌ <b>Could not parse search results.</b>",
                     parse_mode=enums.ParseMode.HTML,
                 )
             return
 
-        buttons.append([InlineKeyboardButton("🔐 Close", callback_data="imdb#close")])
+        buttons.append([create_btn("🔐 Close", callback_data="imdb#close")])
         if wait_msg:
             await safe_edit_text(
                 wait_msg,
@@ -866,6 +974,8 @@ async def imdb_callback(client: Client, query: CallbackQuery):
         return await safe_answer(
             query, "❌ Unauthorized: Admins only!", show_alert=True
         )
+    if not query.message:
+        return await safe_answer(query)
 
     try:
         _, payload = query.data.split("#", 1)
@@ -878,7 +988,7 @@ async def imdb_callback(client: Client, query: CallbackQuery):
                 pass
             return
 
-        await safe_answer(query, "⏳ Fetching movie details...", show_alert=False)
+        await safe_answer(query, "⏳ Fetching movie details...")
 
         imdb = await get_poster(query=payload, id=True)
         if not imdb:
@@ -889,15 +999,25 @@ async def imdb_callback(client: Client, query: CallbackQuery):
             )
 
         imdb_id = imdb.get("imdb_id")
-        if imdb_id and imdb_id != "N/A":
-            url = f"https://www.imdb.com/title/{imdb_id}/"
-        else:
-            url = imdb.get("url", "https://www.themoviedb.org/")
+        url = (
+            f"https://www.imdb.com/title/{imdb_id}/"
+            if (imdb_id and imdb_id != "N/A")
+            else imdb.get("url", "https://www.themoviedb.org/")
+        )
 
-        buttons = [
-            [InlineKeyboardButton(f"🔗 {imdb.get('title', 'View Link')}", url=url)],
-            [InlineKeyboardButton("🔐 Close", callback_data="imdb#close")],
-        ]
+        # Hidden-link button (shows only clean button text, zero visible URL inside button)
+        reply_markup = InlineKeyboardMarkup(
+            [
+                [
+                    create_btn(
+                        f"🎬 {imdb.get('title', 'View Details')}",
+                        url=url,
+                        style=BTN_PRIMARY,
+                    )
+                ],
+                [create_btn("🔐 Close", callback_data="imdb#close")],
+            ]
+        )
 
         plot_text = str(imdb.get("plot") or "N/A")
         if len(plot_text) > 450:
@@ -934,15 +1054,12 @@ async def imdb_callback(client: Client, query: CallbackQuery):
             url=url,
         )
 
-        # Convert any legacy Markdown bold (**text**) in custom IMDB_TEMPLATE to HTML
         raw_caption = IMDB_TEMPLATE.format_map(format_args)
-        caption = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", raw_caption)
-        if len(caption) > 1024:
-            caption = caption[:1020] + "..."
+        caption = _truncate_html_caption(
+            re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", raw_caption), limit=1020
+        )
 
         poster = imdb.get("poster_url")
-        reply_markup = InlineKeyboardMarkup(buttons)
-
         if poster:
             photo_obj = await fetch_image(poster) if IMAGE_FETCH else poster
             photo_to_send = photo_obj or poster
@@ -960,17 +1077,22 @@ async def imdb_callback(client: Client, query: CallbackQuery):
                 PhotoInvalidDimensions,
                 WebpageMediaEmpty,
                 MediaCaptionTooLong,
+                Exception,
             ):
+                # Local byte download fallback if Telegram fails to fetch the TMDB URL directly
                 try:
-                    fallback_poster = poster.replace("/original/", "/w780/")
-                    await query.message.reply_photo(
-                        photo=fallback_poster,
-                        caption=caption,
-                        reply_markup=reply_markup,
-                        parse_mode=enums.ParseMode.HTML,
+                    fallback_bytes = await fetch_image(
+                        poster.replace("/original/", "/w780/"), force_download=True
                     )
-                    await query.message.delete()
-                    return
+                    if fallback_bytes:
+                        await query.message.reply_photo(
+                            photo=fallback_bytes,
+                            caption=caption,
+                            reply_markup=reply_markup,
+                            parse_mode=enums.ParseMode.HTML,
+                        )
+                        await query.message.delete()
+                        return
                 except Exception:
                     pass
 
