@@ -38,7 +38,12 @@ async def _sync_active_col(user_id: str, group_id: Optional[str]):
             await asyncio.wait_for(
                 active_col.update_one(
                     {"user_id": str(user_id)},
-                    {"$set": {"group_id": str(group_id), "active_group": str(group_id)}},
+                    {
+                        "$set": {
+                            "group_id": str(group_id),
+                            "active_group": str(group_id),
+                        }
+                    },
                     upsert=True,
                 ),
                 timeout=2.5,
