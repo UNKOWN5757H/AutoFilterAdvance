@@ -15,13 +15,7 @@ from pyrogram.file_id import FileId, FileType
 from umongo import Document, fields
 from umongo.frameworks.motor_asyncio import MotorAsyncIOInstance
 
-import info
 from info import COLLECTION_NAME, DATABASE_NAME, DATABASE_URI, USE_CAPTION_FILTER
-
-try:
-    from thefuzz import process
-except ImportError:
-    process = None
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.ERROR)
@@ -109,7 +103,7 @@ def normalize_db_filename(text: str) -> str:
     if not text:
         return "File"
     text = text.translate(_DB_STYLISH_MAP)
-    out = []
+    out: List[str] = []
     for ch in text:
         cp = ord(ch)
         if 0x0900 <= cp <= 0x0D7F:
@@ -131,27 +125,24 @@ def normalize_db_filename(text: str) -> str:
 # 🗄️ DYNAMIC UNLIMITED MULTI-DATABASE ENGINE (PRIMARY + /datadb)
 # ============================================================
 _MONGO_KWARGS = {
-    "serverSelectionTimeoutMS": 6000,
-    "connectTimeoutMS": 6000,
-    "socketTimeoutMS": 60000,
+    "serverSelectionTimeoutMS": 5000,
+    "connectTimeoutMS": 5000,
+    "socketTimeoutMS": 30000,
     "retryWrites": True,
 }
 
-db = AsyncIOMotorClient(DATABASE_URI, **_MONGO_KWARGS)[DATABASE_NAME]
+_PRIMARY_CLIENT = AsyncIOMotorClient(DATABASE_URI, **_MONGO_KWARGS)
+db = _PRIMARY_CLIENT[DATABASE_NAME]
 instance = MotorAsyncIOInstance(db)
-
-db2 = None
-db3 = None
 
 MULTI_DB_ENABLED: bool = True
 DYNAMIC_DB_CLIENTS: Dict[str, Any] = {}
+_DYNAMIC_MOTOR_CLIENTS: Dict[str, AsyncIOMotorClient] = {}
 DYNAMIC_DB_META: List[Dict[str, Any]] = []
 
 _DEAD_READ_DBS: Dict[int, float] = {}
 _QUOTA_FULL_DBS: Dict[int, float] = {}
-
 ACTIVE_DB_INDEX = 1
-KNOWN_TITLES = set()
 
 
 def extract_db_label_from_uri(uri: str, fallback_idx: int = 1) -> Tuple[str, str]:
@@ -184,7 +175,6 @@ def register_dynamic_db_entry(
     uri_str = str(uri or "").strip()
     if not uri_str.startswith(("mongodb://", "mongodb+srv://")):
         return None
-
     if uri_str == DATABASE_URI:
         return None
 
@@ -198,6 +188,7 @@ def register_dynamic_db_entry(
     if db_id not in DYNAMIC_DB_CLIENTS:
         try:
             client = AsyncIOMotorClient(uri_str, **_MONGO_KWARGS)
+            _DYNAMIC_MOTOR_CLIENTS[db_id] = client
             DYNAMIC_DB_CLIENTS[db_id] = client[final_db_name]
         except Exception as e:
             logger.error(f"Failed to init dynamic DB {final_name}: {e}")
@@ -209,39 +200,43 @@ def register_dynamic_db_entry(
         "uri": uri_str,
         "db_name": final_db_name,
     }
-    existing_ids = {x["id"] for x in DYNAMIC_DB_META}
-    if db_id not in existing_ids:
-        DYNAMIC_DB_META.append(entry)
+    for idx, item in enumerate(DYNAMIC_DB_META):
+        if item["id"] == db_id:
+            DYNAMIC_DB_META[idx] = entry
+            break
     else:
-        for idx, item in enumerate(DYNAMIC_DB_META):
-            if item["id"] == db_id:
-                DYNAMIC_DB_META[idx] = entry
-                break
+        DYNAMIC_DB_META.append(entry)
     return entry
 
 
 def unregister_dynamic_db_entry(db_id: str) -> bool:
     global ACTIVE_DB_INDEX
-    removed = False
     DYNAMIC_DB_CLIENTS.pop(db_id, None)
-    new_meta = []
-    for item in DYNAMIC_DB_META:
-        if item.get("id") == db_id:
-            removed = True
-        else:
-            new_meta.append(item)
-    DYNAMIC_DB_META.clear()
-    DYNAMIC_DB_META.extend(new_meta)
+    motor_client = _DYNAMIC_MOTOR_CLIENTS.pop(db_id, None)
+    if motor_client is not None:
+        try:
+            motor_client.close()
+        except Exception:
+            pass
+
+    before = len(DYNAMIC_DB_META)
+    DYNAMIC_DB_META[:] = [item for item in DYNAMIC_DB_META if item.get("id") != db_id]
     ACTIVE_DB_INDEX = 1
     _DEAD_READ_DBS.clear()
     _QUOTA_FULL_DBS.clear()
     search_cache.clear()
-    return removed
+    return len(DYNAMIC_DB_META) < before
 
 
 def clear_all_dynamic_db_entries() -> int:
     global ACTIVE_DB_INDEX
     cnt = len(DYNAMIC_DB_META)
+    for motor_client in list(_DYNAMIC_MOTOR_CLIENTS.values()):
+        try:
+            motor_client.close()
+        except Exception:
+            pass
+    _DYNAMIC_MOTOR_CLIENTS.clear()
     DYNAMIC_DB_CLIENTS.clear()
     DYNAMIC_DB_META.clear()
     ACTIVE_DB_INDEX = 1
@@ -291,9 +286,7 @@ def get_writable_System_db():
     for idx, target, _ in all_dbs:
         if target is None:
             continue
-        if now < _DEAD_READ_DBS.get(idx, 0.0):
-            continue
-        if now < _QUOTA_FULL_DBS.get(idx, 0.0):
+        if now < _DEAD_READ_DBS.get(idx, 0.0) or now < _QUOTA_FULL_DBS.get(idx, 0.0):
             continue
         return target
     for idx, target, _ in reversed(all_dbs):
@@ -304,26 +297,26 @@ def get_writable_System_db():
 
 def get_all_healthy_read_dbs() -> List[Tuple[int, Any]]:
     now = time.time()
-    healthy = []
-    for idx, target, _ in get_all_configured_dbs(include_when_disabled=False):
-        if target is None:
-            continue
-        if now < _DEAD_READ_DBS.get(idx, 0.0):
-            continue
-        healthy.append((idx, target))
-    return healthy
+    return [
+        (idx, target)
+        for idx, target, _ in get_all_configured_dbs(include_when_disabled=False)
+        if target is not None and now >= _DEAD_READ_DBS.get(idx, 0.0)
+    ]
 
 
 def _is_auth_or_conn_error(exc: Exception) -> bool:
     msg = str(exc).lower()
-    return (
-        "bad auth" in msg
-        or "authentication failed" in msg
-        or "connection pool paused" in msg
-        or "serverselectiontimeout" in msg
-        or "timed out" in msg
-        or "dnspython" in msg
-        or "configurationerror" in msg
+    return any(
+        k in msg
+        for k in (
+            "bad auth",
+            "authentication failed",
+            "connection pool paused",
+            "serverselectiontimeout",
+            "timed out",
+            "dnspython",
+            "configurationerror",
+        )
     )
 
 
@@ -340,26 +333,33 @@ def mark_db_error(idx: int, exc: Exception):
         _DEAD_READ_DBS[idx] = now + 1800
 
 
+# ============================================================
+# ⚡ SMART TTL CACHE
+# ============================================================
 class SimpleCache:
-    def __init__(self, ttl=900, maxsize=5000):
-        self.cache = {}
+    def __init__(self, ttl: int = 900, maxsize: int = 5000):
+        self.cache: Dict[str, Tuple[float, Any]] = {}
         self.ttl = ttl
         self.maxsize = maxsize
 
-    def get(self, key):
+    def get(self, key: str):
         item = self.cache.get(key)
         if not item:
             return None
-        if time.time() - item["time"] < self.ttl:
-            return item["data"]
+        if time.time() < item[0]:
+            return item[1]
         self.cache.pop(key, None)
         return None
 
-    def set(self, key, data):
+    def set(self, key: str, data: Any):
+        now = time.time()
         if len(self.cache) >= self.maxsize:
-            oldest_key = next(iter(self.cache))
-            self.cache.pop(oldest_key, None)
-        self.cache[key] = {"time": time.time(), "data": data}
+            expired = [k for k, (exp, _) in list(self.cache.items()) if now >= exp]
+            for k in expired:
+                self.cache.pop(k, None)
+            if len(self.cache) >= self.maxsize:
+                self.cache.pop(next(iter(self.cache)), None)
+        self.cache[key] = (now + self.ttl, data)
 
     def clear(self):
         self.cache.clear()
@@ -369,26 +369,10 @@ search_cache = SimpleCache(ttl=900, maxsize=5000)
 file_details_cache = SimpleCache(ttl=3600, maxsize=10000)
 
 
-def add_to_vocab(file_name: str):
-    if not process or not file_name:
-        return
-    clean = re.sub(
-        r"\b(mkv|mp4|avi|1080p|720p|480p|2160p|bluray|x264|hevc|web-dl|hdrip)\b",
-        "",
-        file_name,
-        flags=re.IGNORECASE,
-    )
-    clean = re.sub(r"[_\-\.\+\[\]\(\)]", " ", clean)
-    clean = re.sub(r"\s+", " ", clean).strip()
-    if clean and len(KNOWN_TITLES) < 5000:
-        KNOWN_TITLES.add(clean)
-
-
+# ============================================================
+# 📦 MEDIA SCHEMA, FILE_ID CODEC & WRAPPER
+# ============================================================
 def encode_file_id(s_pack: str, file_ref: str) -> str:
-    """
-    Reconstructs valid Pyrogram V2 File IDs from compact `_id` + `file_ref` chunks,
-    including `sub_type=0` so Pyrogram v2.2.26 never raises [400 MEDIA_EMPTY].
-    """
     if not s_pack:
         return ""
     try:
@@ -437,8 +421,6 @@ class Media(Document):
 
 
 class SafeMediaWrapper:
-    """Impervious wrapper supporting both Object attribute and Dictionary access."""
-
     def __init__(self, data: dict):
         self._id = data.get("_id")
         self.file_id = self._id
@@ -472,10 +454,6 @@ async def update_cached_file_id(
     chat_id: Optional[int] = None,
     msg_id: Optional[int] = None,
 ):
-    """
-    Self-healing helper: when Main Bot refreshes a file_id (e.g. from a Worker Bot or channel),
-    updates both RAM cache and MongoDB so future clicks are 100% instant!
-    """
     try:
         _, new_ref = unpack_new_file_id(new_raw_file_id)
     except Exception:
@@ -490,15 +468,18 @@ async def update_cached_file_id(
         upd_fields["msg_id"] = int(msg_id)
 
     cached = file_details_cache.get(str(short_id))
-    if cached and len(cached) > 0:
+    if cached:
         cached[0].full_file_id = new_raw_file_id
         if new_ref:
             cached[0].file_ref = new_ref
 
-    for idx, target_db in get_all_healthy_read_dbs():
+    for _, target_db in get_all_healthy_read_dbs():
         try:
-            res = await target_db[COLLECTION_NAME].update_one(
-                {"_id": str(short_id)}, {"$set": upd_fields}
+            res = await asyncio.wait_for(
+                target_db[COLLECTION_NAME].update_one(
+                    {"_id": str(short_id)}, {"$set": upd_fields}
+                ),
+                timeout=3.0,
             )
             if res.modified_count > 0:
                 break
@@ -507,14 +488,11 @@ async def update_cached_file_id(
 
 
 # ============================================================
-# 🔥 INSTANT ALL-DATABASE WIPE & LIVE MULTI-DATABASE STATS ENGINE
+# 🔥 MULTI-DB WIPE, LIVE STATS & STORAGE COMPACTION
 # ============================================================
 async def nuke_all_media_dbs() -> Dict[str, Any]:
     global ACTIVE_DB_INDEX
-    summary: Dict[str, Any] = {
-        "total_deleted": 0,
-        "dbs_cleared": [],
-    }
+    summary: Dict[str, Any] = {"total_deleted": 0, "dbs_cleared": []}
 
     for idx, target_db, label in get_all_configured_dbs(include_when_disabled=True):
         if target_db is None:
@@ -562,7 +540,6 @@ async def nuke_all_media_dbs() -> Dict[str, Any]:
     ACTIVE_DB_INDEX = 1
     search_cache.clear()
     file_details_cache.clear()
-    KNOWN_TITLES.clear()
 
     try:
         import plugins.pm_filter as _pmf
@@ -596,16 +573,14 @@ async def _fetch_single_db_stats(
 
         async def _get_cnt():
             try:
-                c = await col.count_documents({})
-                return int(c)
+                return int(await col.count_documents({}))
             except Exception:
                 return int(await col.estimated_document_count())
 
-        async def _get_dbstats():
-            return await target_db.command("dbstats")
-
         files_cnt, db_stats = await asyncio.wait_for(
-            asyncio.gather(_get_cnt(), _get_dbstats(), return_exceptions=True),
+            asyncio.gather(
+                _get_cnt(), target_db.command("dbstats"), return_exceptions=True
+            ),
             timeout=6.0,
         )
 
@@ -620,17 +595,16 @@ async def _fetch_single_db_stats(
         used_bytes = max(data_size + index_size, storage_size)
         free_bytes = max(0, quota_limit - used_bytes)
 
-        is_full = used_bytes >= (
-            500 * 1024 * 1024
-        ) or time.time() < _QUOTA_FULL_DBS.get(idx, 0.0)
-        status = "⚠️ Quota Full" if is_full else "🟢 Connected"
+        is_full = used_bytes >= (500 * 1024 * 1024) or time.time() < _QUOTA_FULL_DBS.get(
+            idx, 0.0
+        )
         _DEAD_READ_DBS.pop(idx, None)
 
         return {
             "index": idx,
             "label": label or f"DB {idx}",
             "configured": True,
-            "status": status,
+            "status": "⚠️ Quota Full" if is_full else "🟢 Connected",
             "files": int(files_cnt or 0),
             "used_bytes": used_bytes,
             "free_bytes": free_bytes,
@@ -650,40 +624,40 @@ async def _fetch_single_db_stats(
 
 async def get_all_dbs_stats() -> Dict[str, Any]:
     all_configured = get_all_configured_dbs(include_when_disabled=True)
-    tasks = [
-        _fetch_single_db_stats(idx, handle, lbl) for idx, handle, lbl in all_configured
-    ]
-    results = list(await asyncio.gather(*tasks)) if tasks else []
+    results = (
+        list(
+            await asyncio.gather(
+                *[
+                    _fetch_single_db_stats(idx, handle, lbl)
+                    for idx, handle, lbl in all_configured
+                ]
+            )
+        )
+        if all_configured
+        else []
+    )
 
     by_idx = {r["index"]: r for r in results}
-    r1 = by_idx.get(1) or await _fetch_single_db_stats(1, db, "Primary DB")
-    r2 = by_idx.get(2) or await _fetch_single_db_stats(2, None, "DB 2")
-    r3 = by_idx.get(3) or await _fetch_single_db_stats(3, None, "DB 3")
-
     configured_dbs = [d for d in results if d["configured"]]
-    total_files = sum(d["files"] for d in configured_dbs)
-    total_used_bytes = sum(d["used_bytes"] for d in configured_dbs)
-    total_free_bytes = sum(d["free_bytes"] for d in configured_dbs)
-    total_capacity_bytes = len(configured_dbs) * 536870912
 
     return {
-        "db1": r1,
-        "db2": r2,
-        "db3": r3,
+        "db1": by_idx.get(1) or await _fetch_single_db_stats(1, db, "Primary DB"),
+        "db2": by_idx.get(2) or await _fetch_single_db_stats(2, None, "DB 2"),
+        "db3": by_idx.get(3) or await _fetch_single_db_stats(3, None, "DB 3"),
         "all_dbs": results,
         "multi_db_enabled": MULTI_DB_ENABLED,
         "configured_count": len(configured_dbs),
         "active_db_index": ACTIVE_DB_INDEX,
-        "total_files": total_files,
-        "total_used_bytes": total_used_bytes,
-        "total_free_bytes": total_free_bytes,
-        "total_capacity_bytes": total_capacity_bytes,
+        "total_files": sum(d["files"] for d in configured_dbs),
+        "total_used_bytes": sum(d["used_bytes"] for d in configured_dbs),
+        "total_free_bytes": sum(d["free_bytes"] for d in configured_dbs),
+        "total_capacity_bytes": len(configured_dbs) * 536870912,
     }
 
 
 async def free_up_mongodb_storage() -> Dict[str, Any]:
     global ACTIVE_DB_INDEX
-    report = {
+    report: Dict[str, Any] = {
         "dropped_indexes": [],
         "cleared_temp_docs": 0,
         "compacted_files": 0,
@@ -725,8 +699,7 @@ async def free_up_mongodb_storage() -> Dict[str, Any]:
             if not USE_CAPTION_FILTER:
                 unset_fields["caption"] = ""
             res_upd = await target_db[COLLECTION_NAME].update_many(
-                {"mime_type": {"$exists": True}},
-                {"$unset": unset_fields},
+                {"mime_type": {"$exists": True}}, {"$unset": unset_fields}
             )
             report["compacted_files"] += getattr(res_upd, "modified_count", 0)
         except Exception:
@@ -738,6 +711,9 @@ async def free_up_mongodb_storage() -> Dict[str, Any]:
     return report
 
 
+# ============================================================
+# 🔍 PARALLEL MULTI-DB SEARCH & FILE RETRIEVAL
+# ============================================================
 async def get_search_results(
     query_text,
     file_type=None,
@@ -746,7 +722,9 @@ async def get_search_results(
     filter=False,
     is_autocorrect=False,
 ):
-    cache_key = f"{query_text}_{file_type}_{max_results}_{offset}_{filter}_{int(MULTI_DB_ENABLED)}"
+    cache_key = (
+        f"{query_text}_{file_type}_{max_results}_{offset}_{filter}_{int(MULTI_DB_ENABLED)}"
+    )
     if cached := search_cache.get(cache_key):
         return cached
 
@@ -759,23 +737,25 @@ async def get_search_results(
 
     conditions = []
     if parsed.get("title_words"):
-        ordered_regex = ".*".join([re.escape(w) for w in parsed["title_words"]])
+        ordered_regex = ".*".join(re.escape(w) for w in parsed["title_words"])
         conditions.append({"file_name": {"$regex": ordered_regex, "$options": "i"}})
 
     if parsed.get("season") is not None:
+        s_num = parsed["season"]
         conditions.append(
             {
                 "file_name": {
-                    "$regex": rf"(s0?{parsed['season']}\b|season\s*0?{parsed['season']}\b)",
+                    "$regex": rf"(s0?{s_num}\b|season\s*0?{s_num}\b)",
                     "$options": "i",
                 }
             }
         )
     if parsed.get("episode") is not None:
+        e_num = parsed["episode"]
         conditions.append(
             {
                 "file_name": {
-                    "$regex": rf"(e0?{parsed['episode']}\b|ep\s*0?{parsed['episode']}\b|episode\s*0?{parsed['episode']}\b)",
+                    "$regex": rf"(e0?{e_num}\b|ep\s*0?{e_num}\b|episode\s*0?{e_num}\b)",
                     "$options": "i",
                 }
             }
@@ -811,72 +791,50 @@ async def get_search_results(
     if file_type:
         mongo_query = {"$and": [mongo_query, {"file_type": file_type}]}
 
-    fetch_limit = max_results + 1
-    files = []
+    healthy_dbs = get_all_healthy_read_dbs()
+    per_db_limit = offset + max_results + 1
 
-    for idx, target_db in get_all_healthy_read_dbs():
-        if len(files) >= fetch_limit:
-            break
-        rem = fetch_limit - len(files)
-        skip_amt = max(0, offset - len(files)) if idx > 1 else offset
+    async def _query_one_db(idx: int, target_db: Any) -> List[dict]:
         try:
-            docs = (
-                await target_db[COLLECTION_NAME]
+            return await asyncio.wait_for(
+                target_db[COLLECTION_NAME]
                 .find(mongo_query)
                 .sort("_id", -1)
-                .skip(skip_amt)
-                .limit(rem)
-                .to_list(length=rem)
+                .limit(per_db_limit)
+                .to_list(length=per_db_limit),
+                timeout=6.0,
             )
-            if docs:
-                files.extend(docs)
         except Exception as e:
             mark_db_error(idx, e)
-            continue
+            return []
 
-    has_more = len(files) > max_results
-    if has_more:
-        files = files[:max_results]
-        total_results = offset + max_results + 1
-        next_offset = offset + max_results
-    else:
-        total_results = offset + len(files)
-        next_offset = 0
+    batches = await asyncio.gather(*[_query_one_db(i, t) for i, t in healthy_dbs])
+    combined: List[dict] = []
+    for batch in batches:
+        if batch:
+            combined.extend(batch)
 
-    if total_results == 0 and not is_autocorrect and process and KNOWN_TITLES:
-        if best_match := process.extractOne(query_text, KNOWN_TITLES):
-            if 75 <= best_match[1] <= 100:
-                corrected = await get_search_results(
-                    best_match[0],
-                    file_type,
-                    max_results,
-                    offset,
-                    filter,
-                    is_autocorrect=True,
-                )
-                if corrected[2] > 0:
-                    search_cache.set(cache_key, corrected)
-                return corrected
+    total_found = len(combined)
+    sliced = combined[offset : offset + max_results]
+    next_offset = offset + max_results if (offset + max_results) < total_found else 0
 
     wrapped_files = []
-    for f in files:
+    for f in sliced:
         wrapped = SafeMediaWrapper(f)
         if wrapped.file_id:
             file_details_cache.set(str(wrapped.file_id), [wrapped])
         wrapped_files.append(wrapped)
 
-    result = (wrapped_files, next_offset, total_results)
-    if total_results > 0:
+    result = (wrapped_files, next_offset, total_found)
+    if total_found > 0:
         search_cache.set(cache_key, result)
     return result
 
 
+# ============================================================
+# 💾 COMPACT MEDIA SAVING & AUTO-OVERFLOW BATCH ENGINE
+# ============================================================
 def _build_compact_media_doc(media) -> Optional[dict]:
-    """
-    Builds clean media document:
-    - Automatically strips stylish Unicode fonts from file_name on save
-    - Preserves `file_ref` and `file_id_raw` + optional `chat_id`/`msg_id` so files never fail with MEDIA_EMPTY!
-    """
     try:
         raw_fid = str(getattr(media, "file_id", "") or "")
         file_id, file_ref = unpack_new_file_id(raw_fid)
@@ -884,7 +842,6 @@ def _build_compact_media_doc(media) -> Optional[dict]:
         norm_name = normalize_db_filename(raw_name)
         file_name = re.sub(r"[_\-\.\+]", " ", norm_name)
         file_name = re.sub(r"\s+", " ", file_name).strip() or "File"
-        add_to_vocab(file_name)
 
         doc: Dict[str, Any] = {
             "_id": file_id,
@@ -917,20 +874,22 @@ async def save_file(media) -> Tuple[bool, int]:
 
     now = time.time()
     all_dbs = get_all_configured_dbs(include_when_disabled=False)
+    if ACTIVE_DB_INDEX > len(all_dbs):
+        ACTIVE_DB_INDEX = 1
+
     for i, target_db, _ in all_dbs:
-        if i < ACTIVE_DB_INDEX:
-            continue
-        if target_db is None:
+        if i < ACTIVE_DB_INDEX or target_db is None:
             continue
         if now < _DEAD_READ_DBS.get(i, 0.0) or now < _QUOTA_FULL_DBS.get(i, 0.0):
             continue
 
         try:
-            await target_db[COLLECTION_NAME].insert_one(doc)
+            await asyncio.wait_for(
+                target_db[COLLECTION_NAME].insert_one(doc), timeout=6.0
+            )
             ACTIVE_DB_INDEX = i
             search_cache.clear()
-            wrapped = SafeMediaWrapper(doc)
-            file_details_cache.set(str(doc["_id"]), [wrapped])
+            file_details_cache.set(str(doc["_id"]), [SafeMediaWrapper(doc)])
             return True, 1
         except DuplicateKeyError:
             return False, 0
@@ -949,41 +908,40 @@ async def save_batch(media_list) -> Tuple[int, int, int]:
     if not media_list:
         return 0, 0, 0
 
-    documents = []
-    for media in media_list:
-        doc = _build_compact_media_doc(media)
-        if doc:
-            documents.append(doc)
-
+    documents = [
+        doc for doc in (_build_compact_media_doc(m) for m in media_list) if doc
+    ]
     if not documents:
         return 0, 0, len(media_list)
 
     now = time.time()
     all_dbs = get_all_configured_dbs(include_when_disabled=False)
+    if ACTIVE_DB_INDEX > len(all_dbs):
+        ACTIVE_DB_INDEX = 1
+
     for i, target_db, _ in all_dbs:
-        if i < ACTIVE_DB_INDEX:
-            continue
-        if target_db is None:
+        if i < ACTIVE_DB_INDEX or target_db is None:
             continue
         if now < _DEAD_READ_DBS.get(i, 0.0) or now < _QUOTA_FULL_DBS.get(i, 0.0):
             continue
 
         try:
-            res = await target_db[COLLECTION_NAME].insert_many(documents, ordered=False)
+            res = await asyncio.wait_for(
+                target_db[COLLECTION_NAME].insert_many(documents, ordered=False),
+                timeout=20.0,
+            )
             ACTIVE_DB_INDEX = i
             search_cache.clear()
             return len(res.inserted_ids), 0, 0
         except BulkWriteError as bwe:
             search_cache.clear()
             write_errors = bwe.details.get("writeErrors", [])
-
             is_quota = any(
                 err.get("code") == 8000
                 or "space quota" in str(err.get("errmsg", "")).lower()
                 or "over your space" in str(err.get("errmsg", "")).lower()
                 for err in write_errors
             )
-
             if is_quota:
                 _QUOTA_FULL_DBS[i] = now + 1800
                 ACTIVE_DB_INDEX = i + 1
@@ -991,7 +949,7 @@ async def save_batch(media_list) -> Tuple[int, int, int]:
 
             inserted = bwe.details.get("nInserted", 0)
             duplicates = sum(1 for err in write_errors if err.get("code") == 11000)
-            return inserted, duplicates, len(media_list) - inserted - duplicates
+            return inserted, duplicates, max(0, len(media_list) - inserted - duplicates)
         except Exception as e:
             mark_db_error(i, e)
             if _is_quota_error(e) or _is_auth_or_conn_error(e):
@@ -1011,10 +969,15 @@ async def get_file_details(query):
 
     for idx, target_db in get_all_healthy_read_dbs():
         try:
-            doc = await target_db[COLLECTION_NAME].find_one({"_id": q_str})
+            doc = await asyncio.wait_for(
+                target_db[COLLECTION_NAME].find_one({"_id": q_str}), timeout=3.0
+            )
             if not doc and len(q_str) >= 20:
-                doc = await target_db[COLLECTION_NAME].find_one(
-                    {"_id": {"$regex": f"^{re.escape(q_str)}"}}
+                doc = await asyncio.wait_for(
+                    target_db[COLLECTION_NAME].find_one(
+                        {"_id": {"$regex": f"^{re.escape(q_str)}"}}
+                    ),
+                    timeout=3.0,
                 )
             if doc:
                 wrapped = [SafeMediaWrapper(doc)]
