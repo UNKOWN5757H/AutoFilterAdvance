@@ -2,10 +2,12 @@ import asyncio
 import builtins
 import os
 import signal
+from logging import ERROR, INFO, basicConfig, getLogger
+from logging.config import fileConfig
 from typing import Any, AsyncGenerator, Dict, List, Optional, Set, Tuple, Union
 
 # ===================================================================
-# 🛡️ 0. INJECT TYPING ALIASES INTO BUILTINS (Fixes NameError: Tuple)
+# 🛡️ 0. INJECT TYPING ALIASES INTO BUILTINS (Plugin Compatibility)
 # ===================================================================
 for _type_name, _type_obj in (
     ("Tuple", Tuple),
@@ -20,8 +22,15 @@ for _type_name, _type_obj in (
         setattr(builtins, _type_name, _type_obj)
 
 # ===================================================================
-# ⚡ 1. CREATE EVENT LOOP FIRST (Prevents RuntimeErrors on Python 3.10+)
+# ⚡ 1. OPTIONAL UVLOOP & EVENT LOOP INITIALIZATION
 # ===================================================================
+try:
+    import uvloop
+
+    uvloop.install()
+except Exception:
+    pass
+
 try:
     loop = asyncio.get_event_loop()
 except RuntimeError:
@@ -40,10 +49,6 @@ motor.motor_asyncio.AsyncIOMotorCollection.handlers = []
 pymongo.mongo_client.MongoClient.handlers = []
 pymongo.database.Database.handlers = []
 pymongo.collection.Collection.handlers = []
-
-# ===================================================================
-from logging import ERROR, INFO, basicConfig, getLogger
-from logging.config import fileConfig
 
 from aiohttp import web
 from pyrogram import Client, __version__, enums, filters, idle, types
@@ -90,9 +95,19 @@ getLogger("pyrogram.session.session").setLevel(ERROR)
 getLogger("imdbpy").setLevel(ERROR)
 logger = getLogger(__name__)
 
+_BG_TASKS: Set[asyncio.Task] = set()
+AUTO_DELETE_TASKS: Set[asyncio.Task] = set()
+
+
+def _spawn_bg(coro) -> asyncio.Task:
+    task = asyncio.create_task(coro)
+    _BG_TASKS.add(task)
+    task.add_done_callback(_BG_TASKS.discard)
+    return task
+
 
 # ============================================================
-# 👑 FULL POWER ADMIN CHECKER (GLOBAL + CHAT + ANONYMOUS)
+# 👑 ADMIN VERIFICATION
 # ============================================================
 def get_admin_list() -> List[int]:
     raw_admins = getattr(info, "ADMINS", [])
@@ -112,34 +127,33 @@ async def is_user_admin(client: Client, message: Message) -> bool:
 
     if message.from_user and message.from_user.id in admin_list:
         return True
-
     if message.sender_chat and message.sender_chat.id in admin_list:
         return True
 
-    if message.chat and message.chat.type in [
+    if message.chat and message.chat.type in (
         enums.ChatType.GROUP,
         enums.ChatType.SUPERGROUP,
-    ]:
+    ):
         if message.sender_chat and message.sender_chat.id == message.chat.id:
             return True
-
         if message.from_user:
             try:
                 member = await client.get_chat_member(
                     message.chat.id, message.from_user.id
                 )
-                return member.status in [
+                return member.status in (
                     enums.ChatMemberStatus.ADMINISTRATOR,
                     enums.ChatMemberStatus.OWNER,
-                ]
+                )
             except Exception:
                 pass
-
     return False
 
 
+# ============================================================
+# 🗄️ PERSISTENT STARTUP CONFIG & MULTI-DB / MULTI-BOT BOOT
+# ============================================================
 async def _boot_datadb_urls():
-    """Loads all saved /datadb MongoDB URLs on boot so dynamic databases are connected immediately."""
     try:
         from plugins.datadb import load_datadb_config
 
@@ -147,20 +161,21 @@ async def _boot_datadb_urls():
         urls_cnt = len(cfg.get("urls", []))
         if urls_cnt > 0:
             logger.info(
-                f"🗄️ Multi-DB Auto-Boot: Loaded {urls_cnt} extra MongoDB URL(s) from /datadb (Enabled={cfg.get('enabled', True)})!"
+                f"🗄️ Multi-DB Auto-Boot: Loaded {urls_cnt} extra MongoDB URL(s) (Enabled={cfg.get('enabled', True)})."
             )
     except Exception as e:
         logger.error(f"Multi-DB auto-boot warning: {e}")
 
 
 async def _find_config_doc_across_dbs(col_name: str, query_doc: dict) -> Optional[dict]:
-    """Reads config documents across Primary DB + all /datadb URLs so settings are never lost."""
     if callable(get_all_configured_dbs):
         for idx, target_db, _ in get_all_configured_dbs(include_when_disabled=True):
             if target_db is None:
                 continue
             try:
-                doc = await target_db[col_name].find_one(query_doc)
+                doc = await asyncio.wait_for(
+                    target_db[col_name].find_one(query_doc), timeout=2.5
+                )
                 if doc:
                     return doc
             except Exception as e:
@@ -170,33 +185,42 @@ async def _find_config_doc_across_dbs(col_name: str, query_doc: dict) -> Optiona
     elif callable(get_all_healthy_read_dbs):
         for idx, target_db in get_all_healthy_read_dbs():
             try:
-                doc = await target_db[col_name].find_one(query_doc)
+                doc = await asyncio.wait_for(
+                    target_db[col_name].find_one(query_doc), timeout=2.5
+                )
                 if doc:
                     return doc
             except Exception as e:
                 if callable(mark_db_error):
                     mark_db_error(idx, e)
                 continue
+
+    fallback_client = None
     try:
-        db_client = motor.motor_asyncio.AsyncIOMotorClient(
+        fallback_client = motor.motor_asyncio.AsyncIOMotorClient(
             info.DATABASE_URI,
             serverSelectionTimeoutMS=4000,
             connectTimeoutMS=4000,
-            socketTimeoutMS=8000,
+            socketTimeoutMS=6000,
         )
-        bot_db = db_client[info.DATABASE_NAME]
-        return await bot_db[col_name].find_one(query_doc)
+        return await asyncio.wait_for(
+            fallback_client[info.DATABASE_NAME][col_name].find_one(query_doc),
+            timeout=2.5,
+        )
     except Exception:
         return None
+    finally:
+        if fallback_client is not None:
+            try:
+                fallback_client.close()
+            except Exception:
+                pass
 
 
 async def _restore_persistent_settings():
-    """Restores saved /datadb URLs, custom captions, UI settings, timers, and global images on bot startup."""
     try:
-        # 0. Load & register all dynamic /datadb MongoDB URLs first!
         await _boot_datadb_urls()
 
-        # 1. Restore custom_captions collection
         cap_doc = await _find_config_doc_across_dbs(
             "custom_captions", {"_id": "settings"}
         )
@@ -205,7 +229,6 @@ async def _restore_persistent_settings():
                 if k != "_id" and v is not None:
                     setattr(info, k, v)
 
-        # 2. Restore global_bot_settings collection
         global_doc = await _find_config_doc_across_dbs(
             "global_bot_settings", {"_id": "bot_config"}
         )
@@ -225,38 +248,29 @@ async def _restore_persistent_settings():
                 if gk in global_doc and global_doc[gk] is not None:
                     setattr(info, attr, global_doc[gk])
 
-        # 3. Restore deletion_settings timers (Both PM & Group Button Auto-Delete)
         del_doc = await _find_config_doc_across_dbs(
             "deletion_settings", {"_id": "timers"}
         )
         if del_doc:
-            if (
-                "FILE_AUTO_DELETE" in del_doc
-                and del_doc["FILE_AUTO_DELETE"] is not None
-            ):
+            if del_doc.get("FILE_AUTO_DELETE") is not None:
                 val = int(del_doc["FILE_AUTO_DELETE"])
                 setattr(info, "FILE_AUTO_DELETE", val)
                 setattr(info, "AUTO_DELETE_TIME", val)
                 setattr(info, "AUTO_DELETE", val > 0)
                 setattr(temp, "FILE_AUTO_DELETE", val)
-            if (
-                "BUTTON_AUTO_DELETE" in del_doc
-                and del_doc["BUTTON_AUTO_DELETE"] is not None
-            ):
+            if del_doc.get("BUTTON_AUTO_DELETE") is not None:
                 b_val = int(del_doc["BUTTON_AUTO_DELETE"])
                 setattr(info, "BUTTON_AUTO_DELETE", b_val)
                 setattr(info, "BUTTON_DEL", b_val)
                 setattr(temp, "BUTTON_AUTO_DELETE", b_val)
                 setattr(temp, "BUTTON_DEL", b_val)
 
-        # 4. Restore reaction_settings
         react_doc = await _find_config_doc_across_dbs(
             "reaction_settings", {"_id": "config"}
         )
         if react_doc and "enabled" in react_doc:
             setattr(info, "ENABLE_REACTION", bool(react_doc["enabled"]))
 
-        # 5. Restore UI customizations from editable.py
         try:
             from plugins.editable import get_ui
 
@@ -268,9 +282,7 @@ async def _restore_persistent_settings():
 
 
 async def _boot_multibot_workers():
-    """Loads saved Multi-Bot workers across all DBs and starts them in the background on boot."""
     try:
-        await _boot_datadb_urls()
         from plugins.multibot import ensure_all_workers_started, load_multibot_config
 
         cfg = await load_multibot_config(force_refresh=True)
@@ -278,7 +290,7 @@ async def _boot_multibot_workers():
         if cfg.get("enabled", True) and bots_count > 0:
             started = await ensure_all_workers_started()
             logger.info(
-                f"🤖 Multi-Bot Auto-Boot: {len(started)}/{bots_count} Worker Bot(s) Online and Ready!"
+                f"🤖 Multi-Bot Auto-Boot: {len(started)}/{bots_count} Worker Bot(s) Online!"
             )
     except Exception as e:
         logger.error(f"Multi-Bot auto-boot warning: {e}")
@@ -294,7 +306,7 @@ class Bot(Client):
             api_id=API_ID,
             api_hash=API_HASH,
             bot_token=BOT_TOKEN,
-            workers=int(getattr(info, "WORKERS", 500) or 500),
+            workers=int(getattr(info, "WORKERS", 100) or 100),
             plugins={"root": "plugins"},
             sleep_threshold=10,
             in_memory=True,
@@ -303,8 +315,8 @@ class Bot(Client):
     async def start(self, *args, **kwargs):
         await super().start(*args, **kwargs)
 
-        b_users = []
-        b_chats = []
+        b_users: List[int] = []
+        b_chats: List[int] = []
         try:
 
             async def fetch_bans_and_settings():
@@ -323,20 +335,20 @@ class Bot(Client):
 
             await asyncio.wait_for(fetch_bans_and_settings(), timeout=15.0)
         except Exception as e:
-            logger.error(f"Failed to load startup bans/settings (Timeout/Error): {e}")
+            logger.error(f"Failed to load startup bans/settings: {e}")
 
         temp.BANNED_USERS = b_users
         temp.BANNED_CHATS = b_chats
 
-        try:
-            await Media.collection.drop_index("file_name_text")
-        except Exception:
-            pass
-
-        try:
-            await Media.ensure_indexes()
-        except Exception as e:
-            logger.error(f"Error ensuring DB indexes: {e}")
+        if Media is not None and getattr(Media, "collection", None) is not None:
+            try:
+                await Media.collection.drop_index("file_name_text")
+            except Exception:
+                pass
+            try:
+                await Media.ensure_indexes()
+            except Exception as e:
+                logger.error(f"Error ensuring DB indexes: {e}")
 
         me = await self.get_me()
         temp.ME = me.id
@@ -344,8 +356,7 @@ class Bot(Client):
         temp.B_NAME = me.first_name
         self.username = f"@{me.username}"
 
-        # Automatically load & start all saved Multi-Bot workers in the background
-        asyncio.create_task(_boot_multibot_workers())
+        _spawn_bg(_boot_multibot_workers())
 
         logger.info(
             f"{me.first_name} with Pyrogram v{__version__} (Layer {layer}) started on @{me.username}."
@@ -354,13 +365,12 @@ class Bot(Client):
 
         if os.path.exists("restart.txt"):
             try:
-                with open("restart.txt", "r") as f:
+                with open("restart.txt", "r", encoding="utf-8") as f:
                     lines = f.read().strip().splitlines()
                 if len(lines) >= 2:
-                    chat_id_str, msg_id_str = lines[0], lines[1]
                     await self.edit_message_text(
-                        chat_id=int(chat_id_str),
-                        message_id=int(msg_id_str),
+                        chat_id=int(lines[0]),
+                        message_id=int(lines[1]),
                         text="✅ <b>Bot Restarted Successfully!</b>",
                         parse_mode=enums.ParseMode.HTML,
                     )
@@ -385,10 +395,6 @@ class Bot(Client):
     async def iter_messages(
         self, chat_id: Union[int, str], limit: int, offset: int = 0
     ) -> AsyncGenerator[types.Message, None]:
-        """
-        Safely iterates through chat messages in batches of up to 200 (Telegram API limit)
-        with automatic FloodWait recovery.
-        """
         current = max(1, offset)
         while current <= limit:
             batch_size = min(200, (limit - current) + 1)
@@ -420,9 +426,6 @@ app = Bot()
 # ============================================================
 # 🗑️ AUTO DELETE PM MEDIA (WITH ADMIN IMMUNITY)
 # ============================================================
-AUTO_DELETE_TASKS = set()
-
-
 async def delete_media_task(message: Message, delay: int):
     await asyncio.sleep(delay)
     try:
@@ -448,8 +451,6 @@ async def delete_media_task(message: Message, delay: int):
 async def auto_delete_user_media_pm(client: Client, message: Message):
     if not message.from_user or message.outgoing:
         return
-
-    # 👑 FOOLPROOF IMMUNITY: Admins will NOT have their PM files deleted automatically
     if await is_user_admin(client, message):
         return
 
@@ -463,7 +464,7 @@ async def auto_delete_user_media_pm(client: Client, message: Message):
 
 
 # ============================================================
-# 🌐 HEALTH CHECKS & STARTUP (SUPPORTS / AND /health)
+# 🌐 HEALTH CHECKS & STARTUP (/ AND /health)
 # ============================================================
 async def health_check(request):
     return web.Response(text="Bot is running and healthy!", status=200)
@@ -480,13 +481,9 @@ async def start_services():
     try:
         site = web.TCPSite(runner, "0.0.0.0", bind_port)
         await site.start()
-        logger.info(
-            f"🌐 Web server listening on port {bind_port} (/ and /health) for health checks."
-        )
+        logger.info(f"🌐 Health server listening on port {bind_port} (/ and /health).")
     except OSError as e:
-        logger.warning(
-            f"Port {bind_port} is already in use (external web server active): {e}"
-        )
+        logger.warning(f"Port {bind_port} already in use: {e}")
 
     await app.start()
     await idle()
