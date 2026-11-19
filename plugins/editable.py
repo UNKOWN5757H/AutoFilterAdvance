@@ -82,9 +82,7 @@ except ImportError:
                 for b in row:
                     st = getattr(b, "style", None)
                     if getattr(b, "url", None):
-                        new_row.append(
-                            create_styled_btn(b.text, url=b.url, color=None)
-                        )
+                        new_row.append(create_styled_btn(b.text, url=b.url, color=None))
                     else:
                         new_row.append(
                             create_styled_btn(
@@ -177,7 +175,10 @@ def _prepare_compat_kwargs(
 
     explicit_disable = clean_kw.pop("disable_web_page_preview", disable_preview)
     if explicit_disable is not None:
-        if "link_preview_options" in supported_params and LinkPreviewOptions is not None:
+        if (
+            "link_preview_options" in supported_params
+            and LinkPreviewOptions is not None
+        ):
             try:
                 clean_kw["link_preview_options"] = LinkPreviewOptions(
                     is_disabled=bool(explicit_disable)
@@ -538,9 +539,7 @@ def parse_button_cmd(
                     color = el
             return btn_text, url, layout, color
 
-    match = re.search(
-        r'["“\']([^"”\']+)["”\']\s+(\S+)(?:\s+(\S+))?(?:\s+(\S+))?', body
-    )
+    match = re.search(r'["“\']([^"”\']+)["”\']\s+(\S+)(?:\s+(\S+))?(?:\s+(\S+))?', body)
     if match:
         btn_text = _clean_button_label(match.group(1).strip())
         url = _normalize_url(match.group(2).strip())
