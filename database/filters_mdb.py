@@ -84,7 +84,12 @@ async def delete_filter(message, text, group_id) -> bool:
                 {
                     "$or": [
                         {"text": keyword},
-                        {"text": {"$regex": f"^{re.escape(keyword)}$", "$options": "i"}},
+                        {
+                            "text": {
+                                "$regex": f"^{re.escape(keyword)}$",
+                                "$options": "i",
+                            }
+                        },
                     ]
                 }
             ),
