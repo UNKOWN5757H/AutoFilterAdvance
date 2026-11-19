@@ -2,7 +2,7 @@ import asyncio
 import inspect
 import re
 from logging import ERROR, getLogger
-from typing import Optional
+from typing import Any, List, Optional
 
 import requests
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -15,9 +15,31 @@ from pyrogram.errors import (
     PeerIdInvalid,
     UserIsBlocked,
 )
-from pyrogram.types import Message
+from pyrogram.types import InlineKeyboardMarkup, Message
 
 import info
+
+try:
+    from database.ia_filterdb import (
+        get_all_healthy_read_dbs,
+        get_writable_System_db,
+    )
+except ImportError:
+    get_all_healthy_read_dbs = None
+    get_writable_System_db = None
+
+try:
+    from plugins.pm_filter import sanitize_markup_hide_links
+except ImportError:
+    try:
+        from pm_filter import sanitize_markup_hide_links
+    except ImportError:
+
+        def sanitize_markup_hide_links(
+            markup: Optional[InlineKeyboardMarkup],
+        ) -> Optional[InlineKeyboardMarkup]:
+            return markup
+
 
 logger = getLogger(__name__)
 logger.setLevel(ERROR)
@@ -40,24 +62,25 @@ _EDIT_PARAMS = set(inspect.signature(Message.edit_text).parameters.keys())
 
 
 def _prepare_compat_kwargs(
-    kwargs: dict, supported_params: set, disable_preview: Optional[bool] = None
+    kwargs: dict, supported_params: set, disable_preview: Optional[bool] = True
 ) -> dict:
     clean_kw = dict(kwargs)
-    explicit_disable = clean_kw.pop("disable_web_page_preview", disable_preview)
+    if "reply_markup" in clean_kw and isinstance(
+        clean_kw["reply_markup"], InlineKeyboardMarkup
+    ):
+        clean_kw["reply_markup"] = sanitize_markup_hide_links(clean_kw["reply_markup"])
 
+    explicit_disable = clean_kw.pop("disable_web_page_preview", disable_preview)
     if explicit_disable is not None:
-        if "disable_web_page_preview" in supported_params:
-            clean_kw["disable_web_page_preview"] = bool(explicit_disable)
-        elif (
-            "link_preview_options" in supported_params
-            and LinkPreviewOptions is not None
-        ):
+        if "link_preview_options" in supported_params and LinkPreviewOptions is not None:
             try:
                 clean_kw["link_preview_options"] = LinkPreviewOptions(
                     is_disabled=bool(explicit_disable)
                 )
             except Exception:
                 pass
+        elif "disable_web_page_preview" in supported_params:
+            clean_kw["disable_web_page_preview"] = bool(explicit_disable)
 
     if "reply_to_message_id" in clean_kw:
         rep_id = clean_kw.pop("reply_to_message_id")
@@ -76,16 +99,21 @@ def _prepare_compat_kwargs(
 async def safe_reply_text(
     message: Message, text: str, disable_web_page_preview: bool = True, **kwargs
 ) -> Optional[Message]:
+    if not message:
+        return None
     compat_kw = _prepare_compat_kwargs(
         kwargs, _REPLY_PARAMS, disable_preview=disable_web_page_preview
     )
     try:
         return await message.reply_text(text, **compat_kw)
     except TypeError:
-        compat_kw.pop("disable_web_page_preview", None)
-        compat_kw.pop("link_preview_options", None)
-        compat_kw.pop("reply_parameters", None)
-        compat_kw.pop("reply_to_message_id", None)
+        for k in (
+            "disable_web_page_preview",
+            "link_preview_options",
+            "reply_parameters",
+            "reply_to_message_id",
+        ):
+            compat_kw.pop(k, None)
         return await message.reply_text(text, **compat_kw)
     except (ChatWriteForbidden, Forbidden, UserIsBlocked, PeerIdInvalid):
         return None
@@ -94,35 +122,44 @@ async def safe_reply_text(
 async def safe_edit_text(
     message: Message, text: str, disable_web_page_preview: bool = True, **kwargs
 ) -> Optional[Message]:
+    if not message:
+        return None
     compat_kw = _prepare_compat_kwargs(
         kwargs, _EDIT_PARAMS, disable_preview=disable_web_page_preview
     )
     try:
         return await message.edit_text(text, **compat_kw)
+    except (MessageNotModified, MessageIdInvalid, ChatWriteForbidden, Forbidden):
+        return None
     except TypeError:
         compat_kw.pop("disable_web_page_preview", None)
         compat_kw.pop("link_preview_options", None)
-        return await message.edit_text(text, **compat_kw)
-    except (MessageNotModified, MessageIdInvalid, ChatWriteForbidden, Forbidden):
-        return None
+        try:
+            return await message.edit_text(text, **compat_kw)
+        except Exception:
+            return None
 
 
 # ============================================================
-# ⚙️ MONGODB PERMANENT SETTINGS
+# ⚙️ QUOTA-SAFE MULTI-DB PERMANENT SETTINGS
 # ============================================================
 _custom_db = None
 _global_settings_db = None
 _CUSTOM_BOOT_LOADED = False
 
 try:
-    _DB_CLIENT = AsyncIOMotorClient(info.DATABASE_URI)
+    _DB_CLIENT = AsyncIOMotorClient(
+        info.DATABASE_URI,
+        serverSelectionTimeoutMS=4000,
+        connectTimeoutMS=4000,
+        socketTimeoutMS=8000,
+    )
     _BOT_DB = _DB_CLIENT[info.DATABASE_NAME]
     _custom_db = _BOT_DB["custom_captions"]
     _global_settings_db = _BOT_DB["global_bot_settings"]
 except Exception as e:
     logger.error(f"Failed to init custommessage DB: {e}")
 
-# Sync map between info attributes and global_bot_settings keys
 _REVERSE_GLOBAL_MAP = {
     "FSUB_IMG": "fsub_img",
     "FSUB_MSG": "fsub_msg",
@@ -135,25 +172,53 @@ _REVERSE_GLOBAL_MAP = {
 }
 
 
-async def save_msg_data(key: str, value):
-    setattr(info, key, value)
-    if _custom_db is not None:
+def _get_candidate_cols(col_name: str, fallback_col: Any) -> List[Any]:
+    cols = []
+    if callable(get_writable_System_db):
         try:
-            await _custom_db.update_one(
-                {"_id": "settings"}, {"$set": {key: value}}, upsert=True
+            w_db = get_writable_System_db()
+            if w_db is not None:
+                cols.append(w_db[col_name])
+        except Exception:
+            pass
+    if callable(get_all_healthy_read_dbs):
+        try:
+            for _, r_db in get_all_healthy_read_dbs():
+                c = r_db[col_name]
+                if c not in cols:
+                    cols.append(c)
+        except Exception:
+            pass
+    if fallback_col is not None and fallback_col not in cols:
+        cols.append(fallback_col)
+    return cols
+
+
+async def save_msg_data(key: str, value: Any):
+    setattr(info, key, value)
+    for col in _get_candidate_cols("custom_captions", _custom_db):
+        try:
+            await asyncio.wait_for(
+                col.update_one({"_id": "settings"}, {"$set": {key: value}}, upsert=True),
+                timeout=2.5,
             )
-        except Exception as e:
-            logger.error(f"Error saving {key} to custom_captions: {e}")
+        except Exception:
+            continue
 
     global_key = _REVERSE_GLOBAL_MAP.get(key)
     if global_key:
-        if _global_settings_db is not None:
+        for col in _get_candidate_cols("global_bot_settings", _global_settings_db):
             try:
-                await _global_settings_db.update_one(
-                    {"_id": "bot_config"}, {"$set": {global_key: value}}, upsert=True
+                await asyncio.wait_for(
+                    col.update_one(
+                        {"_id": "bot_config"},
+                        {"$set": {global_key: value}},
+                        upsert=True,
+                    ),
+                    timeout=2.5,
                 )
             except Exception:
-                pass
+                continue
         try:
             from plugins.custom_settings import update_bot_settings
 
@@ -164,27 +229,27 @@ async def save_msg_data(key: str, value):
 
 @Client.on_message(filters.all, group=-998)
 async def load_custom_messages_on_boot(client: Client, message: Message):
-    """Automatically restores saved custom messages & images into `info` on bot startup."""
     global _CUSTOM_BOOT_LOADED
     if _CUSTOM_BOOT_LOADED:
         return
     _CUSTOM_BOOT_LOADED = True
-    if _custom_db is None:
-        return
-    try:
-        doc = await _custom_db.find_one({"_id": "settings"})
-        if doc:
-            for k, v in doc.items():
-                if k != "_id" and v is not None:
-                    setattr(info, k, v)
-    except Exception as e:
-        logger.error(f"Failed to load custom messages on boot: {e}")
+
+    for col in _get_candidate_cols("custom_captions", _custom_db):
+        try:
+            doc = await asyncio.wait_for(col.find_one({"_id": "settings"}), timeout=2.5)
+            if doc:
+                for k, v in doc.items():
+                    if k != "_id" and v is not None:
+                        setattr(info, k, v)
+                break
+        except Exception:
+            continue
 
 
 # ============================================================
-# 👑 FULL POWER ADMIN CHECKER (GLOBAL + CHAT + ANONYMOUS)
+# 👑 FULL POWER ADMIN CHECKER
 # ============================================================
-def get_admin_list():
+def get_admin_list() -> List[int]:
     raw_admins = getattr(info, "ADMINS", [])
     if isinstance(raw_admins, (str, int)):
         raw_admins = str(raw_admins).replace(",", " ").split()
@@ -202,7 +267,6 @@ async def is_user_admin(client: Client, message: Message) -> bool:
 
     if message.from_user and message.from_user.id in admin_list:
         return True
-
     if message.sender_chat and message.sender_chat.id in admin_list:
         return True
 
@@ -212,7 +276,6 @@ async def is_user_admin(client: Client, message: Message) -> bool:
     ]:
         if message.sender_chat and message.sender_chat.id == message.chat.id:
             return True
-
         if message.from_user:
             try:
                 member = await client.get_chat_member(
@@ -224,15 +287,30 @@ async def is_user_admin(client: Client, message: Message) -> bool:
                 ]
             except Exception:
                 pass
+    return False
 
+
+async def _require_admin(client: Client, message: Message) -> bool:
+    if await is_user_admin(client, message):
+        return True
+    await safe_reply_text(
+        message,
+        "❌ <b>Unauthorized:</b> Admin access required.",
+        parse_mode=enums.ParseMode.HTML,
+    )
     return False
 
 
 # ============================================================
-# ☁️ CLOUD IMAGE UPLOADER
+# ☁️ RELIABLE CLOUD IMAGE UPLOADER
 # ============================================================
-def _upload_sync(file_bytes):
-    headers = {"User-Agent": "Mozilla/5.0"}
+def _upload_sync(file_bytes: bytes) -> Optional[str]:
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        )
+    }
     endpoints = [
         (
             "https://catbox.moe/user/api.php",
@@ -240,13 +318,16 @@ def _upload_sync(file_bytes):
             {"reqtype": "fileupload"},
         ),
         (
-            "https://graph.org/upload",
-            {"file": ("img.jpg", file_bytes, "image/jpeg")},
-            None,
+            "https://freeimage.host/api/1/upload",
+            {"source": ("img.jpg", file_bytes, "image/jpeg")},
+            {"key": "6d207e02198a847aa98d0a2a901485a5", "format": "json"},
+        ),
+        (
+            "https://litterbox.catbox.moe/resources/internals/api.php",
+            {"fileToUpload": ("img.jpg", file_bytes, "image/jpeg")},
+            {"reqtype": "fileupload", "time": "72h"},
         ),
         ("https://envs.sh", {"file": ("img.jpg", file_bytes, "image/jpeg")}, None),
-        ("https://x0.at", {"file": ("img.jpg", file_bytes, "image/jpeg")}, None),
-        ("https://ttm.sh", {"file": ("img.jpg", file_bytes, "image/jpeg")}, None),
         ("https://0x0.st", {"file": ("img.jpg", file_bytes, "image/jpeg")}, None),
     ]
     for url, files_dict, data_dict in endpoints:
@@ -254,9 +335,11 @@ def _upload_sync(file_bytes):
             res = requests.post(
                 url, data=data_dict, files=files_dict, headers=headers, timeout=8
             )
-            if res.status_code in [200, 201]:
-                if url == "https://graph.org/upload":
-                    return "https://graph.org" + res.json()[0]["src"]
+            if res.status_code in (200, 201):
+                if "freeimage.host" in url:
+                    u = res.json().get("image", {}).get("url")
+                    if u and u.startswith("http"):
+                        return u
                 elif res.text.strip().startswith("http"):
                     return res.text.strip()
         except Exception:
@@ -264,7 +347,7 @@ def _upload_sync(file_bytes):
     return None
 
 
-async def upload_image_safely(client: Client, message: Message):
+async def upload_image_safely(client: Client, message: Message) -> Optional[str]:
     try:
         file_io = await client.download_media(message, in_memory=True)
         if not file_io:
@@ -280,20 +363,16 @@ async def upload_image_safely(client: Client, message: Message):
 async def process_text_setting(
     client: Client, message: Message, var_name: str, setting_name: str
 ):
-    if not await is_user_admin(client, message):
-        return await safe_reply_text(
-            message,
-            "❌ <b>Unauthorized:</b> Admin access required.",
-            parse_mode=enums.ParseMode.HTML,
-        )
+    if not await _require_admin(client, message):
+        return
 
-    if len(message.command) > 1 and message.command[1].strip().lower() in [
+    if len(message.command) > 1 and message.command[1].strip().lower() in (
         "off",
         "reset",
         "clear",
         "default",
         "none",
-    ]:
+    ):
         await save_msg_data(var_name, None)
         return await safe_reply_text(
             message,
@@ -307,8 +386,7 @@ async def process_text_setting(
         and len(getattr(message, "command", [])) == 1
         and (message.reply_to_message.text or message.reply_to_message.caption)
     ):
-        replied = message.reply_to_message
-        content = replied.text or replied.caption
+        content = message.reply_to_message.text or message.reply_to_message.caption
         raw_text = getattr(content, "html", str(content)).strip()
     elif message.text and len(message.command) > 1:
         html_text = getattr(message.text, "html", str(message.text))
@@ -339,20 +417,16 @@ async def process_text_setting(
 async def process_image_setting(
     client: Client, message: Message, var_name: str, setting_name: str
 ):
-    if not await is_user_admin(client, message):
-        return await safe_reply_text(
-            message,
-            "❌ <b>Unauthorized:</b> Admin access required.",
-            parse_mode=enums.ParseMode.HTML,
-        )
+    if not await _require_admin(client, message):
+        return
 
-    if len(message.command) > 1 and message.command[1].strip().lower() in [
+    if len(message.command) > 1 and message.command[1].strip().lower() in (
         "off",
         "reset",
         "clear",
         "default",
         "none",
-    ]:
+    ):
         await save_msg_data(var_name, None)
         return await safe_reply_text(
             message,
@@ -398,8 +472,7 @@ async def process_image_setting(
                 parse_mode=enums.ParseMode.HTML,
             )
     else:
-        photo_id = target_msg.photo.file_id
-        await save_msg_data(var_name, photo_id)
+        await save_msg_data(var_name, target_msg.photo.file_id)
         if status:
             await safe_edit_text(
                 status,
@@ -409,7 +482,7 @@ async def process_image_setting(
 
 
 # ============================================================
-# 🎯 COMMAND HANDLERS (SINGLE SOURCE FOR CUSTOM MESSAGES)
+# 🎯 COMMAND HANDLERS
 # ============================================================
 @Client.on_message(filters.command("infomsg") & filters.incoming, group=-2)
 async def set_info_msg(bot: Client, message: Message):
