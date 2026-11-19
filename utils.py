@@ -1,10 +1,11 @@
 import asyncio
+import hashlib
 import inspect
 import os
 import re
 import urllib.parse
 from logging import INFO, getLogger
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 import aiohttp
 import requests
@@ -29,7 +30,6 @@ from pyrogram.types import (
 import info
 from database.users_chats_db import db as _db
 from info import (
-    ADMINS,
     AUTH_CHANNEL,
     LONG_IMDB_DESCRIPTION,
     MAX_LIST_ELM,
@@ -37,7 +37,6 @@ from info import (
     TMDB_API_KEY,
 )
 
-# Safe optional import for join_reqs
 try:
     from database.join_reqs import join_reqs as _db2
 except ImportError:
@@ -49,10 +48,9 @@ logger.setLevel(INFO)
 BTN_URL_REGEX = re.compile(
     r"(\[([^\[]+?)\]\((buttonurl|buttonalert):(?:/{0,2})(.+?)(:same)?\))"
 )
-SMART_OPEN, SMART_CLOSE, START_CHAR = "“", "”", ("'", '"', "“")
 
 # ============================================================
-# 🎨 SAFE TELEGRAM BUTTON STYLE DETECTION
+# 🎨 SAFE TELEGRAM BUTTON STYLE & HIDDEN-LINK BUTTON ENGINE
 # ============================================================
 BTN_PRIMARY = None
 BTN_SUCCESS = None
@@ -68,8 +66,80 @@ try:
         BTN_DANGER = getattr(ButtonStyle, "DANGER", None)
         _SUPPORTS_BTN_STYLE = True
 except (ImportError, ValueError, TypeError):
-    BTN_PRIMARY = BTN_SUCCESS = BTN_DANGER = None
-    _SUPPORTS_BTN_STYLE = False
+    pass
+
+_FALLBACK_HIDDEN_LINKS: Dict[str, str] = {}
+
+
+def _clean_button_label(raw_label: str) -> str:
+    lbl = re.sub(r"<[^>]+>", "", str(raw_label or "")).strip()
+    lbl = re.sub(r"(?i)https?://\S+|t\.me/\S+|www\.\S+", "", lbl).strip(" -|:")
+    return lbl or "Open"
+
+
+def _register_hidden_url(url: str) -> str:
+    clean_u = str(url or "").strip()
+    if clean_u and not clean_u.startswith(("http://", "https://", "tg://")):
+        clean_u = "https://" + clean_u.lstrip("/")
+    try:
+        from plugins.pm_filter import register_hidden_link
+
+        return register_hidden_link(clean_u)
+    except Exception:
+        token = hashlib.md5(clean_u.encode("utf-8")).hexdigest()[:12]
+        if len(_FALLBACK_HIDDEN_LINKS) >= 15000:
+            _FALLBACK_HIDDEN_LINKS.pop(next(iter(_FALLBACK_HIDDEN_LINKS)), None)
+        _FALLBACK_HIDDEN_LINKS[token] = clean_u
+        return token
+
+
+def _make_hidden_btn(
+    text: str,
+    url: Optional[str] = None,
+    callback_data: Optional[str] = None,
+    style: Any = None,
+) -> InlineKeyboardButton:
+    """Builds a button with ZERO visible links inside the button."""
+    kwargs: Dict[str, Any] = {"text": _clean_button_label(text)}
+    if callback_data:
+        kwargs["callback_data"] = str(callback_data)[:64]
+    elif url:
+        kwargs["callback_data"] = f"olink#{_register_hidden_url(url)}"
+    else:
+        kwargs["callback_data"] = "noop"
+
+    if _SUPPORTS_BTN_STYLE and style is not None:
+        kwargs["style"] = style
+    try:
+        return InlineKeyboardButton(**kwargs)
+    except Exception:
+        kwargs.pop("style", None)
+        return InlineKeyboardButton(**kwargs)
+
+
+def _hide_markup_links(
+    markup: Optional[InlineKeyboardMarkup],
+) -> Optional[InlineKeyboardMarkup]:
+    if not markup or not getattr(markup, "inline_keyboard", None):
+        return markup
+    rows = []
+    for row in markup.inline_keyboard:
+        new_row = []
+        for b in row:
+            st = getattr(b, "style", None)
+            if getattr(b, "url", None):
+                new_row.append(_make_hidden_btn(b.text, url=b.url, style=st))
+            else:
+                new_row.append(
+                    _make_hidden_btn(
+                        b.text,
+                        callback_data=getattr(b, "callback_data", "noop"),
+                        style=st,
+                    )
+                )
+        if new_row:
+            rows.append(new_row)
+    return InlineKeyboardMarkup(rows) if rows else None
 
 
 class temp(object):
@@ -91,7 +161,6 @@ class TMDBWrapper(dict):
         return self.get(name)
 
 
-# Fallback TMDB Read Token if TMDB_API_KEY is not set in info.py
 _TMDB_BEARER_FALLBACK = (
     "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI2ZGU3YTIyZGU1YjE5YTFjNmUyZGU5ZWEyMzE2ZmQxMCIs"
     "Im5iZiI6MTc0NTMyMjQ2Mi41MzMsInN1YiI6IjY4MDc4MWRlYzVjODAzNWZiMDhhNjExNCIsInNjb3"
@@ -108,7 +177,7 @@ async def _get_http_session() -> aiohttp.ClientSession:
 
 
 # ============================================================
-# 👑 FULL POWER ADMIN CHECKER (GLOBAL + CHAT + ANONYMOUS)
+# 👑 ADMIN VERIFICATION HELPERS
 # ============================================================
 def get_admin_list() -> List[int]:
     raw_admins = getattr(info, "ADMINS", [])
@@ -128,14 +197,13 @@ async def is_user_admin(client: Client, message: Message) -> bool:
 
     if message.from_user and message.from_user.id in admin_list:
         return True
-
     if message.sender_chat and message.sender_chat.id in admin_list:
         return True
 
-    if message.chat and message.chat.type in [
+    if message.chat and message.chat.type in (
         enums.ChatType.GROUP,
         enums.ChatType.SUPERGROUP,
-    ]:
+    ):
         if message.sender_chat and message.sender_chat.id == message.chat.id:
             return True
         if message.from_user:
@@ -143,10 +211,10 @@ async def is_user_admin(client: Client, message: Message) -> bool:
                 member = await client.get_chat_member(
                     message.chat.id, message.from_user.id
                 )
-                return member.status in [
+                return member.status in (
                     enums.ChatMemberStatus.ADMINISTRATOR,
                     enums.ChatMemberStatus.OWNER,
-                ]
+                )
             except Exception:
                 pass
     return False
@@ -165,7 +233,7 @@ async def cb_user_admin(client: Client, query: CallbackQuery) -> bool:
     if (
         query.message
         and query.message.chat
-        and query.message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]
+        and query.message.chat.type in (enums.ChatType.GROUP, enums.ChatType.SUPERGROUP)
     ):
         if (
             query.message.sender_chat
@@ -177,10 +245,10 @@ async def cb_user_admin(client: Client, query: CallbackQuery) -> bool:
                 member = await client.get_chat_member(
                     query.message.chat.id, query.from_user.id
                 )
-                return member.status in [
+                return member.status in (
                     enums.ChatMemberStatus.ADMINISTRATOR,
                     enums.ChatMemberStatus.OWNER,
-                ]
+                )
             except Exception:
                 pass
     return False
@@ -284,7 +352,6 @@ async def is_subscribed(bot: Client, query: Union[CallbackQuery, Message]) -> bo
     if not user_id:
         return True
 
-    # 1. Check dynamic ForceSub channels configured via /setfsub in plugins/fsub.py
     try:
         from plugins.fsub import _get_missing_channel_buttons, get_fsub_config
 
@@ -297,7 +364,6 @@ async def is_subscribed(bot: Client, query: Union[CallbackQuery, Message]) -> bo
 
     auth_ch = getattr(info, "AUTH_CHANNEL", AUTH_CHANNEL)
     req_ch = getattr(info, "REQ_CHANNEL", REQ_CHANNEL)
-
     if not auth_ch and not req_ch:
         return True
 
@@ -313,10 +379,10 @@ async def is_subscribed(bot: Client, query: Union[CallbackQuery, Message]) -> bo
 
     try:
         user = await bot.get_chat_member(int(auth_ch), int(user_id))
-        return user.status not in [
+        return user.status not in (
             enums.ChatMemberStatus.BANNED,
             enums.ChatMemberStatus.LEFT,
-        ]
+        )
     except UserNotParticipant:
         return False
     except Exception as e:
@@ -325,7 +391,6 @@ async def is_subscribed(bot: Client, query: Union[CallbackQuery, Message]) -> bo
 
 
 async def get_poster(query, bulk=False, id=False, file=None):
-    """Fetches movie/TV metadata from TMDB (delegates to plugins.Imdbposter if loaded)."""
     try:
         from plugins.Imdbposter import get_poster as _imdb_get_poster
 
@@ -334,53 +399,48 @@ async def get_poster(query, bulk=False, id=False, file=None):
         pass
 
     api_key = getattr(info, "TMDB_API_KEY", TMDB_API_KEY)
-    headers = {}
-    if not api_key:
-        headers = {
+    headers = (
+        {}
+        if api_key
+        else {
             "Authorization": f"Bearer {_TMDB_BEARER_FALLBACK}",
             "Content-Type": "application/json;charset=utf-8",
         }
-
+    )
     session = await _get_http_session()
 
     async def _tmdb_fetch_json(url: str):
         async with session.get(url, headers=headers, ssl=False) as resp:
-            if resp.status != 200:
-                return None
-            return await resp.json()
+            return await resp.json() if resp.status == 200 else None
 
     try:
+        key_param = f"api_key={api_key}&" if api_key else ""
         if id:
-            query_str = str(query).strip()
-            media_type = "movie"
-
+            query_str, media_type = str(query).strip(), "movie"
             if ":" in query_str:
                 mtype, mid = query_str.split(":", 1)
                 if mtype in ("movie", "tv"):
                     media_type, query_str = mtype, mid
             elif query_str.startswith("tt"):
-                key_param = f"api_key={api_key}&" if api_key else ""
-                find_url = f"https://api.themoviedb.org/3/find/{query_str}?{key_param}external_source=imdb_id"
-                find_data = await _tmdb_fetch_json(find_url)
-                if not find_data:
-                    return None
-                results = find_data.get("movie_results", []) + find_data.get(
-                    "tv_results", []
+                find_data = await _tmdb_fetch_json(
+                    f"https://api.themoviedb.org/3/find/{query_str}?{key_param}external_source=imdb_id"
                 )
+                results = (find_data or {}).get("movie_results", []) + (
+                    find_data or {}
+                ).get("tv_results", [])
                 if not results:
                     return None
                 query_str = str(results[0]["id"])
                 media_type = "tv" if "name" in results[0] else "movie"
 
-            key_param = f"api_key={api_key}&" if api_key else ""
-            detail_url = f"https://api.themoviedb.org/3/{media_type}/{query_str}?{key_param}append_to_response=credits,external_ids"
-            movie = await _tmdb_fetch_json(detail_url)
-
+            movie = await _tmdb_fetch_json(
+                f"https://api.themoviedb.org/3/{media_type}/{query_str}?{key_param}append_to_response=credits,external_ids"
+            )
             if not movie and media_type == "movie" and query_str.isdigit():
                 media_type = "tv"
-                detail_url = f"https://api.themoviedb.org/3/tv/{query_str}?{key_param}append_to_response=credits,external_ids"
-                movie = await _tmdb_fetch_json(detail_url)
-
+                movie = await _tmdb_fetch_json(
+                    f"https://api.themoviedb.org/3/tv/{query_str}?{key_param}append_to_response=credits,external_ids"
+                )
             if not movie:
                 return None
 
@@ -415,42 +475,34 @@ async def get_poster(query, bulk=False, id=False, file=None):
                 "localized_title": title,
                 "kind": media_type,
                 "imdb_id": imdb_id,
-                "cast": ", ".join([c["name"] for c in cast_data[:10] if c.get("name")])
+                "cast": ", ".join(c["name"] for c in cast_data[:10] if c.get("name"))
                 or "N/A",
                 "runtime": (
                     f"{movie.get('runtime')} min" if movie.get("runtime") else "N/A"
                 ),
                 "countries": ", ".join(
-                    [
-                        c["name"]
-                        for c in movie.get("production_countries", [])
-                        if c.get("name")
-                    ]
+                    c["name"]
+                    for c in movie.get("production_countries", [])
+                    if c.get("name")
                 )
                 or "N/A",
                 "certificates": "N/A",
                 "languages": ", ".join(
-                    [
-                        l.get("english_name", "")
-                        for l in movie.get("spoken_languages", [])
-                        if l.get("english_name")
-                    ]
+                    l.get("english_name", "")
+                    for l in movie.get("spoken_languages", [])
+                    if l.get("english_name")
                 )
                 or "N/A",
                 "director": ", ".join(
-                    [
-                        c["name"]
-                        for c in crew
-                        if c.get("job") == "Director" and c.get("name")
-                    ]
+                    c["name"]
+                    for c in crew
+                    if c.get("job") == "Director" and c.get("name")
                 )
                 or "N/A",
                 "writer": ", ".join(
-                    [
-                        c["name"]
-                        for c in crew
-                        if c.get("department") == "Writing" and c.get("name")
-                    ]
+                    c["name"]
+                    for c in crew
+                    if c.get("department") == "Writing" and c.get("name")
                 )
                 or "N/A",
                 "producer": "N/A",
@@ -458,11 +510,9 @@ async def get_poster(query, bulk=False, id=False, file=None):
                 "cinematographer": "N/A",
                 "music_team": "N/A",
                 "distributors": ", ".join(
-                    [
-                        c["name"]
-                        for c in movie.get("production_companies", [])
-                        if c.get("name")
-                    ]
+                    c["name"]
+                    for c in movie.get("production_companies", [])
+                    if c.get("name")
                 )
                 or "N/A",
                 "release_date": movie.get("release_date")
@@ -470,7 +520,7 @@ async def get_poster(query, bulk=False, id=False, file=None):
                 or "N/A",
                 "year": year or "N/A",
                 "genres": ", ".join(
-                    [g["name"] for g in movie.get("genres", []) if g.get("name")]
+                    g["name"] for g in movie.get("genres", []) if g.get("name")
                 )
                 or "N/A",
                 "poster": poster_full,
@@ -479,54 +529,50 @@ async def get_poster(query, bulk=False, id=False, file=None):
                 "rating": str(round(float(movie.get("vote_average") or 0), 1)),
                 "url": f"https://www.themoviedb.org/{media_type}/{query_str}",
             }
-        else:
-            clean_query, year = str(query).strip(), None
-            if year_match := re.search(r"\b(19\d{2}|20\d{2})\b", clean_query):
-                year = year_match.group(1)
-                clean_query = clean_query.replace(year, "").strip()
 
-            clean_query = re.sub(
-                r"(?i)\b(hdrip|web-dl|webrip|bluray|brrip|dvdrip|dvdscr|tsrip|camrip|hdtc|hevc|x264|x265|1080p|720p|480p|2160p|4k|hindi|kannada|telugu|tamil|malayalam|english|movie|series)\b",
-                "",
-                clean_query,
+        clean_query, year = str(query).strip(), None
+        if year_match := re.search(r"\b(19\d{2}|20\d{2})\b", clean_query):
+            year = year_match.group(1)
+            clean_query = clean_query.replace(year, "").strip()
+
+        clean_query = re.sub(
+            r"(?i)\b(hdrip|web-?dl|webrip|bluray|brrip|dvdrip|dvdscr|tsrip|camrip|hdtc|hevc|x264|x265|1080p|720p|480p|2160p|4k|hindi|kannada|telugu|tamil|malayalam|english|movie|series)\b",
+            "",
+            clean_query,
+        )
+        clean_query = (
+            re.sub(r"[\(\)\[\]\{\}\-_.:]", " ", clean_query).strip()
+            or str(query).strip()
+        )
+
+        url = f"https://api.themoviedb.org/3/search/multi?{key_param}query={urllib.parse.quote(clean_query)}&include_adult=false"
+        if year:
+            url += f"&year={year}"
+
+        results = ((await _tmdb_fetch_json(url)) or {}).get("results", [])
+        if not results and year:
+            retry_url = f"https://api.themoviedb.org/3/search/multi?{key_param}query={urllib.parse.quote(clean_query)}&include_adult=false"
+            results = ((await _tmdb_fetch_json(retry_url)) or {}).get("results", [])
+
+        movies = [
+            TMDBWrapper(
+                {
+                    "id": f"{item.get('media_type')}:{item.get('id')}",
+                    "movieID": f"{item.get('media_type')}:{item.get('id')}",
+                    "title": item.get("title") or item.get("name"),
+                    "year": (
+                        item.get("release_date") or item.get("first_air_date") or ""
+                    )[:4],
+                    "kind": item.get("media_type"),
+                    "media_type": item.get("media_type"),
+                }
             )
-            clean_query = (
-                re.sub(r"[\(\)\[\]\{\}\-_.:]", " ", clean_query).strip()
-                or str(query).strip()
-            )
-
-            key_param = f"api_key={api_key}&" if api_key else ""
-            url = f"https://api.themoviedb.org/3/search/multi?{key_param}query={urllib.parse.quote(clean_query)}&include_adult=false"
-            if year:
-                url += f"&year={year}"
-
-            search_data = await _tmdb_fetch_json(url)
-            results = (search_data or {}).get("results", [])
-
-            if not results and year:
-                retry_url = f"https://api.themoviedb.org/3/search/multi?{key_param}query={urllib.parse.quote(clean_query)}&include_adult=false"
-                retry_data = await _tmdb_fetch_json(retry_url)
-                results = (retry_data or {}).get("results", [])
-
-            movies = [
-                TMDBWrapper(
-                    {
-                        "id": f"{item.get('media_type')}:{item.get('id')}",
-                        "movieID": f"{item.get('media_type')}:{item.get('id')}",
-                        "title": item.get("title") or item.get("name"),
-                        "year": (
-                            item.get("release_date") or item.get("first_air_date") or ""
-                        )[:4],
-                        "kind": item.get("media_type"),
-                        "media_type": item.get("media_type"),
-                    }
-                )
-                for item in results
-                if item.get("media_type") in ["movie", "tv"]
-            ]
-            if bulk:
-                return movies[: int(MAX_LIST_ELM)] if MAX_LIST_ELM else movies
-            return await get_poster(movies[0]["movieID"], id=True) if movies else None
+            for item in results
+            if item.get("media_type") in ("movie", "tv")
+        ]
+        if bulk:
+            return movies[: int(MAX_LIST_ELM)] if MAX_LIST_ELM else movies
+        return await get_poster(movies[0]["movieID"], id=True) if movies else None
     except Exception as e:
         logger.error(f"TMDB Fetch Error: {e}")
         return None
@@ -565,8 +611,7 @@ def _fetch_gagala(text: str) -> List[str]:
             for title in BeautifulSoup(response.text, "html.parser").find_all("h3")
             if title.getText()
         ]
-    except Exception as e:
-        logger.error(f"Google Scrape Error: {e}")
+    except Exception:
         return []
 
 
@@ -578,7 +623,10 @@ async def get_settings(group_id: int) -> dict:
     gid = int(group_id)
     settings = temp.SETTINGS.get(gid)
     if not settings:
-        settings = await _db.get_settings(gid) or {}
+        try:
+            settings = await asyncio.wait_for(_db.get_settings(gid), timeout=2.5) or {}
+        except Exception:
+            settings = {}
         temp.SETTINGS[gid] = settings
     return settings
 
@@ -590,7 +638,10 @@ async def save_group_settings(group_id: int, key: str, value):
         current = {}
     current[key] = value
     temp.SETTINGS[gid] = current
-    await _db.update_settings(gid, current)
+    try:
+        await asyncio.wait_for(_db.update_settings(gid, current), timeout=2.5)
+    except Exception:
+        pass
 
 
 def get_size(size) -> str:
@@ -630,18 +681,13 @@ async def extract_user(message: Message, text: str = None):
     client = message._client
     if message.reply_to_message and message.reply_to_message.from_user:
         return message.reply_to_message.from_user
-    elif text:
+    target = text or (
+        message.command[1] if (message.command and len(message.command) > 1) else None
+    )
+    if target:
         try:
             return await client.get_users(
-                int(text) if str(text).lstrip("-").isdigit() else text
-            )
-        except Exception:
-            pass
-    elif message.command and len(message.command) > 1:
-        arg = message.command[1]
-        try:
-            return await client.get_users(
-                int(arg) if str(arg).lstrip("-").isdigit() else arg
+                int(target) if str(target).lstrip("-").isdigit() else target
             )
         except Exception:
             pass
@@ -662,26 +708,23 @@ def last_online(from_user) -> str:
         return "Unknown"
     if from_user.is_bot:
         return "🤖 Bot :("
-    if from_user.status == enums.UserStatus.RECENTLY:
-        return "Recently"
-    if from_user.status == enums.UserStatus.LAST_WEEK:
-        return "Within the last week"
-    if from_user.status == enums.UserStatus.LAST_MONTH:
-        return "Within the last month"
-    if from_user.status == enums.UserStatus.LONG_AGO:
-        return "A long time ago :("
-    if from_user.status == enums.UserStatus.ONLINE:
-        return "Currently Online"
+    status_map = {
+        enums.UserStatus.RECENTLY: "Recently",
+        enums.UserStatus.LAST_WEEK: "Within the last week",
+        enums.UserStatus.LAST_MONTH: "Within the last month",
+        enums.UserStatus.LONG_AGO: "A long time ago :(",
+        enums.UserStatus.ONLINE: "Currently Online",
+    }
+    if from_user.status in status_map:
+        return status_map[from_user.status]
     if from_user.status == enums.UserStatus.OFFLINE:
-        return (
-            getattr(from_user, "last_online_date").strftime("%a, %d %b %Y, %H:%M:%S")
-            if getattr(from_user, "last_online_date", None)
-            else "Offline"
-        )
+        lod = getattr(from_user, "last_online_date", None)
+        return lod.strftime("%a, %d %b %Y, %H:%M:%S") if lod else "Offline"
     return ""
 
 
 def parser(text: str, keyword: str):
+    """Parses buttonurl/buttonalert tags while hiding all URLs inside callback buttons."""
     if not text:
         return "", [], None
     if "buttonalert" in text:
@@ -697,7 +740,7 @@ def parser(text: str, keyword: str):
                 note_data += text[prev : match.start(1)]
                 prev = match.end(1)
                 if match.group(3) == "buttonalert":
-                    btn = InlineKeyboardButton(
+                    btn = _make_hidden_btn(
                         text=match.group(2),
                         callback_data=f"alertmessage:{i}:{keyword}"[:64],
                     )
@@ -706,7 +749,7 @@ def parser(text: str, keyword: str):
                     raw_url = match.group(4).replace(" ", "")
                     if raw_url.startswith("t.me/"):
                         raw_url = f"https://{raw_url}"
-                    btn = InlineKeyboardButton(text=match.group(2), url=raw_url)
+                    btn = _make_hidden_btn(text=match.group(2), url=raw_url)
                 if bool(match.group(5)) and buttons:
                     buttons[-1].append(btn)
                 else:
@@ -747,7 +790,7 @@ def get_readable_time(seconds: int) -> str:
     if seconds <= 0:
         return "0s"
     result = []
-    for p_name, p_seconds in [("d", 86400), ("h", 3600), ("m", 60), ("s", 1)]:
+    for p_name, p_seconds in (("d", 86400), ("h", 3600), ("m", 60), ("s", 1)):
         if seconds >= p_seconds:
             p_val, seconds = divmod(seconds, p_seconds)
             result.append(f"{int(p_val)}{p_name}")
@@ -755,8 +798,14 @@ def get_readable_time(seconds: int) -> str:
 
 
 def parse_text_and_markup(raw_text: str, static_keyboard: InlineKeyboardMarkup = None):
+    """
+    Parses `[Text|Target|Color]` inline button tags and merges `static_keyboard`.
+    Every URL button is automatically converted into a hidden-link callback button
+    so NO links are ever shown inside buttons.
+    """
     if not raw_text:
-        return "", static_keyboard
+        return "", _hide_markup_links(static_keyboard)
+
     button_pattern = re.compile(r"\[([^\[\]\|]+)\|([^\[\]\|]+)(?:\|([^\[\]\|]+))?\]")
     parsed_lines, dynamic_keyboard = [], []
 
@@ -769,14 +818,6 @@ def parse_text_and_markup(raw_text: str, static_keyboard: InlineKeyboardMarkup =
                 if btn_target.startswith("t.me/"):
                     btn_target = f"https://{btn_target}"
 
-                kwargs = {"text": btn_text}
-                if btn_target.startswith("callback:"):
-                    kwargs["callback_data"] = btn_target.split("callback:", 1)[
-                        1
-                    ].strip()[:64]
-                else:
-                    kwargs["url"] = btn_target
-
                 color_key = match[2].strip().lower() if match[2] else "normal"
                 btn_style = {
                     "blue": BTN_PRIMARY,
@@ -784,14 +825,20 @@ def parse_text_and_markup(raw_text: str, static_keyboard: InlineKeyboardMarkup =
                     "red": BTN_DANGER,
                 }.get(color_key, None)
 
-                if _SUPPORTS_BTN_STYLE and btn_style is not None:
-                    kwargs["style"] = btn_style
-
-                try:
-                    row.append(InlineKeyboardButton(**kwargs))
-                except Exception:
-                    kwargs.pop("style", None)
-                    row.append(InlineKeyboardButton(**kwargs))
+                if btn_target.startswith("callback:"):
+                    row.append(
+                        _make_hidden_btn(
+                            text=btn_text,
+                            callback_data=btn_target.split("callback:", 1)[1].strip()[:64],
+                            style=btn_style,
+                        )
+                    )
+                else:
+                    row.append(
+                        _make_hidden_btn(
+                            text=btn_text, url=btn_target, style=btn_style
+                        )
+                    )
             if row:
                 dynamic_keyboard.append(row)
             if clean_line := button_pattern.sub("", line).strip():
@@ -799,8 +846,9 @@ def parse_text_and_markup(raw_text: str, static_keyboard: InlineKeyboardMarkup =
         else:
             parsed_lines.append(line)
 
-    if static_keyboard and getattr(static_keyboard, "inline_keyboard", None):
-        for r in static_keyboard.inline_keyboard:
+    sanitized_static = _hide_markup_links(static_keyboard)
+    if sanitized_static and getattr(sanitized_static, "inline_keyboard", None):
+        for r in sanitized_static.inline_keyboard:
             dynamic_keyboard.append(list(r))
 
     return "\n".join(parsed_lines), (
