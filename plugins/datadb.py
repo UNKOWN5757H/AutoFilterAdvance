@@ -465,7 +465,9 @@ async def build_main_datadb_panel() -> Tuple[str, InlineKeyboardMarkup]:
         ],
         [
             create_btn("Remove url", callback_data="ddb#list#0"),
-            create_btn("Remove All url", callback_data="ddb#remall_ask", style=BTN_DANGER),
+            create_btn(
+                "Remove All url", callback_data="ddb#remall_ask", style=BTN_DANGER
+            ),
         ],
         [
             create_btn("🔄 Refresh Stats", callback_data="ddb#main"),
