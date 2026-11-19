@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import html
 import inspect
 import re
@@ -33,7 +34,7 @@ logger = getLogger(__name__)
 logger.setLevel(ERROR)
 
 # ============================================================
-# 🛡️ SAFE OPTIONAL IMPORTS FOR MULTI-DB SUPPORT
+# 🛡️ SAFE OPTIONAL IMPORTS (MULTI-DB & HIDDEN-LINK REGISTRY)
 # ============================================================
 try:
     from database.ia_filterdb import get_all_healthy_read_dbs, get_writable_System_db
@@ -41,8 +42,56 @@ except Exception:
     get_all_healthy_read_dbs = None
     get_writable_System_db = None
 
+try:
+    from pyrogram.types import LinkPreviewOptions
+except ImportError:
+    LinkPreviewOptions = None
+
+try:
+    from plugins.pm_filter import register_hidden_link, sanitize_markup_hide_links
+except ImportError:
+    try:
+        from pm_filter import register_hidden_link, sanitize_markup_hide_links
+    except ImportError:
+        _LOCAL_HIDDEN_LINKS: Dict[str, str] = {}
+
+        def register_hidden_link(url: str) -> str:
+            clean_u = str(url or "").strip()
+            if clean_u and not clean_u.startswith(("http://", "https://", "tg://")):
+                clean_u = "https://" + clean_u.lstrip("/")
+            token = hashlib.md5(clean_u.encode("utf-8")).hexdigest()[:12]
+            if len(_LOCAL_HIDDEN_LINKS) >= 15000:
+                _LOCAL_HIDDEN_LINKS.pop(next(iter(_LOCAL_HIDDEN_LINKS)), None)
+            _LOCAL_HIDDEN_LINKS[token] = clean_u
+            return token
+
+        def sanitize_markup_hide_links(
+            markup: Optional[InlineKeyboardMarkup],
+        ) -> Optional[InlineKeyboardMarkup]:
+            if not markup or not getattr(markup, "inline_keyboard", None):
+                return markup
+            rows = []
+            for row in markup.inline_keyboard:
+                new_row = []
+                for b in row:
+                    st = getattr(b, "style", None)
+                    if getattr(b, "url", None):
+                        new_row.append(create_btn(b.text, url=b.url, style=st))
+                    else:
+                        new_row.append(
+                            create_btn(
+                                b.text,
+                                callback_data=getattr(b, "callback_data", "noop"),
+                                style=st,
+                            )
+                        )
+                if new_row:
+                    rows.append(new_row)
+            return InlineKeyboardMarkup(rows) if rows else None
+
+
 # ============================================================
-# 🎨 SAFE TELEGRAM BUTTON STYLE DETECTION
+# 🎨 BUTTON BUILDER (ZERO VISIBLE LINKS INSIDE ANY BUTTON)
 # ============================================================
 BTN_PRIMARY = None
 BTN_SUCCESS = None
@@ -61,17 +110,26 @@ except (ImportError, ValueError, TypeError):
     pass
 
 
+def _clean_button_label(raw_label: str) -> str:
+    lbl = re.sub(r"<[^>]+>", "", str(raw_label or "")).strip()
+    lbl = re.sub(r"(?i)https?://\S+|t\.me/\S+|www\.\S+", "", lbl).strip(" -|:")
+    return lbl or "Open"
+
+
 def create_btn(
     text: str,
     url: Optional[str] = None,
     callback_data: Optional[str] = None,
     style: Any = None,
 ) -> InlineKeyboardButton:
-    kwargs: Dict[str, Any] = {"text": str(text)}
-    if url:
-        kwargs["url"] = str(url).strip()
-    elif callback_data:
+    """Creates an InlineKeyboardButton with ZERO visible links inside the button."""
+    kwargs: Dict[str, Any] = {"text": _clean_button_label(text)}
+    if callback_data:
         kwargs["callback_data"] = str(callback_data)[:64]
+    elif url:
+        kwargs["callback_data"] = f"olink#{register_hidden_link(url)}"
+    else:
+        kwargs["callback_data"] = "noop"
 
     if _SUPPORTS_BTN_STYLE and style is not None:
         kwargs["style"] = style
@@ -83,8 +141,23 @@ def create_btn(
 
 
 # ============================================================
-# 🛡️ SAFE MESSAGE & CALLBACK HELPERS
+# 🛡️ PYROGRAM v2.2.26 SAFE MESSAGE & CALLBACK HELPERS
 # ============================================================
+_REPLY_PARAMS = set(inspect.signature(Message.reply_text).parameters.keys())
+_EDIT_PARAMS = set(inspect.signature(Message.edit_text).parameters.keys())
+
+
+def _preview_off_kw(supported_params: set) -> Dict[str, Any]:
+    if "link_preview_options" in supported_params and LinkPreviewOptions is not None:
+        try:
+            return {"link_preview_options": LinkPreviewOptions(is_disabled=True)}
+        except Exception:
+            pass
+    if "disable_web_page_preview" in supported_params:
+        return {"disable_web_page_preview": True}
+    return {}
+
+
 async def safe_reply_text(
     message: Message,
     text: str,
@@ -92,11 +165,13 @@ async def safe_reply_text(
 ) -> Optional[Message]:
     if not message:
         return None
+    reply_markup = sanitize_markup_hide_links(reply_markup)
     try:
         return await message.reply_text(
             text=text,
             reply_markup=reply_markup,
             parse_mode=enums.ParseMode.HTML,
+            **_preview_off_kw(_REPLY_PARAMS),
         )
     except (ChatWriteForbidden, Forbidden, UserIsBlocked, PeerIdInvalid):
         return None
@@ -112,6 +187,7 @@ async def safe_edit_text(
 ) -> Optional[Message]:
     if not message:
         return None
+    reply_markup = sanitize_markup_hide_links(reply_markup)
     try:
         if getattr(message, "photo", None) or getattr(message, "video", None):
             return await message.edit_caption(
@@ -123,6 +199,7 @@ async def safe_edit_text(
             text=text,
             reply_markup=reply_markup,
             parse_mode=enums.ParseMode.HTML,
+            **_preview_off_kw(_EDIT_PARAMS),
         )
     except (MessageNotModified, MessageIdInvalid, ChatWriteForbidden, Forbidden):
         return None
@@ -161,6 +238,18 @@ def get_admin_list() -> List[int]:
 
 async def is_global_admin(user_id: int) -> bool:
     return bool(user_id and int(user_id) in get_admin_list())
+
+
+async def _require_global_admin(message: Message) -> bool:
+    uid = (
+        message.from_user.id
+        if message.from_user
+        else getattr(message.sender_chat, "id", 0)
+    )
+    if await is_global_admin(uid):
+        return True
+    await safe_reply_text(message, "❌ <b>Unauthorized:</b> Global Bot Admin only.")
+    return False
 
 
 # ============================================================
@@ -253,7 +342,9 @@ async def get_shortener_config(force_refresh: bool = False) -> Dict[str, Any]:
 
     for col in _get_all_shortner_cols():
         try:
-            doc = await col.find_one({"_id": "shortener_config"})
+            doc = await asyncio.wait_for(
+                col.find_one({"_id": "shortener_config"}), timeout=2.5
+            )
             if doc:
                 doc_ts = float(doc.get("updated_at", 0.0) or 0.0)
                 if best_doc is None or doc_ts >= best_ts:
@@ -294,7 +385,6 @@ async def save_shortener_config(
     if enabled is not None:
         _SHORTENER_RAM_CONFIG["enabled"] = bool(enabled)
     elif _SHORTENER_RAM_CONFIG["site"] and _SHORTENER_RAM_CONFIG["api"]:
-        # Auto-enable when both site and API are configured
         _SHORTENER_RAM_CONFIG["enabled"] = True
 
     _SHORTENER_RAM_CONFIG["updated_at"] = now
@@ -309,8 +399,11 @@ async def save_shortener_config(
     }
     for col in _get_all_shortner_cols():
         try:
-            await col.update_one(
-                {"_id": "shortener_config"}, {"$set": payload}, upsert=True
+            await asyncio.wait_for(
+                col.update_one(
+                    {"_id": "shortener_config"}, {"$set": payload}, upsert=True
+                ),
+                timeout=2.5,
             )
         except Exception:
             continue
@@ -319,8 +412,18 @@ async def save_shortener_config(
 
 
 # ============================================================
-# 🔗 FAST LINK SHORTENER ENGINE
+# 🔗 FAST LINK SHORTENER ENGINE (POOLED + SMART TTL CACHE)
 # ============================================================
+def _is_valid_short_url(url: str, domain: str) -> bool:
+    if not url or not url.startswith(("http://", "https://")):
+        return False
+    if " " in url or "<html" in url.lower():
+        return False
+    # Reject bare domain root with no shortened path
+    stripped = re.sub(r"^https?://(?:www\.)?", "", url).rstrip("/")
+    return stripped.lower() != domain.lower()
+
+
 def _shorten_sync(site: str, api: str, long_url: str) -> str:
     if not site or not api or not long_url:
         return long_url
@@ -333,28 +436,30 @@ def _shorten_sync(site: str, api: str, long_url: str) -> str:
     endpoints = []
 
     if "shareus" in domain:
-        endpoints.append(
-            f"https://api.shareus.io/easy_api?key={api}&link={encoded_url}"
+        endpoints.extend(
+            [
+                f"https://api.shareus.io/easy_api?key={api}&link={encoded_url}",
+                f"https://{domain}/easy_api?key={api}&link={encoded_url}",
+            ]
         )
-        endpoints.append(f"https://{domain}/easy_api?key={api}&link={encoded_url}")
     elif "ouo.io" in domain or "ouo.press" in domain:
         endpoints.append(f"https://ouo.io/api/{api}?s={encoded_url}")
 
-    endpoints.append(f"https://{domain}/api?api={api}&url={encoded_url}")
-    endpoints.append(f"https://{domain}/api?api={api}&url={encoded_url}&format=text")
+    endpoints.extend(
+        [
+            f"https://{domain}/api?api={api}&url={encoded_url}",
+            f"https://{domain}/api?api={api}&url={encoded_url}&format=text",
+        ]
+    )
 
     for api_url in endpoints:
         try:
-            resp = _HTTP_SESSION.get(api_url, timeout=3.0)
+            resp = _HTTP_SESSION.get(api_url, timeout=3.5)
             if resp.status_code != 200:
                 continue
 
             raw_text = resp.text.strip()
-            if (
-                raw_text.startswith(("http://", "https://"))
-                and " " not in raw_text
-                and "<html" not in raw_text.lower()
-            ):
+            if _is_valid_short_url(raw_text, domain):
                 return raw_text
 
             data = resp.json()
@@ -371,12 +476,21 @@ def _shorten_sync(site: str, api: str, long_url: str) -> str:
                     or nested.get("short_url")
                     or nested.get("url")
                 )
-                if short and str(short).strip().startswith(("http://", "https://")):
+                if short and _is_valid_short_url(str(short).strip(), domain):
                     return str(short).strip()
         except Exception:
             continue
 
     return long_url
+
+
+def _prune_short_cache(now: float):
+    expired = [k for k, (exp, _) in list(_SHORT_URL_CACHE.items()) if now >= exp]
+    for k in expired:
+        _SHORT_URL_CACHE.pop(k, None)
+    if len(_SHORT_URL_CACHE) >= 10000:
+        for k in list(_SHORT_URL_CACHE.keys())[:2000]:
+            _SHORT_URL_CACHE.pop(k, None)
 
 
 async def shorten_single_url(
@@ -390,8 +504,7 @@ async def shorten_single_url(
     if not cfg.get("enabled") or not cfg.get("site") or not cfg.get("api"):
         return long_url
 
-    site = cfg["site"]
-    api = cfg["api"]
+    site, api = cfg["site"], cfg["api"]
     cache_key = (site, api, long_url)
     now = time.time()
 
@@ -401,8 +514,8 @@ async def shorten_single_url(
 
     short_url = await asyncio.to_thread(_shorten_sync, site, api, long_url)
     if short_url and short_url != long_url:
-        if len(_SHORT_URL_CACHE) > 10000:
-            _SHORT_URL_CACHE.clear()
+        if len(_SHORT_URL_CACHE) >= 10000:
+            _prune_short_cache(now)
         _SHORT_URL_CACHE[cache_key] = (now + 86400, short_url)
         return short_url
 
@@ -506,11 +619,11 @@ async def build_shortener_panel() -> Tuple[str, InlineKeyboardMarkup]:
     api = cfg.get("api") or ""
 
     if enabled and site and api:
-        status_str = "🟢 ON (Direct Shortened Redirect Links)"
+        status_str = "🟢 ON (Active)"
     elif enabled and (not site or not api):
         status_str = "🟡 ON (⚠️ Set API & Site to Activate)"
     else:
-        status_str = "🔴 OFF (Direct Telegram Links)"
+        status_str = "🔴 OFF (Direct Links)"
 
     site_display = f"<code>{html.escape(site)}</code>" if site else "<i>Not Set ❌</i>"
     api_display = (
@@ -525,6 +638,7 @@ async def build_shortener_panel() -> Tuple[str, InlineKeyboardMarkup]:
         f"📡 <b>Status:</b> <b>{status_str}</b>\n"
         f"🌐 <b>Shortener Site:</b> {site_display}\n"
         f"🔑 <b>Shortener API:</b> {api_display}\n"
+        f"⚡ <b>Cached Links:</b> <code>{len(_SHORT_URL_CACHE)}</code>\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
         f"<b>Direct Commands:</b>\n"
         f"• <code>/shortener</code> or <code>/shortner</code>\n"
@@ -537,13 +651,7 @@ async def build_shortener_panel() -> Tuple[str, InlineKeyboardMarkup]:
     toggle_style = BTN_SUCCESS if enabled else BTN_DANGER
 
     buttons = [
-        [
-            create_btn(
-                toggle_label,
-                callback_data="shrt#toggle",
-                style=toggle_style,
-            )
-        ],
+        [create_btn(toggle_label, callback_data="shrt#toggle", style=toggle_style)],
         [
             create_btn("🔑 Set API", callback_data="shrt#set_api", style=BTN_PRIMARY),
             create_btn("🌐 Set Site", callback_data="shrt#set_site", style=BTN_PRIMARY),
@@ -551,12 +659,11 @@ async def build_shortener_panel() -> Tuple[str, InlineKeyboardMarkup]:
         [
             create_btn("👁️ View API & Site", callback_data="shrt#view"),
             create_btn(
-                "🗑️ Remove API & Site",
-                callback_data="shrt#remove",
-                style=BTN_DANGER,
+                "🗑️ Remove API & Site", callback_data="shrt#remove", style=BTN_DANGER
             ),
         ],
         [
+            create_btn("🧹 Clear Cache", callback_data="shrt#clear_cache"),
             create_btn("🔐 Close", callback_data="shrt#close"),
         ],
     ]
@@ -569,17 +676,9 @@ async def build_shortener_panel() -> Tuple[str, InlineKeyboardMarkup]:
 # ============================================================
 @Client.on_message(filters.command(["shortener", "shortner"]), group=-15)
 async def shortener_cmd_handler(client: Client, message: Message):
-    uid = (
-        message.from_user.id
-        if message.from_user
-        else getattr(message.sender_chat, "id", 0)
-    )
     _cancel_shortener_input(message.chat.id)
-
-    if not await is_global_admin(uid):
-        return await safe_reply_text(
-            message, "❌ <b>Unauthorized:</b> Global Bot Admin only."
-        )
+    if not await _require_global_admin(message):
+        return
 
     if len(message.command) >= 2:
         arg = message.command[1].strip().lower()
@@ -587,21 +686,17 @@ async def shortener_cmd_handler(client: Client, message: Message):
             await save_shortener_config(enabled=True)
             text, markup = await build_shortener_panel()
             return await safe_reply_text(
-                message,
-                f"✅ <b>Link Shortener turned ON!</b>\n\n{text}",
-                reply_markup=markup,
+                message, f"✅ <b>Link Shortener turned ON!</b>\n\n{text}", markup
             )
         if arg in ("off", "disable", "false", "0", "no"):
             await save_shortener_config(enabled=False)
             text, markup = await build_shortener_panel()
             return await safe_reply_text(
-                message,
-                f"🔴 <b>Link Shortener turned OFF!</b>\n\n{text}",
-                reply_markup=markup,
+                message, f"🔴 <b>Link Shortener turned OFF!</b>\n\n{text}", markup
             )
 
     text, markup = await build_shortener_panel()
-    await safe_reply_text(message, text, reply_markup=markup)
+    await safe_reply_text(message, text, markup)
 
 
 @Client.on_message(
@@ -609,33 +704,23 @@ async def shortener_cmd_handler(client: Client, message: Message):
     group=-15,
 )
 async def shortener_api_cmd_handler(client: Client, message: Message):
-    uid = (
-        message.from_user.id
-        if message.from_user
-        else getattr(message.sender_chat, "id", 0)
-    )
     _cancel_shortener_input(message.chat.id)
-
-    if not await is_global_admin(uid):
-        return await safe_reply_text(
-            message, "❌ <b>Unauthorized:</b> Global Bot Admin only."
-        )
+    if not await _require_global_admin(message):
+        return
 
     if len(message.command) < 2:
         text, markup = await build_shortener_panel()
         return await safe_reply_text(
             message,
             f"⚙️ <b>Usage:</b> <code>/shortenerapi &lt;your_api_key&gt;</code>\n\n{text}",
-            reply_markup=markup,
+            markup,
         )
 
     api_val = message.text.split(None, 1)[1].strip()
     await save_shortener_config(api=api_val)
     text, markup = await build_shortener_panel()
     await safe_reply_text(
-        message,
-        f"✅ <b>Shortener API Key saved successfully!</b>\n\n{text}",
-        reply_markup=markup,
+        message, f"✅ <b>Shortener API Key saved successfully!</b>\n\n{text}", markup
     )
 
 
@@ -644,24 +729,16 @@ async def shortener_api_cmd_handler(client: Client, message: Message):
     group=-15,
 )
 async def shortener_site_cmd_handler(client: Client, message: Message):
-    uid = (
-        message.from_user.id
-        if message.from_user
-        else getattr(message.sender_chat, "id", 0)
-    )
     _cancel_shortener_input(message.chat.id)
-
-    if not await is_global_admin(uid):
-        return await safe_reply_text(
-            message, "❌ <b>Unauthorized:</b> Global Bot Admin only."
-        )
+    if not await _require_global_admin(message):
+        return
 
     if len(message.command) < 2:
         text, markup = await build_shortener_panel()
         return await safe_reply_text(
             message,
             f"⚙️ <b>Usage:</b> <code>/shortenersite &lt;domain.com&gt;</code>\n\n{text}",
-            reply_markup=markup,
+            markup,
         )
 
     site_val = message.text.split(None, 1)[1].strip()
@@ -670,7 +747,7 @@ async def shortener_site_cmd_handler(client: Client, message: Message):
     await safe_reply_text(
         message,
         f"✅ <b>Shortener Site updated to <code>{html.escape(_clean_site_domain(site_val))}</code>!</b>\n\n{text}",
-        reply_markup=markup,
+        markup,
     )
 
 
@@ -682,6 +759,8 @@ async def shortener_callback_handler(client: Client, query: CallbackQuery):
     uid = query.from_user.id if query.from_user else 0
     if not await is_global_admin(uid):
         return await safe_answer(query, "❌ Admin only!", show_alert=True)
+    if not query.message:
+        return await safe_answer(query)
 
     chat_id = query.message.chat.id
     action = query.data.split("#", 1)[1]
@@ -708,18 +787,24 @@ async def shortener_callback_handler(client: Client, query: CallbackQuery):
     if action == "main":
         await safe_answer(query)
         text, markup = await build_shortener_panel()
-        return await safe_edit_text(query.message, text, reply_markup=markup)
+        return await safe_edit_text(query.message, text, markup)
+
+    if action == "clear_cache":
+        cleared = len(_SHORT_URL_CACHE)
+        _SHORT_URL_CACHE.clear()
+        await safe_answer(query, f"🧹 Cleared {cleared} cached link(s)!", show_alert=True)
+        text, markup = await build_shortener_panel()
+        return await safe_edit_text(query.message, text, markup)
 
     if action == "toggle":
         cfg = await get_shortener_config()
         new_state = not bool(cfg.get("enabled", False))
         await save_shortener_config(enabled=new_state)
         await safe_answer(
-            query,
-            f"🔗 Link Shortener: {'ON 🟢' if new_state else 'OFF 🔴'}",
+            query, f"🔗 Link Shortener: {'ON 🟢' if new_state else 'OFF 🔴'}"
         )
         text, markup = await build_shortener_panel()
-        return await safe_edit_text(query.message, text, reply_markup=markup)
+        return await safe_edit_text(query.message, text, markup)
 
     if action == "view":
         cfg = await get_shortener_config()
@@ -751,7 +836,7 @@ async def shortener_callback_handler(client: Client, query: CallbackQuery):
                 ],
             ]
         )
-        return await safe_edit_text(query.message, view_text, reply_markup=back_kb)
+        return await safe_edit_text(query.message, view_text, back_kb)
 
     if action == "test":
         cfg = await get_shortener_config()
@@ -759,9 +844,7 @@ async def shortener_callback_handler(client: Client, query: CallbackQuery):
         api = cfg.get("api") or ""
         if not site or not api:
             return await safe_answer(
-                query,
-                "⚠️ Please set both API Key and Site first!",
-                show_alert=True,
+                query, "⚠️ Please set both API Key and Site first!", show_alert=True
             )
         await safe_answer(query, "⏳ Testing shortener API...")
         test_target = "https://t.me/telegram"
@@ -772,7 +855,7 @@ async def shortener_callback_handler(client: Client, query: CallbackQuery):
                 f"━━━━━━━━━━━━━━━━━━━━━\n"
                 f"🌐 <b>Site:</b> <code>{html.escape(site)}</code>\n"
                 f"🔗 <b>Original:</b> <code>{test_target}</code>\n"
-                f"⚡ <b>Shortened:</b> {html.escape(short_res)}"
+                f"⚡ <b>Shortened:</b> <code>{html.escape(short_res)}</code>"
             )
         else:
             res_text = (
@@ -790,7 +873,7 @@ async def shortener_callback_handler(client: Client, query: CallbackQuery):
                 ]
             ]
         )
-        return await safe_edit_text(query.message, res_text, reply_markup=back_kb)
+        return await safe_edit_text(query.message, res_text, back_kb)
 
     if action == "remove":
         await save_shortener_config(enabled=False, site="", api="")
@@ -800,7 +883,7 @@ async def shortener_callback_handler(client: Client, query: CallbackQuery):
             show_alert=True,
         )
         text, markup = await build_shortener_panel()
-        return await safe_edit_text(query.message, text, reply_markup=markup)
+        return await safe_edit_text(query.message, text, markup)
 
     if action in ("set_api", "set_site"):
         await safe_answer(query)
@@ -813,9 +896,7 @@ async def shortener_callback_handler(client: Client, query: CallbackQuery):
             if is_api
             else "🌐 <b>Send your Link Shortener Website Domain:</b>\n\nExample: <code>shrinkme.io</code> or <code>gplinks.in</code>"
         )
-        prompt = await safe_reply_text(
-            query.message, prompt_text, reply_markup=cancel_kb
-        )
+        prompt = await safe_reply_text(query.message, prompt_text, cancel_kb)
         resp = await _wait_shortener_input(chat_id, uid, prompt_msg=prompt, timeout=90)
         if not resp or not resp.text or resp.text.strip().lower() == "/cancel":
             return
@@ -832,4 +913,4 @@ async def shortener_callback_handler(client: Client, query: CallbackQuery):
             await save_shortener_config(site=user_input)
 
         text, markup = await build_shortener_panel()
-        return await safe_edit_text(query.message, text, reply_markup=markup)
+        return await safe_edit_text(query.message, text, markup)
