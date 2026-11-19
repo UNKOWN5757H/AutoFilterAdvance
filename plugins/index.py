@@ -39,15 +39,15 @@ logger.setLevel(INFO)
 # 🔗 SAFE IMPORTS FOR DATABASE & MULTI-BOT WORKER POOL
 # ============================================================
 try:
+    from database.ia_filterdb import Media as _Media
+    from database.ia_filterdb import free_up_mongodb_storage as _free_up_mongodb_storage
     from database.ia_filterdb import (
-        Media as _Media,
-        free_up_mongodb_storage as _free_up_mongodb_storage,
         get_all_healthy_read_dbs,
         get_writable_System_db,
         mark_db_error,
-        save_batch as _db_save_batch,
-        save_file,
     )
+    from database.ia_filterdb import save_batch as _db_save_batch
+    from database.ia_filterdb import save_file
 except ImportError:
     _Media = None
     _free_up_mongodb_storage = None
@@ -419,9 +419,7 @@ async def get_index_checkpoint(chat_id: int) -> Optional[Dict[str, Any]]:
                 continue
     elif _idx_col is not None:
         try:
-            doc = await asyncio.wait_for(
-                _idx_col.find_one({"_id": cid}), timeout=2.5
-            )
+            doc = await asyncio.wait_for(_idx_col.find_one({"_id": cid}), timeout=2.5)
             if doc:
                 _RESUME_MEMORY_CACHE[cid] = doc
                 return doc
@@ -615,7 +613,9 @@ def parse_channel_link_or_forward(
         if match:
             chat_id_raw = match.group(1)
             last_msg_id = int(match.group(2))
-            chat_id = int("-100" + chat_id_raw) if chat_id_raw.isdigit() else chat_id_raw
+            chat_id = (
+                int("-100" + chat_id_raw) if chat_id_raw.isdigit() else chat_id_raw
+            )
             return chat_id, last_msg_id
 
         parts = text_to_check.strip().split()
