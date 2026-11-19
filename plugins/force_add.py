@@ -1,9 +1,9 @@
 import asyncio
-import html
 import inspect
+import re
 import time
 from logging import ERROR, getLogger
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from motor.motor_asyncio import AsyncIOMotorClient
 from pyrogram import Client, StopPropagation, enums, filters
@@ -29,9 +29,18 @@ import info
 logger = getLogger(__name__)
 logger.setLevel(ERROR)
 
+# Strong reference set so sleeping auto-delete tasks are never garbage-collected
+_BG_TASKS: Set[asyncio.Task] = set()
+
 # ============================================================
-# 🛡️ PYROGRAM v2.2.26 (LAYER 230) COMPATIBILITY ENGINE
+# 🛡️ SAFE OPTIONAL IMPORTS & PYROGRAM v2.2.26 COMPATIBILITY
 # ============================================================
+try:
+    from database.ia_filterdb import get_all_healthy_read_dbs, get_writable_System_db
+except Exception:
+    get_all_healthy_read_dbs = None
+    get_writable_System_db = None
+
 try:
     from pyrogram.types import LinkPreviewOptions
 except ImportError:
@@ -45,26 +54,64 @@ except ImportError:
 _REPLY_PARAMS = set(inspect.signature(Message.reply_text).parameters.keys())
 _EDIT_PARAMS = set(inspect.signature(Message.edit_text).parameters.keys())
 
+BTN_PRIMARY = None
+BTN_SUCCESS = None
+BTN_DANGER = None
+_SUPPORTS_BTN_STYLE = False
+
+try:
+    from pyrogram.enums import ButtonStyle
+
+    if "style" in inspect.signature(InlineKeyboardButton.__init__).parameters:
+        BTN_PRIMARY = getattr(ButtonStyle, "PRIMARY", None)
+        BTN_SUCCESS = getattr(ButtonStyle, "SUCCESS", None)
+        BTN_DANGER = getattr(ButtonStyle, "DANGER", None)
+        _SUPPORTS_BTN_STYLE = True
+except (ImportError, ValueError, TypeError):
+    pass
+
+
+def _clean_button_label(raw_label: str) -> str:
+    lbl = re.sub(r"<[^>]+>", "", str(raw_label or "")).strip()
+    lbl = re.sub(r"(?i)https?://\S+|t\.me/\S+|www\.\S+", "", lbl).strip(" -|:")
+    return lbl or "Open"
+
+
+def create_btn(
+    text: str,
+    callback_data: str = "noop",
+    style: Any = None,
+) -> InlineKeyboardButton:
+    """Creates a pure text-only callback InlineKeyboardButton (zero links inside any button)."""
+    kwargs: Dict[str, Any] = {
+        "text": _clean_button_label(text),
+        "callback_data": str(callback_data)[:64],
+    }
+    if _SUPPORTS_BTN_STYLE and style is not None:
+        kwargs["style"] = style
+    try:
+        return InlineKeyboardButton(**kwargs)
+    except Exception:
+        kwargs.pop("style", None)
+        return InlineKeyboardButton(**kwargs)
+
 
 def _prepare_compat_kwargs(
-    kwargs: dict, supported_params: set, disable_preview: Optional[bool] = None
+    kwargs: dict, supported_params: set, disable_preview: Optional[bool] = True
 ) -> dict:
     clean_kw = dict(kwargs)
     explicit_disable = clean_kw.pop("disable_web_page_preview", disable_preview)
 
     if explicit_disable is not None:
-        if "disable_web_page_preview" in supported_params:
-            clean_kw["disable_web_page_preview"] = bool(explicit_disable)
-        elif (
-            "link_preview_options" in supported_params
-            and LinkPreviewOptions is not None
-        ):
+        if "link_preview_options" in supported_params and LinkPreviewOptions is not None:
             try:
                 clean_kw["link_preview_options"] = LinkPreviewOptions(
                     is_disabled=bool(explicit_disable)
                 )
             except Exception:
                 pass
+        elif "disable_web_page_preview" in supported_params:
+            clean_kw["disable_web_page_preview"] = bool(explicit_disable)
 
     if "reply_to_message_id" in clean_kw:
         rep_id = clean_kw.pop("reply_to_message_id")
@@ -83,16 +130,21 @@ def _prepare_compat_kwargs(
 async def safe_reply_text(
     message: Message, text: str, disable_web_page_preview: bool = True, **kwargs
 ) -> Optional[Message]:
+    if not message:
+        return None
     compat_kw = _prepare_compat_kwargs(
         kwargs, _REPLY_PARAMS, disable_preview=disable_web_page_preview
     )
     try:
         return await message.reply_text(text, **compat_kw)
     except TypeError:
-        compat_kw.pop("disable_web_page_preview", None)
-        compat_kw.pop("link_preview_options", None)
-        compat_kw.pop("reply_parameters", None)
-        compat_kw.pop("reply_to_message_id", None)
+        for k in (
+            "disable_web_page_preview",
+            "link_preview_options",
+            "reply_parameters",
+            "reply_to_message_id",
+        ):
+            compat_kw.pop(k, None)
         return await message.reply_text(text, **compat_kw)
     except (ChatWriteForbidden, Forbidden, UserIsBlocked, PeerIdInvalid):
         return None
@@ -101,17 +153,22 @@ async def safe_reply_text(
 async def safe_edit_text(
     message: Message, text: str, disable_web_page_preview: bool = True, **kwargs
 ) -> Optional[Message]:
+    if not message:
+        return None
     compat_kw = _prepare_compat_kwargs(
         kwargs, _EDIT_PARAMS, disable_preview=disable_web_page_preview
     )
     try:
         return await message.edit_text(text, **compat_kw)
+    except (MessageNotModified, MessageIdInvalid, ChatWriteForbidden, Forbidden):
+        return None
     except TypeError:
         compat_kw.pop("disable_web_page_preview", None)
         compat_kw.pop("link_preview_options", None)
-        return await message.edit_text(text, **compat_kw)
-    except (MessageNotModified, MessageIdInvalid, ChatWriteForbidden, Forbidden):
-        return None
+        try:
+            return await message.edit_text(text, **compat_kw)
+        except Exception:
+            return None
 
 
 async def safe_answer(
@@ -129,7 +186,7 @@ async def safe_answer(
 
 
 # ============================================================
-# ⚙️ ISOLATED MONGODB ENGINE & IN-MEMORY CACHE
+# ⚙️ QUOTA-SAFE MULTI-DB ENGINE & FAST IN-MEMORY CACHES
 # ============================================================
 fa_config_db = None
 fa_settings_sync_db = None
@@ -138,7 +195,12 @@ _active_db = None
 _std_conn_db = None
 
 try:
-    _DB_CLIENT = AsyncIOMotorClient(info.DATABASE_URI)
+    _DB_CLIENT = AsyncIOMotorClient(
+        info.DATABASE_URI,
+        serverSelectionTimeoutMS=4000,
+        connectTimeoutMS=4000,
+        socketTimeoutMS=8000,
+    )
     _BOT_DB = _DB_CLIENT[info.DATABASE_NAME]
     fa_config_db = _BOT_DB["forceadd_config"]
     fa_settings_sync_db = _BOT_DB["force_add_settings"]
@@ -148,8 +210,19 @@ try:
 except Exception as e:
     logger.error(f"Failed to init Force Add DB: {e}")
 
-# Fast 60s in-memory cache so every group message does not hit MongoDB
 _FA_CONFIG_CACHE: Dict[int, Tuple[float, Dict[str, Any]]] = {}
+_ADMIN_STATUS_CACHE: Dict[Tuple[int, int], Tuple[float, bool]] = {}
+
+
+def _get_writable_col(col_name: str, fallback_col: Any):
+    if callable(get_writable_System_db):
+        try:
+            w_db = get_writable_System_db()
+            if w_db is not None:
+                return w_db[col_name]
+        except Exception:
+            pass
+    return fallback_col
 
 
 def invalidate_fa_cache(chat_id: int):
@@ -185,22 +258,19 @@ async def set_fa_config(
         "is_enabled": new_enabled,
     }
 
-    if fa_config_db is not None:
-        try:
-            await fa_config_db.update_one(
-                {"chat_id": cid}, {"$set": payload}, upsert=True
-            )
-        except Exception as e:
-            logger.error(f"set_fa_config error: {e}")
-
-    # Sync with force_add_settings collection read by plugins/uibuttons.py
-    if fa_settings_sync_db is not None:
-        try:
-            await fa_settings_sync_db.update_one(
-                {"chat_id": cid}, {"$set": payload}, upsert=True
-            )
-        except Exception:
-            pass
+    for col_name, fallback_col in (
+        ("forceadd_config", fa_config_db),
+        ("force_add_settings", fa_settings_sync_db),
+    ):
+        col = _get_writable_col(col_name, fallback_col)
+        if col is not None:
+            try:
+                await asyncio.wait_for(
+                    col.update_one({"chat_id": cid}, {"$set": payload}, upsert=True),
+                    timeout=2.5,
+                )
+            except Exception as e:
+                logger.error(f"set_fa_config ({col_name}) error: {e}")
 
     _FA_CONFIG_CACHE[cid] = (time.time(), payload)
 
@@ -214,16 +284,21 @@ async def get_fa_config(chat_id: int, force_refresh: bool = False) -> Dict[str, 
             return cached_doc
 
     doc = None
-    if fa_config_db is not None:
+    sync_doc = None
+    cfg_col = _get_writable_col("forceadd_config", fa_config_db)
+    sync_col = _get_writable_col("force_add_settings", fa_settings_sync_db)
+
+    if cfg_col is not None:
         try:
-            doc = await fa_config_db.find_one({"chat_id": cid})
+            doc = await asyncio.wait_for(cfg_col.find_one({"chat_id": cid}), timeout=2.0)
         except Exception:
             doc = None
 
-    sync_doc = None
-    if fa_settings_sync_db is not None:
+    if sync_col is not None:
         try:
-            sync_doc = await fa_settings_sync_db.find_one({"chat_id": cid})
+            sync_doc = await asyncio.wait_for(
+                sync_col.find_one({"chat_id": cid}), timeout=2.0
+            )
         except Exception:
             sync_doc = None
 
@@ -235,7 +310,6 @@ async def get_fa_config(chat_id: int, force_refresh: bool = False) -> Dict[str, 
         )
         mode_val = str(base.get("mode", "all"))
 
-        # Check if toggled on/off via uibuttons.py
         if sync_doc and "enabled" in sync_doc:
             is_en = bool(sync_doc["enabled"])
         elif "enabled" in base:
@@ -259,45 +333,69 @@ async def get_fa_config(chat_id: int, force_refresh: bool = False) -> Dict[str, 
 
 
 async def add_user_score(chat_id: int, user_id: int, count: int):
-    if fa_users_db is not None and count > 0:
+    col = _get_writable_col("forceadd_users", fa_users_db)
+    if col is not None and count > 0:
         timestamps = [int(time.time())] * count
-        await fa_users_db.update_one(
-            {"chat_id": int(chat_id), "user_id": int(user_id)},
-            {"$push": {"adds": {"$each": timestamps}}},
-            upsert=True,
-        )
+        try:
+            await asyncio.wait_for(
+                col.update_one(
+                    {"chat_id": int(chat_id), "user_id": int(user_id)},
+                    {"$push": {"adds": {"$each": timestamps}}},
+                    upsert=True,
+                ),
+                timeout=2.5,
+            )
+        except Exception:
+            pass
 
 
 async def get_user_score(chat_id: int, user_id: int) -> int:
-    if fa_users_db is not None:
-        doc = await fa_users_db.find_one(
-            {"chat_id": int(chat_id), "user_id": int(user_id)}
-        )
-        if doc and "adds" in doc:
-            return len(doc["adds"])
+    col = _get_writable_col("forceadd_users", fa_users_db)
+    if col is not None:
+        try:
+            doc = await asyncio.wait_for(
+                col.find_one({"chat_id": int(chat_id), "user_id": int(user_id)}),
+                timeout=2.0,
+            )
+            if doc and "adds" in doc:
+                return len(doc["adds"])
+        except Exception:
+            pass
     return 0
 
 
 async def mark_new_user(chat_id: int, user_id: int):
-    if fa_users_db is not None:
-        await fa_users_db.update_one(
-            {"chat_id": int(chat_id), "user_id": int(user_id)},
-            {"$set": {"is_new": True}},
-            upsert=True,
-        )
+    col = _get_writable_col("forceadd_users", fa_users_db)
+    if col is not None:
+        try:
+            await asyncio.wait_for(
+                col.update_one(
+                    {"chat_id": int(chat_id), "user_id": int(user_id)},
+                    {"$set": {"is_new": True}},
+                    upsert=True,
+                ),
+                timeout=2.0,
+            )
+        except Exception:
+            pass
 
 
 async def is_new_user(chat_id: int, user_id: int) -> bool:
-    if fa_users_db is not None:
-        doc = await fa_users_db.find_one(
-            {"chat_id": int(chat_id), "user_id": int(user_id)}
-        )
-        return bool(doc.get("is_new", False)) if doc else False
+    col = _get_writable_col("forceadd_users", fa_users_db)
+    if col is not None:
+        try:
+            doc = await asyncio.wait_for(
+                col.find_one({"chat_id": int(chat_id), "user_id": int(user_id)}),
+                timeout=2.0,
+            )
+            return bool(doc.get("is_new", False)) if doc else False
+        except Exception:
+            pass
     return False
 
 
 # ============================================================
-# 🛡️ SAFE CHAT PERMISSIONS BUILDER (CROSS-VERSION COMPATIBLE)
+# 🛡️ SAFE CHAT PERMISSIONS BUILDER & AUTO-DELETE TASK TRACKER
 # ============================================================
 _VALID_PERM_PARAMS = set(
     inspect.signature(ChatPermissions.__init__).parameters.keys()
@@ -319,8 +417,9 @@ def build_chat_permissions(can_send: bool) -> ChatPermissions:
         "can_send_polls": can_send,
         "can_invite_users": True,
     }
-    valid_kwargs = {k: v for k, v in desired.items() if k in _VALID_PERM_PARAMS}
-    return ChatPermissions(**valid_kwargs)
+    return ChatPermissions(
+        **{k: v for k, v in desired.items() if k in _VALID_PERM_PARAMS}
+    )
 
 
 async def _delete_later(msg: Message, delay: int):
@@ -329,6 +428,14 @@ async def _delete_later(msg: Message, delay: int):
         await msg.delete()
     except Exception:
         pass
+
+
+def _schedule_delete(msg: Optional[Message], delay: int):
+    if not msg or delay <= 0:
+        return
+    t = asyncio.create_task(_delete_later(msg, delay))
+    _BG_TASKS.add(t)
+    t.add_done_callback(_BG_TASKS.discard)
 
 
 # ============================================================
@@ -344,23 +451,20 @@ class TTLCache:
         now = time.time()
         if key in self._data and now < self._data[key]:
             return True
-        self._cleanup(now)
+        expired = [k for k, exp in list(self._data.items()) if now >= exp]
+        for k in expired:
+            self._data.pop(k, None)
         if len(self._data) >= self._maxsize:
             self._data.clear()
         self._data[key] = now + self._ttl
         return False
-
-    def _cleanup(self, now: float):
-        expired = [k for k, exp in self._data.items() if now >= exp]
-        for k in expired:
-            del self._data[k]
 
 
 WARN_CACHE = TTLCache(ttl=60)
 
 
 # ============================================================
-# 👑 SMART AUTHORIZATION & ACTIVE CONNECTION ROUTING
+# 👑 SMART AUTHORIZATION & CACHED ADMIN CHECK
 # ============================================================
 def get_admin_list() -> List[int]:
     raw_admins = getattr(info, "ADMINS", [])
@@ -371,10 +475,6 @@ def get_admin_list() -> List[int]:
     else:
         raw_admins = []
     return [int(x) for x in raw_admins if str(x).strip().lstrip("-").isdigit()]
-
-
-async def is_global_admin(user_id: int) -> bool:
-    return int(user_id) in get_admin_list() if user_id else False
 
 
 async def get_active_connected_group(user_id: int) -> Optional[int]:
@@ -388,26 +488,23 @@ async def get_active_connected_group(user_id: int) -> Optional[int]:
     except Exception:
         pass
 
-    if _active_db is not None:
-        try:
-            doc = await _active_db.find_one({"user_id": uid_str})
-            if doc and doc.get("group_id"):
-                return int(doc["group_id"])
-        except Exception:
-            pass
-
-    if _std_conn_db is not None:
-        try:
-            doc = await _std_conn_db.find_one({"_id": uid_str})
-            if doc and doc.get("active_group"):
-                return int(doc["active_group"])
-        except Exception:
-            pass
+    for col, q_key, f_key in (
+        (_active_db, "user_id", "group_id"),
+        (_std_conn_db, "_id", "active_group"),
+    ):
+        if col is not None:
+            try:
+                doc = await asyncio.wait_for(
+                    col.find_one({q_key: uid_str}), timeout=2.0
+                )
+                if doc and doc.get(f_key):
+                    return int(doc[f_key])
+            except Exception:
+                continue
     return None
 
 
 async def resolve_target_group(message: Message) -> Optional[int]:
-    """Resolves target group ID whether command is run in Group or Connected PM."""
     if message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
         return int(message.chat.id)
     if message.from_user:
@@ -416,7 +513,10 @@ async def resolve_target_group(message: Message) -> Optional[int]:
 
 
 async def is_user_admin(
-    client: Client, message: Message, target_chat_id: Optional[int] = None
+    client: Client,
+    message: Message,
+    target_chat_id: Optional[int] = None,
+    use_cache: bool = False,
 ) -> bool:
     if not message:
         return False
@@ -424,7 +524,6 @@ async def is_user_admin(
 
     if message.from_user and message.from_user.id in admin_list:
         return True
-
     if message.sender_chat and message.sender_chat.id in admin_list:
         return True
 
@@ -439,14 +538,24 @@ async def is_user_admin(
         if message.sender_chat and message.sender_chat.id == check_cid:
             return True
         if message.from_user:
+            cache_key = (int(check_cid), int(message.from_user.id))
+            now = time.time()
+            if use_cache and cache_key in _ADMIN_STATUS_CACHE:
+                exp, cached_flag = _ADMIN_STATUS_CACHE[cache_key]
+                if now < exp:
+                    return cached_flag
             try:
                 member = await client.get_chat_member(
                     int(check_cid), message.from_user.id
                 )
-                return member.status in [
+                is_adm = member.status in [
                     enums.ChatMemberStatus.ADMINISTRATOR,
                     enums.ChatMemberStatus.OWNER,
                 ]
+                if len(_ADMIN_STATUS_CACHE) > 5000:
+                    _ADMIN_STATUS_CACHE.clear()
+                _ADMIN_STATUS_CACHE[cache_key] = (now + 120, is_adm)
+                return is_adm
             except Exception:
                 pass
 
@@ -454,7 +563,7 @@ async def is_user_admin(
 
 
 async def is_callback_user_admin(
-    client: Client, query: CallbackQuery, chat_id: int = None
+    client: Client, query: CallbackQuery, chat_id: Optional[int] = None
 ) -> bool:
     if not query or not query.from_user:
         return False
@@ -475,25 +584,35 @@ async def is_callback_user_admin(
     return False
 
 
-# ============================================================
-# ⚙️ CONFIGURATION COMMANDS (WORK IN BOTH GROUP & CONNECTED PM)
-# ============================================================
-@Client.on_message(filters.command("setforceadd") & filters.incoming, group=-2)
-async def set_force_add(bot: Client, message: Message):
+async def _resolve_admin_group(
+    bot: Client, message: Message, require_admin: bool = True
+) -> Optional[int]:
     grp_id = await resolve_target_group(message)
     if not grp_id:
-        return await safe_reply_text(
+        await safe_reply_text(
             message,
             "⚠️ <b>No active group connected!</b>\nUse <code>/connect &lt;group_id&gt;</code> in PM or run this command inside your group.",
             parse_mode=enums.ParseMode.HTML,
         )
-
-    if not await is_user_admin(bot, message, target_chat_id=grp_id):
-        return await safe_reply_text(
+        return None
+    if require_admin and not await is_user_admin(bot, message, target_chat_id=grp_id):
+        await safe_reply_text(
             message,
             "❌ <b>Unauthorized:</b> Group Admin access required.",
             parse_mode=enums.ParseMode.HTML,
         )
+        return None
+    return grp_id
+
+
+# ============================================================
+# ⚙️ CONFIGURATION COMMANDS (GROUP & CONNECTED PM)
+# ============================================================
+@Client.on_message(filters.command("setforceadd") & filters.incoming, group=-2)
+async def set_force_add(bot: Client, message: Message):
+    grp_id = await _resolve_admin_group(bot, message, require_admin=True)
+    if not grp_id:
+        return
 
     if len(message.command) < 2:
         return await safe_reply_text(
@@ -525,15 +644,17 @@ async def set_force_add(bot: Client, message: Message):
     kb = InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton(
+                create_btn(
                     "👥 Force Add for ALL Members",
                     callback_data=f"fa_set_{limit}_all_{grp_id}",
+                    style=BTN_PRIMARY,
                 )
             ],
             [
-                InlineKeyboardButton(
+                create_btn(
                     "🆕 Force Add for ONLY NEW Members",
                     callback_data=f"fa_set_{limit}_new_{grp_id}",
+                    style=BTN_SUCCESS,
                 )
             ],
         ]
@@ -581,19 +702,9 @@ async def set_forceadd_callback(bot: Client, query: CallbackQuery):
 
 @Client.on_message(filters.command("remforceadd") & filters.incoming, group=-2)
 async def remove_force_add(bot: Client, message: Message):
-    grp_id = await resolve_target_group(message)
+    grp_id = await _resolve_admin_group(bot, message, require_admin=True)
     if not grp_id:
-        return await safe_reply_text(
-            message,
-            "⚠️ <b>No active group connected!</b>\nUse <code>/connect &lt;group_id&gt;</code> first.",
-            parse_mode=enums.ParseMode.HTML,
-        )
-    if not await is_user_admin(bot, message, target_chat_id=grp_id):
-        return await safe_reply_text(
-            message,
-            "❌ <b>Unauthorized:</b> Admin access required.",
-            parse_mode=enums.ParseMode.HTML,
-        )
+        return
 
     await set_fa_config(grp_id, limit=0, mode="all", enabled=False)
     await safe_reply_text(
@@ -605,13 +716,9 @@ async def remove_force_add(bot: Client, message: Message):
 
 @Client.on_message(filters.command("getforceadd") & filters.incoming, group=-2)
 async def get_force_add(bot: Client, message: Message):
-    grp_id = await resolve_target_group(message)
+    grp_id = await _resolve_admin_group(bot, message, require_admin=False)
     if not grp_id:
-        return await safe_reply_text(
-            message,
-            "⚠️ <b>No active group connected!</b>\nUse <code>/connect &lt;group_id&gt;</code> first.",
-            parse_mode=enums.ParseMode.HTML,
-        )
+        return
 
     settings = await get_fa_config(grp_id, force_refresh=True)
     if settings["limit"] == 0 or not settings.get("enabled", False):
@@ -632,49 +739,49 @@ async def get_force_add(bot: Client, message: Message):
 
 
 # ============================================================
-# 📊 LEADERBOARD & STATS LOGIC
+# 📊 LEADERBOARD & STATS LOGIC (BATCHED USER LOOKUP)
 # ============================================================
 async def generate_leaderboard(
-    bot: Client, message: Message, title: str, time_limit_seconds: int = None
+    bot: Client,
+    message: Message,
+    title: str,
+    time_limit_seconds: Optional[int] = None,
 ):
-    grp_id = await resolve_target_group(message)
+    grp_id = await _resolve_admin_group(bot, message, require_admin=False)
     if not grp_id:
-        return await safe_reply_text(
-            message,
-            "⚠️ <b>No active group connected!</b>\nUse <code>/connect &lt;group_id&gt;</code> first.",
-            parse_mode=enums.ParseMode.HTML,
-        )
+        return
 
-    if fa_users_db is None:
+    col = _get_writable_col("forceadd_users", fa_users_db)
+    if col is None:
         return await safe_reply_text(
             message, "❌ <b>Database Error.</b>", parse_mode=enums.ParseMode.HTML
         )
 
-    pipeline = [{"$match": {"chat_id": int(grp_id)}}]
+    pipeline: List[Dict[str, Any]] = [{"$match": {"chat_id": int(grp_id)}}]
 
     if time_limit_seconds:
         cutoff = int(time.time()) - time_limit_seconds
-        pipeline.append(
-            {
-                "$project": {
-                    "user_id": 1,
-                    "valid_adds": {
-                        "$filter": {
-                            "input": {"$ifNull": ["$adds", []]},
-                            "as": "timestamp",
-                            "cond": {"$gte": ["$$timestamp", cutoff]},
-                        }
-                    },
-                }
-            }
-        )
-        pipeline.append(
-            {
-                "$project": {
-                    "user_id": 1,
-                    "score": {"$size": {"$ifNull": ["$valid_adds", []]}},
-                }
-            }
+        pipeline.extend(
+            [
+                {
+                    "$project": {
+                        "user_id": 1,
+                        "valid_adds": {
+                            "$filter": {
+                                "input": {"$ifNull": ["$adds", []]},
+                                "as": "timestamp",
+                                "cond": {"$gte": ["$$timestamp", cutoff]},
+                            }
+                        },
+                    }
+                },
+                {
+                    "$project": {
+                        "user_id": 1,
+                        "score": {"$size": {"$ifNull": ["$valid_adds", []]}},
+                    }
+                },
+            ]
         )
     else:
         pipeline.append(
@@ -684,8 +791,13 @@ async def generate_leaderboard(
     pipeline.extend(
         [{"$match": {"score": {"$gt": 0}}}, {"$sort": {"score": -1}}, {"$limit": 10}]
     )
-    cursor = fa_users_db.aggregate(pipeline)
-    top_users = await cursor.to_list(length=10)
+
+    try:
+        top_users = await asyncio.wait_for(
+            col.aggregate(pipeline).to_list(length=10), timeout=4.0
+        )
+    except Exception:
+        top_users = []
 
     if not top_users:
         return await safe_reply_text(
@@ -694,18 +806,30 @@ async def generate_leaderboard(
             parse_mode=enums.ParseMode.HTML,
         )
 
-    text = f"📊 <b>{title} (Top 10)</b>\n🆔 <b>Group:</b> <code>{grp_id}</code>\n\n"
+    # Single batched API call for all top 10 users
+    uids = [d["user_id"] for d in top_users]
+    user_map: Dict[int, str] = {}
+    try:
+        users_objs = await bot.get_users(uids)
+        if not isinstance(users_objs, list):
+            users_objs = [users_objs]
+        for u in users_objs:
+            if u:
+                user_map[u.id] = u.mention
+    except Exception:
+        pass
+
+    lines = [f"📊 <b>{title} (Top 10)</b>\n🆔 <b>Group:</b> <code>{grp_id}</code>\n"]
     for i, data in enumerate(top_users, 1):
         uid, score = data["user_id"], data["score"]
-        try:
-            user = await bot.get_users(uid)
-            user_name = user.mention if user else f"User {uid}"
-        except Exception:
-            user_name = f"User <code>{uid}</code>"
-        text += f"<b>{i}.</b> {user_name} ➔ <code>{score}</code> added\n"
+        user_name = user_map.get(uid, f"User <code>{uid}</code>")
+        lines.append(f"<b>{i}.</b> {user_name} ➔ <code>{score}</code> added")
 
     await safe_reply_text(
-        message, text, disable_web_page_preview=True, parse_mode=enums.ParseMode.HTML
+        message,
+        "\n".join(lines),
+        disable_web_page_preview=True,
+        parse_mode=enums.ParseMode.HTML,
     )
 
 
@@ -726,23 +850,14 @@ async def top_add_7(bot: Client, message: Message):
 
 @Client.on_message(filters.command("resetadddaily") & filters.incoming, group=-2)
 async def reset_add_daily(bot: Client, message: Message):
-    grp_id = await resolve_target_group(message)
+    grp_id = await _resolve_admin_group(bot, message, require_admin=True)
     if not grp_id:
-        return await safe_reply_text(
-            message,
-            "⚠️ <b>No active group connected!</b>\nUse <code>/connect &lt;group_id&gt;</code> first.",
-            parse_mode=enums.ParseMode.HTML,
-        )
-    if not await is_user_admin(bot, message, target_chat_id=grp_id):
-        return await safe_reply_text(
-            message,
-            "❌ <b>Unauthorized:</b> Admin access required.",
-            parse_mode=enums.ParseMode.HTML,
-        )
+        return
 
-    if fa_users_db is not None:
+    col = _get_writable_col("forceadd_users", fa_users_db)
+    if col is not None:
         cutoff = int(time.time()) - 86400
-        await fa_users_db.update_many(
+        await col.update_many(
             {"chat_id": int(grp_id)}, {"$pull": {"adds": {"$lt": cutoff}}}
         )
         await safe_reply_text(
@@ -754,25 +869,16 @@ async def reset_add_daily(bot: Client, message: Message):
 
 @Client.on_message(filters.command("resetadd") & filters.incoming, group=-2)
 async def reset_all_adds(bot: Client, message: Message):
-    grp_id = await resolve_target_group(message)
+    grp_id = await _resolve_admin_group(bot, message, require_admin=True)
     if not grp_id:
-        return await safe_reply_text(
-            message,
-            "⚠️ <b>No active group connected!</b>\nUse <code>/connect &lt;group_id&gt;</code> first.",
-            parse_mode=enums.ParseMode.HTML,
-        )
-    if not await is_user_admin(bot, message, target_chat_id=grp_id):
-        return await safe_reply_text(
-            message,
-            "❌ <b>Unauthorized:</b> Admin access required.",
-            parse_mode=enums.ParseMode.HTML,
-        )
+        return
 
-    if fa_users_db is not None:
-        await fa_users_db.update_many({"chat_id": int(grp_id)}, {"$set": {"adds": []}})
+    col = _get_writable_col("forceadd_users", fa_users_db)
+    if col is not None:
+        await col.update_many({"chat_id": int(grp_id)}, {"$set": {"adds": []}})
         await safe_reply_text(
             message,
-            f"💥 <b>TOTAL RESET for <code>{grp_id}</code>!</b> All members' scores are now 0. Everyone must add members again.",
+            f"💥 <b>TOTAL RESET for <code>{grp_id}</code>!</b> All members' scores are now 0.",
             parse_mode=enums.ParseMode.HTML,
         )
 
@@ -781,13 +887,9 @@ async def reset_all_adds(bot: Client, message: Message):
 async def my_adds(bot: Client, message: Message):
     if not message.from_user:
         return
-    grp_id = await resolve_target_group(message)
+    grp_id = await _resolve_admin_group(bot, message, require_admin=False)
     if not grp_id:
-        return await safe_reply_text(
-            message,
-            "⚠️ <b>Use this command inside a group or connect a group first with <code>/connect</code>.</b>",
-            parse_mode=enums.ParseMode.HTML,
-        )
+        return
 
     settings = await get_fa_config(grp_id)
     current_adds = await get_user_score(grp_id, message.from_user.id)
@@ -815,10 +917,14 @@ async def my_adds(bot: Client, message: Message):
 
 
 # ============================================================
-# 🎯 THE ENGINE: TRACKER & ENFORCER
+# 🎯 THE ENGINE: TRACKER & HIGH-SPEED ENFORCER
 # ============================================================
 @Client.on_message(filters.new_chat_members & filters.group, group=10)
 async def track_added_members(bot: Client, message: Message):
+    settings = await get_fa_config(message.chat.id)
+    if settings["limit"] == 0:
+        return
+
     for u in message.new_chat_members:
         if not u.is_bot:
             await mark_new_user(message.chat.id, u.id)
@@ -826,15 +932,10 @@ async def track_added_members(bot: Client, message: Message):
     if not message.from_user:
         return
 
-    settings = await get_fa_config(message.chat.id)
-    if settings["limit"] == 0:
-        return
-
     adder_id = message.from_user.id
     added_others = [
         u for u in message.new_chat_members if u.id != adder_id and not u.is_bot
     ]
-
     if not added_others:
         return
 
@@ -857,7 +958,7 @@ async def track_added_members(bot: Client, message: Message):
                 ),
                 parse_mode=enums.ParseMode.HTML,
             )
-            asyncio.create_task(_delete_later(msg, 15))
+            _schedule_delete(msg, 15)
         except Exception:
             pass
 
@@ -870,28 +971,29 @@ async def track_added_members(bot: Client, message: Message):
     group=-1,
 )
 async def enforce_force_add(bot: Client, message: Message):
-    if await is_user_admin(bot, message, target_chat_id=message.chat.id):
-        return
-
     user = message.from_user
-    if not user or user.is_bot:
+    if not user or user.is_bot or not message.chat:
         return
-    chat_id, user_id = message.chat.id, user.id
 
+    # 1. Check 0ms RAM config cache FIRST before making any Telegram API calls!
+    chat_id, user_id = message.chat.id, user.id
     settings = await get_fa_config(chat_id)
     limit = settings["limit"]
     if limit == 0:
-        return
-
-    if settings["mode"] == "new" and not await is_new_user(chat_id, user_id):
         return
 
     text = message.text or message.caption
     if text and text.startswith("/"):
         return
 
-    current_adds = await get_user_score(chat_id, user_id)
+    # 2. Cached admin check (avoids calling get_chat_member on every message)
+    if await is_user_admin(bot, message, target_chat_id=chat_id, use_cache=True):
+        return
 
+    if settings["mode"] == "new" and not await is_new_user(chat_id, user_id):
+        return
+
+    current_adds = await get_user_score(chat_id, user_id)
     if current_adds < limit:
         try:
             await message.delete()
@@ -920,16 +1022,17 @@ async def enforce_force_add(bot: Client, message: Message):
                     reply_markup=InlineKeyboardMarkup(
                         [
                             [
-                                InlineKeyboardButton(
+                                create_btn(
                                     "📊 How many users have I added?",
                                     callback_data="forceadd_check",
+                                    style=BTN_PRIMARY,
                                 )
                             ]
                         ]
                     ),
                     parse_mode=enums.ParseMode.HTML,
                 )
-                asyncio.create_task(_delete_later(warn_msg, 60))
+                _schedule_delete(warn_msg, 60)
             except Exception as e:
                 logger.error(f"ForceAdd warning error: {e}")
 
@@ -950,6 +1053,14 @@ async def check_adds_button(bot: Client, query: CallbackQuery):
 
     current_adds = await get_user_score(chat_id, user_id)
     if current_adds >= settings["limit"]:
+        try:
+            await bot.restrict_chat_member(
+                chat_id=chat_id,
+                user_id=user_id,
+                permissions=build_chat_permissions(can_send=True),
+            )
+        except Exception:
+            pass
         await safe_answer(
             query,
             f"✅ You have added {current_adds} members.\nYou are cleared to chat freely!",
