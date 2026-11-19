@@ -54,6 +54,8 @@ except Exception:
 try:
     from plugins.uibuttons import (
         get_default_file_keyboard as _get_default_file_keyboard,
+    )
+    from plugins.uibuttons import (
         get_deleted_file_notify_keyboard as _get_deleted_file_notify_keyboard,
     )
 except Exception:
@@ -181,7 +183,10 @@ def _prepare_compat_kwargs(
 
     explicit_disable = clean_kw.pop("disable_web_page_preview", disable_preview)
     if explicit_disable is not None:
-        if "link_preview_options" in supported_params and LinkPreviewOptions is not None:
+        if (
+            "link_preview_options" in supported_params
+            and LinkPreviewOptions is not None
+        ):
             try:
                 clean_kw["link_preview_options"] = LinkPreviewOptions(
                     is_disabled=bool(explicit_disable)
@@ -1267,7 +1272,9 @@ async def genlink_callbacks(bot: Client, query: CallbackQuery):
 def _try_decode_base64_payload(payload: str) -> Optional[str]:
     if (
         not payload
-        or payload.startswith(("file_", "filep_", "search_", "olink_", "BATCH-", "DSTORE-"))
+        or payload.startswith(
+            ("file_", "filep_", "search_", "olink_", "BATCH-", "DSTORE-")
+        )
         or payload in ("help", "about", "subscribe", "error", "okay", "hehe")
     ):
         return None
@@ -1353,7 +1360,9 @@ async def deliver_genlink_payload(
             except Exception:
                 pass
 
-        await _send_autodelete_warning_and_schedule(bot, user_id, chat_id, sent_messages)
+        await _send_autodelete_warning_and_schedule(
+            bot, user_id, chat_id, sent_messages
+        )
         return True
 
     # 2. Handle DSTORE-<b64>
@@ -1430,7 +1439,9 @@ async def deliver_genlink_payload(
             except Exception:
                 pass
 
-        await _send_autodelete_warning_and_schedule(bot, user_id, chat_id, sent_messages)
+        await _send_autodelete_warning_and_schedule(
+            bot, user_id, chat_id, sent_messages
+        )
         return True
 
     # 3. Handle single file link stored in _genlink_db (or decoded base64 file_ link)
