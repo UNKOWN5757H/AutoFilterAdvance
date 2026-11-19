@@ -251,7 +251,9 @@ def strip_stylish_fonts(text: str) -> str:
 # ============================================================
 EXTRA_BTN_1_URL = getattr(info, "EXTRA_BTN_1_URL", "https://t.me/+lcTawsnhdi0zYWE1")
 EXTRA_BTN_2_URL = getattr(info, "EXTRA_BTN_2_URL", "https://t.me/linkz_ki_duniyaa")
-LATEST_UPDATES_URL = getattr(info, "LATEST_UPDATES_URL", "https://t.me/+8Mw-Y-fYN6hiZWZl")
+LATEST_UPDATES_URL = getattr(
+    info, "LATEST_UPDATES_URL", "https://t.me/+8Mw-Y-fYN6hiZWZl"
+)
 
 # ============================================================
 # 🌐 LANGUAGES & 🎞️ QUALITIES CONFIGURATION
@@ -2179,9 +2181,15 @@ async def god_tier_search(
             return files, offset, total, no_year_query, was_transliterated
 
     # Sequel/Chapter flexible fallback (e.g. "kgf chapter 2" -> "kgf 2")
-    no_chapter = re.sub(r"\b(?:chapter|part|vol|volume)\b", "", no_year_query or clean_query).strip()
+    no_chapter = re.sub(
+        r"\b(?:chapter|part|vol|volume)\b", "", no_year_query or clean_query
+    ).strip()
     no_chapter = re.sub(r"\s+", " ", no_chapter)
-    if no_chapter and no_chapter not in (clean_query, no_year_query) and len(no_chapter) > 2:
+    if (
+        no_chapter
+        and no_chapter not in (clean_query, no_year_query)
+        and len(no_chapter) > 2
+    ):
         files, offset, total = await smart_filtered_search(
             no_chapter, default_state, max_results=10, offset=0
         )
@@ -2407,7 +2415,9 @@ async def hidden_button_click_callback(bot: Client, query: CallbackQuery):
         token = data.split("#", 1)[1]
         target_url = resolve_hidden_link(token)
         if not target_url:
-            return await safe_answer(query, "⌛ Button expired. Please search again!", show_alert=True)
+            return await safe_answer(
+                query, "⌛ Button expired. Please search again!", show_alert=True
+            )
 
         # Bot deep-links open directly; external/channel links open seamlessly via bot /start redirect
         if f"t.me/{bot_username.lower()}?start=" in target_url.lower():
@@ -2430,9 +2440,7 @@ async def hidden_button_click_callback(bot: Client, query: CallbackQuery):
 # ============================================================
 def _get_deleted_file_notify_keyboard() -> InlineKeyboardMarkup:
     req_grp_url = getattr(info, "GRP_LNK", "https://t.me/Sandalwood_Kannada_Group")
-    return InlineKeyboardMarkup(
-        [[create_btn("Movie Request 📝", url=req_grp_url)]]
-    )
+    return InlineKeyboardMarkup([[create_btn("Movie Request 📝", url=req_grp_url)]])
 
 
 async def _delete_single_message(
@@ -2845,7 +2853,11 @@ async def autotranslate_cmd_handler(client: Client, message: Message):
         new_state = (
             True
             if arg in ["on", "enable", "true", "yes", "1"]
-            else False if arg in ["off", "disable", "false", "no", "0"] else not cur_trans
+            else (
+                False
+                if arg in ["off", "disable", "false", "no", "0"]
+                else not cur_trans
+            )
         )
     else:
         new_state = not cur_trans
@@ -3233,9 +3245,11 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
 
     await safe_answer(
         query,
-        f"✅ Filtered by: {' + '.join(active_filters)}"
-        if active_filters
-        else "⬅️ Restored normal filter results!",
+        (
+            f"✅ Filtered by: {' + '.join(active_filters)}"
+            if active_filters
+            else "⬅️ Restored normal filter results!"
+        ),
     )
 
 
