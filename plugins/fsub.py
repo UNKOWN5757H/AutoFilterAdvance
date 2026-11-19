@@ -1,10 +1,12 @@
 import asyncio
+import hashlib
 import html
 import inspect
+import re
 import time
 from collections import OrderedDict
 from logging import ERROR, getLogger
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from motor.motor_asyncio import AsyncIOMotorClient
 from pyrogram import Client, StopPropagation, enums, filters
@@ -35,13 +37,11 @@ import info
 logger = getLogger(__name__)
 logger.setLevel(ERROR)
 
-AUTO_DELETE_TASKS = set()
 _ACTIVE_WATCHER_TASKS: Dict[int, asyncio.Task] = {}
-
 DEFAULT_FSUB_CAPTION = "<b>Please join below channel to get file!</b>"
 
 # ============================================================
-# 🛡️ SAFE OPTIONAL IMPORTS (ZERO PLUGIN LOAD CRASHES)
+# 🛡️ SAFE OPTIONAL IMPORTS (MULTI-DB & HIDDEN-LINK REGISTRY)
 # ============================================================
 try:
     from database.ia_filterdb import get_file_details
@@ -74,15 +74,50 @@ except Exception:
 
 
 try:
-    from plugins.uibuttons import (
-        get_deleted_file_notify_keyboard as _get_deleted_file_notify_keyboard,
-    )
-except Exception:
-    _get_deleted_file_notify_keyboard = None
+    from plugins.pm_filter import register_hidden_link, sanitize_markup_hide_links
+except ImportError:
+    try:
+        from pm_filter import register_hidden_link, sanitize_markup_hide_links
+    except ImportError:
+        _LOCAL_HIDDEN_LINKS: Dict[str, str] = {}
+
+        def register_hidden_link(url: str) -> str:
+            clean_u = str(url or "").strip()
+            if clean_u and not clean_u.startswith(("http://", "https://", "tg://")):
+                clean_u = "https://" + clean_u.lstrip("/")
+            token = hashlib.md5(clean_u.encode("utf-8")).hexdigest()[:12]
+            if len(_LOCAL_HIDDEN_LINKS) >= 15000:
+                _LOCAL_HIDDEN_LINKS.pop(next(iter(_LOCAL_HIDDEN_LINKS)), None)
+            _LOCAL_HIDDEN_LINKS[token] = clean_u
+            return token
+
+        def sanitize_markup_hide_links(
+            markup: Optional[InlineKeyboardMarkup],
+        ) -> Optional[InlineKeyboardMarkup]:
+            if not markup or not getattr(markup, "inline_keyboard", None):
+                return markup
+            rows = []
+            for row in markup.inline_keyboard:
+                new_row = []
+                for b in row:
+                    st = getattr(b, "style", None)
+                    if getattr(b, "url", None):
+                        new_row.append(create_btn(b.text, url=b.url, style=st))
+                    else:
+                        new_row.append(
+                            create_btn(
+                                b.text,
+                                callback_data=getattr(b, "callback_data", "noop"),
+                                style=st,
+                            )
+                        )
+                if new_row:
+                    rows.append(new_row)
+            return InlineKeyboardMarkup(rows) if rows else None
 
 
 # ============================================================
-# 🛡️ PYROGRAM v2.2.26 (LAYER 230) COMPATIBILITY ENGINE
+# 🛡️ PYROGRAM v2.2.26 COMPATIBILITY & HIDDEN-LINK BUTTONS
 # ============================================================
 try:
     from pyrogram.types import LinkPreviewOptions
@@ -94,39 +129,85 @@ try:
 except ImportError:
     ReplyParameters = None
 
-_SEND_MSG_PARAMS = set(inspect.signature(Client.send_message).parameters.keys())
 _REPLY_PARAMS = set(inspect.signature(Message.reply_text).parameters.keys())
 _EDIT_PARAMS = set(inspect.signature(Message.edit_text).parameters.keys())
+
+BTN_PRIMARY = None
+BTN_SUCCESS = None
+BTN_DANGER = None
+_SUPPORTS_BTN_STYLE = False
+
+try:
+    from pyrogram.enums import ButtonStyle
+
+    if "style" in inspect.signature(InlineKeyboardButton.__init__).parameters:
+        BTN_PRIMARY = getattr(ButtonStyle, "PRIMARY", None)
+        BTN_SUCCESS = getattr(ButtonStyle, "SUCCESS", None)
+        BTN_DANGER = getattr(ButtonStyle, "DANGER", None)
+        _SUPPORTS_BTN_STYLE = True
+except (ImportError, ValueError, TypeError):
+    pass
+
+
+def _clean_button_label(raw_label: str) -> str:
+    lbl = re.sub(r"<[^>]+>", "", str(raw_label or "")).strip()
+    lbl = re.sub(r"(?i)https?://\S+|t\.me/\S+|www\.\S+", "", lbl).strip(" -|:")
+    return lbl or "Open"
+
+
+def create_btn(
+    text: str,
+    url: Optional[str] = None,
+    callback_data: Optional[str] = None,
+    style: Any = None,
+) -> InlineKeyboardButton:
+    """Creates an InlineKeyboardButton with ZERO visible links inside the button."""
+    kwargs: Dict[str, Any] = {"text": _clean_button_label(text)}
+    if callback_data:
+        kwargs["callback_data"] = str(callback_data)[:64]
+    elif url:
+        kwargs["callback_data"] = f"olink#{register_hidden_link(url)}"
+    else:
+        kwargs["callback_data"] = "noop"
+
+    if _SUPPORTS_BTN_STYLE and style is not None:
+        kwargs["style"] = style
+    try:
+        return InlineKeyboardButton(**kwargs)
+    except Exception:
+        kwargs.pop("style", None)
+        return InlineKeyboardButton(**kwargs)
 
 
 def _ensure_non_empty_text(text: Any, fallback: str = DEFAULT_FSUB_CAPTION) -> str:
     if text is None:
         return fallback
     s = str(text).strip()
-    if not s or s.lower() in ["none", "null", "false"]:
+    if not s or s.lower() in ("none", "null", "false"):
         return fallback
     return s
 
 
 def _prepare_compat_kwargs(
-    kwargs: dict, supported_params: set, disable_preview: Optional[bool] = None
+    kwargs: dict, supported_params: set, disable_preview: Optional[bool] = True
 ) -> dict:
     clean_kw = dict(kwargs)
-    explicit_disable = clean_kw.pop("disable_web_page_preview", disable_preview)
+    if "reply_markup" in clean_kw and isinstance(
+        clean_kw["reply_markup"], InlineKeyboardMarkup
+    ):
+        clean_kw["reply_markup"] = sanitize_markup_hide_links(clean_kw["reply_markup"])
 
+    explicit_disable = clean_kw.pop("disable_web_page_preview", disable_preview)
     if explicit_disable is not None:
-        if "disable_web_page_preview" in supported_params:
-            clean_kw["disable_web_page_preview"] = bool(explicit_disable)
-        elif (
-            "link_preview_options" in supported_params
-            and LinkPreviewOptions is not None
-        ):
+        if "link_preview_options" in supported_params and LinkPreviewOptions is not None:
             try:
                 clean_kw["link_preview_options"] = LinkPreviewOptions(
                     is_disabled=bool(explicit_disable)
                 )
             except Exception:
                 pass
+        elif "disable_web_page_preview" in supported_params:
+            clean_kw["disable_web_page_preview"] = bool(explicit_disable)
 
     if "reply_to_message_id" in clean_kw:
         rep_id = clean_kw.pop("reply_to_message_id")
@@ -145,6 +226,8 @@ def _prepare_compat_kwargs(
 async def safe_reply_text(
     message: Message, text: str, disable_web_page_preview: bool = True, **kwargs
 ):
+    if not message:
+        return None
     safe_txt = _ensure_non_empty_text(text)
     compat_kw = _prepare_compat_kwargs(
         kwargs, _REPLY_PARAMS, disable_preview=disable_web_page_preview
@@ -154,10 +237,13 @@ async def safe_reply_text(
     except MessageEmpty:
         return await message.reply_text(DEFAULT_FSUB_CAPTION, **compat_kw)
     except TypeError:
-        compat_kw.pop("disable_web_page_preview", None)
-        compat_kw.pop("link_preview_options", None)
-        compat_kw.pop("reply_parameters", None)
-        compat_kw.pop("reply_to_message_id", None)
+        for k in (
+            "disable_web_page_preview",
+            "link_preview_options",
+            "reply_parameters",
+            "reply_to_message_id",
+        ):
+            compat_kw.pop(k, None)
         return await message.reply_text(safe_txt, **compat_kw)
     except (ChatWriteForbidden, Forbidden, UserIsBlocked, PeerIdInvalid):
         return None
@@ -172,51 +258,29 @@ async def safe_reply_text(
 async def safe_edit_text(
     message: Message, text: str, disable_web_page_preview: bool = True, **kwargs
 ):
+    if not message:
+        return None
     safe_txt = _ensure_non_empty_text(text)
     compat_kw = _prepare_compat_kwargs(
         kwargs, _EDIT_PARAMS, disable_preview=disable_web_page_preview
     )
     try:
         return await message.edit_text(safe_txt, **compat_kw)
+    except (MessageNotModified, MessageIdInvalid, ChatWriteForbidden, Forbidden):
+        return None
     except TypeError:
         compat_kw.pop("disable_web_page_preview", None)
         compat_kw.pop("link_preview_options", None)
-        return await message.edit_text(safe_txt, **compat_kw)
-    except (MessageNotModified, MessageIdInvalid, ChatWriteForbidden, Forbidden):
-        return None
+        try:
+            return await message.edit_text(safe_txt, **compat_kw)
+        except Exception:
+            return None
     except Exception:
         compat_kw.pop("parse_mode", None)
         try:
             return await message.edit_text(safe_txt, **compat_kw)
         except Exception:
             return None
-
-
-async def safe_send_message(
-    client: Client,
-    chat_id: int,
-    text: str,
-    disable_web_page_preview: Optional[bool] = True,
-    **kwargs,
-):
-    safe_txt = _ensure_non_empty_text(text)
-    compat_kw = _prepare_compat_kwargs(
-        kwargs, _SEND_MSG_PARAMS, disable_preview=disable_web_page_preview
-    )
-    try:
-        return await client.send_message(chat_id=chat_id, text=safe_txt, **compat_kw)
-    except MessageEmpty:
-        return await client.send_message(
-            chat_id=chat_id, text=DEFAULT_FSUB_CAPTION, **compat_kw
-        )
-    except TypeError:
-        compat_kw.pop("disable_web_page_preview", None)
-        compat_kw.pop("link_preview_options", None)
-        compat_kw.pop("reply_parameters", None)
-        compat_kw.pop("reply_to_message_id", None)
-        return await client.send_message(chat_id=chat_id, text=safe_txt, **compat_kw)
-    except (ChatWriteForbidden, Forbidden, UserIsBlocked, PeerIdInvalid):
-        return None
 
 
 async def safe_answer(
@@ -239,153 +303,21 @@ async def safe_answer(
 
 
 # ============================================================
-# 🎨 SAFE TELEGRAM BUTTON STYLE DETECTION
-# ============================================================
-BTN_PRIMARY = None
-BTN_SECONDARY = None
-BTN_SUCCESS = None
-BTN_DANGER = None
-_SUPPORTS_BTN_STYLE = False
-
-try:
-    from pyrogram.enums import ButtonStyle
-
-    if "style" in inspect.signature(InlineKeyboardButton.__init__).parameters:
-        BTN_PRIMARY = getattr(ButtonStyle, "PRIMARY", None)
-        BTN_SECONDARY = getattr(ButtonStyle, "SECONDARY", None)
-        BTN_SUCCESS = getattr(ButtonStyle, "SUCCESS", None)
-        BTN_DANGER = getattr(ButtonStyle, "DANGER", None)
-        _SUPPORTS_BTN_STYLE = True
-except (ImportError, ValueError, TypeError):
-    BTN_PRIMARY = BTN_SECONDARY = BTN_SUCCESS = BTN_DANGER = None
-    _SUPPORTS_BTN_STYLE = False
-
-
-def create_btn(text, url=None, callback_data=None, style=None):
-    kwargs = {"text": str(text)}
-    if url:
-        kwargs["url"] = str(url).strip()
-    elif callback_data:
-        kwargs["callback_data"] = str(callback_data)[:64]
-    if _SUPPORTS_BTN_STYLE and style is not None:
-        kwargs["style"] = style
-    try:
-        return InlineKeyboardButton(**kwargs)
-    except Exception:
-        kwargs.pop("style", None)
-        return InlineKeyboardButton(**kwargs)
-
-
-# ============================================================
-# ⏳ SELF-CONTAINED AUTO-DELETE ENGINE
-# ============================================================
-def get_auto_delete_timer(
-    var_name: str = "FILE_AUTO_DELETE", default_time: int = 1800
-) -> int:
-    try:
-        global_switch = getattr(info, "AUTO_DELETE", True)
-        if str(global_switch).strip().lower() in ["false", "off", "0", "no"]:
-            return 0
-        raw_val = getattr(
-            info,
-            var_name,
-            getattr(
-                info,
-                "FILE_AUTO_DELETE",
-                getattr(info, "AUTO_DELETE_TIME", default_time),
-            ),
-        )
-        if isinstance(raw_val, bool):
-            return default_time if raw_val else 0
-        val = int(str(raw_val).strip())
-        return 1800 if 0 < val < 10 else max(0, val)
-    except Exception:
-        return default_time
-
-
-async def _fsub_auto_delete_worker(
-    client: Client, chat_id: int, is_pm: bool, delay: int, *messages
-):
-    await asyncio.sleep(delay)
-    msg_ids = [m.id for m in messages if m is not None and hasattr(m, "id") and m.id]
-    if msg_ids:
-        try:
-            await client.delete_messages(chat_id, msg_ids)
-        except Exception:
-            for m in messages:
-                if m is not None:
-                    try:
-                        await m.delete()
-                    except Exception:
-                        pass
-
-    if is_pm:
-        notify_text = (
-            getattr(info, "DEL_MSG", None)
-            or "<b>Successfully deleted your file, if you want request again in group.</b>"
-        )
-        markup = (
-            _get_deleted_file_notify_keyboard()
-            if callable(_get_deleted_file_notify_keyboard)
-            else InlineKeyboardMarkup(
-                [
-                    [
-                        create_btn(
-                            "Movie Request 📝",
-                            url="https://t.me/Sandalwood_Kannada_Group",
-                            style=BTN_SUCCESS,
-                        )
-                    ]
-                ]
-            )
-        )
-        try:
-            await safe_send_message(
-                client,
-                chat_id,
-                text=notify_text,
-                reply_markup=markup,
-                parse_mode=enums.ParseMode.HTML,
-            )
-        except Exception:
-            pass
-
-
-def schedule_auto_delete(
-    client: Client, chat_id: int, is_pm: bool, delay: int, *messages
-):
-    if delay <= 0:
-        return
-    task = asyncio.create_task(
-        _fsub_auto_delete_worker(client, chat_id, is_pm, delay, *messages)
-    )
-    AUTO_DELETE_TASKS.add(task)
-    task.add_done_callback(AUTO_DELETE_TASKS.discard)
-
-
-# ============================================================
 # ⚙️ MONGODB CONFIG ONLY + STABLE RAM ROTATION & JOIN TRACKER
 # ============================================================
 _fsub_db = None
 _active_db = None
-_BOT_DB = None
 
 _FSUB_CONFIG_CACHE: Optional[dict] = None
 _FSUB_CACHE_TS: float = 0.0
-_INVITE_LINK_CACHE: Dict[str, Tuple[float, str]] = {}  # cid_str -> (timestamp, link)
-_DEAD_FSUB_CHANNELS: Dict[str, float] = {}  # cid_str -> cooldown_until_ts
+_INVITE_LINK_CACHE: Dict[str, Tuple[float, str]] = {}
+_DEAD_FSUB_CHANNELS: Dict[str, float] = {}
 
-# Sticky per-user channel assignment & rotation cursor in RAM (Zero DB writes!)
-# Ensures that:
-# 1. If a user hasn't completed their assigned channel yet, they aren't randomly switched mid-click.
-# 2. Once they complete Channel A and request a 2nd file, the cursor advances to Channel B -> C -> D!
 _USER_ASSIGNED_CHANNEL: Dict[int, str] = {}
 _USER_ROTATION_CURSOR: Dict[int, int] = {}
-
 _PENDING_FSUB_DELIVERIES: Dict[int, Dict[str, Any]] = {}
 _DELIVERY_LOCKS: Dict[int, asyncio.Lock] = {}
 
-# Pure RAM-Only Join Request Tracker (ZERO MongoDB writes!)
 _RAM_JOIN_REQS: OrderedDict = OrderedDict()
 _MAX_RAM_JOIN_REQS = 250000
 
@@ -420,22 +352,15 @@ except Exception as e:
     logger.error(f"Failed to init FSub DB config: {e}")
 
 
-def _get_writable_col(col_name: str, fallback_col: Any):
-    if callable(get_writable_System_db):
-        try:
-            target_db = get_writable_System_db()
-            if target_db is not None:
-                return target_db[col_name]
-        except Exception:
-            pass
-    return fallback_col
-
-
 def _get_all_candidate_cols(col_name: str, fallback_col: Any) -> List[Any]:
     cols = []
-    w_col = _get_writable_col(col_name, None)
-    if w_col is not None:
-        cols.append(w_col)
+    if callable(get_writable_System_db):
+        try:
+            w_db = get_writable_System_db()
+            if w_db is not None:
+                cols.append(w_db[col_name])
+        except Exception:
+            pass
     if callable(get_all_healthy_read_dbs):
         try:
             for _, t_db in get_all_healthy_read_dbs():
@@ -450,10 +375,6 @@ def _get_all_candidate_cols(col_name: str, fallback_col: Any) -> List[Any]:
 
 
 def _ordered_channel_keys(channels_dict: dict) -> List[str]:
-    """
-    Returns channel IDs in a deterministic, stable order sorted by their `added_at`
-    timestamp (or insertion order) so MongoDB dict key reordering never scrambles rotation!
-    """
     if not channels_dict:
         return []
     indexed_items = list(enumerate(channels_dict.items()))
@@ -490,7 +411,7 @@ async def get_fsub_config(force_refresh: bool = False) -> dict:
 
     for col in _get_all_candidate_cols("fsub_config", _fsub_db):
         try:
-            doc = await col.find_one({"_id": "config"})
+            doc = await asyncio.wait_for(col.find_one({"_id": "config"}), timeout=2.5)
             if doc:
                 doc_ts = float(doc.get("updated_at", 0.0) or 0.0)
                 if best_doc is None or doc_ts >= best_ts:
@@ -501,12 +422,10 @@ async def get_fsub_config(force_refresh: bool = False) -> dict:
 
     if best_doc:
         for k, v in default_cfg.items():
-            if k not in best_doc:
-                best_doc[k] = v
-        # Ensure every channel has a deterministic `order` index
+            best_doc.setdefault(k, v)
         ch_dict = best_doc.get("channels", {})
         if isinstance(ch_dict, dict):
-            for idx, (cid_k, cid_v) in enumerate(ch_dict.items()):
+            for idx, (_, cid_v) in enumerate(ch_dict.items()):
                 if isinstance(cid_v, dict) and "order" not in cid_v:
                     cid_v["order"] = idx
 
@@ -531,7 +450,6 @@ async def get_fsub_config(force_refresh: bool = False) -> dict:
 
 
 async def _persist_full_fsub_config(cfg_doc: dict):
-    """Saves ONLY the ForceSub channel configuration in MongoDB."""
     payload = {
         "is_enabled": cfg_doc.get("is_enabled", True),
         "max_count": cfg_doc.get("max_count", 0),
@@ -541,13 +459,16 @@ async def _persist_full_fsub_config(cfg_doc: dict):
     }
     for col in _get_all_candidate_cols("fsub_config", _fsub_db):
         try:
-            await col.update_one({"_id": "config"}, {"$set": payload}, upsert=True)
+            await asyncio.wait_for(
+                col.update_one({"_id": "config"}, {"$set": payload}, upsert=True),
+                timeout=2.5,
+            )
         except Exception:
             continue
 
 
 async def update_fsub_config(key: str, value: Any):
-    global _FSUB_CONFIG_CACHE, _FSUB_CACHE_TS
+    global _FSUB_CACHE_TS
     if _FSUB_CONFIG_CACHE is None:
         await get_fsub_config()
     now = time.time()
@@ -559,13 +480,12 @@ async def update_fsub_config(key: str, value: Any):
 
 
 async def update_fsub_channels(channels_dict: dict):
-    global _FSUB_CONFIG_CACHE, _FSUB_CACHE_TS
+    global _FSUB_CACHE_TS
     _USER_ASSIGNED_CHANNEL.clear()
     _DEAD_FSUB_CHANNELS.clear()
     if _FSUB_CONFIG_CACHE is None:
         await get_fsub_config()
     now = time.time()
-    # Assign deterministic order to all channels
     ordered_keys = _ordered_channel_keys(channels_dict)
     clean_channels = {}
     for idx, k in enumerate(ordered_keys):
@@ -581,7 +501,7 @@ async def update_fsub_channels(channels_dict: dict):
 
 
 # ============================================================
-# 🚫 RAM-ONLY USER/REQUEST HELPERS (ZERO USER DATA SAVED IN DB)
+# 🚫 RAM-ONLY USER/REQUEST HELPERS
 # ============================================================
 async def get_total_fsub_users() -> int:
     return len(_RAM_JOIN_REQS)
@@ -633,16 +553,16 @@ def get_admin_list() -> List[int]:
 
 
 async def is_global_admin(user_id: int) -> bool:
-    if not user_id:
-        return False
-    return int(user_id) in get_admin_list()
+    return bool(user_id and int(user_id) in get_admin_list())
 
 
 async def get_active_connection(user_id: str) -> Optional[int]:
     uid_str = str(user_id)
     if _active_db is not None:
         try:
-            doc = await _active_db.find_one({"user_id": uid_str})
+            doc = await asyncio.wait_for(
+                _active_db.find_one({"user_id": uid_str}), timeout=2.0
+            )
             if doc and doc.get("group_id"):
                 return int(doc["group_id"])
         except Exception:
@@ -718,6 +638,18 @@ async def verify_admin(
     return False
 
 
+async def _require_fsub_admin(bot: Client, message: Message) -> bool:
+    target_chat_id = await get_target_chat(bot, message)
+    if await verify_admin(bot, message, target_chat_id):
+        return True
+    await safe_reply_text(
+        message,
+        "❌ <b>Unauthorized:</b> Admin only.",
+        parse_mode=enums.ParseMode.HTML,
+    )
+    return False
+
+
 async def verify_cb_admin(client: Client, query: CallbackQuery) -> bool:
     uid = query.from_user.id if query.from_user else 0
     if await is_global_admin(uid):
@@ -735,7 +667,7 @@ async def verify_cb_admin(client: Client, query: CallbackQuery) -> bool:
                 ]
             except Exception:
                 return False
-        elif query.message.chat.type == enums.ChatType.PRIVATE:
+        if query.message.chat.type == enums.ChatType.PRIVATE:
             conn_id = await get_active_connection(str(uid))
             if conn_id:
                 try:
@@ -750,7 +682,7 @@ async def verify_cb_admin(client: Client, query: CallbackQuery) -> bool:
 
 
 # ============================================================
-# 🔄 ASYNC NATIVE LISTENER ENGINE (NON-BLOCKING FILTER)
+# 🔄 ASYNC NATIVE LISTENER ENGINE
 # ============================================================
 _WAITING_REQUESTS: Dict[int, dict] = {}
 
@@ -761,7 +693,7 @@ async def _fsub_waiting_filter_func(_, __, message: Message) -> bool:
     if (
         message.text
         and message.text.startswith("/")
-        and message.text.strip().lower() not in ["/cancel"]
+        and message.text.strip().lower() != "/cancel"
     ):
         return False
     return True
@@ -772,8 +704,7 @@ fsub_waiting_filter = filters.create(_fsub_waiting_filter_func)
 
 @Client.on_message((filters.group | filters.private) & fsub_waiting_filter, group=-12)
 async def custom_listener(client: Client, message: Message):
-    chat_id = message.chat.id
-    req_info = _WAITING_REQUESTS.get(chat_id)
+    req_info = _WAITING_REQUESTS.get(message.chat.id)
     if not req_info:
         return
 
@@ -782,11 +713,9 @@ async def custom_listener(client: Client, message: Message):
         if message.from_user
         else getattr(message.sender_chat, "id", 0)
     )
-    expected_session_id = req_info["session_id"]
-
     if (
-        sender_id == expected_session_id
-        or sender_id == chat_id
+        sender_id == req_info["session_id"]
+        or sender_id == message.chat.id
         or await is_global_admin(sender_id)
     ):
         future = req_info["future"]
@@ -819,11 +748,6 @@ async def native_listen(
 async def get_invite_link(
     bot: Client, chat_id_str: str, config: dict, force_regenerate: bool = False
 ) -> str:
-    """
-    Fetches or generates a valid invite link for a ForceSub channel.
-    Automatically skips channels where the bot was removed or lacks permissions
-    so rotation never gets stuck on a dead channel!
-    """
     now = time.time()
     if now < _DEAD_FSUB_CHANNELS.get(chat_id_str, 0.0):
         return ""
@@ -870,9 +794,8 @@ async def get_invite_link(
                 channels[chat_id_str]["link"] = inv_link
                 channels[chat_id_str]["title"] = chat.title or str(chat_id_int)
             return inv_link
-        else:
-            _DEAD_FSUB_CHANNELS[chat_id_str] = now + 300
-            return ""
+        _DEAD_FSUB_CHANNELS[chat_id_str] = now + 300
+        return ""
     except (ChatAdminRequired, PeerIdInvalid, Forbidden) as e:
         logger.error(f"FSub channel {chat_id_str} unreachable/no admin: {e}")
         _DEAD_FSUB_CHANNELS[chat_id_str] = now + 300
@@ -885,35 +808,25 @@ async def get_invite_link(
 async def check_user_in_channel(
     bot: Client, channel_id: int, user_id: int, is_req: bool = False
 ) -> bool:
-    """
-    Performs a 100% real-time live check against Telegram on every single request,
-    plus checks the pure-RAM Join Request tracker for pending join-request channels.
-    If the bot is not an admin or the channel is unreachable, returns True (fail-open)
-    so users are never blocked by a misconfigured channel!
-    """
     cid, uid = int(channel_id), int(user_id)
     cid_str = str(cid)
 
     if time.time() < _DEAD_FSUB_CHANNELS.get(cid_str, 0.0):
         return True
 
-    # Fast-path for Join-Request channels if the user already sent a request in this session
     if is_req and _has_ram_join_req(cid, uid):
         return True
 
     try:
         member = await bot.get_chat_member(cid, uid)
-        if member.status in [
+        if member.status in (
             enums.ChatMemberStatus.MEMBER,
             enums.ChatMemberStatus.ADMINISTRATOR,
             enums.ChatMemberStatus.OWNER,
             enums.ChatMemberStatus.RESTRICTED,
-        ]:
+        ):
             return True
-        if member.status in [
-            enums.ChatMemberStatus.LEFT,
-            enums.ChatMemberStatus.BANNED,
-        ]:
+        if member.status in (enums.ChatMemberStatus.LEFT, enums.ChatMemberStatus.BANNED):
             if not is_req:
                 _remove_ram_join_req(cid, uid)
     except UserNotParticipant:
@@ -924,42 +837,26 @@ async def check_user_in_channel(
             return await check_user_in_channel(bot, cid, uid, is_req)
         return True
     except (ChatAdminRequired, PeerIdInvalid, Forbidden):
-        # Bot lost admin in this channel; mark channel temporarily dead & don't block user
         _DEAD_FSUB_CHANNELS[cid_str] = time.time() + 300
         return True
     except Exception:
         return True
 
-    if is_req and _has_ram_join_req(cid, uid):
-        return True
-
-    return False
+    return bool(is_req and _has_ram_join_req(cid, uid))
 
 
 async def _get_missing_channels_and_buttons(
     bot: Client, user_id: int, config: dict, is_refresh: bool = False
 ) -> Tuple[List[List[InlineKeyboardButton]], List[int]]:
-    """
-    Stabilized Force Subscribe Rotation & Priority Engine:
-    - When `rotation_enabled` is True:
-      1. Maintains a deterministic channel list (`Ch 1 ➔ Ch 2 ➔ Ch 3 ➔ ...`).
-      2. If the user already has a pending assigned channel (`_USER_ASSIGNED_CHANNEL[uid]`)
-         and still hasn't joined/requested it, keeps showing that exact same channel
-         so the button never jumps while they are trying to join!
-      3. Once the user joins/requests their assigned channel and asks for their next file,
-         automatically advances their rotation cursor to the next unjoined channel in line!
-    - Includes a fallback `✅ Verify / Try Again` button below the join button so if a user
-      already sent a join request earlier (or if Telegram delays the join event), they can
-      verify in 1 click without getting stuck!
-    """
     channels_dict = config.get("channels", {})
     if not channels_dict:
         return [], []
 
+    now = time.time()
     ordered_cids = [
         cid
         for cid in _ordered_channel_keys(channels_dict)
-        if time.time() >= _DEAD_FSUB_CHANNELS.get(cid, 0.0)
+        if now >= _DEAD_FSUB_CHANNELS.get(cid, 0.0)
     ]
     if not ordered_cids:
         return [], []
@@ -969,11 +866,9 @@ async def _get_missing_channels_and_buttons(
     max_count = int(config.get("max_count", 0) or 0)
 
     if rotation_enabled:
-        # 1. Check if the user has a sticky assigned channel they haven't completed yet
         assigned_cid = _USER_ASSIGNED_CHANNEL.get(uid)
         if assigned_cid and assigned_cid in channels_dict:
-            ch_data = channels_dict.get(assigned_cid, {})
-            is_req = ch_data.get("type") == "req"
+            is_req = channels_dict.get(assigned_cid, {}).get("type") == "req"
             if not await check_user_in_channel(bot, int(assigned_cid), uid, is_req):
                 link = await get_invite_link(bot, assigned_cid, config)
                 if link:
@@ -983,7 +878,6 @@ async def _get_missing_channels_and_buttons(
                         [int(assigned_cid)],
                     )
             else:
-                # User completed their assigned channel! Advance their rotation cursor
                 _USER_ASSIGNED_CHANNEL.pop(uid, None)
                 try:
                     completed_idx = ordered_cids.index(assigned_cid)
@@ -991,26 +885,21 @@ async def _get_missing_channels_and_buttons(
                 except ValueError:
                     pass
 
-        # 2. Check all channels concurrently in real time
         async def _check_line_single(cid_str: str):
-            ch_data = channels_dict.get(cid_str, {})
-            is_req = ch_data.get("type") == "req"
-            joined = await check_user_in_channel(bot, int(cid_str), uid, is_req)
-            return cid_str, is_req, joined
+            is_req = channels_dict.get(cid_str, {}).get("type") == "req"
+            return cid_str, is_req, await check_user_in_channel(
+                bot, int(cid_str), uid, is_req
+            )
 
         results = await asyncio.gather(
             *[_check_line_single(cid) for cid in ordered_cids],
             return_exceptions=True,
         )
 
-        status_by_cid: Dict[str, Tuple[bool, bool]] = {}
-        for res in results:
-            if isinstance(res, Exception):
-                continue
-            cid_str, is_req, joined = res
-            status_by_cid[cid_str] = (is_req, joined)
+        status_by_cid: Dict[str, Tuple[bool, bool]] = {
+            r[0]: (r[1], r[2]) for r in results if not isinstance(r, Exception)
+        }
 
-        # Start scanning from the user's rotation cursor so channels rotate evenly in line
         start_idx = _USER_ROTATION_CURSOR.get(uid, 0) % len(ordered_cids)
         rotated_order = ordered_cids[start_idx:] + ordered_cids[:start_idx]
 
@@ -1031,7 +920,6 @@ async def _get_missing_channels_and_buttons(
 
         return [], []
 
-    # Static priority mode (when rotation_enabled is False)
     eligible_channels = [
         cid
         for cid in ordered_cids
@@ -1041,19 +929,18 @@ async def _get_missing_channels_and_buttons(
         return [], []
 
     async def _check_static_single(cid_str: str):
-        ch_data = channels_dict.get(cid_str, {})
-        is_req = ch_data.get("type") == "req"
-        joined = await check_user_in_channel(bot, int(cid_str), uid, is_req)
-        return cid_str, is_req, joined
+        is_req = channels_dict.get(cid_str, {}).get("type") == "req"
+        return cid_str, is_req, await check_user_in_channel(
+            bot, int(cid_str), uid, is_req
+        )
 
     results = await asyncio.gather(
         *[_check_static_single(cid) for cid in eligible_channels],
         return_exceptions=True,
     )
 
-    not_joined_buttons = []
+    not_joined_buttons: List[List[InlineKeyboardButton]] = []
     missing_cids: List[int] = []
-    channels_to_force = 0
 
     for res in results:
         if isinstance(res, Exception):
@@ -1061,7 +948,7 @@ async def _get_missing_channels_and_buttons(
         cid_str, is_req, joined = res
         if joined:
             continue
-        if max_count > 0 and channels_to_force >= max_count:
+        if max_count > 0 and len(missing_cids) >= max_count:
             break
         link = await get_invite_link(bot, cid_str, config)
         if link:
@@ -1070,7 +957,6 @@ async def _get_missing_channels_and_buttons(
                 [create_btn(btn_text, url=link, style=BTN_PRIMARY)]
             )
             missing_cids.append(int(cid_str))
-            channels_to_force += 1
 
     return not_joined_buttons, missing_cids
 
@@ -1078,7 +964,6 @@ async def _get_missing_channels_and_buttons(
 async def _get_missing_channel_buttons(
     bot: Client, user_id: int, config: dict
 ) -> List[List[InlineKeyboardButton]]:
-    """Helper used by utils.is_subscribed for live Telegram membership verification."""
     btns, _ = await _get_missing_channels_and_buttons(
         bot, user_id, config, is_refresh=False
     )
@@ -1086,7 +971,7 @@ async def _get_missing_channel_buttons(
 
 
 # ============================================================
-# 🚀 AUTOMATIC FILE DELIVERY ENGINE (LIVE CHECK, ZERO DB WRITES)
+# 🚀 AUTOMATIC FILE DELIVERY ENGINE
 # ============================================================
 async def _deliver_verified_file(
     bot: Client, user_id: int, chat_id: int, file_id: str, mode: str = "checksub"
@@ -1106,8 +991,7 @@ async def _deliver_verified_file(
     try:
         from plugins.commands import send_requested_file
 
-        files_ = await get_file_details(file_id)
-        if files_:
+        if await get_file_details(file_id):
             await send_requested_file(
                 client=bot,
                 user_id=user_id,
@@ -1121,9 +1005,8 @@ async def _deliver_verified_file(
     try:
         from plugins.genlink import deliver_genlink_payload
 
-        prefix = "filep" if mode in ["filep", "checksubp"] else "file"
-        if await deliver_genlink_payload(bot, user_id, chat_id, f"{prefix}_{file_id}"):
-            return
+        prefix = "filep" if mode in ("filep", "checksubp") else "file"
+        await deliver_genlink_payload(bot, user_id, chat_id, f"{prefix}_{file_id}")
     except Exception:
         pass
 
@@ -1132,8 +1015,7 @@ async def _check_and_auto_deliver_for_user(
     bot: Client, user_id: int, joined_chat_id: Optional[int] = None
 ) -> bool:
     uid = int(user_id)
-    pending = _PENDING_FSUB_DELIVERIES.get(uid)
-    if not pending:
+    if uid not in _PENDING_FSUB_DELIVERIES:
         return False
 
     if len(_DELIVERY_LOCKS) > 10000:
@@ -1148,17 +1030,14 @@ async def _check_and_auto_deliver_for_user(
         config = await get_fsub_config()
         channels_dict = config.get("channels", {})
         ordered_cids = _ordered_channel_keys(channels_dict)
-        required_cids: List[int] = pending.get("required_channels", [])
 
-        for req_cid in required_cids:
+        for req_cid in pending.get("required_channels", []):
             if joined_chat_id is not None and int(req_cid) == int(joined_chat_id):
                 continue
-            ch_data = channels_dict.get(str(req_cid), {})
-            is_req = ch_data.get("type") == "req"
+            is_req = channels_dict.get(str(req_cid), {}).get("type") == "req"
             if not await check_user_in_channel(bot, int(req_cid), uid, is_req):
                 return False
 
-        # Advance rotation cursor for next file request after this channel is completed
         assigned_cid = _USER_ASSIGNED_CHANNEL.pop(uid, None)
         if assigned_cid and ordered_cids and assigned_cid in ordered_cids:
             idx = ordered_cids.index(assigned_cid)
@@ -1190,7 +1069,7 @@ async def _check_and_auto_deliver_for_user(
 async def _background_join_poller(bot: Client, user_id: int):
     uid = int(user_id)
     try:
-        for _ in range(90):  # 90 * 2s = 3 minutes
+        for _ in range(90):
             await asyncio.sleep(2)
             if uid not in _PENDING_FSUB_DELIVERIES:
                 return
@@ -1242,20 +1121,17 @@ def _register_pending_fsub_delivery(
     if old_task and not old_task.done():
         old_task.cancel()
 
-    task = asyncio.create_task(_background_join_poller(bot, uid))
-    _ACTIVE_WATCHER_TASKS[uid] = task
+    _ACTIVE_WATCHER_TASKS[uid] = asyncio.create_task(_background_join_poller(bot, uid))
 
 
 # ============================================================
-# 🛑 MAIN FORCESUB INTERCEPTOR (LIVE CHECK, ZERO DB STORAGE)
+# 🛑 MAIN FORCESUB INTERCEPTOR (HIDDEN-LINK BUTTONS + AUTO-DELIVER)
 # ============================================================
 async def ForceSub(
     bot: Client, message: Message, file_id: str = None, mode: str = None
 ) -> bool:
     user = message.from_user
-    if not user:
-        return True
-    if await is_global_admin(user.id):
+    if not user or await is_global_admin(user.id):
         return True
 
     config = await get_fsub_config()
@@ -1266,12 +1142,20 @@ async def ForceSub(
         not_joined_buttons, missing_cids = await _get_missing_channels_and_buttons(
             bot, user.id, config, is_refresh=False
         )
-
         if not not_joined_buttons:
             return True
 
         safe_mode = mode or "checksub"
         safe_fid = file_id or "0"
+        not_joined_buttons.append(
+            [
+                create_btn(
+                    "🔄 Try Again",
+                    callback_data=f"refresh_fsub#{safe_mode}#{safe_fid}",
+                    style=BTN_SUCCESS,
+                )
+            ]
+        )
 
         b_settings = await get_bot_settings() or {}
         custom_fsub_img = b_settings.get("fsub_img") or getattr(info, "FSUB_IMG", None)
@@ -1284,18 +1168,18 @@ async def ForceSub(
                 fsub_caption, default_markup
             )
             fsub_caption = _ensure_non_empty_text(parsed_cap, DEFAULT_FSUB_CAPTION)
-            final_markup = parsed_markup or default_markup
+            final_markup = sanitize_markup_hide_links(parsed_markup or default_markup)
         except Exception:
             final_markup = default_markup
 
         sent_prompt: Optional[Message] = None
         try:
-            if custom_fsub_img and str(custom_fsub_img).strip().lower() not in [
+            if custom_fsub_img and str(custom_fsub_img).strip().lower() not in (
                 "none",
                 "null",
                 "false",
                 "",
-            ]:
+            ):
                 try:
                     sent_prompt = await message.reply_photo(
                         photo=custom_fsub_img,
@@ -1336,11 +1220,12 @@ async def ForceSub(
 
 @Client.on_callback_query(filters.regex(r"^refresh_fsub"), group=-3)
 async def refresh_fsub_callback(bot: Client, query: CallbackQuery):
+    if not query.message:
+        return await safe_answer(query)
     user_id = query.from_user.id if query.from_user else 0
     data = query.data
 
-    mode = "checksub"
-    file_id = "0"
+    mode, file_id = "checksub", "0"
     if data.startswith("refresh_fsub#"):
         parts = data.split("#", 2)
         if len(parts) == 3:
@@ -1349,14 +1234,20 @@ async def refresh_fsub_callback(bot: Client, query: CallbackQuery):
         file_id = data.replace("refresh_fsub_", "", 1)
 
     config = await get_fsub_config()
-    channels_dict = config.get("channels", {})
-
-    if not await is_global_admin(user_id) and channels_dict:
+    if not await is_global_admin(user_id) and config.get("channels"):
         not_joined_buttons, missing_cids = await _get_missing_channels_and_buttons(
             bot, user_id, config, is_refresh=True
         )
-
         if not_joined_buttons:
+            not_joined_buttons.append(
+                [
+                    create_btn(
+                        "🔄 Try Again",
+                        callback_data=f"refresh_fsub#{mode}#{file_id}",
+                        style=BTN_SUCCESS,
+                    )
+                ]
+            )
             await safe_answer(
                 query,
                 "❌ Please join the channel above — your file will be sent automatically!",
@@ -1380,8 +1271,7 @@ async def refresh_fsub_callback(bot: Client, query: CallbackQuery):
             return
 
     _PENDING_FSUB_DELIVERIES.pop(int(user_id), None)
-    await safe_answer(query, "✅ Subscription verified!", show_alert=False)
-
+    await safe_answer(query, "✅ Subscription verified!")
     try:
         await query.message.delete()
     except Exception:
@@ -1395,16 +1285,11 @@ async def refresh_fsub_callback(bot: Client, query: CallbackQuery):
 # ============================================================
 @Client.on_chat_join_request(group=-3)
 async def join_reqs_handler(bot: Client, join_req: ChatJoinRequest):
-    """
-    Records ANY incoming Join Request into pure RAM (`_RAM_JOIN_REQS`) — even if the user
-    requested to join before clicking a file link — and immediately delivers any pending file!
-    """
     user = join_req.from_user
     if not user or not join_req.chat:
         return
     try:
-        uid = int(user.id)
-        cid = int(join_req.chat.id)
+        uid, cid = int(user.id), int(join_req.chat.id)
         _record_ram_join_req(cid, uid)
         if uid in _PENDING_FSUB_DELIVERIES:
             await _check_and_auto_deliver_for_user(bot, uid, joined_chat_id=cid)
@@ -1419,23 +1304,22 @@ async def auto_deliver_on_channel_join(
     try:
         if not chat_member_updated or not chat_member_updated.chat:
             return
-        cid = int(chat_member_updated.chat.id)
         new_m = chat_member_updated.new_chat_member
         if not new_m or not new_m.user:
             return
 
-        uid = int(new_m.user.id)
-        if new_m.status in [
+        cid, uid = int(chat_member_updated.chat.id), int(new_m.user.id)
+        if new_m.status in (
             enums.ChatMemberStatus.MEMBER,
             enums.ChatMemberStatus.ADMINISTRATOR,
             enums.ChatMemberStatus.OWNER,
-        ]:
+        ):
             if uid in _PENDING_FSUB_DELIVERIES:
                 await _check_and_auto_deliver_for_user(bot, uid, joined_chat_id=cid)
-        elif new_m.status in [
+        elif new_m.status in (
             enums.ChatMemberStatus.LEFT,
             enums.ChatMemberStatus.BANNED,
-        ]:
+        ):
             _remove_ram_join_req(cid, uid)
     except Exception as e:
         logger.error(f"auto_deliver_on_channel_join error: {e}")
@@ -1446,17 +1330,10 @@ async def auto_deliver_on_channel_join(
 # ============================================================
 @Client.on_message(filters.command("rotatefsub"), group=-15)
 async def toggle_rotate(bot: Client, message: Message):
-    target_chat_id = await get_target_chat(bot, message)
-    if not await verify_admin(bot, message, target_chat_id):
-        return await safe_reply_text(
-            message,
-            "❌ <b>Unauthorized:</b> Admin only.",
-            parse_mode=enums.ParseMode.HTML,
-        )
-
+    if not await _require_fsub_admin(bot, message):
+        return
     config = await get_fsub_config()
-    current = config.get("rotation_enabled", True)
-    new_val = not current
+    new_val = not config.get("rotation_enabled", True)
     await update_fsub_config("rotation_enabled", new_val)
     status = (
         "🟢 ENABLED (Sequential In-Line: Ch A ➔ Ch B ➔ Ch C, 1 Button at a Time + Auto-Send)"
@@ -1465,22 +1342,15 @@ async def toggle_rotate(bot: Client, message: Message):
     )
     await safe_reply_text(
         message,
-        f"🔄 <b>Auto-Rotation Engine:</b> {status}\n\n"
-        f"<i>When enabled, each user progresses cleanly through your channels (Ch 1 ➔ Ch 2 ➔ Ch 3) with sticky assignment and real-time Telegram verification!</i>",
+        f"🔄 <b>Auto-Rotation Engine:</b> {status}",
         parse_mode=enums.ParseMode.HTML,
     )
 
 
 @Client.on_message(filters.command("enablefsub"), group=-15)
 async def enable_fsub(bot: Client, message: Message):
-    target_chat_id = await get_target_chat(bot, message)
-    if not await verify_admin(bot, message, target_chat_id):
-        return await safe_reply_text(
-            message,
-            "❌ <b>Unauthorized:</b> Admin only.",
-            parse_mode=enums.ParseMode.HTML,
-        )
-
+    if not await _require_fsub_admin(bot, message):
+        return
     await update_fsub_config("is_enabled", True)
     await safe_reply_text(
         message,
@@ -1491,14 +1361,8 @@ async def enable_fsub(bot: Client, message: Message):
 
 @Client.on_message(filters.command("disablefsub"), group=-15)
 async def disable_fsub(bot: Client, message: Message):
-    target_chat_id = await get_target_chat(bot, message)
-    if not await verify_admin(bot, message, target_chat_id):
-        return await safe_reply_text(
-            message,
-            "❌ <b>Unauthorized:</b> Admin only.",
-            parse_mode=enums.ParseMode.HTML,
-        )
-
+    if not await _require_fsub_admin(bot, message):
+        return
     await update_fsub_config("is_enabled", False)
     await safe_reply_text(
         message,
@@ -1509,21 +1373,14 @@ async def disable_fsub(bot: Client, message: Message):
 
 @Client.on_message(filters.command("setfsubcount"), group=-15)
 async def set_fsub_count_cmd(bot: Client, message: Message):
-    target_chat_id = await get_target_chat(bot, message)
-    if not await verify_admin(bot, message, target_chat_id):
-        return await safe_reply_text(
-            message,
-            "❌ <b>Unauthorized:</b> Admin only.",
-            parse_mode=enums.ParseMode.HTML,
-        )
-
+    if not await _require_fsub_admin(bot, message):
+        return
     if len(message.command) < 2 or not message.command[1].strip().isdigit():
         return await safe_reply_text(
             message,
             "⚙️ <b>Usage:</b> <code>/setfsubcount &lt;number&gt;</code>\n<i>(Use 0 for unlimited active channels)</i>",
             parse_mode=enums.ParseMode.HTML,
         )
-
     count_val = int(message.command[1].strip())
     await update_fsub_config("max_count", count_val)
     await safe_reply_text(
@@ -1540,17 +1397,13 @@ async def _finalize_setfsub(
         chat = await bot.get_chat(
             int(channel_id) if str(channel_id).lstrip("-").isdigit() else channel_id
         )
-        fsub_type = "req" if is_req else "regular"
-
         config = await get_fsub_config()
         channels = dict(config.get("channels", {}))
         max_count = int(config.get("max_count", 0) or 0)
-        active_count = len(
-            [
-                k
-                for k, c in channels.items()
-                if c.get("status") == "active" and k != str(chat.id)
-            ]
+        active_count = sum(
+            1
+            for k, c in channels.items()
+            if c.get("status") == "active" and k != str(chat.id)
         )
         status = "pending" if max_count > 0 and active_count >= max_count else "active"
 
@@ -1592,23 +1445,21 @@ async def _finalize_setfsub(
             "title": chat.title or str(chat.id),
             "link": inv_link,
             "target": None,
-            "type": fsub_type,
+            "type": "req" if is_req else "regular",
             "status": status,
             "order": existing_order,
         }
         await update_fsub_channels(channels)
 
-        safe_title = html.escape(str(chat.title or chat.id))
-        safe_link = html.escape(str(inv_link))
-        msg = (
+        return (
+            True,
             f"✅ <b>Successfully Configured FSub!</b>\n\n"
-            f"📢 <b>Channel:</b> <code>{safe_title}</code>\n"
+            f"📢 <b>Channel:</b> <code>{html.escape(str(chat.title or chat.id))}</code>\n"
             f"🆔 <b>ID:</b> <code>{chat.id}</code>\n"
-            f"🔗 <b>Link:</b> {safe_link}\n"
+            f"🔗 <b>Link:</b> <code>{html.escape(str(inv_link))}</code>\n"
             f"⚙️ <b>Type:</b> <code>{'Join Request' if is_req else 'Normal'}</code>\n"
-            f"🟢 <b>Status:</b> <code>{status.upper()}</code>"
+            f"🟢 <b>Status:</b> <code>{status.upper()}</code>",
         )
-        return True, msg
     except ChatAdminRequired:
         return (
             False,
@@ -1620,13 +1471,8 @@ async def _finalize_setfsub(
 
 @Client.on_message(filters.command("setfsub"), group=-15)
 async def add_dynamic_fsub(bot: Client, message: Message):
-    target_chat_id = await get_target_chat(bot, message)
-    if not await verify_admin(bot, message, target_chat_id):
-        return await safe_reply_text(
-            message,
-            "❌ <b>Unauthorized:</b> Admin only.",
-            parse_mode=enums.ParseMode.HTML,
-        )
+    if not await _require_fsub_admin(bot, message):
+        return
 
     if len(message.command) < 2:
         return await safe_reply_text(
@@ -1649,8 +1495,13 @@ async def add_dynamic_fsub(bot: Client, message: Message):
         )
 
     if len(message.command) >= 3:
-        arg2 = message.command[2].strip().lower()
-        is_req = arg2 in ["y", "yes", "req", "request", "true"]
+        is_req = message.command[2].strip().lower() in (
+            "y",
+            "yes",
+            "req",
+            "request",
+            "true",
+        )
         _, result_text = await _finalize_setfsub(
             bot, message.chat.id, channel_id, is_req
         )
@@ -1676,19 +1527,16 @@ async def add_dynamic_fsub(bot: Client, message: Message):
         ],
         [
             create_btn(
-                "❌ Cancel",
-                callback_data="fsub_setup#cancel#0",
-                style=BTN_DANGER,
+                "❌ Cancel", callback_data="fsub_setup#cancel#0", style=BTN_DANGER
             )
         ],
     ]
 
-    safe_title = html.escape(str(chat.title or channel_id))
     ask_msg = await safe_reply_text(
         message,
-        f"🎯 <b>Target:</b> <code>{safe_title}</code> (<code>{channel_id}</code>)\n\n"
+        f"🎯 <b>Target:</b> <code>{html.escape(str(chat.title or channel_id))}</code> (<code>{channel_id}</code>)\n\n"
         f"Do you want this to be a <b>Join Request</b> channel?\n\n"
-        f"👉 <b>Click a button below</b> <i>(or reply with <code>y</code> for Yes / <code>n</code> for No)</i>:",
+        f"👉 <b>Click a button below</b> <i>(or reply with <code>y</code> / <code>n</code>)</i>:",
         reply_markup=InlineKeyboardMarkup(buttons),
         parse_mode=enums.ParseMode.HTML,
     )
@@ -1711,14 +1559,13 @@ async def add_dynamic_fsub(bot: Client, message: Message):
                     parse_mode=enums.ParseMode.HTML,
                 )
             return
-        if txt in ["y", "yes", "n", "no"]:
-            is_req = txt in ["y", "yes"]
+        if txt in ("y", "yes", "n", "no"):
             try:
                 await resp.delete()
             except Exception:
                 pass
             _, result_text = await _finalize_setfsub(
-                bot, message.chat.id, channel_id, is_req
+                bot, message.chat.id, channel_id, txt in ("y", "yes")
             )
             if ask_msg:
                 await safe_edit_text(
@@ -1744,9 +1591,11 @@ async def add_dynamic_fsub(bot: Client, message: Message):
 async def fsub_admin_callbacks(bot: Client, query: CallbackQuery):
     if not await verify_cb_admin(bot, query):
         return await safe_answer(query, "❌ Unauthorized: Admin only.", show_alert=True)
+    if not query.message:
+        return await safe_answer(query)
 
     data = query.data
-    if query.message and query.message.chat.id in _WAITING_REQUESTS:
+    if query.message.chat.id in _WAITING_REQUESTS:
         fut = _WAITING_REQUESTS[query.message.chat.id].get("future")
         if fut and not fut.done():
             fut.cancel()
@@ -1763,9 +1612,8 @@ async def fsub_admin_callbacks(bot: Client, query: CallbackQuery):
             )
 
         await safe_answer(query, "⏳ Configuring FSub channel...")
-        is_req = mode == "req"
         _, result_text = await _finalize_setfsub(
-            bot, query.message.chat.id, channel_id, is_req
+            bot, query.message.chat.id, channel_id, mode == "req"
         )
         return await safe_edit_text(
             query.message,
@@ -1815,14 +1663,8 @@ async def fsub_admin_callbacks(bot: Client, query: CallbackQuery):
 
 @Client.on_message(filters.command(["rmfsub", "remfsub", "delfsub"]), group=-15)
 async def rem_fsub(bot: Client, message: Message):
-    target_chat_id = await get_target_chat(bot, message)
-    if not await verify_admin(bot, message, target_chat_id):
-        return await safe_reply_text(
-            message,
-            "❌ <b>Unauthorized:</b> Admin only.",
-            parse_mode=enums.ParseMode.HTML,
-        )
-
+    if not await _require_fsub_admin(bot, message):
+        return
     if len(message.command) < 2:
         return await safe_reply_text(
             message,
@@ -1833,7 +1675,6 @@ async def rem_fsub(bot: Client, message: Message):
 
     config = await get_fsub_config()
     channels = dict(config.get("channels", {}))
-
     if channel_id in channels:
         del channels[channel_id]
         _INVITE_LINK_CACHE.pop(channel_id, None)
@@ -1856,14 +1697,8 @@ async def rem_fsub(bot: Client, message: Message):
     filters.command(["rmallfsub", "remallfsub", "delallfsub"]), group=-15
 )
 async def rem_all_fsub(bot: Client, message: Message):
-    target_chat_id = await get_target_chat(bot, message)
-    if not await verify_admin(bot, message, target_chat_id):
-        return await safe_reply_text(
-            message,
-            "❌ <b>Unauthorized:</b> Admin only.",
-            parse_mode=enums.ParseMode.HTML,
-        )
-
+    if not await _require_fsub_admin(bot, message):
+        return
     _INVITE_LINK_CACHE.clear()
     _DEAD_FSUB_CHANNELS.clear()
     await update_fsub_channels({})
@@ -1896,13 +1731,12 @@ async def build_fsub_list_ui(
         f"📡 <b>Force Subscribe Status:</b> {fsub_enabled}\n"
         f"⚙️ <b>Queue Limit:</b> <code>{max_count if max_count > 0 else 'Unlimited'}</code>\n"
         f"🔄 <b>Auto-Rotation:</b> <code>{rot_status}</code>\n"
-        f"⚡ <b>Verification Mode:</b> <code>Real-Time Live Check + RAM Join-Request Tracker (Zero User DB Storage)</code>\n\n"
+        f"⚡ <b>Verification Mode:</b> <code>Real-Time Live Check + RAM Join-Request Tracker</code>\n\n"
     )
 
     if not channels:
         return (
-            header
-            + f"❌ <i>No {title_prefix.lower()} ForceSub channels configured.</i>",
+            header + f"❌ <i>No {title_prefix.lower()} ForceSub channels configured.</i>",
             None,
         )
 
@@ -1920,15 +1754,14 @@ async def build_fsub_list_ui(
         )
         req_type = "Join Request" if data.get("type") == "req" else "Normal"
         raw_title = str(data.get("title", "Unknown"))
-        safe_title = html.escape(raw_title)
         active_link = html.escape(
             str(data.get("target") or data.get("link") or "No Link Generated")
         )
         text += (
-            f"{idx}. {status_emoji} <b>{safe_title}</b>\n"
+            f"{idx}. {status_emoji} <b>{html.escape(raw_title)}</b>\n"
             f"├ ID: <code>{html.escape(str(cid))}</code>\n"
             f"├ Type: <code>{req_type}</code>\n"
-            f"└ Link: {active_link}\n\n"
+            f"└ Link: <code>{active_link}</code>\n\n"
         )
         buttons.append(
             [
@@ -1945,14 +1778,8 @@ async def build_fsub_list_ui(
 
 @Client.on_message(filters.command(["getallfsub", "allfsub", "fsub"]), group=-15)
 async def get_all_fsub(bot: Client, message: Message):
-    target_chat_id = await get_target_chat(bot, message)
-    if not await verify_admin(bot, message, target_chat_id):
-        return await safe_reply_text(
-            message,
-            "❌ <b>Unauthorized:</b> Admin only.",
-            parse_mode=enums.ParseMode.HTML,
-        )
-
+    if not await _require_fsub_admin(bot, message):
+        return
     text, markup = await build_fsub_list_ui("All")
     await safe_reply_text(
         message,
@@ -1965,14 +1792,8 @@ async def get_all_fsub(bot: Client, message: Message):
 
 @Client.on_message(filters.command(["getactivefsub", "activefsub"]), group=-15)
 async def get_active_fsub_cmd(bot: Client, message: Message):
-    target_chat_id = await get_target_chat(bot, message)
-    if not await verify_admin(bot, message, target_chat_id):
-        return await safe_reply_text(
-            message,
-            "❌ <b>Unauthorized:</b> Admin only.",
-            parse_mode=enums.ParseMode.HTML,
-        )
-
+    if not await _require_fsub_admin(bot, message):
+        return
     text, markup = await build_fsub_list_ui("Active", filter_status="active")
     await safe_reply_text(
         message,
@@ -1985,14 +1806,8 @@ async def get_active_fsub_cmd(bot: Client, message: Message):
 
 @Client.on_message(filters.command(["getpendingfsub", "pendingfsub"]), group=-15)
 async def get_pending_fsub_cmd(bot: Client, message: Message):
-    target_chat_id = await get_target_chat(bot, message)
-    if not await verify_admin(bot, message, target_chat_id):
-        return await safe_reply_text(
-            message,
-            "❌ <b>Unauthorized:</b> Admin only.",
-            parse_mode=enums.ParseMode.HTML,
-        )
-
+    if not await _require_fsub_admin(bot, message):
+        return
     text, markup = await build_fsub_list_ui("Pending", filter_status="pending")
     await safe_reply_text(
         message,
@@ -2005,14 +1820,8 @@ async def get_pending_fsub_cmd(bot: Client, message: Message):
 
 @Client.on_message(filters.command(["activatefsub", "deactivatefsub"]), group=-15)
 async def toggle_fsub_channel_status_cmd(bot: Client, message: Message):
-    target_chat_id = await get_target_chat(bot, message)
-    if not await verify_admin(bot, message, target_chat_id):
-        return await safe_reply_text(
-            message,
-            "❌ <b>Unauthorized:</b> Admin only.",
-            parse_mode=enums.ParseMode.HTML,
-        )
-
+    if not await _require_fsub_admin(bot, message):
+        return
     cmd = message.command[0].lower()
     if len(message.command) < 2:
         return await safe_reply_text(
@@ -2044,14 +1853,8 @@ async def toggle_fsub_channel_status_cmd(bot: Client, message: Message):
 
 @Client.on_message(filters.command("updatefsubtarget"), group=-15)
 async def update_fsub_target_cmd(bot: Client, message: Message):
-    target_chat_id = await get_target_chat(bot, message)
-    if not await verify_admin(bot, message, target_chat_id):
-        return await safe_reply_text(
-            message,
-            "❌ <b>Unauthorized:</b> Admin only.",
-            parse_mode=enums.ParseMode.HTML,
-        )
-
+    if not await _require_fsub_admin(bot, message):
+        return
     if len(message.command) < 3:
         return await safe_reply_text(
             message,
@@ -2071,7 +1874,7 @@ async def update_fsub_target_cmd(bot: Client, message: Message):
         )
 
     channels[cid]["target"] = (
-        None if target_link.lower() in ["off", "none", "reset"] else target_link
+        None if target_link.lower() in ("off", "none", "reset") else target_link
     )
     _INVITE_LINK_CACHE.pop(cid, None)
     _DEAD_FSUB_CHANNELS.pop(cid, None)
@@ -2085,14 +1888,8 @@ async def update_fsub_target_cmd(bot: Client, message: Message):
 
 @Client.on_message(filters.command("checkfsubusers"), group=-15)
 async def check_fsub_users_cmd(bot: Client, message: Message):
-    target_chat_id = await get_target_chat(bot, message)
-    if not await verify_admin(bot, message, target_chat_id):
-        return await safe_reply_text(
-            message,
-            "❌ <b>Unauthorized:</b> Admin only.",
-            parse_mode=enums.ParseMode.HTML,
-        )
-
+    if not await _require_fsub_admin(bot, message):
+        return
     await safe_reply_text(
         message,
         f"ℹ️ <b>Live Telegram Check + RAM Join-Request Mode Active:</b>\n"
@@ -2104,14 +1901,8 @@ async def check_fsub_users_cmd(bot: Client, message: Message):
 
 @Client.on_message(filters.command("clearfsubusers"), group=-15)
 async def clear_fsub_users_cmd(bot: Client, message: Message):
-    target_chat_id = await get_target_chat(bot, message)
-    if not await verify_admin(bot, message, target_chat_id):
-        return await safe_reply_text(
-            message,
-            "❌ <b>Unauthorized:</b> Admin only.",
-            parse_mode=enums.ParseMode.HTML,
-        )
-
+    if not await _require_fsub_admin(bot, message):
+        return
     cnt = await clear_all_fsub_users()
     await safe_reply_text(
         message,
@@ -2120,19 +1911,10 @@ async def clear_fsub_users_cmd(bot: Client, message: Message):
     )
 
 
-# ============================================================
-# 📊 JOIN REQUEST COMMANDS
-# ============================================================
 @Client.on_message(filters.command("totalrequests"), group=-15)
 async def total_requests(bot: Client, message: Message):
-    target_chat_id = await get_target_chat(bot, message)
-    if not await verify_admin(bot, message, target_chat_id):
-        return await safe_reply_text(
-            message,
-            "❌ <b>Unauthorized:</b> Admin only.",
-            parse_mode=enums.ParseMode.HTML,
-        )
-
+    if not await _require_fsub_admin(bot, message):
+        return
     await safe_reply_text(
         message,
         f"📨 <b>Active Join Requests in RAM:</b> <code>{len(_RAM_JOIN_REQS):,}</code>\n"
@@ -2143,14 +1925,8 @@ async def total_requests(bot: Client, message: Message):
 
 @Client.on_message(filters.command("purgerequests"), group=-15)
 async def purge_requests(bot: Client, message: Message):
-    target_chat_id = await get_target_chat(bot, message)
-    if not await verify_admin(bot, message, target_chat_id):
-        return await safe_reply_text(
-            message,
-            "❌ <b>Unauthorized:</b> Admin only.",
-            parse_mode=enums.ParseMode.HTML,
-        )
-
+    if not await _require_fsub_admin(bot, message):
+        return
     cnt = await clear_all_join_requests()
     await safe_reply_text(
         message,
