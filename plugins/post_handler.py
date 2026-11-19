@@ -1131,9 +1131,7 @@ async def apply_poster_update_to_session(
         )
     ):
         file_id = (
-            media_msg.photo.file_id
-            if media_msg.photo
-            else media_msg.document.file_id
+            media_msg.photo.file_id if media_msg.photo else media_msg.document.file_id
         )
         session["custom_photo_id"] = file_id
         session["poster_changed"] = True
@@ -1164,9 +1162,7 @@ async def apply_poster_update_to_session(
                         parse_mode=enums.ParseMode.HTML,
                     )
                     asyncio.create_task(
-                        delete_after_delay(
-                            client, status_msg.chat.id, status_msg.id, 3
-                        )
+                        delete_after_delay(client, status_msg.chat.id, status_msg.id, 3)
                     )
                 except Exception:
                     pass
@@ -1201,9 +1197,7 @@ async def apply_poster_update_to_session(
                         parse_mode=enums.ParseMode.HTML,
                     )
                     asyncio.create_task(
-                        delete_after_delay(
-                            client, status_msg.chat.id, status_msg.id, 4
-                        )
+                        delete_after_delay(client, status_msg.chat.id, status_msg.id, 4)
                     )
                 except Exception:
                     pass
