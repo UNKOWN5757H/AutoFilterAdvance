@@ -612,11 +612,6 @@ _TG_EMOJI_RE = re.compile(
     r'<tg-emoji\s+emoji-id=["\']?(\d+)["\']?\s*>(.*?)</tg-emoji>',
     re.IGNORECASE | re.DOTALL,
 )
-        BTN_SUCCESS = getattr(ButtonStyle, "SUCCESS", None)
-        BTN_DANGER = getattr(ButtonStyle, "DANGER", None)
-        _SUPPORTS_BTN_STYLE = True
-except (ImportError, ValueError, TypeError):
-    pass
 
 
 class TTLCache:
@@ -658,7 +653,6 @@ FUZZY_TITLES_CACHE = TTLCache(maxsize=10, ttl=1800)
 RESTRICTED_WRITE_CHATS = TTLCache(maxsize=500, ttl=300)
 
 # Shared hidden-link registry: maps short callback tokens -> target URLs
-# so NO InlineKeyboardButton ever embeds a visible `url=` inside the button!
 HIDDEN_LINKS_STORE: Dict[str, str] = {}
 _HIDDEN_LINKS_MAX = 15000
 
@@ -679,7 +673,6 @@ def resolve_hidden_link(token: str) -> Optional[str]:
 
 
 def _clean_button_label(raw_label: str) -> str:
-    """Strips any HTML tags or raw URLs from button text so ONLY clean text is displayed."""
     lbl = re.sub(r"<[^>]+>", "", str(raw_label or "")).strip()
     lbl = re.sub(r"(?i)https?://\S+|t\.me/\S+|www\.\S+", "", lbl).strip(" -|:")
     return lbl or "Open"
@@ -688,7 +681,6 @@ def _clean_button_label(raw_label: str) -> str:
 def _extract_icon_and_clean_label(
     raw_label: str, icon_id: Optional[Any] = None
 ) -> Tuple[str, Optional[str]]:
-    """Extracts `<tg-emoji emoji-id="...">` into `icon_custom_emoji_id` and cleans the label."""
     s = str(raw_label or "")
     resolved_icon = str(icon_id).strip() if icon_id else None
     if not resolved_icon:
@@ -732,10 +724,6 @@ def create_btn(
     style: Any = None,
     icon_custom_emoji_id: Optional[Any] = None,
 ) -> InlineKeyboardButton:
-    """
-    Creates an InlineKeyboardButton with ZERO visible links inside the button
-    and full Telegram Premium custom emoji icon support (`icon_custom_emoji_id`).
-    """
     clean_text, resolved_icon = _extract_icon_and_clean_label(
         text, icon_custom_emoji_id
     )
@@ -762,7 +750,6 @@ def create_btn(
         return InlineKeyboardButton(**kwargs)
     except Exception:
         if _BTN_ICON_PARAM and _BTN_ICON_PARAM in kwargs:
-            # Retry with alternate type (int <-> str) for cross-fork compatibility
             alt_val = (
                 str(resolved_icon)
                 if isinstance(kwargs[_BTN_ICON_PARAM], int)
@@ -780,7 +767,6 @@ def create_btn(
 def sanitize_markup_hide_links(
     markup: Optional[InlineKeyboardMarkup],
 ) -> Optional[InlineKeyboardMarkup]:
-    """Converts any `url=` buttons into hidden `olink#` buttons while preserving style & premium icons."""
     if not markup or not getattr(markup, "inline_keyboard", None):
         return markup
     new_rows: List[List[InlineKeyboardButton]] = []
@@ -1575,7 +1561,6 @@ def sanitize_search_query(text: str, allow_translit: bool = True) -> str:
     for pat, repl in _ROMAN_TO_DIGIT:
         raw_q = pat.sub(repl, raw_q)
 
-    # Split glued letters and digits like "kgf2" -> "kgf 2"
     raw_q = re.sub(r"\b([a-z]{3,})(\d)\b", r"\1 \2", raw_q)
 
     basic_q = re.sub(r"[^a-zA-Z0-9]", " ", raw_q)
@@ -1770,7 +1755,6 @@ def _deduplicate_files(files: list, clean_words: list) -> list:
             f.get("file_size", 0) if isinstance(f, dict) else getattr(f, "file_size", 0)
         )
         norm_name = _normalize_dedup_name(raw_name, clean_words)
-        # Bucket file size to nearest 16KB to eliminate near-identical re-uploads
         size_bucket = fsize // 16384
         dedup_key = (norm_name, size_bucket)
 
@@ -1787,13 +1771,6 @@ def _deduplicate_files(files: list, clean_words: list) -> list:
 
 
 def _score_file_relevance(file_obj, query_str: str) -> Tuple[int, int, int, int]:
-    """
-    Precision file ranking:
-    1. Exact movie title boundary match + Kannada language priority
-    2. Exact word-boundary match of all tokens & year bonus
-    3. Penalty when extra words appear before the movie title
-    4. Larger/higher-quality file size tie-breaker
-    """
     raw_fname = str(
         file_obj.get("file_name", "")
         if isinstance(file_obj, dict)
@@ -1840,7 +1817,6 @@ def _score_file_relevance(file_obj, query_str: str) -> Tuple[int, int, int, int]
     else:
         title_match_score += matched_tokens * 20
 
-    # Mild penalty if the movie title has extra unrelated prefix words (e.g. "Making Of ...")
     if extracted_title and not extracted_title.startswith(q_no_year[:3]):
         title_match_score -= 30
 
@@ -1975,7 +1951,6 @@ async def get_cached_db_titles() -> List[str]:
 # 💡 UPGRADED "DID YOU MEAN?" MULTI-CHOICE SUGGESTIONS FINDER
 # ============================================================
 def _phonetic_key(s: str) -> str:
-    """Indian-English phonetic normalizer (Kantara==Kanthara, Kaatera==Katera, Pushpa==Puspa)."""
     s = re.sub(r"[^a-z0-9]", "", s.lower())
     if not s:
         return ""
@@ -2022,12 +1997,6 @@ def _dice_ngram_similarity(a: str, b: str, n: int = 2) -> float:
 async def get_did_you_mean_suggestions(
     query: str, max_suggestions: int = 6, allow_translit: bool = True
 ) -> List[str]:
-    """
-    Upgraded Multi-Stage "Did You Mean?" Engine:
-    1. Live DB prefix + consonant-skeleton regex discovery across ALL healthy clusters.
-    2. 6-signal similarity ranking (Sequence, Phonetic, Consonant Skeleton, Bigram Dice,
-       Trigram Dice, and Token-Level Alignment) + Prefix/Substring bonuses.
-    """
     clean_q = sanitize_search_query(query, allow_translit=allow_translit)
     if not clean_q:
         return []
@@ -2040,7 +2009,6 @@ async def get_did_you_mean_suggestions(
 
     candidate_pool = set(await get_cached_db_titles())
 
-    # Live DB fuzzy prefix + consonant discovery so older titles not in RAM cache are found
     live_patterns = []
     for tok in q_tokens[:2]:
         if len(tok) >= 3:
@@ -2249,10 +2217,15 @@ async def god_tier_search(
         if files:
             return files, offset, total, no_year_query, was_transliterated
 
-    # Sequel/Chapter flexible fallback (e.g. "kgf chapter 2" -> "kgf 2")
-    no_chapter = re.sub(r"\b(?:chapter|part|vol|volume)\b", "", no_year_query or clean_query).strip()
+    no_chapter = re.sub(
+        r"\b(?:chapter|part|vol|volume)\b", "", no_year_query or clean_query
+    ).strip()
     no_chapter = re.sub(r"\s+", " ", no_chapter)
-    if no_chapter and no_chapter not in (clean_query, no_year_query) and len(no_chapter) > 2:
+    if (
+        no_chapter
+        and no_chapter not in (clean_query, no_year_query)
+        and len(no_chapter) > 2
+    ):
         files, offset, total = await smart_filtered_search(
             no_chapter, default_state, max_results=10, offset=0
         )
@@ -2310,7 +2283,6 @@ async def build_result_buttons(
     lang_btn_text = f"🔊 {active_lang}" if active_lang else "🔊"
     qual_btn_text = f"🎥 {active_qual}" if active_qual else "🎥"
 
-    # Every button uses `create_btn` -> ZERO `url=` embedded in any button!
     btn = [
         [
             create_btn(
@@ -2478,9 +2450,10 @@ async def hidden_button_click_callback(bot: Client, query: CallbackQuery):
         token = data.split("#", 1)[1]
         target_url = resolve_hidden_link(token)
         if not target_url:
-            return await safe_answer(query, "⌛ Button expired. Please search again!", show_alert=True)
+            return await safe_answer(
+                query, "⌛ Button expired. Please search again!", show_alert=True
+            )
 
-        # Bot deep-links open directly; external/channel links open seamlessly via bot /start redirect
         if f"t.me/{bot_username.lower()}?start=" in target_url.lower():
             return await safe_answer(query, url=target_url)
 
@@ -2501,9 +2474,7 @@ async def hidden_button_click_callback(bot: Client, query: CallbackQuery):
 # ============================================================
 def _get_deleted_file_notify_keyboard() -> InlineKeyboardMarkup:
     req_grp_url = getattr(info, "GRP_LNK", "https://t.me/Sandalwood_Kannada_Group")
-    return InlineKeyboardMarkup(
-        [[create_btn("Movie Request 📝", url=req_grp_url)]]
-    )
+    return InlineKeyboardMarkup([[create_btn("Movie Request 📝", url=req_grp_url)]])
 
 
 async def _delete_single_message(
@@ -3304,9 +3275,11 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
 
     await safe_answer(
         query,
-        f"✅ Filtered by: {' + '.join(active_filters)}"
-        if active_filters
-        else "⬅️ Restored normal filter results!",
+        (
+            f"✅ Filtered by: {' + '.join(active_filters)}"
+            if active_filters
+            else "⬅️ Restored normal filter results!"
+        ),
     )
 
 
