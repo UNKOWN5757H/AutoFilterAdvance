@@ -251,9 +251,7 @@ def strip_stylish_fonts(text: str) -> str:
 # ============================================================
 EXTRA_BTN_1_URL = getattr(info, "EXTRA_BTN_1_URL", "https://t.me/+lcTawsnhdi0zYWE1")
 EXTRA_BTN_2_URL = getattr(info, "EXTRA_BTN_2_URL", "https://t.me/linkz_ki_duniyaa")
-LATEST_UPDATES_URL = getattr(
-    info, "LATEST_UPDATES_URL", "https://t.me/+8Mw-Y-fYN6hiZWZl"
-)
+LATEST_UPDATES_URL = getattr(info, "LATEST_UPDATES_URL", "https://t.me/+8Mw-Y-fYN6hiZWZl")
 
 # ============================================================
 # 🌐 LANGUAGES & 🎞️ QUALITIES CONFIGURATION
@@ -589,12 +587,31 @@ BTN_PRIMARY = None
 BTN_SUCCESS = None
 BTN_DANGER = None
 _SUPPORTS_BTN_STYLE = False
+_BTN_ICON_PARAM: Optional[str] = None
+_BTN_ICON_WANTS_INT = False
 
 try:
     from pyrogram.enums import ButtonStyle
 
-    if "style" in inspect.signature(InlineKeyboardButton.__init__).parameters:
+    _btn_sig_params = inspect.signature(InlineKeyboardButton.__init__).parameters
+    if "style" in _btn_sig_params:
         BTN_PRIMARY = getattr(ButtonStyle, "PRIMARY", None)
+        BTN_SUCCESS = getattr(ButtonStyle, "SUCCESS", None)
+        BTN_DANGER = getattr(ButtonStyle, "DANGER", None)
+        _SUPPORTS_BTN_STYLE = True
+    for _cand_icon_param in ("icon_custom_emoji_id", "custom_emoji_id", "icon_id"):
+        if _cand_icon_param in _btn_sig_params:
+            _BTN_ICON_PARAM = _cand_icon_param
+            _ann = str(_btn_sig_params[_cand_icon_param].annotation).lower()
+            _BTN_ICON_WANTS_INT = "int" in _ann and "str" not in _ann
+            break
+except (ImportError, ValueError, TypeError):
+    pass
+
+_TG_EMOJI_RE = re.compile(
+    r'<tg-emoji\s+emoji-id=["\']?(\d+)["\']?\s*>(.*?)</tg-emoji>',
+    re.IGNORECASE | re.DOTALL,
+)
         BTN_SUCCESS = getattr(ButtonStyle, "SUCCESS", None)
         BTN_DANGER = getattr(ButtonStyle, "DANGER", None)
         _SUPPORTS_BTN_STYLE = True
@@ -668,6 +685,32 @@ def _clean_button_label(raw_label: str) -> str:
     return lbl or "Open"
 
 
+def _extract_icon_and_clean_label(
+    raw_label: str, icon_id: Optional[Any] = None
+) -> Tuple[str, Optional[str]]:
+    """Extracts `<tg-emoji emoji-id="...">` into `icon_custom_emoji_id` and cleans the label."""
+    s = str(raw_label or "")
+    resolved_icon = str(icon_id).strip() if icon_id else None
+    if not resolved_icon:
+        m = _TG_EMOJI_RE.search(s)
+        if m:
+            resolved_icon = m.group(1).strip()
+            s = _TG_EMOJI_RE.sub("" if _BTN_ICON_PARAM else m.group(2), s, count=1)
+    elif _TG_EMOJI_RE.search(s):
+        s = _TG_EMOJI_RE.sub("", s)
+    return _clean_button_label(s), (
+        resolved_icon if (resolved_icon and resolved_icon.isdigit()) else None
+    )
+
+
+def _get_btn_icon_id(btn: InlineKeyboardButton) -> Optional[str]:
+    for attr in ("icon_custom_emoji_id", "custom_emoji_id", "icon_id"):
+        val = getattr(btn, attr, None)
+        if val:
+            return str(val).strip()
+    return None
+
+
 def _normalize_style(style: Any) -> Any:
     if style is None or not _SUPPORTS_BTN_STYLE:
         return None
@@ -687,13 +730,15 @@ def create_btn(
     url: Optional[str] = None,
     callback_data: Optional[str] = None,
     style: Any = None,
+    icon_custom_emoji_id: Optional[Any] = None,
 ) -> InlineKeyboardButton:
     """
-    Creates an InlineKeyboardButton with ZERO visible links inside the button!
-    If `url` is passed, it is automatically converted into a hidden `olink#<token>`
-    callback button so Telegram displays ONLY the button text (no arrow icon, no link popup).
+    Creates an InlineKeyboardButton with ZERO visible links inside the button
+    and full Telegram Premium custom emoji icon support (`icon_custom_emoji_id`).
     """
-    clean_text = _clean_button_label(text)
+    clean_text, resolved_icon = _extract_icon_and_clean_label(
+        text, icon_custom_emoji_id
+    )
     kwargs: Dict[str, Any] = {"text": clean_text}
 
     if callback_data:
@@ -707,9 +752,27 @@ def create_btn(
     norm_style = _normalize_style(style)
     if norm_style is not None:
         kwargs["style"] = norm_style
+
+    if _BTN_ICON_PARAM and resolved_icon:
+        kwargs[_BTN_ICON_PARAM] = (
+            int(resolved_icon) if _BTN_ICON_WANTS_INT else str(resolved_icon)
+        )
+
     try:
         return InlineKeyboardButton(**kwargs)
     except Exception:
+        if _BTN_ICON_PARAM and _BTN_ICON_PARAM in kwargs:
+            # Retry with alternate type (int <-> str) for cross-fork compatibility
+            alt_val = (
+                str(resolved_icon)
+                if isinstance(kwargs[_BTN_ICON_PARAM], int)
+                else int(resolved_icon)
+            )
+            kwargs[_BTN_ICON_PARAM] = alt_val
+            try:
+                return InlineKeyboardButton(**kwargs)
+            except Exception:
+                kwargs.pop(_BTN_ICON_PARAM, None)
         kwargs.pop("style", None)
         return InlineKeyboardButton(**kwargs)
 
@@ -717,7 +780,7 @@ def create_btn(
 def sanitize_markup_hide_links(
     markup: Optional[InlineKeyboardMarkup],
 ) -> Optional[InlineKeyboardMarkup]:
-    """Converts any `url=` buttons inside an InlineKeyboardMarkup into hidden `olink#` buttons."""
+    """Converts any `url=` buttons into hidden `olink#` buttons while preserving style & premium icons."""
     if not markup or not getattr(markup, "inline_keyboard", None):
         return markup
     new_rows: List[List[InlineKeyboardButton]] = []
@@ -725,14 +788,20 @@ def sanitize_markup_hide_links(
         new_row: List[InlineKeyboardButton] = []
         for b in row:
             st = getattr(b, "style", None)
+            ic = _get_btn_icon_id(b)
             if getattr(b, "url", None):
-                new_row.append(create_btn(text=b.text, url=b.url, style=st))
+                new_row.append(
+                    create_btn(
+                        text=b.text, url=b.url, style=st, icon_custom_emoji_id=ic
+                    )
+                )
             else:
                 new_row.append(
                     create_btn(
                         text=b.text,
                         callback_data=getattr(b, "callback_data", "noop"),
                         style=st,
+                        icon_custom_emoji_id=ic,
                     )
                 )
         if new_row:
@@ -2181,15 +2250,9 @@ async def god_tier_search(
             return files, offset, total, no_year_query, was_transliterated
 
     # Sequel/Chapter flexible fallback (e.g. "kgf chapter 2" -> "kgf 2")
-    no_chapter = re.sub(
-        r"\b(?:chapter|part|vol|volume)\b", "", no_year_query or clean_query
-    ).strip()
+    no_chapter = re.sub(r"\b(?:chapter|part|vol|volume)\b", "", no_year_query or clean_query).strip()
     no_chapter = re.sub(r"\s+", " ", no_chapter)
-    if (
-        no_chapter
-        and no_chapter not in (clean_query, no_year_query)
-        and len(no_chapter) > 2
-    ):
+    if no_chapter and no_chapter not in (clean_query, no_year_query) and len(no_chapter) > 2:
         files, offset, total = await smart_filtered_search(
             no_chapter, default_state, max_results=10, offset=0
         )
@@ -2415,9 +2478,7 @@ async def hidden_button_click_callback(bot: Client, query: CallbackQuery):
         token = data.split("#", 1)[1]
         target_url = resolve_hidden_link(token)
         if not target_url:
-            return await safe_answer(
-                query, "⌛ Button expired. Please search again!", show_alert=True
-            )
+            return await safe_answer(query, "⌛ Button expired. Please search again!", show_alert=True)
 
         # Bot deep-links open directly; external/channel links open seamlessly via bot /start redirect
         if f"t.me/{bot_username.lower()}?start=" in target_url.lower():
@@ -2440,7 +2501,9 @@ async def hidden_button_click_callback(bot: Client, query: CallbackQuery):
 # ============================================================
 def _get_deleted_file_notify_keyboard() -> InlineKeyboardMarkup:
     req_grp_url = getattr(info, "GRP_LNK", "https://t.me/Sandalwood_Kannada_Group")
-    return InlineKeyboardMarkup([[create_btn("Movie Request 📝", url=req_grp_url)]])
+    return InlineKeyboardMarkup(
+        [[create_btn("Movie Request 📝", url=req_grp_url)]]
+    )
 
 
 async def _delete_single_message(
@@ -2853,11 +2916,7 @@ async def autotranslate_cmd_handler(client: Client, message: Message):
         new_state = (
             True
             if arg in ["on", "enable", "true", "yes", "1"]
-            else (
-                False
-                if arg in ["off", "disable", "false", "no", "0"]
-                else not cur_trans
-            )
+            else False if arg in ["off", "disable", "false", "no", "0"] else not cur_trans
         )
     else:
         new_state = not cur_trans
@@ -3245,11 +3304,9 @@ async def filter_menu_callbacks(bot: Client, query: CallbackQuery):
 
     await safe_answer(
         query,
-        (
-            f"✅ Filtered by: {' + '.join(active_filters)}"
-            if active_filters
-            else "⬅️ Restored normal filter results!"
-        ),
+        f"✅ Filtered by: {' + '.join(active_filters)}"
+        if active_filters
+        else "⬅️ Restored normal filter results!",
     )
 
 
@@ -3418,29 +3475,40 @@ def build_keyboard(btn_str: str):
                 if isinstance(b, dict):
                     b_copy = b.copy()
                     style_val = b_copy.pop("style", None)
+                    icon_val = b_copy.pop("icon_custom_emoji_id", None)
                     url_val = b_copy.get("url")
                     cb_val = b_copy.get("callback_data")
-                    lbl_val = _clean_button_label(b_copy.get("text", "Button"))
+                    raw_lbl = str(b_copy.get("text", "Button"))
                     if url_val:
                         clean_u = _clean_extracted_url(url_val)
                         if not clean_u.startswith(("http://", "https://", "tg://")):
                             continue
                         btn_row.append(
-                            create_btn(text=lbl_val, url=clean_u, style=style_val)
+                            create_btn(
+                                text=raw_lbl,
+                                url=clean_u,
+                                style=style_val,
+                                icon_custom_emoji_id=icon_val,
+                            )
                         )
                     elif cb_val:
                         btn_row.append(
                             create_btn(
-                                text=lbl_val,
+                                text=raw_lbl,
                                 callback_data=str(cb_val),
                                 style=style_val,
+                                icon_custom_emoji_id=icon_val,
                             )
                         )
                 elif isinstance(b, InlineKeyboardButton):
+                    ic = _get_btn_icon_id(b)
                     if getattr(b, "url", None):
                         btn_row.append(
                             create_btn(
-                                text=b.text, url=b.url, style=getattr(b, "style", None)
+                                text=b.text,
+                                url=b.url,
+                                style=getattr(b, "style", None),
+                                icon_custom_emoji_id=ic,
                             )
                         )
                     else:
@@ -3577,6 +3645,9 @@ def _extract_existing_inline_buttons(msg: Optional[Message]) -> List[List[dict]]
             st = getattr(b, "style", None)
             if st is not None:
                 b_dict["style"] = st.value if hasattr(st, "value") else st
+            ic = _get_btn_icon_id(b)
+            if ic:
+                b_dict["icon_custom_emoji_id"] = ic
             if b.url or b.callback_data:
                 row_btns.append(b_dict)
         if row_btns:
