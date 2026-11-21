@@ -80,7 +80,6 @@ except ImportError:
             for row in markup.inline_keyboard:
                 new_row = []
                 for b in row:
-                    st = getattr(b, "style", None)
                     if getattr(b, "url", None):
                         new_row.append(
                             create_styled_btn(b.text, url=b.url, color=None)
@@ -134,12 +133,6 @@ _TG_EMOJI_RE = re.compile(
     r'<tg-emoji\s+emoji-id=["\']?(\d+)["\']?\s*>(.*?)</tg-emoji>',
     re.IGNORECASE | re.DOTALL,
 )
-        BTN_SECONDARY = getattr(ButtonStyle, "SECONDARY", None)
-        BTN_SUCCESS = getattr(ButtonStyle, "SUCCESS", None)
-        BTN_DANGER = getattr(ButtonStyle, "DANGER", None)
-        _SUPPORTS_BTN_STYLE = True
-except (ImportError, ValueError, TypeError):
-    pass
 
 
 def _clean_button_label(raw_label: str) -> str:
@@ -167,7 +160,6 @@ def create_styled_btn(
     color: Optional[str] = None,
     icon_custom_emoji_id: Optional[Any] = None,
 ) -> InlineKeyboardButton:
-    """Creates an InlineKeyboardButton with ZERO visible links and Premium emoji icon support."""
     raw_text = str(text or "")
     resolved_icon = str(icon_custom_emoji_id).strip() if icon_custom_emoji_id else None
     if not resolved_icon:
@@ -351,7 +343,6 @@ def _sync_ui_to_runtime(doc: Dict[str, Any]):
     if "about_img" in doc:
         info.ABOUT_IMG = doc["about_img"] if doc["about_img"] else _ORIG_ABOUT_IMG
 
-    # Immediately invalidate uibuttons caches so edits appear right away
     try:
         import plugins.uibuttons as _uib
 
@@ -572,7 +563,6 @@ def parse_button_cmd(
     if not body:
         return None, None, "belowside", "blue", None
 
-    # Extract any Telegram Premium custom emoji from the button label before cleaning HTML
     icon_id: Optional[str] = None
     m_emoji = _TG_EMOJI_RE.search(body)
     if m_emoji:
@@ -630,6 +620,15 @@ def parse_button_cmd(
             return btn_text, _normalize_url(tokens[-1]), layout, color, icon_id
 
     return None, None, layout, color, icon_id
+
+
+def parse_edit_button_args(
+    text: str,
+) -> Tuple[Optional[int], Optional[str], Optional[str]]:
+    raw = re.sub(r"^/\w+(?:@[a-zA-Z0-9_]+)?\s*", "", text or "", count=1).strip()
+    parts = [p.strip().lower() for p in raw.replace("|", " ").split() if p.strip()]
+    if len(parts) < 2 or not parts[0].isdigit():
+        return None, None, None
 
     idx = int(parts[0]) - 1
     layout = color = None
@@ -763,7 +762,12 @@ async def _handle_add_btn(message: Message, menu: str, label: str):
         )
     ui = await get_ui()
     btns = list(ui.get(f"{menu}_buttons", []))
-    entry = {"text": btn_text, "url": url, "layout": layout, "color": color}
+    entry: Dict[str, Any] = {
+        "text": btn_text,
+        "url": url,
+        "layout": layout,
+        "color": color,
+    }
     if icon_id:
         entry["icon_custom_emoji_id"] = icon_id
     btns.append(entry)
