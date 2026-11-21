@@ -144,8 +144,8 @@ except ImportError:
 
 MESSAGE_EMOJI_PLANE = '<tg-emoji emoji-id="5875465628285931233">✈️</tg-emoji> Telegram'
 MESSAGE_EMOJI_LINK = '<tg-emoji emoji-id="5877465816030515018">🔗</tg-emoji> Link'
-
-DEFAULT_CLEAN_WORDS = ["sandalwood", "mkv", "mp4", "avi", "webm", "zip", "rar"]
+BTN_ICON_PLANE = "5875465628285931233"
+BTN_ICON_LINK = "5877465816030515018"
 
 DEFAULT_CLEANFILE_TXT = (
     "🧹 <b>Clean Filename Words Manager</b>\n"
@@ -427,12 +427,31 @@ BTN_PRIMARY = None
 BTN_SUCCESS = None
 BTN_DANGER = None
 _SUPPORTS_BTN_STYLE = False
+_BTN_ICON_PARAM: Optional[str] = None
+_BTN_ICON_WANTS_INT = False
 
 try:
     from pyrogram.enums import ButtonStyle
 
-    if "style" in inspect.signature(InlineKeyboardButton.__init__).parameters:
+    _btn_sig_params = inspect.signature(InlineKeyboardButton.__init__).parameters
+    if "style" in _btn_sig_params:
         BTN_PRIMARY = getattr(ButtonStyle, "PRIMARY", None)
+        BTN_SUCCESS = getattr(ButtonStyle, "SUCCESS", None)
+        BTN_DANGER = getattr(ButtonStyle, "DANGER", None)
+        _SUPPORTS_BTN_STYLE = True
+    for _cand_icon_param in ("icon_custom_emoji_id", "custom_emoji_id", "icon_id"):
+        if _cand_icon_param in _btn_sig_params:
+            _BTN_ICON_PARAM = _cand_icon_param
+            _ann = str(_btn_sig_params[_cand_icon_param].annotation).lower()
+            _BTN_ICON_WANTS_INT = "int" in _ann and "str" not in _ann
+            break
+except (ImportError, ValueError, TypeError):
+    pass
+
+_TG_EMOJI_RE = re.compile(
+    r'<tg-emoji\s+emoji-id=["\']?(\d+)["\']?\s*>(.*?)</tg-emoji>',
+    re.IGNORECASE | re.DOTALL,
+)
         BTN_SUCCESS = getattr(ButtonStyle, "SUCCESS", None)
         BTN_DANGER = getattr(ButtonStyle, "DANGER", None)
         _SUPPORTS_BTN_STYLE = True
@@ -472,12 +491,25 @@ def create_btn(
     url: Optional[str] = None,
     callback_data: Optional[str] = None,
     style: Any = None,
+    icon_custom_emoji_id: Optional[Any] = None,
 ) -> InlineKeyboardButton:
     """
-    Creates an InlineKeyboardButton with ZERO visible links inside the button.
-    Any `url` is stored in the hidden-link registry and invoked via `callback_data="olink#<token>"`.
+    Creates an InlineKeyboardButton with ZERO visible links inside the button
+    and native Telegram Premium custom emoji support (`icon_custom_emoji_id`).
     """
-    kwargs: Dict[str, Any] = {"text": _clean_button_label(text)}
+    raw_text = str(text or "")
+    resolved_icon = str(icon_custom_emoji_id).strip() if icon_custom_emoji_id else None
+    if not resolved_icon:
+        m = _TG_EMOJI_RE.search(raw_text)
+        if m:
+            resolved_icon = m.group(1).strip()
+            raw_text = _TG_EMOJI_RE.sub(
+                "" if _BTN_ICON_PARAM else m.group(2), raw_text, count=1
+            )
+    elif _TG_EMOJI_RE.search(raw_text):
+        raw_text = _TG_EMOJI_RE.sub("", raw_text)
+
+    kwargs: Dict[str, Any] = {"text": _clean_button_label(raw_text)}
     if callback_data:
         kwargs["callback_data"] = str(callback_data)[:64]
     elif url:
@@ -488,9 +520,25 @@ def create_btn(
     if _SUPPORTS_BTN_STYLE and style is not None:
         kwargs["style"] = style
 
+    if _BTN_ICON_PARAM and resolved_icon and resolved_icon.isdigit():
+        kwargs[_BTN_ICON_PARAM] = (
+            int(resolved_icon) if _BTN_ICON_WANTS_INT else str(resolved_icon)
+        )
+
     try:
         return InlineKeyboardButton(**kwargs)
     except Exception:
+        if _BTN_ICON_PARAM and _BTN_ICON_PARAM in kwargs:
+            alt_val = (
+                str(resolved_icon)
+                if isinstance(kwargs[_BTN_ICON_PARAM], int)
+                else int(resolved_icon)
+            )
+            kwargs[_BTN_ICON_PARAM] = alt_val
+            try:
+                return InlineKeyboardButton(**kwargs)
+            except Exception:
+                kwargs.pop(_BTN_ICON_PARAM, None)
         kwargs.pop("style", None)
         return InlineKeyboardButton(**kwargs)
 
@@ -524,10 +572,7 @@ def _prepare_compat_kwargs(
 
     explicit_disable = clean_kw.pop("disable_web_page_preview", disable_preview)
     if explicit_disable is not None:
-        if (
-            "link_preview_options" in supported_params
-            and LinkPreviewOptions is not None
-        ):
+        if "link_preview_options" in supported_params and LinkPreviewOptions is not None:
             try:
                 clean_kw["link_preview_options"] = LinkPreviewOptions(
                     is_disabled=bool(explicit_disable)
@@ -1203,19 +1248,22 @@ async def get_start_keyboard(client: Client, user_id: int) -> InlineKeyboardMark
     buttons = [
         [
             create_btn(
-                "✈️ Gʀᴏᴜᴘ 1",
+                "Gʀᴏᴜᴘ 1" if _BTN_ICON_PARAM else "✈️ Gʀᴏᴜᴘ 1",
                 url="https://t.me/Sandalwood_Kannada_Group",
                 style=BTN_PRIMARY,
+                icon_custom_emoji_id=BTN_ICON_PLANE,
             ),
             create_btn(
-                "✈️ Gʀᴏᴜᴘ 2",
+                "Gʀᴏᴜᴘ 2" if _BTN_ICON_PARAM else "✈️ Gʀᴏᴜᴘ 2",
                 url="https://t.me/Kannada_Filmy_Group",
                 style=BTN_PRIMARY,
+                icon_custom_emoji_id=BTN_ICON_PLANE,
             ),
             create_btn(
-                "✈️ Gʀᴏᴜᴘ 3",
+                "Gʀᴏᴜᴘ 3" if _BTN_ICON_PARAM else "✈️ Gʀᴏᴜᴘ 3",
                 url="https://t.me/+GLsPkRgLGGszMzY1",
                 style=BTN_PRIMARY,
+                icon_custom_emoji_id=BTN_ICON_PLANE,
             ),
         ]
     ]
@@ -1233,9 +1281,12 @@ async def get_start_keyboard(client: Client, user_id: int) -> InlineKeyboardMark
     buttons.append(
         [
             create_btn(
-                "🔗 Nᴇᴡ Rᴇʟᴇᴀꜱᴇꜱ & Oᴛᴛ Uᴘᴅᴀᴛᴇꜱ",
+                "Nᴇᴡ Rᴇʟᴇᴀꜱᴇꜱ & Oᴛᴛ Uᴘᴅᴀᴛᴇꜱ"
+                if _BTN_ICON_PARAM
+                else "🔗 Nᴇᴡ Rᴇʟᴇᴀꜱᴇꜱ & Oᴛᴛ Uᴘᴅᴀᴛᴇꜱ",
                 url="https://t.me/sandalwood_kannada_moviesz",
                 style=BTN_SUCCESS,
+                icon_custom_emoji_id=BTN_ICON_LINK,
             )
         ]
     )
@@ -1369,24 +1420,16 @@ def get_help_section_keyboard(
             [
                 [
                     create_btn("setstarttext", callback_data="hact#cmd#setstarttext"),
-                    create_btn(
-                        "defaultstarttext", callback_data="hact#cmd#defaultstarttext"
-                    ),
+                    create_btn("defaultstarttext", callback_data="hact#cmd#defaultstarttext"),
                     create_btn("setstartimage", callback_data="hact#cmd#setstartimage"),
                 ],
                 [
                     create_btn("remstartimage", callback_data="hact#cmd#remstartimage"),
-                    create_btn(
-                        "addstartbutton", callback_data="hact#cmd#addstartbutton"
-                    ),
+                    create_btn("addstartbutton", callback_data="hact#cmd#addstartbutton"),
                 ],
                 [
-                    create_btn(
-                        "editstartbuttons", callback_data="hact#cmd#editstartbuttons"
-                    ),
-                    create_btn(
-                        "remstartbutton", callback_data="hact#cmd#remstartbutton"
-                    ),
+                    create_btn("editstartbuttons", callback_data="hact#cmd#editstartbuttons"),
+                    create_btn("remstartbutton", callback_data="hact#cmd#remstartbutton"),
                 ],
             ]
         )
@@ -1395,9 +1438,7 @@ def get_help_section_keyboard(
             [
                 [
                     create_btn("sethelptext", callback_data="hact#cmd#sethelptext"),
-                    create_btn(
-                        "defaulthelptext", callback_data="hact#cmd#defaulthelptext"
-                    ),
+                    create_btn("defaulthelptext", callback_data="hact#cmd#defaulthelptext"),
                     create_btn("sethelpimage", callback_data="hact#cmd#sethelpimage"),
                 ],
                 [
@@ -1405,9 +1446,7 @@ def get_help_section_keyboard(
                     create_btn("addhelpbutton", callback_data="hact#cmd#addhelpbutton"),
                 ],
                 [
-                    create_btn(
-                        "edithelpbuttons", callback_data="hact#cmd#edithelpbuttons"
-                    ),
+                    create_btn("edithelpbuttons", callback_data="hact#cmd#edithelpbuttons"),
                     create_btn("remhelpbutton", callback_data="hact#cmd#remhelpbutton"),
                 ],
             ]
@@ -1417,24 +1456,16 @@ def get_help_section_keyboard(
             [
                 [
                     create_btn("setabouttext", callback_data="hact#cmd#setabouttext"),
-                    create_btn(
-                        "defaultabouttext", callback_data="hact#cmd#defaultabouttext"
-                    ),
+                    create_btn("defaultabouttext", callback_data="hact#cmd#defaultabouttext"),
                     create_btn("setaboutimage", callback_data="hact#cmd#setaboutimage"),
                 ],
                 [
                     create_btn("remaboutimage", callback_data="hact#cmd#remaboutimage"),
-                    create_btn(
-                        "addaboutbutton", callback_data="hact#cmd#addaboutbutton"
-                    ),
+                    create_btn("addaboutbutton", callback_data="hact#cmd#addaboutbutton"),
                 ],
                 [
-                    create_btn(
-                        "editaboutbuttons", callback_data="hact#cmd#editaboutbuttons"
-                    ),
-                    create_btn(
-                        "remaboutbutton", callback_data="hact#cmd#remaboutbutton"
-                    ),
+                    create_btn("editaboutbuttons", callback_data="hact#cmd#editaboutbuttons"),
+                    create_btn("remaboutbutton", callback_data="hact#cmd#remaboutbutton"),
                 ],
             ]
         )
@@ -1466,20 +1497,11 @@ def get_help_section_keyboard(
                     create_btn("remautoimg", callback_data="hact#cmd#remautoimg"),
                 ],
                 [
-                    create_btn(
-                        "setfilenotfoundimg",
-                        callback_data="hact#cmd#setfilenotfoundimg",
-                    ),
-                    create_btn(
-                        "remfilenotfoundimg",
-                        callback_data="hact#cmd#remfilenotfoundimg",
-                    ),
+                    create_btn("setfilenotfoundimg", callback_data="hact#cmd#setfilenotfoundimg"),
+                    create_btn("remfilenotfoundimg", callback_data="hact#cmd#remfilenotfoundimg"),
                 ],
                 [
-                    create_btn(
-                        "defaultfilenotfoundimg",
-                        callback_data="hact#cmd#defaultfilenotfoundimg",
-                    ),
+                    create_btn("defaultfilenotfoundimg", callback_data="hact#cmd#defaultfilenotfoundimg"),
                     create_btn("setfsubimg", callback_data="hact#cmd#setfsubimg"),
                 ],
             ]
@@ -1506,9 +1528,7 @@ def get_help_section_keyboard(
                         f"spellcheck: {'ON ✅' if spell_on else 'OFF ❌'}",
                         callback_data="hact#spell_toggle",
                     ),
-                    create_btn(
-                        f"stopwords ({stops_count})", callback_data="hact#sw_list"
-                    ),
+                    create_btn(f"stopwords ({stops_count})", callback_data="hact#sw_list"),
                 ],
                 [
                     create_btn("addstopwords", callback_data="hact#sw_add"),
@@ -1519,13 +1539,8 @@ def get_help_section_keyboard(
                     create_btn("remallstopwords", callback_data="hact#sw_clear"),
                 ],
                 [
-                    create_btn(
-                        "setnotfoundtext", callback_data="hact#cmd#setnotfoundtext"
-                    ),
-                    create_btn(
-                        "defaultnotfoundtext",
-                        callback_data="hact#cmd#defaultnotfoundtext",
-                    ),
+                    create_btn("setnotfoundtext", callback_data="hact#cmd#setnotfoundtext"),
+                    create_btn("defaultnotfoundtext", callback_data="hact#cmd#defaultnotfoundtext"),
                 ],
             ]
         )
@@ -1537,15 +1552,11 @@ def get_help_section_keyboard(
                     create_btn("🔘 addfilter", callback_data="hact#cmd#addfilter"),
                 ],
                 [
-                    create_btn(
-                        "➕ addfilterbutton", callback_data="hact#cmd#addfilterbutton"
-                    ),
+                    create_btn("➕ addfilterbutton", callback_data="hact#cmd#addfilterbutton"),
                     create_btn("🖼️ filterimage", callback_data="hact#cmd#filterimage"),
                 ],
                 [
-                    create_btn(
-                        "🎨 editfiltercolur", callback_data="hact#cmd#editfiltercolur"
-                    ),
+                    create_btn("🎨 editfiltercolur", callback_data="hact#cmd#editfiltercolur"),
                     create_btn("🗑️ delfilter", callback_data="hact#cmd#delfilter"),
                 ],
                 [
@@ -1639,9 +1650,7 @@ def get_help_section_keyboard(
                 [
                     create_btn("Autodelete", callback_data="hact#cmd#autodelete"),
                     create_btn("buttondel", callback_data="hact#cmd#buttondel"),
-                    create_btn(
-                        "purgeduplicates", callback_data="hact#cmd#purgeduplicates"
-                    ),
+                    create_btn("purgeduplicates", callback_data="hact#cmd#purgeduplicates"),
                 ],
             ]
         )
@@ -1654,9 +1663,7 @@ def get_help_section_keyboard(
                 ],
                 [
                     create_btn("broadcast", callback_data="hact#cmd#broadcast"),
-                    create_btn(
-                        "group_broadcast", callback_data="hact#cmd#group_broadcast"
-                    ),
+                    create_btn("group_broadcast", callback_data="hact#cmd#group_broadcast"),
                 ],
                 [
                     create_btn("listpromos", callback_data="hact#cmd#listpromos"),
@@ -1682,21 +1689,11 @@ def get_help_section_keyboard(
                     ),
                 ],
                 [
-                    create_btn(
-                        "➕ Add DB Channel",
-                        callback_data="hact#cmd#addindexchannel",
-                        style=BTN_PRIMARY,
-                    ),
-                    create_btn(
-                        f"📋 DB Channels ({autoidx_count})",
-                        callback_data="hact#autoidx_list",
-                        style=BTN_PRIMARY,
-                    ),
+                    create_btn("➕ Add DB Channel", callback_data="hact#cmd#addindexchannel", style=BTN_PRIMARY),
+                    create_btn(f"📋 DB Channels ({autoidx_count})", callback_data="hact#autoidx_list", style=BTN_PRIMARY),
                 ],
                 [
-                    create_btn(
-                        "➖ Remove DB Channel", callback_data="hact#cmd#rmindexchannel"
-                    ),
+                    create_btn("➖ Remove DB Channel", callback_data="hact#cmd#rmindexchannel"),
                     create_btn("🧹 Free DB Space", callback_data="hact#cmd#freedb"),
                 ],
                 [
@@ -1736,19 +1733,11 @@ def get_help_section_keyboard(
                 ],
                 [
                     create_btn("➕ Add Bot", callback_data="mb#add", style=BTN_PRIMARY),
-                    create_btn(
-                        f"📋 Bot list ({mb_count})",
-                        callback_data="mb#list#0",
-                        style=BTN_PRIMARY,
-                    ),
+                    create_btn(f"📋 Bot list ({mb_count})", callback_data="mb#list#0", style=BTN_PRIMARY),
                 ],
                 [
                     create_btn("➖ Remove Bot", callback_data="mb#list#0"),
-                    create_btn(
-                        "🗑️ Remove All Bot",
-                        callback_data="mb#remall_ask",
-                        style=BTN_DANGER,
-                    ),
+                    create_btn("🗑️ Remove All Bot", callback_data="mb#remall_ask", style=BTN_DANGER),
                 ],
                 [
                     create_btn(
@@ -1782,9 +1771,7 @@ def get_help_section_keyboard(
                 ],
                 [
                     create_btn("exportgroups", callback_data="hact#cmd#exportgroups"),
-                    create_btn(
-                        "exportchannels", callback_data="hact#cmd#exportchannels"
-                    ),
+                    create_btn("exportchannels", callback_data="hact#cmd#exportchannels"),
                 ],
                 [
                     create_btn("channels", callback_data="hact#cmd#channels"),
@@ -1803,9 +1790,7 @@ def get_help_section_keyboard(
                 [
                     create_btn("Optimize_db", callback_data="hact#cmd#optimize_db"),
                     create_btn("total", callback_data="hact#cmd#total"),
-                    create_btn(
-                        "clearfsubusers", callback_data="hact#cmd#clearfsubusers"
-                    ),
+                    create_btn("clearfsubusers", callback_data="hact#cmd#clearfsubusers"),
                 ],
                 [
                     create_btn("clearfiles", callback_data="hact#cmd#clearfiles"),
@@ -1861,19 +1846,11 @@ def get_help_section_keyboard(
                 ],
                 [
                     create_btn("Add url", callback_data="ddb#add", style=BTN_PRIMARY),
-                    create_btn(
-                        f"url list ({ddb_count})",
-                        callback_data="ddb#list#0",
-                        style=BTN_PRIMARY,
-                    ),
+                    create_btn(f"url list ({ddb_count})", callback_data="ddb#list#0", style=BTN_PRIMARY),
                 ],
                 [
                     create_btn("Remove url", callback_data="ddb#list#0"),
-                    create_btn(
-                        "Remove All url",
-                        callback_data="ddb#remall_ask",
-                        style=BTN_DANGER,
-                    ),
+                    create_btn("Remove All url", callback_data="ddb#remall_ask", style=BTN_DANGER),
                 ],
                 [
                     create_btn("dbbackup", callback_data="hact#cmd#dbbackup"),
@@ -1899,9 +1876,7 @@ def get_help_section_keyboard(
                 ],
                 [
                     create_btn("editlangs", callback_data="hact#cmd#editlangs"),
-                    create_btn(
-                        "editresolutions", callback_data="hact#cmd#editresolutions"
-                    ),
+                    create_btn("editresolutions", callback_data="hact#cmd#editresolutions"),
                 ],
                 [
                     create_btn("editgenres", callback_data="hact#cmd#editgenres"),
@@ -1909,18 +1884,12 @@ def get_help_section_keyboard(
                 ],
                 [
                     create_btn("editbutton", callback_data="hact#cmd#editbutton"),
-                    create_btn(
-                        "editbuttoncolour", callback_data="hact#cmd#editbuttoncolour"
-                    ),
+                    create_btn("editbuttoncolour", callback_data="hact#cmd#editbuttoncolour"),
                 ],
                 [
                     create_btn("editdirect", callback_data="hact#cmd#editdirect"),
-                    create_btn(
-                        "setpoststicker", callback_data="hact#cmd#setpoststicker"
-                    ),
-                    create_btn(
-                        "rempoststicker", callback_data="hact#cmd#rempoststicker"
-                    ),
+                    create_btn("setpoststicker", callback_data="hact#cmd#setpoststicker"),
+                    create_btn("rempoststicker", callback_data="hact#cmd#rempoststicker"),
                 ],
             ]
         )
@@ -1965,20 +1934,12 @@ def get_help_section_keyboard(
                     )
                 ],
                 [
-                    create_btn(
-                        "🔑 Set API", callback_data="shrt#set_api", style=BTN_PRIMARY
-                    ),
-                    create_btn(
-                        "🌐 Set Site", callback_data="shrt#set_site", style=BTN_PRIMARY
-                    ),
+                    create_btn("🔑 Set API", callback_data="shrt#set_api", style=BTN_PRIMARY),
+                    create_btn("🌐 Set Site", callback_data="shrt#set_site", style=BTN_PRIMARY),
                 ],
                 [
                     create_btn("👁️ View API & Site", callback_data="shrt#view"),
-                    create_btn(
-                        "🗑️ Remove API & Site",
-                        callback_data="shrt#remove",
-                        style=BTN_DANGER,
-                    ),
+                    create_btn("🗑️ Remove API & Site", callback_data="shrt#remove", style=BTN_DANGER),
                 ],
             ]
         )
@@ -2895,296 +2856,83 @@ async def start_and_help_cmd(client: Client, message: Message):
 # 🚀 UNIVERSAL COMMAND DISPATCHER FOR HELP MENU BUTTONS
 # ============================================================
 _CMD_INPUT_PROMPTS: Dict[str, Tuple[str, str]] = {
-    "setstarttext": (
-        "helps_uistart",
-        "✏️ <b>Send the new Custom Start Text (HTML/Markdown supported):</b>",
-    ),
-    "setstartimage": (
-        "helps_uistart",
-        "🖼️ <b>Send the Photo you want to set as the Start Image:</b>",
-    ),
-    "addstartbutton": (
-        "helps_uistart",
-        '➕ <b>Send the Start Button in format:</b>\n<code>"Button Text" https://t.me/link</code>',
-    ),
-    "editstartbuttons": (
-        "helps_uistart",
-        "🎨 <b>Send Start Button layout & colour:</b>\nExample: <code>1 sidebyside green</code>",
-    ),
-    "sethelptext": (
-        "helps_uihelp",
-        "✏️ <b>Send the new Custom Help Text (HTML/Markdown supported):</b>",
-    ),
-    "sethelpimage": (
-        "helps_uihelp",
-        "🖼️ <b>Send the Photo you want to set as the Help Image:</b>",
-    ),
-    "addhelpbutton": (
-        "helps_uihelp",
-        '➕ <b>Send the Help Button in format:</b>\n<code>"Button Text" https://t.me/link</code>',
-    ),
-    "edithelpbuttons": (
-        "helps_uihelp",
-        "🎨 <b>Send Help Button layout & colour:</b>\nExample: <code>1 belowside red</code>",
-    ),
-    "setabouttext": (
-        "helps_uiabout",
-        "✏️ <b>Send the new Custom About Text (HTML/Markdown supported):</b>",
-    ),
-    "setaboutimage": (
-        "helps_uiabout",
-        "🖼️ <b>Send the Photo you want to set as the About Image:</b>",
-    ),
-    "addaboutbutton": (
-        "helps_uiabout",
-        '➕ <b>Send the About Button in format:</b>\n<code>"Button Text" https://t.me/link</code>',
-    ),
-    "editaboutbuttons": (
-        "helps_uiabout",
-        "🎨 <b>Send About Button layout & colour:</b>\nExample: <code>1 sidebyside blue</code>",
-    ),
-    "setwelcomeimg": (
-        "helps_welcome",
-        "🖼️ <b>Send the Photo you want to set as the Group Welcome Image:</b>",
-    ),
-    "setwelcome": (
-        "helps_welcome",
-        "👋 <b>Send a Photo with Caption to set both Welcome Image & Text:</b>",
-    ),
-    "setautoimg": (
-        "helps_images",
-        "🖼️ <b>Send the Photo to set as the Global Auto-Filter Image:</b>",
-    ),
-    "setfilenotfoundimg": (
-        "helps_images",
-        "🖼️ <b>Send the Photo to set as the File Not Found Image:</b>",
-    ),
-    "setfsubimg": (
-        "helps_images",
-        "🖼️ <b>Send the Photo to set as the Force Subscribe Alert Image:</b>",
-    ),
-    "remstopwords": (
-        "helps_spell",
-        "🛑 <b>Send the stopword(s) you want to remove:</b>",
-    ),
-    "setnotfoundtext": (
-        "helps_spell",
-        "✏️ <b>Send the new File Not Found text (HTML supported):</b>",
-    ),
-    "filter": (
-        "helps_filters",
-        "➕ <b>Add Manual Filter:</b>\n\n👉 Reply to any message and send the <b>keyword</b>, or send <code>keyword Reply Text</code>",
-    ),
-    "addfilter": (
-        "helps_filters",
-        "🔘 <b>Add Filter with Buttons:</b>\n\n👉 Reply to a message and send the <b>keyword</b>:",
-    ),
-    "addfilterbutton": (
-        "helps_filters",
-        "➕ <b>Add Button to Existing Filter:</b>\n\n👉 Send: <code>&lt;keyword&gt; Button Text - https://t.me/link</code>",
-    ),
-    "filterimage": (
-        "helps_filters",
-        "🖼️ <b>Update Filter Image/Media:</b>\n\n👉 Reply to a photo/video and send the <b>filter keyword</b>:",
-    ),
-    "editfiltercolur": (
-        "helps_filters",
-        "🎨 <b>Send filter keyword, button number & colour:</b>\nExample: <code>418 1 green</code>",
-    ),
-    "delfilter": (
-        "helps_filters",
-        "🗑️ <b>Send the filter keyword you want to delete:</b>",
-    ),
-    "setfsub": (
-        "helps_forcesub",
-        "📢 <b>Send the Channel ID to add to Force Subscribe:</b>\nExample: <code>-1001234567890</code>",
-    ),
-    "rmfsub": (
-        "helps_forcesub",
-        "🗑️ <b>Send the Channel ID to remove from Force Subscribe:</b>",
-    ),
-    "setforceadd": (
-        "helps_forceadd",
-        "👥 <b>Send the required member count for Force Add:</b>\nExample: <code>5</code>",
-    ),
+    "setstarttext": ("helps_uistart", "✏️ <b>Send the new Custom Start Text (HTML/Markdown supported):</b>"),
+    "setstartimage": ("helps_uistart", "🖼️ <b>Send the Photo you want to set as the Start Image:</b>"),
+    "addstartbutton": ("helps_uistart", '➕ <b>Send the Start Button in format:</b>\n<code>"Button Text" https://t.me/link</code>'),
+    "editstartbuttons": ("helps_uistart", "🎨 <b>Send Start Button layout & colour:</b>\nExample: <code>1 sidebyside green</code>"),
+    "sethelptext": ("helps_uihelp", "✏️ <b>Send the new Custom Help Text (HTML/Markdown supported):</b>"),
+    "sethelpimage": ("helps_uihelp", "🖼️ <b>Send the Photo you want to set as the Help Image:</b>"),
+    "addhelpbutton": ("helps_uihelp", '➕ <b>Send the Help Button in format:</b>\n<code>"Button Text" https://t.me/link</code>'),
+    "edithelpbuttons": ("helps_uihelp", "🎨 <b>Send Help Button layout & colour:</b>\nExample: <code>1 belowside red</code>"),
+    "setabouttext": ("helps_uiabout", "✏️ <b>Send the new Custom About Text (HTML/Markdown supported):</b>"),
+    "setaboutimage": ("helps_uiabout", "🖼️ <b>Send the Photo you want to set as the About Image:</b>"),
+    "addaboutbutton": ("helps_uiabout", '➕ <b>Send the About Button in format:</b>\n<code>"Button Text" https://t.me/link</code>'),
+    "editaboutbuttons": ("helps_uiabout", "🎨 <b>Send About Button layout & colour:</b>\nExample: <code>1 sidebyside blue</code>"),
+    "setwelcomeimg": ("helps_welcome", "🖼️ <b>Send the Photo you want to set as the Group Welcome Image:</b>"),
+    "setwelcome": ("helps_welcome", "👋 <b>Send a Photo with Caption to set both Welcome Image & Text:</b>"),
+    "setautoimg": ("helps_images", "🖼️ <b>Send the Photo to set as the Global Auto-Filter Image:</b>"),
+    "setfilenotfoundimg": ("helps_images", "🖼️ <b>Send the Photo to set as the File Not Found Image:</b>"),
+    "setfsubimg": ("helps_images", "🖼️ <b>Send the Photo to set as the Force Subscribe Alert Image:</b>"),
+    "remstopwords": ("helps_spell", "🛑 <b>Send the stopword(s) you want to remove:</b>"),
+    "setnotfoundtext": ("helps_spell", "✏️ <b>Send the new File Not Found text (HTML supported):</b>"),
+    "filter": ("helps_filters", "➕ <b>Add Manual Filter:</b>\n\n👉 Reply to any message and send the <b>keyword</b>, or send <code>keyword Reply Text</code>"),
+    "addfilter": ("helps_filters", "🔘 <b>Add Filter with Buttons:</b>\n\n👉 Reply to a message and send the <b>keyword</b>:"),
+    "addfilterbutton": ("helps_filters", "➕ <b>Add Button to Existing Filter:</b>\n\n👉 Send: <code>&lt;keyword&gt; Button Text - https://t.me/link</code>"),
+    "filterimage": ("helps_filters", "🖼️ <b>Update Filter Image/Media:</b>\n\n👉 Reply to a photo/video and send the <b>filter keyword</b>:"),
+    "editfiltercolur": ("helps_filters", "🎨 <b>Send filter keyword, button number & colour:</b>\nExample: <code>418 1 green</code>"),
+    "delfilter": ("helps_filters", "🗑️ <b>Send the filter keyword you want to delete:</b>"),
+    "setfsub": ("helps_forcesub", "📢 <b>Send the Channel ID to add to Force Subscribe:</b>\nExample: <code>-1001234567890</code>"),
+    "rmfsub": ("helps_forcesub", "🗑️ <b>Send the Channel ID to remove from Force Subscribe:</b>"),
+    "setforceadd": ("helps_forceadd", "👥 <b>Send the required member count for Force Add:</b>\nExample: <code>5</code>"),
     "ban": ("helps_bans", "🚫 <b>Send the User ID (or username) to Ban:</b>"),
     "unban": ("helps_bans", "✅ <b>Send the User ID (or username) to Unban:</b>"),
     "leave": ("helps_bans", "🚪 <b>Send the Group/Channel Chat ID to leave:</b>"),
     "enable": ("helps_bans", "🟢 <b>Send the Group Chat ID to Enable:</b>"),
     "disable": ("helps_bans", "🔴 <b>Send the Group Chat ID to Disable:</b>"),
-    "delete": (
-        "helps_delete",
-        "🗑️ <b>Forward the file or send the exact filename to delete from DB:</b>",
-    ),
-    "delmulti": (
-        "helps_delete",
-        "🗑️ <b>Send the keyword to delete all matching files from DB:</b>",
-    ),
-    "autodelete": (
-        "helps_delete",
-        "⏳ <b>Send the PM File Auto-Delete timer in seconds (e.g. <code>1800</code>):</b>",
-    ),
-    "buttondel": (
-        "helps_delete",
-        "⏳ <b>Send the Group Search Results Auto-Delete timer in seconds (e.g. <code>300</code>):</b>",
-    ),
-    "addpromo": (
-        "helps_promotions",
-        '📢 <b>Send the Promo Button text & URL:</b>\nExample: <code>"Join Channel" https://t.me/channel</code>',
-    ),
-    "delpromo": (
-        "helps_promotions",
-        "🗑️ <b>Send the Promo URL (or button name) to delete:</b>",
-    ),
-    "broadcast": (
-        "helps_promotions",
-        "📡 <b>Send or forward the message you want to Broadcast to all Users:</b>",
-    ),
-    "group_broadcast": (
-        "helps_promotions",
-        "📡 <b>Send or forward the message you want to Broadcast to all Groups:</b>",
-    ),
-    "addindexchannel": (
-        "helps_index",
-        "📢 <b>Send the Channel ID or @username to add for Live Auto-Index:</b>",
-    ),
-    "rmindexchannel": (
-        "helps_index",
-        "🗑️ <b>Send the Channel ID to remove from Live Auto-Index:</b>",
-    ),
-    "index": (
-        "helps_index",
-        "📚 <b>Forward the last message from your channel or send the Channel Post Link:</b>",
-    ),
-    "indexdoc": (
-        "helps_index",
-        "📄 <b>Forward the last message or send the Channel Post Link to Index Documents:</b>",
-    ),
-    "indexvideo": (
-        "helps_index",
-        "🎥 <b>Forward the last message or send the Channel Post Link to Index Videos:</b>",
-    ),
-    "indexaudio": (
-        "helps_index",
-        "🎵 <b>Forward the last message or send the Channel Post Link to Index Audio:</b>",
-    ),
-    "resumeindex": (
-        "helps_index",
-        "▶️ <b>Send the Channel Chat ID to Resume Indexing:</b>",
-    ),
-    "setskip": (
-        "helps_index",
-        "⏩ <b>Send the starting message Skip Number (e.g. <code>100</code>):</b>",
-    ),
-    "connect": (
-        "helps_connections",
-        "🔗 <b>Send the Group Chat ID to Connect to your PM:</b>",
-    ),
-    "disconnect": (
-        "helps_connections",
-        "🔌 <b>Send the Group Chat ID to Disconnect:</b>",
-    ),
-    "leavechannel": (
-        "helps_connections",
-        "🚪 <b>Send the Channel/Group ID to Leave and Remove from DB:</b>",
-    ),
-    "infomsg": (
-        "helps_custommessages",
-        "💬 <b>Send the Info Message text (or <code>off</code> to disable):</b>",
-    ),
-    "infoimg": (
-        "helps_custommessages",
-        "🖼️ <b>Send the Photo for Info Image (or <code>off</code> to remove):</b>",
-    ),
-    "fsubmsg": (
-        "helps_custommessages",
-        "💬 <b>Send the custom Force Subscribe Message text (or <code>off</code>):</b>",
-    ),
-    "fsubimg": (
-        "helps_custommessages",
-        "🖼️ <b>Send the Photo for Force Subscribe Image (or <code>off</code>):</b>",
-    ),
-    "delmsg": (
-        "helps_custommessages",
-        "💬 <b>Send the custom Auto-Delete Warning Message (or <code>off</code>):</b>",
-    ),
-    "delimg": (
-        "helps_custommessages",
-        "🖼️ <b>Send the Photo for Auto-Delete Warning Image (or <code>off</code>):</b>",
-    ),
-    "notfoundmsg": (
-        "helps_custommessages",
-        "💬 <b>Send the custom File Not Found Message (or <code>off</code>):</b>",
-    ),
-    "notfoundimg": (
-        "helps_custommessages",
-        "🖼️ <b>Send the Photo for File Not Found Image (or <code>off</code>):</b>",
-    ),
-    "customcaption": (
-        "helps_customcaption",
-        "📝 <b>Send the Custom File Caption template (or <code>off</code>):</b>",
-    ),
-    "captionplus": (
-        "helps_customcaption",
-        "📝 <b>Send the extra Footer Caption (Caption Plus) text (or <code>off</code>):</b>",
-    ),
-    "dbrestore": (
-        "helps_backup",
-        "💾 <b>Send the <code>.json</code> Backup File to Restore your Database:</b>",
-    ),
-    "post": (
-        "helps_posthand",
-        "🎬 <b>Send the Movie Name to create an interactive Post:</b>",
-    ),
-    "editpost": (
-        "helps_posthand",
-        "✏️ <b>Send the Telegram Channel Post Link to import and edit:</b>",
-    ),
-    "editimage": (
-        "helps_posthand",
-        "🖼️ <b>Send a Photo or direct Image URL to update your active post draft:</b>",
-    ),
-    "edittitle": (
-        "helps_posthand",
-        "✏️ <b>Send the new Movie Title for your active post draft:</b>",
-    ),
-    "edityear": (
-        "helps_posthand",
-        "📅 <b>Send the new Release Year for your active post draft:</b>",
-    ),
-    "editlangs": (
-        "helps_posthand",
-        "🔊 <b>Send the Languages separated by commas:</b>",
-    ),
-    "editresolutions": (
-        "helps_posthand",
-        "🖥️ <b>Send the Resolutions separated by commas:</b>",
-    ),
+    "delete": ("helps_delete", "🗑️ <b>Forward the file or send the exact filename to delete from DB:</b>"),
+    "delmulti": ("helps_delete", "🗑️ <b>Send the keyword to delete all matching files from DB:</b>"),
+    "autodelete": ("helps_delete", "⏳ <b>Send the PM File Auto-Delete timer in seconds (e.g. <code>1800</code>):</b>"),
+    "buttondel": ("helps_delete", "⏳ <b>Send the Group Search Results Auto-Delete timer in seconds (e.g. <code>300</code>):</b>"),
+    "addpromo": ("helps_promotions", '📢 <b>Send the Promo Button text & URL:</b>\nExample: <code>"Join Channel" https://t.me/channel</code>'),
+    "delpromo": ("helps_promotions", "🗑️ <b>Send the Promo URL (or button name) to delete:</b>"),
+    "broadcast": ("helps_promotions", "📡 <b>Send or forward the message you want to Broadcast to all Users:</b>"),
+    "group_broadcast": ("helps_promotions", "📡 <b>Send or forward the message you want to Broadcast to all Groups:</b>"),
+    "addindexchannel": ("helps_index", "📢 <b>Send the Channel ID or @username to add for Live Auto-Index:</b>"),
+    "rmindexchannel": ("helps_index", "🗑️ <b>Send the Channel ID to remove from Live Auto-Index:</b>"),
+    "index": ("helps_index", "📚 <b>Forward the last message from your channel or send the Channel Post Link:</b>"),
+    "indexdoc": ("helps_index", "📄 <b>Forward the last message or send the Channel Post Link to Index Documents:</b>"),
+    "indexvideo": ("helps_index", "🎥 <b>Forward the last message or send the Channel Post Link to Index Videos:</b>"),
+    "indexaudio": ("helps_index", "🎵 <b>Forward the last message or send the Channel Post Link to Index Audio:</b>"),
+    "resumeindex": ("helps_index", "▶️ <b>Send the Channel Chat ID to Resume Indexing:</b>"),
+    "setskip": ("helps_index", "⏩ <b>Send the starting message Skip Number (e.g. <code>100</code>):</b>"),
+    "connect": ("helps_connections", "🔗 <b>Send the Group Chat ID to Connect to your PM:</b>"),
+    "disconnect": ("helps_connections", "🔌 <b>Send the Group Chat ID to Disconnect:</b>"),
+    "leavechannel": ("helps_connections", "🚪 <b>Send the Channel/Group ID to Leave and Remove from DB:</b>"),
+    "infomsg": ("helps_custommessages", "💬 <b>Send the Info Message text (or <code>off</code> to disable):</b>"),
+    "infoimg": ("helps_custommessages", "🖼️ <b>Send the Photo for Info Image (or <code>off</code> to remove):</b>"),
+    "fsubmsg": ("helps_custommessages", "💬 <b>Send the custom Force Subscribe Message text (or <code>off</code>):</b>"),
+    "fsubimg": ("helps_custommessages", "🖼️ <b>Send the Photo for Force Subscribe Image (or <code>off</code>):</b>"),
+    "delmsg": ("helps_custommessages", "💬 <b>Send the custom Auto-Delete Warning Message (or <code>off</code>):</b>"),
+    "delimg": ("helps_custommessages", "🖼️ <b>Send the Photo for Auto-Delete Warning Image (or <code>off</code>):</b>"),
+    "notfoundmsg": ("helps_custommessages", "💬 <b>Send the custom File Not Found Message (or <code>off</code>):</b>"),
+    "notfoundimg": ("helps_custommessages", "🖼️ <b>Send the Photo for File Not Found Image (or <code>off</code>):</b>"),
+    "customcaption": ("helps_customcaption", "📝 <b>Send the Custom File Caption template (or <code>off</code>):</b>"),
+    "captionplus": ("helps_customcaption", "📝 <b>Send the extra Footer Caption (Caption Plus) text (or <code>off</code>):</b>"),
+    "dbrestore": ("helps_backup", "💾 <b>Send the <code>.json</code> Backup File to Restore your Database:</b>"),
+    "post": ("helps_posthand", "🎬 <b>Send the Movie Name to create an interactive Post:</b>"),
+    "editpost": ("helps_posthand", "✏️ <b>Send the Telegram Channel Post Link to import and edit:</b>"),
+    "editimage": ("helps_posthand", "🖼️ <b>Send a Photo or direct Image URL to update your active post draft:</b>"),
+    "edittitle": ("helps_posthand", "✏️ <b>Send the new Movie Title for your active post draft:</b>"),
+    "edityear": ("helps_posthand", "📅 <b>Send the new Release Year for your active post draft:</b>"),
+    "editlangs": ("helps_posthand", "🔊 <b>Send the Languages separated by commas:</b>"),
+    "editresolutions": ("helps_posthand", "🖥️ <b>Send the Resolutions separated by commas:</b>"),
     "editgenres": ("helps_posthand", "🎭 <b>Send the Genres separated by commas:</b>"),
-    "editotts": (
-        "helps_posthand",
-        "📺 <b>Send the OTT Platforms separated by commas:</b>",
-    ),
-    "editbutton": (
-        "helps_posthand",
-        "🔘 <b>Send Row Number, Button Text & URL:</b>\nExample: <code>1 Download Now | https://t.me/link</code>",
-    ),
-    "editbuttoncolour": (
-        "helps_posthand",
-        "🎨 <b>Send Row Number & Colour (green, red, blue):</b>\nExample: <code>1 green</code>",
-    ),
-    "editdirect": (
-        "helps_posthand",
-        "🔗 <b>Send new Direct Search button text (and optional link with <code>|</code>):</b>",
-    ),
-    "setpoststicker": (
-        "helps_posthand",
-        "🀄 <b>Send the Sticker you want to set after every Channel Post:</b>",
-    ),
-    "setpmimage": (
-        "helps_pmautoreply",
-        "🖼️ <b>Send the Photo you want to set as the PM Auto-Reply Image:</b>",
-    ),
+    "editotts": ("helps_posthand", "📺 <b>Send the OTT Platforms separated by commas:</b>"),
+    "editbutton": ("helps_posthand", "🔘 <b>Send Row Number, Button Text & URL:</b>\nExample: <code>1 Download Now | https://t.me/link</code>"),
+    "editbuttoncolour": ("helps_posthand", "🎨 <b>Send Row Number & Colour (green, red, blue):</b>\nExample: <code>1 green</code>"),
+    "editdirect": ("helps_posthand", "🔗 <b>Send new Direct Search button text (and optional link with <code>|</code>):</b>"),
+    "setpoststicker": ("helps_posthand", "🀄 <b>Send the Sticker you want to set after every Channel Post:</b>"),
+    "setpmimage": ("helps_pmautoreply", "🖼️ <b>Send the Photo you want to set as the PM Auto-Reply Image:</b>"),
 }
 
 
@@ -3218,16 +2966,7 @@ async def _dispatch_synthetic_command(
         synth_msg = copy.copy(base_msg)
         synth_msg._client = client
         synth_msg.text = _SyntheticText(full_text, full_html)
-        for attr in (
-            "caption",
-            "photo",
-            "video",
-            "document",
-            "sticker",
-            "animation",
-            "audio",
-            "sender_chat",
-        ):
+        for attr in ("caption", "photo", "video", "document", "sticker", "animation", "audio", "sender_chat"):
             setattr(synth_msg, attr, None)
         synth_msg.command = cmd_parts
         synth_msg.from_user = user
@@ -3308,9 +3047,7 @@ async def _handle_help_cmd_button(client: Client, query: CallbackQuery, cmd_name
 
     if cmd_clean == "currentskip":
         return await safe_answer(
-            query,
-            f"⏩ Current Skip Number: {getattr(temp, 'CURRENT', 0)}",
-            show_alert=True,
+            query, f"⏩ Current Skip Number: {getattr(temp, 'CURRENT', 0)}", show_alert=True
         )
 
     if cmd_clean in ["enablereaction", "disablereaction"]:
@@ -3407,25 +3144,15 @@ async def _handle_help_cmd_button(client: Client, query: CallbackQuery, cmd_name
             cmd_clean,
             arg_text=(
                 ""
-                if (
-                    target_reply_msg is not None
-                    and cmd_clean in ["broadcast", "group_broadcast"]
-                )
+                if (target_reply_msg is not None and cmd_clean in ["broadcast", "group_broadcast"])
                 else arg_str
             ),
             arg_html=(
                 ""
-                if (
-                    target_reply_msg is not None
-                    and cmd_clean in ["broadcast", "group_broadcast"]
-                )
+                if (target_reply_msg is not None and cmd_clean in ["broadcast", "group_broadcast"])
                 else arg_html
             ),
-            reply_msg=(
-                target_reply_msg
-                if (target_reply_msg and arg_str.lower() != "off")
-                else explicit_reply
-            ),
+            reply_msg=target_reply_msg if (target_reply_msg and arg_str.lower() != "off") else explicit_reply,
         )
 
         if back_sec in {
@@ -3555,9 +3282,7 @@ async def interactive_help_actions_cb(client: Client, query: CallbackQuery):
                 rows = list(panel_kb.inline_keyboard) if panel_kb else []
                 rows.append(
                     [
-                        create_btn(
-                            "🔙 Back to Index Help", callback_data="helps_index"
-                        ),
+                        create_btn("🔙 Back to Index Help", callback_data="helps_index"),
                         create_btn("🔐 Close", callback_data="close_data"),
                     ]
                 )
@@ -3584,11 +3309,7 @@ async def interactive_help_actions_cb(client: Client, query: CallbackQuery):
 
     if action in ["cw_add", "cw_set"]:
         await safe_answer(query)
-        mode_label = (
-            "ADD to existing clean words"
-            if action == "cw_add"
-            else "REPLACE all clean words"
-        )
+        mode_label = "ADD to existing clean words" if action == "cw_add" else "REPLACE all clean words"
         prompt = await safe_reply_text(
             query.message,
             f"🧹 <b>Send the words separated by commas to {mode_label}:</b>\n\n"
@@ -3621,21 +3342,13 @@ async def interactive_help_actions_cb(client: Client, query: CallbackQuery):
 
             at_cur, mc_cur = await get_feature_flags()
             if action.startswith("at_"):
-                new_state = (
-                    (not at_cur) if action == "at_toggle" else (action == "at_on")
-                )
+                new_state = (not at_cur) if action == "at_toggle" else (action == "at_on")
                 await set_feature_flag("autotranslate", new_state)
-                await safe_answer(
-                    query, f"🔤 Auto-Translate: {'ON ✅' if new_state else 'OFF ❌'}"
-                )
+                await safe_answer(query, f"🔤 Auto-Translate: {'ON ✅' if new_state else 'OFF ❌'}")
             else:
-                new_state = (
-                    (not mc_cur) if action == "mc_toggle" else (action == "mc_on")
-                )
+                new_state = (not mc_cur) if action == "mc_toggle" else (action == "mc_on")
                 await set_feature_flag("multichoice", new_state)
-                await safe_answer(
-                    query, f"💡 Multi-Choice: {'ON ✅' if new_state else 'OFF ❌'}"
-                )
+                await safe_answer(query, f"💡 Multi-Choice: {'ON ✅' if new_state else 'OFF ❌'}")
         except Exception as e:
             return await safe_answer(query, f"Error: {e}", show_alert=True)
 
@@ -3648,26 +3361,19 @@ async def interactive_help_actions_cb(client: Client, query: CallbackQuery):
         conn_gid = await get_active_connected_group(uid, query.message)
         if not conn_gid:
             return await safe_answer(
-                query,
-                "⚠️ Connect a group first using /connect <group_id>!",
-                show_alert=True,
+                query, "⚠️ Connect a group first using /connect <group_id>!", show_alert=True
             )
         cur_spell = True
         if callable(get_settings):
             try:
-                cur_spell = bool(
-                    (await get_settings(conn_gid)).get("spell_check", True)
-                )
+                cur_spell = bool((await get_settings(conn_gid)).get("spell_check", True))
             except Exception:
                 pass
-        new_state = (
-            (not cur_spell) if action == "spell_toggle" else (action == "spell_on")
-        )
+        new_state = (not cur_spell) if action == "spell_toggle" else (action == "spell_on")
         if callable(save_group_settings):
             await save_group_settings(conn_gid, "spell_check", new_state)
         await safe_answer(
-            query,
-            f"🔍 Spell Check {'ON ✅' if new_state else 'OFF ❌'} for {conn_gid}!",
+            query, f"🔍 Spell Check {'ON ✅' if new_state else 'OFF ❌'} for {conn_gid}!"
         )
         text, markup = await build_interactive_help_section(
             client, "helps_spell", uid, user_mention, query.message
@@ -3685,9 +3391,7 @@ async def interactive_help_actions_cb(client: Client, query: CallbackQuery):
         if action == "sw_list":
             stops = _cs.get_stopwords()
             if not stops:
-                return await safe_answer(
-                    query, "🛑 No active stopwords configured.", show_alert=True
-                )
+                return await safe_answer(query, "🛑 No active stopwords configured.", show_alert=True)
             await safe_answer(query, "📋 Sending stopwords list...")
             formatted = ", ".join(f"<code>{html.escape(str(w))}</code>" for w in stops)
             msg_txt = (
@@ -3720,9 +3424,7 @@ async def interactive_help_actions_cb(client: Client, query: CallbackQuery):
                 reply_markup=get_cancel_input_keyboard("helps_spell"),
                 parse_mode=enums.ParseMode.HTML,
             )
-            resp = await wait_cmd_user_input(
-                chat_id, uid, prompt_msg=prompt, timeout=90
-            )
+            resp = await wait_cmd_user_input(chat_id, uid, prompt_msg=prompt, timeout=90)
             if resp and resp.text and resp.text.strip().lower() != "/cancel":
                 try:
                     await resp.delete()
@@ -3753,16 +3455,12 @@ async def interactive_help_actions_cb(client: Client, query: CallbackQuery):
             cur = bool(cfg.get("enabled", True))
             new_state = (not cur) if action == "pm_toggle" else (action == "pm_on")
             await save_pm_settings("enabled", new_state)
-            await safe_answer(
-                query, f"💬 PM Auto-Reply: {'ON ✅' if new_state else 'OFF ❌'}"
-            )
+            await safe_answer(query, f"💬 PM Auto-Reply: {'ON ✅' if new_state else 'OFF ❌'}")
         elif action == "pm_adm_toggle":
             cfg = await get_pm_settings()
             new_adm = not bool(cfg.get("reply_admins", True))
             await save_pm_settings("reply_admins", new_adm)
-            await safe_answer(
-                query, f"👑 Reply to Admins: {'ON ✅' if new_adm else 'OFF ❌'}"
-            )
+            await safe_answer(query, f"👑 Reply to Admins: {'ON ✅' if new_adm else 'OFF ❌'}")
         elif action == "pm_deftext":
             await save_pm_settings(
                 "text",
@@ -3784,15 +3482,11 @@ async def interactive_help_actions_cb(client: Client, query: CallbackQuery):
                 reply_markup=get_cancel_input_keyboard("helps_pmautoreply"),
                 parse_mode=enums.ParseMode.HTML,
             )
-            resp = await wait_cmd_user_input(
-                chat_id, uid, prompt_msg=prompt, timeout=90
-            )
+            resp = await wait_cmd_user_input(chat_id, uid, prompt_msg=prompt, timeout=90)
             if resp and (resp.text or resp.caption):
                 raw_txt = resp.text or resp.caption
                 if str(raw_txt).strip().lower() != "/cancel":
-                    await save_pm_settings(
-                        "text", getattr(raw_txt, "html", str(raw_txt))
-                    )
+                    await save_pm_settings("text", getattr(raw_txt, "html", str(raw_txt)))
                 try:
                     await resp.delete()
                 except Exception:
@@ -3808,9 +3502,7 @@ async def interactive_help_actions_cb(client: Client, query: CallbackQuery):
                 reply_markup=get_cancel_input_keyboard("helps_pmautoreply"),
                 parse_mode=enums.ParseMode.HTML,
             )
-            resp = await wait_cmd_user_input(
-                chat_id, uid, prompt_msg=prompt, timeout=90
-            )
+            resp = await wait_cmd_user_input(chat_id, uid, prompt_msg=prompt, timeout=90)
             if resp and resp.text and resp.text.strip().lower() != "/cancel":
                 raw_in = resp.text.strip()
                 b_txt, b_url, b_col = None, None, "green"
@@ -3856,20 +3548,14 @@ async def interactive_help_actions_cb(client: Client, query: CallbackQuery):
             if action in ["fsub_toggle", "fsub_on", "fsub_off"]:
                 cfg = await get_fsub_config()
                 cur = bool(cfg.get("is_enabled", True))
-                new_state = (
-                    (not cur) if action == "fsub_toggle" else (action == "fsub_on")
-                )
+                new_state = (not cur) if action == "fsub_toggle" else (action == "fsub_on")
                 await update_fsub_config("is_enabled", new_state)
-                await safe_answer(
-                    query, f"📱 ForceSub: {'ON ✅' if new_state else 'OFF ❌'}"
-                )
+                await safe_answer(query, f"📱 ForceSub: {'ON ✅' if new_state else 'OFF ❌'}")
             elif action == "fsub_rot":
                 cfg = await get_fsub_config()
                 new_rot = not bool(cfg.get("rotation_enabled", False))
                 await update_fsub_config("rotation_enabled", new_rot)
-                await safe_answer(
-                    query, f"🔄 Auto-Rotation: {'ON ✅' if new_rot else 'OFF ❌'}"
-                )
+                await safe_answer(query, f"🔄 Auto-Rotation: {'ON ✅' if new_rot else 'OFF ❌'}")
             else:
                 await safe_answer(query)
                 f_text, f_markup = await build_fsub_list_ui("All")
@@ -3888,9 +3574,7 @@ async def interactive_help_actions_cb(client: Client, query: CallbackQuery):
         conn_gid = await get_active_connected_group(uid, query.message)
         if not conn_gid:
             return await safe_answer(
-                query,
-                "⚠️ Connect a group first using /connect <group_id>!",
-                show_alert=True,
+                query, "⚠️ Connect a group first using /connect <group_id>!", show_alert=True
             )
         new_fa = True
         try:
@@ -3901,9 +3585,7 @@ async def interactive_help_actions_cb(client: Client, query: CallbackQuery):
             await set_fa_config(conn_gid, enabled=new_fa)
         except Exception:
             pass
-        await safe_answer(
-            query, f"👥 Force Add: {'ON ✅' if new_fa else 'OFF ❌'} for {conn_gid}!"
-        )
+        await safe_answer(query, f"👥 Force Add: {'ON ✅' if new_fa else 'OFF ❌'} for {conn_gid}!")
         text, markup = await build_interactive_help_section(
             client, "helps_forceadd", uid, user_mention, query.message
         )
@@ -3913,9 +3595,7 @@ async def interactive_help_actions_cb(client: Client, query: CallbackQuery):
         conn_gid = await get_active_connected_group(uid, query.message)
         if not conn_gid:
             return await safe_answer(
-                query,
-                "⚠️ Connect a group first using /connect <group_id>!",
-                show_alert=True,
+                query, "⚠️ Connect a group first using /connect <group_id>!", show_alert=True
             )
         from plugins.custom_settings import get_group_welcome, update_group_welcome
 
@@ -3924,10 +3604,7 @@ async def interactive_help_actions_cb(client: Client, query: CallbackQuery):
             cur = bool(w_doc.get("welcome", True))
             new_state = (not cur) if action == "welc_toggle" else (action == "welc_on")
             await update_group_welcome(conn_gid, "welcome", new_state)
-            await safe_answer(
-                query,
-                f"👋 Welcome {'ON ✅' if new_state else 'OFF ❌'} for {conn_gid}!",
-            )
+            await safe_answer(query, f"👋 Welcome {'ON ✅' if new_state else 'OFF ❌'} for {conn_gid}!")
         elif action == "welc_del":
             await update_group_welcome(conn_gid, "img", None)
             await update_group_welcome(conn_gid, "text", None)
@@ -3942,9 +3619,7 @@ async def interactive_help_actions_cb(client: Client, query: CallbackQuery):
                 reply_markup=get_cancel_input_keyboard("helps_welcome"),
                 parse_mode=enums.ParseMode.HTML,
             )
-            resp = await wait_cmd_user_input(
-                chat_id, uid, prompt_msg=prompt, timeout=90
-            )
+            resp = await wait_cmd_user_input(chat_id, uid, prompt_msg=prompt, timeout=90)
             if resp and resp.text and resp.text.strip().lower() != "/cancel":
                 await update_group_welcome(conn_gid, "text", resp.text)
                 await update_group_welcome(conn_gid, "welcome", True)
@@ -3971,9 +3646,7 @@ async def interactive_help_actions_cb(client: Client, query: CallbackQuery):
                 )
 
             await safe_answer(query, f"📋 Sending {len(kws)} filters...")
-            chat_title = (
-                "All Groups (Global)" if target_gid == "global" else str(target_gid)
-            )
+            chat_title = "All Groups (Global)" if target_gid == "global" else str(target_gid)
             if target_gid != "global":
                 try:
                     c_obj = await client.get_chat(int(target_gid))
@@ -3989,10 +3662,7 @@ async def interactive_help_actions_cb(client: Client, query: CallbackQuery):
                 f"━━━━━━━━━━━━━━━━━━━━━\n"
             )
             footer = "\n━━━━━━━━━━━━━━━━━━━━━\n🗑️ <i>To delete:</i> <code>/delfilter filter_name</code>"
-            lines = [
-                f"{idx}. <code>{html.escape(str(kw))}</code>"
-                for idx, kw in enumerate(kws, start=1)
-            ]
+            lines = [f"{idx}. <code>{html.escape(str(kw))}</code>" for idx, kw in enumerate(kws, start=1)]
 
             chunks: List[str] = []
             current_chunk = header
@@ -4059,8 +3729,9 @@ async def ui_cb_handler(client: Client, query: CallbackQuery):
     ):
         return await safe_answer(query, "🛠️ Bot is under maintenance!", show_alert=True)
 
-    if query.data in ["help", "about", "stats"] or query.data.startswith(
-        ("rfrsh", "helps_", "channels_page#")
+    if (
+        query.data in ["help", "about", "stats"]
+        or query.data.startswith(("rfrsh", "helps_", "channels_page#"))
     ):
         if not is_admin:
             return await safe_answer(
@@ -4091,9 +3762,7 @@ async def ui_cb_handler(client: Client, query: CallbackQuery):
                 if ":" in query.data
                 else query.data.split("#", 1)
             )
-            await safe_answer(
-                query, (parts[1] if len(parts) > 1 else "Alert!")[:200], show_alert=True
-            )
+            await safe_answer(query, (parts[1] if len(parts) > 1 else "Alert!")[:200], show_alert=True)
 
         elif query.data.startswith("channels_page#"):
             page_num = int(query.data.split("#")[1])
@@ -4167,11 +3836,9 @@ async def ui_cb_handler(client: Client, query: CallbackQuery):
             ) or "about"
             await safe_answer(
                 query,
-                (
-                    "Refreshing Multi-Database Stats..."
-                    if query.data.startswith("rfrsh")
-                    else "Loading Multi-Database Stats..."
-                ),
+                "Refreshing Multi-Database Stats..."
+                if query.data.startswith("rfrsh")
+                else "Loading Multi-Database Stats...",
             )
             await transition_ui_message(
                 client,
