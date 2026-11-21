@@ -82,7 +82,9 @@ except ImportError:
                 for b in row:
                     st = getattr(b, "style", None)
                     if getattr(b, "url", None):
-                        new_row.append(create_styled_btn(b.text, url=b.url, color=None))
+                        new_row.append(
+                            create_styled_btn(b.text, url=b.url, color=None)
+                        )
                     else:
                         new_row.append(
                             create_styled_btn(
@@ -106,12 +108,32 @@ BTN_SECONDARY = None
 BTN_SUCCESS = None
 BTN_DANGER = None
 _SUPPORTS_BTN_STYLE = False
+_BTN_ICON_PARAM: Optional[str] = None
+_BTN_ICON_WANTS_INT = False
 
 try:
     from pyrogram.enums import ButtonStyle
 
-    if "style" in inspect.signature(InlineKeyboardButton.__init__).parameters:
+    _btn_sig_params = inspect.signature(InlineKeyboardButton.__init__).parameters
+    if "style" in _btn_sig_params:
         BTN_PRIMARY = getattr(ButtonStyle, "PRIMARY", None)
+        BTN_SECONDARY = getattr(ButtonStyle, "SECONDARY", None)
+        BTN_SUCCESS = getattr(ButtonStyle, "SUCCESS", None)
+        BTN_DANGER = getattr(ButtonStyle, "DANGER", None)
+        _SUPPORTS_BTN_STYLE = True
+    for _cand_icon_param in ("icon_custom_emoji_id", "custom_emoji_id", "icon_id"):
+        if _cand_icon_param in _btn_sig_params:
+            _BTN_ICON_PARAM = _cand_icon_param
+            _ann = str(_btn_sig_params[_cand_icon_param].annotation).lower()
+            _BTN_ICON_WANTS_INT = "int" in _ann and "str" not in _ann
+            break
+except (ImportError, ValueError, TypeError):
+    pass
+
+_TG_EMOJI_RE = re.compile(
+    r'<tg-emoji\s+emoji-id=["\']?(\d+)["\']?\s*>(.*?)</tg-emoji>',
+    re.IGNORECASE | re.DOTALL,
+)
         BTN_SECONDARY = getattr(ButtonStyle, "SECONDARY", None)
         BTN_SUCCESS = getattr(ButtonStyle, "SUCCESS", None)
         BTN_DANGER = getattr(ButtonStyle, "DANGER", None)
@@ -143,9 +165,22 @@ def create_styled_btn(
     url: Optional[str] = None,
     callback_data: Optional[str] = None,
     color: Optional[str] = None,
+    icon_custom_emoji_id: Optional[Any] = None,
 ) -> InlineKeyboardButton:
-    """Creates an InlineKeyboardButton with ZERO visible links inside the button."""
-    kwargs: Dict[str, Any] = {"text": _clean_button_label(text)}
+    """Creates an InlineKeyboardButton with ZERO visible links and Premium emoji icon support."""
+    raw_text = str(text or "")
+    resolved_icon = str(icon_custom_emoji_id).strip() if icon_custom_emoji_id else None
+    if not resolved_icon:
+        m = _TG_EMOJI_RE.search(raw_text)
+        if m:
+            resolved_icon = m.group(1).strip()
+            raw_text = _TG_EMOJI_RE.sub(
+                "" if _BTN_ICON_PARAM else m.group(2), raw_text, count=1
+            )
+    elif _TG_EMOJI_RE.search(raw_text):
+        raw_text = _TG_EMOJI_RE.sub("", raw_text)
+
+    kwargs: Dict[str, Any] = {"text": _clean_button_label(raw_text)}
     if callback_data:
         kwargs["callback_data"] = str(callback_data)[:64]
     elif url:
@@ -156,10 +191,25 @@ def create_styled_btn(
     style_obj = get_color_style(color)
     if style_obj is not None:
         kwargs["style"] = style_obj
+    if _BTN_ICON_PARAM and resolved_icon and resolved_icon.isdigit():
+        kwargs[_BTN_ICON_PARAM] = (
+            int(resolved_icon) if _BTN_ICON_WANTS_INT else str(resolved_icon)
+        )
 
     try:
         return InlineKeyboardButton(**kwargs)
     except Exception:
+        if _BTN_ICON_PARAM and _BTN_ICON_PARAM in kwargs:
+            alt_val = (
+                str(resolved_icon)
+                if isinstance(kwargs[_BTN_ICON_PARAM], int)
+                else int(resolved_icon)
+            )
+            kwargs[_BTN_ICON_PARAM] = alt_val
+            try:
+                return InlineKeyboardButton(**kwargs)
+            except Exception:
+                kwargs.pop(_BTN_ICON_PARAM, None)
         kwargs.pop("style", None)
         return InlineKeyboardButton(**kwargs)
 
@@ -175,10 +225,7 @@ def _prepare_compat_kwargs(
 
     explicit_disable = clean_kw.pop("disable_web_page_preview", disable_preview)
     if explicit_disable is not None:
-        if (
-            "link_preview_options" in supported_params
-            and LinkPreviewOptions is not None
-        ):
+        if "link_preview_options" in supported_params and LinkPreviewOptions is not None:
             try:
                 clean_kw["link_preview_options"] = LinkPreviewOptions(
                     is_disabled=bool(explicit_disable)
@@ -374,6 +421,7 @@ def build_custom_button_rows(
             text=b["text"],
             url=b["url"],
             color=b.get("color", "blue"),
+            icon_custom_emoji_id=b.get("icon_custom_emoji_id"),
         )
         if b.get("layout") == "sidebyside" and rows and len(rows[-1]) < 2:
             rows[-1].append(btn_obj)
@@ -513,16 +561,24 @@ def _normalize_url(raw_url: str) -> str:
 
 def parse_button_cmd(
     message: Message,
-) -> Tuple[Optional[str], Optional[str], str, str]:
-    raw = message.text or message.caption or ""
+) -> Tuple[Optional[str], Optional[str], str, str, Optional[str]]:
+    raw_obj = message.text or message.caption or ""
+    raw = getattr(raw_obj, "html", str(raw_obj))
     body = re.sub(r"^/\w+(?:@[a-zA-Z0-9_]+)?\s*", "", raw, count=1).strip()
     if not body and message.reply_to_message:
-        body = (
-            message.reply_to_message.text or message.reply_to_message.caption or ""
-        ).strip()
+        rep_obj = message.reply_to_message.text or message.reply_to_message.caption or ""
+        body = getattr(rep_obj, "html", str(rep_obj)).strip()
 
     if not body:
-        return None, None, "belowside", "blue"
+        return None, None, "belowside", "blue", None
+
+    # Extract any Telegram Premium custom emoji from the button label before cleaning HTML
+    icon_id: Optional[str] = None
+    m_emoji = _TG_EMOJI_RE.search(body)
+    if m_emoji:
+        icon_id = m_emoji.group(1).strip()
+        body = _TG_EMOJI_RE.sub("" if _BTN_ICON_PARAM else m_emoji.group(2), body, count=1)
+    body = re.sub(r"<[^>]+>", "", body).strip()
 
     layout, color = "belowside", "blue"
 
@@ -537,9 +593,11 @@ def parse_button_cmd(
                     layout = el
                 elif el in ("green", "red", "blue", "gray", "normal"):
                     color = el
-            return btn_text, url, layout, color
+            return btn_text, url, layout, color, icon_id
 
-    match = re.search(r'["“\']([^"”\']+)["”\']\s+(\S+)(?:\s+(\S+))?(?:\s+(\S+))?', body)
+    match = re.search(
+        r'["“\']([^"”\']+)["”\']\s+(\S+)(?:\s+(\S+))?(?:\s+(\S+))?', body
+    )
     if match:
         btn_text = _clean_button_label(match.group(1).strip())
         url = _normalize_url(match.group(2).strip())
@@ -550,7 +608,7 @@ def parse_button_cmd(
                     layout = el
                 elif el in ("green", "red", "blue", "gray", "normal"):
                     color = el
-        return btn_text, url, layout, color
+        return btn_text, url, layout, color, icon_id
 
     if " - " in body:
         parts = body.split(" - ", 1)
@@ -559,6 +617,7 @@ def parse_button_cmd(
             _normalize_url(parts[1]),
             layout,
             color,
+            icon_id,
         )
 
     tokens = body.split()
@@ -568,18 +627,9 @@ def parse_button_cmd(
     ):
         btn_text = _clean_button_label(" ".join(tokens[:-1]).strip("\"'“” "))
         if btn_text:
-            return btn_text, _normalize_url(tokens[-1]), layout, color
+            return btn_text, _normalize_url(tokens[-1]), layout, color, icon_id
 
-    return None, None, layout, color
-
-
-def parse_edit_button_args(
-    text: str,
-) -> Tuple[Optional[int], Optional[str], Optional[str]]:
-    raw = re.sub(r"^/\w+(?:@[a-zA-Z0-9_]+)?\s*", "", text or "", count=1).strip()
-    parts = [p.strip().lower() for p in raw.replace("|", " ").split() if p.strip()]
-    if len(parts) < 2 or not parts[0].isdigit():
-        return None, None, None
+    return None, None, layout, color, icon_id
 
     idx = int(parts[0]) - 1
     layout = color = None
@@ -703,7 +753,7 @@ async def _handle_rem_img(message: Message, menu: str, label: str):
 async def _handle_add_btn(message: Message, menu: str, label: str):
     if not await _require_global_admin(message):
         return
-    btn_text, url, layout, color = parse_button_cmd(message)
+    btn_text, url, layout, color, icon_id = parse_button_cmd(message)
     if not btn_text or not url:
         return await safe_reply_text(
             message,
@@ -713,7 +763,10 @@ async def _handle_add_btn(message: Message, menu: str, label: str):
         )
     ui = await get_ui()
     btns = list(ui.get(f"{menu}_buttons", []))
-    btns.append({"text": btn_text, "url": url, "layout": layout, "color": color})
+    entry = {"text": btn_text, "url": url, "layout": layout, "color": color}
+    if icon_id:
+        entry["icon_custom_emoji_id"] = icon_id
+    btns.append(entry)
     await update_ui(f"{menu}_buttons", btns)
     await safe_reply_text(
         message,
