@@ -56,18 +56,31 @@ BTN_PRIMARY = None
 BTN_SUCCESS = None
 BTN_DANGER = None
 _SUPPORTS_BTN_STYLE = False
+_BTN_ICON_PARAM: Optional[str] = None
+_BTN_ICON_WANTS_INT = False
 
 try:
     from pyrogram.enums import ButtonStyle
 
-    if "style" in inspect.signature(InlineKeyboardButton.__init__).parameters:
+    _btn_sig_params = inspect.signature(InlineKeyboardButton.__init__).parameters
+    if "style" in _btn_sig_params:
         BTN_PRIMARY = getattr(ButtonStyle, "PRIMARY", None)
         BTN_SUCCESS = getattr(ButtonStyle, "SUCCESS", None)
         BTN_DANGER = getattr(ButtonStyle, "DANGER", None)
         _SUPPORTS_BTN_STYLE = True
+    for _cand_icon_param in ("icon_custom_emoji_id", "custom_emoji_id", "icon_id"):
+        if _cand_icon_param in _btn_sig_params:
+            _BTN_ICON_PARAM = _cand_icon_param
+            _ann = str(_btn_sig_params[_cand_icon_param].annotation).lower()
+            _BTN_ICON_WANTS_INT = "int" in _ann and "str" not in _ann
+            break
 except (ImportError, ValueError, TypeError):
     pass
 
+_TG_EMOJI_RE = re.compile(
+    r'<tg-emoji\s+emoji-id=["\']?(\d+)["\']?\s*>(.*?)</tg-emoji>',
+    re.IGNORECASE | re.DOTALL,
+)
 _FALLBACK_HIDDEN_LINKS: Dict[str, str] = {}
 
 
@@ -98,9 +111,22 @@ def _make_hidden_btn(
     url: Optional[str] = None,
     callback_data: Optional[str] = None,
     style: Any = None,
+    icon_custom_emoji_id: Optional[Any] = None,
 ) -> InlineKeyboardButton:
-    """Builds a button with ZERO visible links inside the button."""
-    kwargs: Dict[str, Any] = {"text": _clean_button_label(text)}
+    """Builds a button with ZERO visible links and native Telegram Premium emoji icon support."""
+    raw_text = str(text or "")
+    resolved_icon = str(icon_custom_emoji_id).strip() if icon_custom_emoji_id else None
+    if not resolved_icon:
+        m = _TG_EMOJI_RE.search(raw_text)
+        if m:
+            resolved_icon = m.group(1).strip()
+            raw_text = _TG_EMOJI_RE.sub(
+                "" if _BTN_ICON_PARAM else m.group(2), raw_text, count=1
+            )
+    elif _TG_EMOJI_RE.search(raw_text):
+        raw_text = _TG_EMOJI_RE.sub("", raw_text)
+
+    kwargs: Dict[str, Any] = {"text": _clean_button_label(raw_text)}
     if callback_data:
         kwargs["callback_data"] = str(callback_data)[:64]
     elif url:
@@ -110,9 +136,24 @@ def _make_hidden_btn(
 
     if _SUPPORTS_BTN_STYLE and style is not None:
         kwargs["style"] = style
+    if _BTN_ICON_PARAM and resolved_icon and resolved_icon.isdigit():
+        kwargs[_BTN_ICON_PARAM] = (
+            int(resolved_icon) if _BTN_ICON_WANTS_INT else str(resolved_icon)
+        )
     try:
         return InlineKeyboardButton(**kwargs)
     except Exception:
+        if _BTN_ICON_PARAM and _BTN_ICON_PARAM in kwargs:
+            alt_val = (
+                str(resolved_icon)
+                if isinstance(kwargs[_BTN_ICON_PARAM], int)
+                else int(resolved_icon)
+            )
+            kwargs[_BTN_ICON_PARAM] = alt_val
+            try:
+                return InlineKeyboardButton(**kwargs)
+            except Exception:
+                kwargs.pop(_BTN_ICON_PARAM, None)
         kwargs.pop("style", None)
         return InlineKeyboardButton(**kwargs)
 
@@ -127,14 +168,27 @@ def _hide_markup_links(
         new_row = []
         for b in row:
             st = getattr(b, "style", None)
+            ic = next(
+                (
+                    str(getattr(b, attr)).strip()
+                    for attr in ("icon_custom_emoji_id", "custom_emoji_id", "icon_id")
+                    if getattr(b, attr, None)
+                ),
+                None,
+            )
             if getattr(b, "url", None):
-                new_row.append(_make_hidden_btn(b.text, url=b.url, style=st))
+                new_row.append(
+                    _make_hidden_btn(
+                        b.text, url=b.url, style=st, icon_custom_emoji_id=ic
+                    )
+                )
             else:
                 new_row.append(
                     _make_hidden_btn(
                         b.text,
                         callback_data=getattr(b, "callback_data", "noop"),
                         style=st,
+                        icon_custom_emoji_id=ic,
                     )
                 )
         if new_row:
@@ -829,15 +883,15 @@ def parse_text_and_markup(raw_text: str, static_keyboard: InlineKeyboardMarkup =
                     row.append(
                         _make_hidden_btn(
                             text=btn_text,
-                            callback_data=btn_target.split("callback:", 1)[1].strip()[
-                                :64
-                            ],
+                            callback_data=btn_target.split("callback:", 1)[1].strip()[:64],
                             style=btn_style,
                         )
                     )
                 else:
                     row.append(
-                        _make_hidden_btn(text=btn_text, url=btn_target, style=btn_style)
+                        _make_hidden_btn(
+                            text=btn_text, url=btn_target, style=btn_style
+                        )
                     )
             if row:
                 dynamic_keyboard.append(row)
