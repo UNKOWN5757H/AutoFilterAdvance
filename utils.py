@@ -883,15 +883,15 @@ def parse_text_and_markup(raw_text: str, static_keyboard: InlineKeyboardMarkup =
                     row.append(
                         _make_hidden_btn(
                             text=btn_text,
-                            callback_data=btn_target.split("callback:", 1)[1].strip()[:64],
+                            callback_data=btn_target.split("callback:", 1)[1].strip()[
+                                :64
+                            ],
                             style=btn_style,
                         )
                     )
                 else:
                     row.append(
-                        _make_hidden_btn(
-                            text=btn_text, url=btn_target, style=btn_style
-                        )
+                        _make_hidden_btn(text=btn_text, url=btn_target, style=btn_style)
                     )
             if row:
                 dynamic_keyboard.append(row)
