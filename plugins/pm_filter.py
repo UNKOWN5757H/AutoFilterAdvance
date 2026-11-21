@@ -110,6 +110,21 @@ except ImportError:
             return []
 
 
+# Link shortener integration
+try:
+    from plugins.shortner import is_shortener_active, shorten_single_url
+except ImportError:
+    try:
+        from shortner import is_shortener_active, shorten_single_url
+    except ImportError:
+
+        async def is_shortener_active() -> bool:
+            return False
+
+        async def shorten_single_url(url: str, cfg=None) -> str:
+            return url
+
+
 logger = getLogger(__name__)
 logger.setLevel(ERROR)
 
@@ -251,9 +266,7 @@ def strip_stylish_fonts(text: str) -> str:
 # ============================================================
 EXTRA_BTN_1_URL = getattr(info, "EXTRA_BTN_1_URL", "https://t.me/+lcTawsnhdi0zYWE1")
 EXTRA_BTN_2_URL = getattr(info, "EXTRA_BTN_2_URL", "https://t.me/linkz_ki_duniyaa")
-LATEST_UPDATES_URL = getattr(
-    info, "LATEST_UPDATES_URL", "https://t.me/+8Mw-Y-fYN6hiZWZl"
-)
+LATEST_UPDATES_URL = getattr(info, "LATEST_UPDATES_URL", "https://t.me/+8Mw-Y-fYN6hiZWZl")
 
 # ============================================================
 # 🌐 LANGUAGES & 🎞️ QUALITIES CONFIGURATION
@@ -653,10 +666,31 @@ SUGGESTIONS_CACHE = TTLCache(maxsize=2000, ttl=1800)
 DYM_QUERY_CACHE = TTLCache(maxsize=2000, ttl=1800)
 FUZZY_TITLES_CACHE = TTLCache(maxsize=10, ttl=1800)
 RESTRICTED_WRITE_CHATS = TTLCache(maxsize=500, ttl=300)
+SHORT_URL_CACHE = TTLCache(maxsize=10000, ttl=21600)
 
-# Shared hidden-link registry: maps short callback tokens -> target URLs
+# Shared hidden-link registry for non-search/admin panels
 HIDDEN_LINKS_STORE: Dict[str, str] = {}
 _HIDDEN_LINKS_MAX = 15000
+
+
+async def _get_fast_short_url(long_url: str) -> str:
+    """Shortens a deep-link URL with caching & timeout protection for direct button redirects."""
+    cached = SHORT_URL_CACHE.get(long_url)
+    if cached:
+        return cached
+    try:
+        short_u = await asyncio.wait_for(shorten_single_url(long_url), timeout=3.5)
+        if (
+            short_u
+            and isinstance(short_u, str)
+            and short_u.strip().startswith(("http://", "https://", "tg://"))
+        ):
+            clean_s = short_u.strip()
+            SHORT_URL_CACHE.set(long_url, clean_s)
+            return clean_s
+    except Exception:
+        pass
+    return long_url
 
 
 def register_hidden_link(url: str) -> str:
@@ -725,13 +759,23 @@ def create_btn(
     callback_data: Optional[str] = None,
     style: Any = None,
     icon_custom_emoji_id: Optional[Any] = None,
+    direct_url: bool = False,
 ) -> InlineKeyboardButton:
+    """
+    Creates an InlineKeyboardButton with clean text only (any URLs in label are stripped).
+    When `direct_url=True` and `url` is provided, sets native `url=` so Telegram opens it directly.
+    """
     clean_text, resolved_icon = _extract_icon_and_clean_label(
         text, icon_custom_emoji_id
     )
     kwargs: Dict[str, Any] = {"text": clean_text}
 
-    if callback_data:
+    if direct_url and url:
+        clean_u = str(url).strip()
+        if clean_u and not clean_u.startswith(("http://", "https://", "tg://")):
+            clean_u = "https://" + clean_u.lstrip("/")
+        kwargs["url"] = clean_u
+    elif callback_data:
         kwargs["callback_data"] = str(callback_data)[:64]
     elif url:
         token = register_hidden_link(url)
@@ -1601,44 +1645,44 @@ def extract_inline_lang_and_qual(raw_text: str) -> Tuple[Optional[str], Optional
             break
     return detected_lang, detected_qual
 
-
-async def _direct_collection_search(
-    query: str, max_results: int = 10, offset: int = 0
-) -> Tuple[list, int, int]:
-    q_clean = query.strip()
-    if not q_clean:
-        return [], 0, 0
-
-    words = [w for w in re.split(r"\s+", q_clean) if w]
-    if not words:
-        return [], 0, 0
-
-    and_clauses = []
-    for w in words:
-        w_reg = re.compile(rf"(?:^|[^a-zA-Z0-9]){re.escape(w)}", re.IGNORECASE)
-        if getattr(info, "USE_CAPTION_FILTER", False):
-            and_clauses.append({"$or": [{"file_name": w_reg}, {"caption": w_reg}]})
-        else:
-            and_clauses.append({"file_name": w_reg})
-    mongo_filter = {"$and": and_clauses} if len(and_clauses) > 1 else and_clauses[0]
+    async def _query_one_db(idx: int, target_db: Any) -> List[dict]:
+        try:
+            return await asyncio.wait_for(
+                target_db[info.COLLECTION_NAME]
+                .find(
+                    mongo_filter,
+                    {
+                        "_id": 1,
+                        "file_ref": 1,
+                        "file_id_raw": 1,
+                        "file_name": 1,
+                        "file_size": 1,
+                        "file_type": 1,
+                        "caption": 1,
+                        "chat_id": 1,
+                        "msg_id": 1,
+                    },
+                )
+                .sort("_id", -1)
+                .limit(max_results + offset)
+                .to_list(length=max_results + offset),
+                timeout=4.0,
+            )
+        except Exception as e:
+            if callable(mark_db_error):
+                mark_db_error(idx, e)
+            return []
 
     results = []
     if callable(get_all_healthy_read_dbs):
-        for idx, target_db in get_all_healthy_read_dbs():
-            try:
-                docs = (
-                    await target_db[info.COLLECTION_NAME]
-                    .find(mongo_filter)
-                    .sort("_id", -1)
-                    .limit(max_results + offset)
-                    .to_list(length=max_results + offset)
-                )
-                if docs:
-                    results.extend(docs)
-            except Exception as e:
-                if callable(mark_db_error):
-                    mark_db_error(idx, e)
-                continue
+        healthy_dbs = get_all_healthy_read_dbs()
+        if healthy_dbs:
+            batches = await asyncio.gather(
+                *[_query_one_db(idx, target_db) for idx, target_db in healthy_dbs]
+            )
+            for batch in batches:
+                if batch:
+                    results.extend(batch)
     elif _Media is not None:
         col = getattr(_Media, "collection", _Media)
         try:
@@ -2262,7 +2306,7 @@ async def god_tier_search(
 
 
 # ============================================================
-# 🧩 KEYBOARD BUILDER (EVERY BUTTON HIDES LINKS — TEXT ONLY!)
+# 🧩 KEYBOARD BUILDER (DIRECT URL BUTTONS — CLEAN TEXT ONLY!)
 # ============================================================
 async def build_result_buttons(
     files: list,
@@ -2291,6 +2335,7 @@ async def build_result_buttons(
                 text="🎖️Lᴀᴛᴇsᴛ Mᴏᴠɪᴇ Uᴘᴅᴀᴛᴇs🎖️",
                 url=LATEST_UPDATES_URL,
                 style=BTN_PRIMARY,
+                direct_url=True,
             )
         ],
         [
@@ -2305,10 +2350,12 @@ async def build_result_buttons(
             create_btn(
                 text="🎞",
                 url=EXTRA_BTN_1_URL,
+                direct_url=True,
             ),
             create_btn(
                 text="🔞",
                 url=EXTRA_BTN_2_URL,
+                direct_url=True,
             ),
         ],
     ]
@@ -2325,8 +2372,14 @@ async def build_result_buttons(
 
     promos = await get_active_promos()
     for p in promos[:2]:
-        btn.append([create_btn(text=p["text"], url=p["url"])])
+        btn.append([create_btn(text=p["text"], url=p["url"], direct_url=True)])
 
+    try:
+        shortener_on = bool(await is_shortener_active())
+    except Exception:
+        shortener_on = False
+
+    file_entries: List[Tuple[str, str, str]] = []
     for file in files:
         file_id = str(
             file.get("file_id", file.get("_id", ""))
@@ -2346,14 +2399,24 @@ async def build_result_buttons(
 
         display_name = clean_filename(raw_name, clean_words)
         size_str = get_size(file_size)
-        cb_payload = f"fget#{pre}#{file_id}"
+        deep_url = f"https://t.me/{bot_username}?start={pre}_{file_id}"
+        file_entries.append((display_name, size_str, deep_url))
 
+    if shortener_on and file_entries:
+        resolved_urls = await asyncio.gather(
+            *(_get_fast_short_url(u) for _, _, u in file_entries)
+        )
+    else:
+        resolved_urls = [u for _, _, u in file_entries]
+
+    for (display_name, size_str, _), final_url in zip(file_entries, resolved_urls):
         if settings.get("button", False):
             btn.append(
                 [
                     create_btn(
                         text=f"{size_str} | {display_name}",
-                        callback_data=cb_payload,
+                        url=final_url,
+                        direct_url=True,
                     )
                 ]
             )
@@ -2362,11 +2425,13 @@ async def build_result_buttons(
                 [
                     create_btn(
                         text=f"{display_name}",
-                        callback_data=cb_payload,
+                        url=final_url,
+                        direct_url=True,
                     ),
                     create_btn(
                         text=f"{size_str}",
-                        callback_data=cb_payload,
+                        url=final_url,
+                        direct_url=True,
                     ),
                 ]
             )
@@ -2679,10 +2744,10 @@ async def auto_filter(client: Client, msg: Message):
             f"{search.lower()}|at:{int(autotranslate_on)}|sp:{int(spell_check_on)}"
         )
         cached_data = GLOBAL_SEARCH_CACHE.get(cache_key)
-
-        if cached_data:
-            files, offset, total_results, search_query, was_corrected = cached_data
-        else:
+        if not cached_data:
+            # Warmup bot_username concurrently in background during DB search
+            if not getattr(temp, "U_NAME", None):
+                asyncio.create_task(client.get_me())
             files, offset, total_results, search_query, was_corrected = (
                 await god_tier_search(
                     search,
@@ -2782,7 +2847,7 @@ async def auto_filter(client: Client, msg: Message):
         try:
             final_caption, final_markup = parse_text_and_markup(cap, default_markup)
             final_caption = final_caption or cap
-            final_markup = sanitize_markup_hide_links(final_markup or default_markup)
+            final_markup = final_markup or default_markup
         except Exception:
             final_caption, final_markup = cap, default_markup
 
@@ -2889,11 +2954,7 @@ async def autotranslate_cmd_handler(client: Client, message: Message):
         new_state = (
             True
             if arg in ["on", "enable", "true", "yes", "1"]
-            else (
-                False
-                if arg in ["off", "disable", "false", "no", "0"]
-                else not cur_trans
-            )
+            else False if arg in ["off", "disable", "false", "no", "0"] else not cur_trans
         )
     else:
         new_state = not cur_trans
