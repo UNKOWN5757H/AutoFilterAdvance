@@ -90,6 +90,7 @@ except Exception:
 
 try:
     from plugins.pm_filter import (
+        DEFAULT_CLEAN_WORDS,
         register_hidden_link,
         resolve_hidden_link,
         sanitize_markup_hide_links,
@@ -97,11 +98,35 @@ try:
 except ImportError:
     try:
         from pm_filter import (
+            DEFAULT_CLEAN_WORDS,
             register_hidden_link,
             resolve_hidden_link,
             sanitize_markup_hide_links,
         )
     except ImportError:
+        DEFAULT_CLEAN_WORDS = [
+            "@",
+            "sandalwood",
+            "mkv",
+            "mp4",
+            "dub",
+            "dubbed",
+            "(",
+            ")",
+            "{",
+            "}",
+            "#",
+            "[",
+            "]",
+            "Movie",
+            "Movies",
+            "latest",
+            "new",
+            "avi",
+            "webm",
+            "zip",
+            "rar",
+        ]
         _LOCAL_HIDDEN_LINKS: Dict[str, str] = {}
 
         def register_hidden_link(url: str) -> str:
@@ -409,7 +434,6 @@ async def _get_custom_rows(menu_name: str) -> List[List[InlineKeyboardButton]]:
 
         rows = await asyncio.wait_for(get_custom_menu_rows(menu_name), timeout=1.2)
         if isinstance(rows, list):
-            # Convert any URL buttons in custom rows into hidden-link buttons
             sanitized = sanitize_markup_hide_links(InlineKeyboardMarkup(rows))
             final_rows = list(sanitized.inline_keyboard) if sanitized else []
             _CUSTOM_ROWS_CACHE[menu_name] = (now, final_rows)
@@ -452,11 +476,6 @@ _TG_EMOJI_RE = re.compile(
     r'<tg-emoji\s+emoji-id=["\']?(\d+)["\']?\s*>(.*?)</tg-emoji>',
     re.IGNORECASE | re.DOTALL,
 )
-        BTN_SUCCESS = getattr(ButtonStyle, "SUCCESS", None)
-        BTN_DANGER = getattr(ButtonStyle, "DANGER", None)
-        _SUPPORTS_BTN_STYLE = True
-except (ImportError, ValueError, TypeError):
-    pass
 
 
 def get_admin_list() -> List[int]:
@@ -493,10 +512,6 @@ def create_btn(
     style: Any = None,
     icon_custom_emoji_id: Optional[Any] = None,
 ) -> InlineKeyboardButton:
-    """
-    Creates an InlineKeyboardButton with ZERO visible links inside the button
-    and native Telegram Premium custom emoji support (`icon_custom_emoji_id`).
-    """
     raw_text = str(text or "")
     resolved_icon = str(icon_custom_emoji_id).strip() if icon_custom_emoji_id else None
     if not resolved_icon:
@@ -2606,7 +2621,6 @@ async def start_and_help_cmd(client: Client, message: Message):
 
     cmd_list = message.command or ["start"]
 
-    # ⚡ FAST-PATH FOR HIDDEN LINKS, FILE & SEARCH DEEP-LINKS:
     if (
         message.chat.type == enums.ChatType.PRIVATE
         and len(cmd_list) == 2
@@ -2617,7 +2631,6 @@ async def start_and_help_cmd(client: Client, message: Message):
 
         cmd_data = cmd_list[1].strip()
 
-        # Handle hidden-link button redirects (`olink_<token>`) directly
         if cmd_data.startswith("olink_"):
             token = cmd_data.split("_", 1)[1].strip()
             target_url = resolve_hidden_link(token)
