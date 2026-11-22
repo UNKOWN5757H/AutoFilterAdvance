@@ -1,8 +1,6 @@
-# --- Core Telegram Framework ---
-git+https://github.com/KurimuzonAkuma/pyrogram.git
+# --- Core Telegram Framework (Pure Kurigram Layer 230+ — No legacy pyrogram conflict) ---
 kurigram>=2.2.27
 tgcrypto==1.2.5
-pyromod
 
 # --- MongoDB Async Drivers ---
 pymongo[srv]==4.6.3
@@ -13,8 +11,7 @@ dnspython==2.7.0
 marshmallow==3.26.2
 umongo==3.1.0
 
-# --- IMDb & Media Info ---
-cinemagoer==2023.5.1
+# --- Media & Image Processing ---
 Pillow
 
 # --- HTTP Clients & Scraping ---
@@ -23,22 +20,11 @@ aiofiles
 requests
 beautifulsoup4
 lxml
-telegraph
 
-# --- Search / Typo Tolerance ---
-thefuzz
-Levenshtein
-
-# --- Environment, Time & Scheduling ---
+# --- Environment, Time & System Monitoring ---
 python-dotenv
 pytz
-humanize
-APScheduler
-
-# --- External Utilities ---
-yt-dlp
 psutil
-speedtest-cli
 
-# --- Optional Performance Optimizer ---
+# --- Event Loop Accelerator (Linux/macOS) ---
 uvloop==0.20.0; platform_system != "Windows"
