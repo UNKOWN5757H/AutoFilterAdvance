@@ -1,5 +1,4 @@
 import asyncio
-import hashlib
 import inspect
 import os
 import re
@@ -87,6 +86,7 @@ _FALLBACK_HIDDEN_LINKS: Dict[str, str] = {}
 def _clean_button_label(raw_label: str) -> str:
     lbl = re.sub(r"<[^>]+>", "", str(raw_label or "")).strip()
     lbl = re.sub(r"(?i)https?://\S+|t\.me/\S+|www\.\S+", "", lbl).strip(" -|:")
+    return lbl or "Open"
 
 
 def _resolve_hidden_url(token: str) -> Optional[str]:
@@ -884,15 +884,15 @@ def parse_text_and_markup(raw_text: str, static_keyboard: InlineKeyboardMarkup =
                     row.append(
                         _make_hidden_btn(
                             text=btn_text,
-                            callback_data=btn_target.split("callback:", 1)[1].strip()[
-                                :64
-                            ],
+                            callback_data=btn_target.split("callback:", 1)[1].strip()[:64],
                             style=btn_style,
                         )
                     )
                 else:
                     row.append(
-                        _make_hidden_btn(text=btn_text, url=btn_target, style=btn_style)
+                        _make_hidden_btn(
+                            text=btn_text, url=btn_target, style=btn_style
+                        )
                     )
             if row:
                 dynamic_keyboard.append(row)
