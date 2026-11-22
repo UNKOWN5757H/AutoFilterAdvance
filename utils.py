@@ -87,23 +87,16 @@ _FALLBACK_HIDDEN_LINKS: Dict[str, str] = {}
 def _clean_button_label(raw_label: str) -> str:
     lbl = re.sub(r"<[^>]+>", "", str(raw_label or "")).strip()
     lbl = re.sub(r"(?i)https?://\S+|t\.me/\S+|www\.\S+", "", lbl).strip(" -|:")
-    return lbl or "Open"
-
-
-def _register_hidden_url(url: str) -> str:
-    clean_u = str(url or "").strip()
-    if clean_u and not clean_u.startswith(("http://", "https://", "tg://")):
-        clean_u = "https://" + clean_u.lstrip("/")
+def _resolve_hidden_url(token: str) -> Optional[str]:
     try:
-        from plugins.pm_filter import register_hidden_link
+        from plugins.pm_filter import resolve_hidden_link
 
-        return register_hidden_link(clean_u)
+        res = resolve_hidden_link(token)
+        if res:
+            return res
     except Exception:
-        token = hashlib.md5(clean_u.encode("utf-8")).hexdigest()[:12]
-        if len(_FALLBACK_HIDDEN_LINKS) >= 15000:
-            _FALLBACK_HIDDEN_LINKS.pop(next(iter(_FALLBACK_HIDDEN_LINKS)), None)
-        _FALLBACK_HIDDEN_LINKS[token] = clean_u
-        return token
+        pass
+    return _FALLBACK_HIDDEN_LINKS.get(str(token or "").strip())
 
 
 def _make_hidden_btn(
@@ -113,7 +106,7 @@ def _make_hidden_btn(
     style: Any = None,
     icon_custom_emoji_id: Optional[Any] = None,
 ) -> InlineKeyboardButton:
-    """Builds a button with ZERO visible links and native Telegram Premium emoji icon support."""
+    """Builds a direct 1-tap URL button with clean text only (no middle redirect)."""
     raw_text = str(text or "")
     resolved_icon = str(icon_custom_emoji_id).strip() if icon_custom_emoji_id else None
     if not resolved_icon:
@@ -127,10 +120,13 @@ def _make_hidden_btn(
         raw_text = _TG_EMOJI_RE.sub("", raw_text)
 
     kwargs: Dict[str, Any] = {"text": _clean_button_label(raw_text)}
-    if callback_data:
+    if url:
+        clean_u = str(url).strip()
+        if clean_u and not clean_u.startswith(("http://", "https://", "tg://")):
+            clean_u = "https://" + clean_u.lstrip("/")
+        kwargs["url"] = clean_u
+    elif callback_data:
         kwargs["callback_data"] = str(callback_data)[:64]
-    elif url:
-        kwargs["callback_data"] = f"olink#{_register_hidden_url(url)}"
     else:
         kwargs["callback_data"] = "noop"
 
@@ -176,17 +172,21 @@ def _hide_markup_links(
                 ),
                 None,
             )
-            if getattr(b, "url", None):
+            raw_u = getattr(b, "url", None)
+            cb_d = getattr(b, "callback_data", None)
+            if not raw_u and cb_d and cb_d.startswith("olink#"):
+                raw_u = _resolve_hidden_url(cb_d.split("#", 1)[1])
+            if raw_u:
                 new_row.append(
                     _make_hidden_btn(
-                        b.text, url=b.url, style=st, icon_custom_emoji_id=ic
+                        b.text, url=raw_u, style=st, icon_custom_emoji_id=ic
                     )
                 )
             else:
                 new_row.append(
                     _make_hidden_btn(
                         b.text,
-                        callback_data=getattr(b, "callback_data", "noop"),
+                        callback_data=cb_d or "noop",
                         style=st,
                         icon_custom_emoji_id=ic,
                     )
@@ -778,7 +778,7 @@ def last_online(from_user) -> str:
 
 
 def parser(text: str, keyword: str):
-    """Parses buttonurl/buttonalert tags while hiding all URLs inside callback buttons."""
+    """Parses buttonurl/buttonalert tags as direct 1-tap URL buttons with clean text labels."""
     if not text:
         return "", [], None
     if "buttonalert" in text:
@@ -854,8 +854,7 @@ def get_readable_time(seconds: int) -> str:
 def parse_text_and_markup(raw_text: str, static_keyboard: InlineKeyboardMarkup = None):
     """
     Parses `[Text|Target|Color]` inline button tags and merges `static_keyboard`.
-    Every URL button is automatically converted into a hidden-link callback button
-    so NO links are ever shown inside buttons.
+    Every URL button uses direct 1-tap `url=` with clean text labels (nothing in the middle).
     """
     if not raw_text:
         return "", _hide_markup_links(static_keyboard)
@@ -883,15 +882,15 @@ def parse_text_and_markup(raw_text: str, static_keyboard: InlineKeyboardMarkup =
                     row.append(
                         _make_hidden_btn(
                             text=btn_text,
-                            callback_data=btn_target.split("callback:", 1)[1].strip()[
-                                :64
-                            ],
+                            callback_data=btn_target.split("callback:", 1)[1].strip()[:64],
                             style=btn_style,
                         )
                     )
                 else:
                     row.append(
-                        _make_hidden_btn(text=btn_text, url=btn_target, style=btn_style)
+                        _make_hidden_btn(
+                            text=btn_text, url=btn_target, style=btn_style
+                        )
                     )
             if row:
                 dynamic_keyboard.append(row)
