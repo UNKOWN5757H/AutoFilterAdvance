@@ -1,9 +1,6 @@
 # syntax=docker/dockerfile:1.7
 # ============================================================
-#   ULTRA-FAST PYROGRAM BOT DOCKERFILE (MULTI-STAGE + UV)
-#   • ~5x-10x faster pip installs via Astral uv
-#   • Tiny slim runtime image (no gcc/build tools in final layer)
-#   • Pre-compiled .pyc bytecode for instant cold-start boot
+#   ULTRA-FAST PYROGRAM / KURIGRAM BOT DOCKERFILE
 # ============================================================
 
 # --- Stage 1: Ultra-Fast Builder ---
@@ -20,15 +17,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Astral 'uv' (Rust-powered ultra-fast pip replacement)
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 WORKDIR /app
 COPY requirements.txt .
 
-# Install all packages & pre-compile bytecode in seconds
+# Install clean Kurigram environment & prevent legacy pyrogram overwrites
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install --system --no-cache -r requirements.txt
+    uv pip install --system --no-cache -r requirements.txt && \
+    uv pip install --system --no-cache --reinstall-package kurigram "kurigram>=2.2.27"
 
 # --- Stage 2: Minimal Ultra-Fast Runtime ---
 FROM python:3.11-slim
@@ -39,7 +36,6 @@ ENV PYTHONUNBUFFERED=1 \
     TZ=UTC \
     PORT=8080
 
-# Only install curl for healthcheck (no compilers = tiny image & fast deploy pull)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     tzdata \
@@ -47,11 +43,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Copy pre-built site-packages & binaries from builder
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
-# Copy bot source code & pre-compile app bytecode for instant startup
 COPY . .
 RUN python3 -m compileall -q .
 
