@@ -797,10 +797,6 @@ def safe_parse_text_and_markup(
                 and any(row for row in parsed_markup.inline_keyboard if row)
             )
             chosen_markup = parsed_markup if has_valid_rows else default_markup
-            return parsed_text or text, sanitize_markup_hide_links(chosen_markup)
-        except Exception as e:
-            logger.error(f"parse_text_and_markup fallback triggered: {e}")
-    return text, sanitize_markup_hide_links(default_markup)
             if preserve_direct_urls and chosen_markup:
                 new_rows = []
                 for r in chosen_markup.inline_keyboard:
