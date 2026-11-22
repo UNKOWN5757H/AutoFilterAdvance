@@ -68,9 +68,9 @@ try:
         safe_parse_text_and_markup,
         save_clean_words_state,
         save_pm_settings,
+        start_and_help_cmd as _uibuttons_start_help_cmd,
+        upload_image_safely,
     )
-    from plugins.uibuttons import start_and_help_cmd as _uibuttons_start_help_cmd
-    from plugins.uibuttons import upload_image_safely
 except ImportError:
     from uibuttons import (
         DEFAULT_CLEAN_WORDS,
@@ -89,9 +89,9 @@ except ImportError:
         safe_parse_text_and_markup,
         save_clean_words_state,
         save_pm_settings,
+        start_and_help_cmd as _uibuttons_start_help_cmd,
+        upload_image_safely,
     )
-    from uibuttons import start_and_help_cmd as _uibuttons_start_help_cmd
-    from uibuttons import upload_image_safely
 
 # Share the exact same hidden-link registry with pm_filter.py
 try:
@@ -400,42 +400,6 @@ async def _require_global_admin(message: Message) -> bool:
 
 
 # ============================================================
-# 🔗 HIDDEN BUTTON REDIRECT HANDLER (/start olink_<token>)
-# ============================================================
-@Client.on_message(filters.private & filters.command("start"), group=-16)
-async def hidden_olink_start_handler(client: Client, message: Message):
-    """
-    Handles `/start olink_<token>` deep-links triggered when users click any
-    hidden-link button (`olink#<token>`), without showing links inside buttons.
-    """
-    if len(message.command) < 2:
-        return
-    payload = message.command[1].strip()
-    if not payload.startswith("olink_"):
-        return
-
-    token = payload.split("_", 1)[1].strip()
-    target_url = resolve_hidden_link(token)
-    if not target_url:
-        await safe_reply_text(
-            message,
-            "⌛ <b>This link expired. Please try again from the group!</b>",
-            parse_mode=enums.ParseMode.HTML,
-        )
-        raise StopPropagation
-
-    sent = await safe_reply_text(
-        message,
-        f"🔗 <b>Tap here to open:</b> <a href='{html.escape(target_url)}'>Open Now</a>",
-        disable_web_page_preview=True,
-        parse_mode=enums.ParseMode.HTML,
-    )
-    if sent:
-        schedule_pm_auto_delete(client, message.chat.id, False, 60, sent, message)
-    raise StopPropagation
-
-
-# ============================================================
 # 🛡️ FAILSAFE /start & /help HANDLER (GROUP -14)
 # ============================================================
 _HANDLED_START_MSGS: Set[Tuple[int, int]] = set()
@@ -507,11 +471,9 @@ def _parse_pm_button_args(raw_input: str) -> Tuple[Optional[str], Optional[str],
     if btn_color not in ["green", "red", "blue", "normal"]:
         btn_color = "red"
 
-    return (
-        _clean_button_label(btn_text) if btn_text else None,
-        _normalize_pm_button_url(btn_url),
-        btn_color,
-    )
+    return _clean_button_label(btn_text) if btn_text else None, _normalize_pm_button_url(
+        btn_url
+    ), btn_color
 
 
 # ============================================================
