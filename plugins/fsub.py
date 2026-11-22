@@ -160,13 +160,20 @@ def create_btn(
     url: Optional[str] = None,
     callback_data: Optional[str] = None,
     style: Any = None,
+    direct_url: bool = True,
 ) -> InlineKeyboardButton:
-    """Creates an InlineKeyboardButton with ZERO visible links inside the button."""
+    """Creates an InlineKeyboardButton with clean text only and direct 1-tap URL opening."""
     kwargs: Dict[str, Any] = {"text": _clean_button_label(text)}
-    if callback_data:
+    if url:
+        clean_u = str(url).strip()
+        if clean_u and not clean_u.startswith(("http://", "https://", "tg://")):
+            clean_u = "https://" + clean_u.lstrip("/")
+        if direct_url:
+            kwargs["url"] = clean_u
+        else:
+            kwargs["callback_data"] = f"olink#{register_hidden_link(clean_u)}"
+    elif callback_data:
         kwargs["callback_data"] = str(callback_data)[:64]
-    elif url:
-        kwargs["callback_data"] = f"olink#{register_hidden_link(url)}"
     else:
         kwargs["callback_data"] = "noop"
 
@@ -199,10 +206,7 @@ def _prepare_compat_kwargs(
 
     explicit_disable = clean_kw.pop("disable_web_page_preview", disable_preview)
     if explicit_disable is not None:
-        if (
-            "link_preview_options" in supported_params
-            and LinkPreviewOptions is not None
-        ):
+        if "link_preview_options" in supported_params and LinkPreviewOptions is not None:
             try:
                 clean_kw["link_preview_options"] = LinkPreviewOptions(
                     is_disabled=bool(explicit_disable)
@@ -829,10 +833,7 @@ async def check_user_in_channel(
             enums.ChatMemberStatus.RESTRICTED,
         ):
             return True
-        if member.status in (
-            enums.ChatMemberStatus.LEFT,
-            enums.ChatMemberStatus.BANNED,
-        ):
+        if member.status in (enums.ChatMemberStatus.LEFT, enums.ChatMemberStatus.BANNED):
             if not is_req:
                 _remove_ram_join_req(cid, uid)
     except UserNotParticipant:
@@ -880,7 +881,16 @@ async def _get_missing_channels_and_buttons(
                 if link:
                     btn_text = "⚓ Request to Join" if is_req else "📢 Join Channel"
                     return (
-                        [[create_btn(btn_text, url=link, style=BTN_PRIMARY)]],
+                        [
+                            [
+                                create_btn(
+                                    btn_text,
+                                    url=link,
+                                    style=BTN_PRIMARY,
+                                    direct_url=True,
+                                )
+                            ]
+                        ],
                         [int(assigned_cid)],
                     )
             else:
@@ -893,10 +903,8 @@ async def _get_missing_channels_and_buttons(
 
         async def _check_line_single(cid_str: str):
             is_req = channels_dict.get(cid_str, {}).get("type") == "req"
-            return (
-                cid_str,
-                is_req,
-                await check_user_in_channel(bot, int(cid_str), uid, is_req),
+            return cid_str, is_req, await check_user_in_channel(
+                bot, int(cid_str), uid, is_req
             )
 
         results = await asyncio.gather(
@@ -922,7 +930,16 @@ async def _get_missing_channels_and_buttons(
                 _USER_ASSIGNED_CHANNEL[uid] = cid_str
                 btn_text = "⚓ Request to Join" if is_req else "📢 Join Channel"
                 return (
-                    [[create_btn(btn_text, url=link, style=BTN_PRIMARY)]],
+                    [
+                        [
+                            create_btn(
+                                btn_text,
+                                url=link,
+                                style=BTN_PRIMARY,
+                                direct_url=True,
+                            )
+                        ]
+                    ],
                     [int(cid_str)],
                 )
 
@@ -938,10 +955,8 @@ async def _get_missing_channels_and_buttons(
 
     async def _check_static_single(cid_str: str):
         is_req = channels_dict.get(cid_str, {}).get("type") == "req"
-        return (
-            cid_str,
-            is_req,
-            await check_user_in_channel(bot, int(cid_str), uid, is_req),
+        return cid_str, is_req, await check_user_in_channel(
+            bot, int(cid_str), uid, is_req
         )
 
     results = await asyncio.gather(
@@ -964,7 +979,14 @@ async def _get_missing_channels_and_buttons(
         if link:
             btn_text = "⚓ Request to Join" if is_req else "📢 Join Channel"
             not_joined_buttons.append(
-                [create_btn(btn_text, url=link, style=BTN_PRIMARY)]
+                [
+                    create_btn(
+                        btn_text,
+                        url=link,
+                        style=BTN_PRIMARY,
+                        direct_url=True,
+                    )
+                ]
             )
             missing_cids.append(int(cid_str))
 
@@ -1746,8 +1768,7 @@ async def build_fsub_list_ui(
 
     if not channels:
         return (
-            header
-            + f"❌ <i>No {title_prefix.lower()} ForceSub channels configured.</i>",
+            header + f"❌ <i>No {title_prefix.lower()} ForceSub channels configured.</i>",
             None,
         )
 
