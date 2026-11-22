@@ -262,13 +262,11 @@ def strip_stylish_fonts(text: str) -> str:
 
 
 # ============================================================
-# 🔗 CUSTOM EXTRA BUTTON LINKS (HIDDEN BEHIND CALLBACK BUTTONS)
+# 🔗 CUSTOM EXTRA BUTTON LINKS (DIRECT 1-TAP URLS)
 # ============================================================
 EXTRA_BTN_1_URL = getattr(info, "EXTRA_BTN_1_URL", "https://t.me/+lcTawsnhdi0zYWE1")
 EXTRA_BTN_2_URL = getattr(info, "EXTRA_BTN_2_URL", "https://t.me/linkz_ki_duniyaa")
-LATEST_UPDATES_URL = getattr(
-    info, "LATEST_UPDATES_URL", "https://t.me/+8Mw-Y-fYN6hiZWZl"
-)
+LATEST_UPDATES_URL = getattr(info, "LATEST_UPDATES_URL", "https://t.me/+8Mw-Y-fYN6hiZWZl")
 
 # ============================================================
 # 🌐 LANGUAGES & 🎞️ QUALITIES CONFIGURATION
@@ -586,7 +584,7 @@ def generate_phonetic_variants(translit_str: str) -> List[str]:
 
 
 # ============================================================
-# 🛡️ PYROGRAM v2.2.26 COMPATIBILITY & HIDDEN-LINK BUTTON ENGINE
+# 🛡️ PYROGRAM v2.2.26 COMPATIBILITY & DIRECT 1-TAP BUTTON ENGINE
 # ============================================================
 try:
     from pyrogram.types import LinkPreviewOptions
@@ -670,7 +668,7 @@ FUZZY_TITLES_CACHE = TTLCache(maxsize=10, ttl=1800)
 RESTRICTED_WRITE_CHATS = TTLCache(maxsize=500, ttl=300)
 SHORT_URL_CACHE = TTLCache(maxsize=10000, ttl=21600)
 
-# Shared hidden-link registry for non-search/admin panels
+# Link registry kept for backwards-compatibility with legacy olink# callbacks
 HIDDEN_LINKS_STORE: Dict[str, str] = {}
 _HIDDEN_LINKS_MAX = 15000
 
@@ -761,27 +759,28 @@ def create_btn(
     callback_data: Optional[str] = None,
     style: Any = None,
     icon_custom_emoji_id: Optional[Any] = None,
-    direct_url: bool = False,
+    direct_url: bool = True,
 ) -> InlineKeyboardButton:
     """
     Creates an InlineKeyboardButton with clean text only (any URLs in label are stripped).
-    When `direct_url=True` and `url` is provided, sets native `url=` so Telegram opens it directly.
+    By default (`direct_url=True`), any `url=` button opens its link directly in 1 tap
+    with nothing in the middle.
     """
     clean_text, resolved_icon = _extract_icon_and_clean_label(
         text, icon_custom_emoji_id
     )
     kwargs: Dict[str, Any] = {"text": clean_text}
 
-    if direct_url and url:
+    if url:
         clean_u = str(url).strip()
         if clean_u and not clean_u.startswith(("http://", "https://", "tg://")):
             clean_u = "https://" + clean_u.lstrip("/")
-        kwargs["url"] = clean_u
+        if direct_url:
+            kwargs["url"] = clean_u
+        else:
+            kwargs["callback_data"] = f"olink#{register_hidden_link(clean_u)}"
     elif callback_data:
         kwargs["callback_data"] = str(callback_data)[:64]
-    elif url:
-        token = register_hidden_link(url)
-        kwargs["callback_data"] = f"olink#{token}"
     else:
         kwargs["callback_data"] = "noop"
 
@@ -815,6 +814,7 @@ def create_btn(
 def sanitize_markup_hide_links(
     markup: Optional[InlineKeyboardMarkup],
 ) -> Optional[InlineKeyboardMarkup]:
+    """Ensures every button label has clean text only while keeping direct 1-tap URLs."""
     if not markup or not getattr(markup, "inline_keyboard", None):
         return markup
     new_rows: List[List[InlineKeyboardButton]] = []
@@ -823,17 +823,25 @@ def sanitize_markup_hide_links(
         for b in row:
             st = getattr(b, "style", None)
             ic = _get_btn_icon_id(b)
-            if getattr(b, "url", None):
+            raw_u = getattr(b, "url", None)
+            cb_d = getattr(b, "callback_data", None)
+            if not raw_u and cb_d and cb_d.startswith("olink#"):
+                raw_u = resolve_hidden_link(cb_d.split("#", 1)[1])
+            if raw_u:
                 new_row.append(
                     create_btn(
-                        text=b.text, url=b.url, style=st, icon_custom_emoji_id=ic
+                        text=b.text,
+                        url=raw_u,
+                        style=st,
+                        icon_custom_emoji_id=ic,
+                        direct_url=True,
                     )
                 )
             else:
                 new_row.append(
                     create_btn(
                         text=b.text,
-                        callback_data=getattr(b, "callback_data", "noop"),
+                        callback_data=cb_d or "noop",
                         style=st,
                         icon_custom_emoji_id=ic,
                     )
@@ -1647,6 +1655,26 @@ def extract_inline_lang_and_qual(raw_text: str) -> Tuple[Optional[str], Optional
             break
     return detected_lang, detected_qual
 
+
+async def _direct_collection_search(
+    query: str, max_results: int = 10, offset: int = 0
+) -> Tuple[list, int, int]:
+    q_clean = query.strip()
+    if not q_clean:
+        return [], 0, 0
+
+    words = [re.escape(w) for w in re.split(r"\s+", q_clean) if w]
+    if not words:
+        return [], 0, 0
+
+    pattern_str = ".*".join(words)
+    regex = re.compile(pattern_str, re.IGNORECASE)
+    mongo_filter = (
+        {"$or": [{"file_name": regex}, {"caption": regex}]}
+        if getattr(info, "USE_CAPTION_FILTER", False)
+        else {"file_name": regex}
+    )
+
     async def _query_one_db(idx: int, target_db: Any) -> List[dict]:
         try:
             return await asyncio.wait_for(
@@ -2308,7 +2336,7 @@ async def god_tier_search(
 
 
 # ============================================================
-# 🧩 KEYBOARD BUILDER (DIRECT URL BUTTONS — CLEAN TEXT ONLY!)
+# 🧩 KEYBOARD BUILDER (DIRECT 1-TAP URL BUTTONS — CLEAN TEXT ONLY!)
 # ============================================================
 async def build_result_buttons(
     files: list,
@@ -2500,7 +2528,7 @@ async def build_result_buttons(
 
 
 # ============================================================
-# ⚡ HIDDEN LINK & FILE BUTTON CLICK HANDLERS
+# ⚡ DIRECT CALLBACK REDIRECT HANDLER (NO MIDDLE MESSAGE)
 # ============================================================
 @Client.on_callback_query(filters.regex(r"^(fget#|shrtget#|olink#|noop$)"), group=-2)
 async def hidden_button_click_callback(bot: Client, query: CallbackQuery):
@@ -2520,14 +2548,9 @@ async def hidden_button_click_callback(bot: Client, query: CallbackQuery):
         target_url = resolve_hidden_link(token)
         if not target_url:
             return await safe_answer(
-                query, "⌛ Button expired. Please search again!", show_alert=True
+                query, "⌛ Button expired. Please try again!", show_alert=True
             )
-
-        if f"t.me/{bot_username.lower()}?start=" in target_url.lower():
-            return await safe_answer(query, url=target_url)
-
-        redirect_url = f"https://t.me/{bot_username}?start=olink_{token}"
-        return await safe_answer(query, url=redirect_url)
+        return await safe_answer(query, url=target_url)
 
     try:
         _, pre, file_id = data.split("#", 2)
@@ -2543,7 +2566,9 @@ async def hidden_button_click_callback(bot: Client, query: CallbackQuery):
 # ============================================================
 def _get_deleted_file_notify_keyboard() -> InlineKeyboardMarkup:
     req_grp_url = getattr(info, "GRP_LNK", "https://t.me/Sandalwood_Kannada_Group")
-    return InlineKeyboardMarkup([[create_btn("Movie Request 📝", url=req_grp_url)]])
+    return InlineKeyboardMarkup(
+        [[create_btn("Movie Request 📝", url=req_grp_url, direct_url=True)]]
+    )
 
 
 async def _delete_single_message(
@@ -2746,8 +2771,9 @@ async def auto_filter(client: Client, msg: Message):
             f"{search.lower()}|at:{int(autotranslate_on)}|sp:{int(spell_check_on)}"
         )
         cached_data = GLOBAL_SEARCH_CACHE.get(cache_key)
-        if not cached_data:
-            # Warmup bot_username concurrently in background during DB search
+        if cached_data:
+            files, offset, total_results, search_query, was_corrected = cached_data
+        else:
             if not getattr(temp, "U_NAME", None):
                 asyncio.create_task(client.get_me())
             files, offset, total_results, search_query, was_corrected = (
@@ -2956,11 +2982,7 @@ async def autotranslate_cmd_handler(client: Client, message: Message):
         new_state = (
             True
             if arg in ["on", "enable", "true", "yes", "1"]
-            else (
-                False
-                if arg in ["off", "disable", "false", "no", "0"]
-                else not cur_trans
-            )
+            else False if arg in ["off", "disable", "false", "no", "0"] else not cur_trans
         )
     else:
         new_state = not cur_trans
@@ -3487,7 +3509,7 @@ async def pagination_handler(bot: Client, query: CallbackQuery):
 
 
 # ============================================================
-# 🎨 KEYBOARD AND BUTTON PARSERS (MANUAL FILTERS — LINKS HIDDEN)
+# 🎨 KEYBOARD AND BUTTON PARSERS (MANUAL FILTERS — DIRECT URLS)
 # ============================================================
 def _clean_extracted_url(raw_url: str) -> str:
     u = str(raw_url or "").strip()
@@ -3535,6 +3557,7 @@ def build_keyboard(btn_str: str):
                                 url=clean_u,
                                 style=style_val,
                                 icon_custom_emoji_id=icon_val,
+                                direct_url=True,
                             )
                         )
                     elif cb_val:
@@ -3555,6 +3578,7 @@ def build_keyboard(btn_str: str):
                                 url=b.url,
                                 style=getattr(b, "style", None),
                                 icon_custom_emoji_id=ic,
+                                direct_url=True,
                             )
                         )
                     else:
